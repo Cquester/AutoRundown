@@ -364,5 +364,9 @@ responsibility, not something this software grants.
 
 ## License
 
-TODO — add a license file before publishing. Without one, default copyright
-applies and nobody may legally reuse the code.
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 cquester.
+
+The licence covers this project's own code and documentation only. It grants
+nothing in any service manual, in Mercedes-Benz WIS/EPC software or data, or
+in anything extracted from them; none of that is, or may be, committed to this
+repository.

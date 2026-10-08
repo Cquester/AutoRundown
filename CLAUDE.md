@@ -178,6 +178,13 @@ units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part
 of a multi-part question. Each of these fixed an observed failure.
 
+**Licence: MIT, "Copyright (c) 2026 cquester"** (the user's choice,
+2026-10-08). It covers this repo's own code and docs only. Never commit
+Mercedes software (`tbjdbc.jar`, the EWA JRE) or anything extracted from
+WIS/EPC (records, images, VIN tables, raw TSVs) — no licence makes that
+redistributable. `importers/data/*.csv` is hand-made reference knowledge and
+NHTSA-derived years, which is why it is allowed.
+
 ---
 
 ---
@@ -780,8 +787,6 @@ pass, known-bad guards 33 -> 12.
 
 ## Known gaps
 
-- No `LICENSE` file. Without one, default copyright applies and nobody can
-  reuse the code. The user is creating a public repo — flag this.
 - `eval.py` cases are archive-specific (2015 F-150 page numbers). They will
   fail against any other archive; that is documented in the file.
 - Sibling-engine pages exist in the main tree identified only by their title
@@ -863,12 +868,11 @@ pass, known-bad guards 33 -> 12.
    pull_*.js, parse*.py, apply_*.py, convert_images.py). The site finds it
    via `config.extractor_dir` or that sibling path. Decide with the user
    whether to move it into this repo.
-3. **LICENSE** still missing (public repo).
-4. **A UI-level test for variant indexes** (the sorted-index bug of
+3. **A UI-level test for variant indexes** (the sorted-index bug of
    2026-10-08) — the server-side evals can't see it.
-5. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
+4. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
    and `index.v11.db` — the user may delete them; we never delete data.
-6. Cosmetic: printed figure numbers in the older "P01-5220-13" style are
+5. Cosmetic: printed figure numbers in the older "P01-5220-13" style are
    not stripped (`FIG_CAPTION_RE` only knows "W15.18-1024-01").
 
 ## Working style the user prefers
