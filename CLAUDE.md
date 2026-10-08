@@ -380,6 +380,51 @@ hidden in the page view. Images open full size on click (wiring diagrams are
 ~6,800 px wide SVG). Cross-refs are WIS docnrs (`SI00.00-D-0026A`) with no
 docnr -> dok_id map, so they stay text, not links.
 
+**"Original layout": the document redrawn from WIS's own page layout.** The
+user found the reading view "bunched up" next to WIS. WIS pages get a
+Reading view / Original layout toggle (`viewToggle()` in `index.html`,
+choice remembered per viewer in `localStorage`); the original is an iframe on
+`/api/original/<doc_id>/<page_no>`, served by `autorundown/wis_original.py`
+(self-contained; `tools/sids_render.py <dok_id>` is a CLI over it). Free, no
+API calls. What it knows about SIDS, each measured on a corpus sample:
+- **Reads one body, not the pack.** A sidecar `bodies.pack.idx.sqlite` next
+  to `bodies.pack` holds DokID -> offset/length and graphic nr -> image file
+  (figures.tsv + images/catalog.tsv). Built on first request (~2.5 s), and
+  rebuilt by itself when any of the three inputs changes (size + mtime).
+- **SIDS bytes are UTF-8.** The prototype read Latin-1 and printed "â" for
+  every en dash in torque tables ("Nm – 30").
+- **`PC,T,x` starts a table row, `PC,,x` adds a column ending at x**, `PI`
+  is a new paragraph in the same cell, a plain `P` leaves the table. Fields
+  15-18 are the cell's top / bottom / right / left rule, field 4 the
+  alignment (C/R). That turned the torque summaries (10008414: Number |
+  Designation | M8 Nm | per-model values) and wiring legends (25016103: Code
+  | Designation | Coordinates) into real tables; the prototype's two-column
+  guess scattered them.
+- **Fonts come from the document's own table** (`F96,,"SWISS 10 BOLD"`),
+  sizes from the run's half-points. A run code not starting with 0 and with
+  no text (`11`, `2`, `12`) is a tab, as is `L<n>`.
+- **Icon and symbol fonts are not guessed.** Each `LOGO*` font is its own
+  glyph set (LOGO1C357 = test-equipment symbols); only glyphs whose meaning
+  is clear from the text after them in a sample are drawn (danger, note, see
+  document, tool), the rest are a neutral box. `GREEK` follows the Symbol
+  font (`4.5 W` = 4.5 Ω). `MATH`/`SYMBOLS` have no known mapping and show
+  the raw letter underlined in red with a tooltip -- a guessed `±` or `<` in
+  a spec is worse than an obvious unknown.
+- **RTF bodies** (40,238 -- wiring diagrams, scanned manual pages) are stubs
+  naming a graphic: the original layout is that graphic page-wide. Some
+  start with a UTF-8 BOM; `&H&` lines are hotspots (links to other DokIDs),
+  not graphics, and are ignored. The 103 XML bodies have no layout (404).
+- **Most WIS pages are landscape** (~15,600 units, ~1,330 px drawn). The
+  sheet is zoomed to fit the frame like a PDF (a minimum zoom with sideways
+  scroll was worse on a phone); "Open full screen" opens it alone for
+  pinch-zoom. The page reports its sheet height to the parent by
+  `postMessage` -- not `scrollHeight`, which never drops below the frame's
+  height and only let it grow.
+Checked by eye on 49013390, 49014567 (R107 exhaust, steps + tools),
+10008414 (torque table), 25016103 (legend), 25147935 (RTF wiring diagram),
+49009029 (scanned page), at desktop and 375 px. A sweep of 4,000 random
+DokIDs: 3,999 render (1 XML), 0 unresolved pictures, slowest 0.9 s.
+
 ---
 
 ## Vehicle selection: year / make / model, and VIN
@@ -850,14 +895,9 @@ pass, known-bad guards 33 -> 12.
 
 ## Where we left off (2026-10-08) — start here in a new session
 
-1. **"Original layout" view.** The user finds the reading view "bunched up"
-   next to WIS's own layout. `tools/sids_render.py <dok_id>` is a working
-   prototype that redraws a document from its SIDS layout (blocks, framed
-   boxes, pictures at their anchors, two-column step rows, notes, fonts);
-   verified on 49013390 (190E 2.3-16 head cover), sent to the user. Next:
-   a `/api/original/<doc_id>/<page_no>` route + an "Original layout" button
-   on WIS pages, an offset index for `bodies.pack` (don't load 468 MB per
-   request), then check torque tables and wiring legends.
+1. **"Original layout" is built** (see its section above). Not yet seen by
+   the user on their phone; ask how it reads. Open ends: the undecoded
+   MATH/SYMBOLS glyphs and most LOGO icons, RTF hotspots as links.
 2. **Extractor: two copies.** `extractor/` in this repo holds the source and docs (see `docs/MERCEDES_WIS_EXTRACTION.md`), copied 2026-10-08; the working copy the site runs is in
    `../Mercedes Documents/autorundown_extractor` (vm_pipeline.py,
    pull_*.js, parse*.py, apply_*.py, convert_images.py). The site finds it
