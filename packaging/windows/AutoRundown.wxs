@@ -61,7 +61,7 @@
 
     <!-- Upgrading or removing while it runs in the background would hit
          "files in use": stop it first. Ignored if it fails (an old version
-         without --stop, or nothing running). -->
+         without the stop option, or nothing running). -->
     <CustomAction Id="StopRunning" Directory="INSTALLFOLDER" Execute="immediate" Return="ignore"
                   ExeCommand="&quot;[INSTALLFOLDER]python\pythonw.exe&quot; -m autorundown.launcher --stop" />
     <InstallExecuteSequence>
