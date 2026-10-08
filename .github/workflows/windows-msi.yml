@@ -45,15 +45,41 @@ jobs:
           $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
           if (-not (Test-Path $lnk)) { throw "no Start menu shortcut" }
 
+      - name: First start from the Start-menu shortcut, driven in Edge
+        shell: pwsh
+        run: |
+          # a new user: no AUTORUNDOWN_HOME, no index, started from the shortcut
+          python make_sample_corpus.py
+          python -m pip install --disable-pip-version-check -q -r requirements-dev.txt
+          $py = "$env:LOCALAPPDATA\Programs\AutoRundown\python\python.exe"
+          Start-Process "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
+          $ok = $false
+          foreach ($i in 1..60) {
+            try { Invoke-RestMethod http://127.0.0.1:8756/api/stats | Out-Null; $ok = $true; break }
+            catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $ok) { throw "the shortcut did not start the server" }
+          python packaging\windows\ui_check.py --channel msedge --corpus sample_corpus `
+            --shots ui-shots --log-shots 03-imported,05-page
+          $rc = $LASTEXITCODE
+          Get-Process python -ErrorAction SilentlyContinue | Where-Object Path -eq $py | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          if ($rc) { throw "UI check failed" }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: ui-shots/
+
       - name: Smoke test the installed app
         shell: pwsh
         run: |
           $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
           $py = "$inst\python\python.exe"
           $env:AUTORUNDOWN_HOME = "$env:RUNNER_TEMP\ar-home"
-          # the sample corpus generator is a dev tool, not installed: run it
-          # from the checkout, then index and serve with the installed Python
-          python make_sample_corpus.py
+          # the sample corpus (made in the step above from the checkout) is
+          # indexed and served by the installed Python
           & $py "$inst\app\ingest.py" --archive sample_corpus --index "$env:AUTORUNDOWN_HOME\index.db"
           if ($LASTEXITCODE) { throw "ingest failed" }
           # what the shortcut runs, from the install folder like the shortcut

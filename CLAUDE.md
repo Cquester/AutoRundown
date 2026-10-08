@@ -810,7 +810,15 @@ MSI** to `%LOCALAPPDATA%\Programs\AutoRundown`: no UAC prompt, and Python
 can write there. `.github/workflows/windows-msi.yml` builds it on
 `windows-latest`, installs it silently, indexes the sample corpus with the
 *installed* Python, serves and searches it, launches a second time, then
-uninstalls and checks nothing is left. It uploads the MSI as an artifact.
+uninstalls and checks nothing is left. Before that it does a real first
+start: opens the installed Start-menu shortcut (no index) and runs
+`packaging/windows/ui_check.py` in Edge -- first-run import dialog, import
+job to "Finished" (ingest.py as a child of the bundled Python), car box,
+keyword search, page view, phone width; free, `/api/ask` is blocked. Works
+locally too (`--executable` for a Chromium binary). Uploads the MSI and
+`ui-screenshots`; `--log-shots` also prints two as base64 JPEG in the log,
+since artifact downloads are blocked from cloud sessions. Not covered by CI
+(needs a person): SmartScreen, the firewall prompt, Windows 11 desktop.
 macOS/Linux run from source (README), by the user's decision.
 
 - **Embeddable Python, not PyInstaller/Briefcase.** Import jobs re-run
