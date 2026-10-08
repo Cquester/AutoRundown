@@ -344,6 +344,19 @@ multi-tenant cloud version.
 
 ---
 
+## Safety
+
+AutoRundown's answers are written by an AI model from the manual pages it
+retrieves. It checks that every cited page was actually retrieved and refuses
+rather than guessing, but the model can still misread a page, pick the wrong
+row of a table, or miss a note that applies to your vehicle. **Always open the
+cited page and check the value or procedure yourself before you tighten, fill,
+wire or replace anything.** Torque, fluid and electrical mistakes can damage a
+vehicle and injure people. You use this software at your own risk; see the
+warranty disclaimer in [LICENSE](LICENSE).
+
+---
+
 ## Legal
 
 **This project is a document parser and search tool. It ships no manual
@@ -360,9 +373,20 @@ redistributed without the publisher's permission does not become lawful because
 a tool made it searchable; that remains the archive owner's decision and
 responsibility, not something this software grants.
 
+**Trademarks.** Mercedes-Benz, WIS, EPC and other names are trademarks of their
+owners and are used here only to describe what the software works with.
+AutoRundown is an independent project, not affiliated with, endorsed by or
+sponsored by Mercedes-Benz Group AG or any other manufacturer. The Mercedes WIS
+extractor reads only an installation the user is licensed to use; the user is
+responsible for complying with the terms of that licence.
+
 ---
 
 ## License
 
-TODO — add a license file before publishing. Without one, default copyright
-applies and nobody may legally reuse the code.
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 cquester.
+
+The licence covers this project's own code and documentation only. It grants
+nothing in any service manual, in Mercedes-Benz WIS/EPC software or data, or
+in anything extracted from them; none of that is, or may be, committed to this
+repository.

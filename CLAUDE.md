@@ -179,6 +179,13 @@ units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part
 of a multi-part question. Each of these fixed an observed failure.
 
+**Licence: MIT, "Copyright (c) 2026 cquester"** (the user's choice,
+2026-10-08). It covers this repo's own code and docs only. Never commit
+Mercedes software (`tbjdbc.jar`, the EWA JRE) or anything extracted from
+WIS/EPC (records, images, VIN tables, raw TSVs) — no licence makes that
+redistributable. `importers/data/*.csv` is hand-made reference knowledge and
+NHTSA-derived years, which is why it is allowed.
+
 ---
 
 ---
@@ -522,8 +529,24 @@ rest of the install uses (`tbadmin` for WIS, `tbuser` from `epc_cfg.xml`,
 which does open `SPECIALFILES`). That is a deliberate lock on that data; do
 not try to get around it. The user was told the legitimate routes: look a VIN
 up in the EPC program inside the VM, or use credentials issued with their
-licence if they have any. Untried lead: `SPECIALFILES` (42 tables) may hold
-option-code descriptions.
+licence if they have any.
+
+**No option-code (SA code) descriptions are reachable either — checked
+2026-10-08, do not look again.** `SPECIALFILES` (1.2 MB; "42 tables" counted
+the system catalogue and views: 12 base tables) has no code text. With
+`tbuser`, 11 of its 12 base tables refuse SELECT; their `_V` views are
+granted and hold only data-card *routing* metadata: `DC_MODEL_DESC`
+(43,447 rows, WMI + Baumuster → short model description, mostly
+trucks/buses), `WHC_MASTER(_MODELS)` (WMI → market/plant names),
+`VIN_MDL` (74 rows, VIN prefix → model stub — a subset of what
+`AW_VIN2FIN` already gives), `DCDBINFO` (which data-card DB serves which
+region), `AGG_FILTERS*`, `DB_LANGS`, `VERSIONS` ("DW 01/2017"), `SAREC_INI`
+(6 config rows). `PWORD`/`PWORD_V` were deliberately not read. The
+catalogue databases where EPC keeps code texts — `ALLTEXT`, `COMM`, and
+`SA_IMAGES`/`BM_IMAGES` — refuse `tbuser` at login, like the data cards.
+So decoding a pasted data card needs a code list from elsewhere; nothing
+was added to the pipeline. Survey output:
+`autorundown_out/epc_survey/`; script `extractor/probe_epc_survey.js`.
 
 **Per-model US model years: built once from NHTSA, committed.**
 `importers/data/mercedes_us_years.csv` (11 KB: Baumuster, US years, NHTSA
@@ -798,8 +821,6 @@ pass, known-bad guards 33 -> 12.
 
 ## Known gaps
 
-- No `LICENSE` file. Without one, default copyright applies and nobody can
-  reuse the code. The user is creating a public repo — flag this.
 - `eval.py` cases are archive-specific (2015 F-150 page numbers). They will
   fail against any other archive; that is documented in the file.
 - Sibling-engine pages exist in the main tree identified only by their title
@@ -881,13 +902,12 @@ pass, known-bad guards 33 -> 12.
    pull_*.js, parse*.py, apply_*.py, convert_images.py). The site finds it
    via `config.extractor_dir` or that sibling path. Decide with the user
    whether to move it into this repo.
-3. **LICENSE** still missing (public repo).
-4. ~~A UI-level test for variant indexes~~ — done: `test_ui_picks.py`.
+3. ~~A UI-level test for variant indexes~~ — done: `test_ui_picks.py`.
    Open: a bare two-digit word in the car box is always a year ("190 e 2.3
    16" → 2016, no match).
-5. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
+4. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
    and `index.v11.db` — the user may delete them; we never delete data.
-6. Cosmetic: printed figure numbers in the older "P01-5220-13" style are
+5. Cosmetic: printed figure numbers in the older "P01-5220-13" style are
    not stripped (`FIG_CAPTION_RE` only knows "W15.18-1024-01").
 
 ## Working style the user prefers
