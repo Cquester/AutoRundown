@@ -51,7 +51,7 @@ jobs:
             $v.GetType().InvokeMember("Execute", "InvokeMethod", $null, $v, $null)
             $out = @()
             while ($r = $v.GetType().InvokeMember("Fetch", "InvokeMethod", $null, $v, $null)) {
-              $out += $r.GetType().InvokeProperty("StringData", $r, 1)
+              $out += $r.GetType().InvokeMember("StringData", "GetProperty", $null, $r, @(1))
             }
             $out
           }
