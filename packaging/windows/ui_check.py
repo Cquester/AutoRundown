@@ -95,10 +95,21 @@ def main() -> int:
         step("result opens its page")
         shot("05-page")
 
+        page.click("#settingsBtn")
+        expect(page.locator("#settings")).to_be_visible(timeout=10_000)
+        expect(page.locator("#sPhone")).to_be_visible()
+        step(f"settings: {page.locator('#sPhone').inner_text()}")
+        start_row = page.locator("#sStartRow").is_visible()
+        if start_row != (sys.platform == "win32"):
+            raise AssertionError(f"'Start when I sign in' shown={start_row} on {sys.platform}")
+        step(f"settings: start-at-sign-in option {'shown' if start_row else 'hidden (not Windows)'}")
+        shot("06-settings")
+        page.keyboard.press("Escape")
+
         page.set_viewport_size({"width": 390, "height": 844})
         page.wait_for_timeout(300)
         overflow = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
-        shot("06-phone")
+        shot("07-phone")
         if overflow > 1:
             raise AssertionError(f"page scrolls sideways at phone width ({overflow}px)")
         step("phone width: no sideways scroll")

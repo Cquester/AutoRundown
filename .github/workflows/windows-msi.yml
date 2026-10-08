@@ -60,11 +60,17 @@ jobs:
             catch { Start-Sleep -Milliseconds 500 }
           }
           if (-not $ok) { throw "the shortcut did not start the server" }
+          # the shortcut starts it in the background: pythonw, no console
+          $bg = @(Get-Process pythonw -ErrorAction SilentlyContinue)
+          "background processes: $($bg.Count)"
           python packaging\windows\ui_check.py --channel msedge --corpus sample_corpus --shots ui-shots
           $rc = $LASTEXITCODE
-          Get-Process python -ErrorAction SilentlyContinue | Where-Object Path -eq $py | Stop-Process -Force
-          Start-Sleep -Seconds 2
+          & $py -m autorundown.launcher --stop
+          $stop = $LASTEXITCODE
+          "--- background log:"; Get-Content "$env:USERPROFILE\.autorundown\autorundown.log"
           if ($rc) { throw "UI check failed" }
+          if ($bg.Count -lt 1) { throw "the shortcut did not start pythonw" }
+          if ($stop) { throw "launcher --stop failed" }
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -108,15 +114,54 @@ jobs:
           "extractor: $($vms.extractor) | $($vms.error)"
           Remove-Item -Recurse -Force (Split-Path $ext)
           if ($vms.extractor -ne $ext) { throw "extractor on the Desktop not found" }
+          # the phone name: announced, and resolvable from another process
+          $s = Invoke-RestMethod http://127.0.0.1:8756/api/settings
+          "phone: $($s.phone_urls -join ' | ')  autostart: $($s.autostart)"
+          if (-not ($s.phone_urls -match 'autorundown\.local')) { throw "autorundown.local not announced" }
+          python -m pip install --disable-pip-version-check -q zeroconf
+          @'
+          from zeroconf import AddressResolver, IPVersion, Zeroconf
+          z = Zeroconf(ip_version=IPVersion.V4Only)
+          r = AddressResolver("autorundown.local.")
+          ok = r.request(z, 5000)
+          print("autorundown.local ->", r.parsed_addresses() if ok else "NOT RESOLVED")
+          z.close()
+          raise SystemExit(0 if ok else 1)
+          '@ | Set-Content resolve.py
+          python resolve.py
+          if ($LASTEXITCODE) { throw "autorundown.local did not resolve" }
+          # start at sign-in: the Settings toggle writes the Startup shortcut
+          Invoke-RestMethod -Method Post http://127.0.0.1:8756/api/settings `
+            -ContentType application/json -Body '{"autostart": true}' | Out-Null
+          $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk"
+          if (-not (Test-Path $startup)) { throw "no Startup shortcut after turning it on" }
+          $t = (New-Object -ComObject WScript.Shell).CreateShortcut($startup)
+          "startup shortcut -> $($t.TargetPath) $($t.Arguments)"
+          if ($t.TargetPath -notlike "*\pythonw.exe" -or $t.Arguments -notmatch "--background") {
+            throw "Startup shortcut does not start the background mode"
+          }
+          if (-not (Invoke-RestMethod http://127.0.0.1:8756/api/settings).autostart) { throw "autostart not reported" }
+          # left on: uninstall must remove it
           # a second start must find the running server and exit at once
           & $py -m autorundown.launcher --no-browser --port 8756
           if ($LASTEXITCODE) { throw "second launch failed" }
           Stop-Process -Id $srv.Id -Force
           $srv.WaitForExit(15000) | Out-Null
 
-      - name: Uninstall
+      - name: Uninstall (while running in the background)
         shell: pwsh
         run: |
+          # the installer must stop a running copy itself (StopRunning), or
+          # files stay in use
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          Start-Process "$inst\python\pythonw.exe" -WorkingDirectory $inst `
+            -ArgumentList "-m autorundown.launcher --background --no-browser"
+          $ok = $false
+          foreach ($i in 1..60) {
+            try { Invoke-RestMethod http://127.0.0.1:8756/api/stats | Out-Null; $ok = $true; break }
+            catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $ok) { throw "background start failed" }
           $msi = (Get-ChildItem dist\*.msi).FullName
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn /l*v uninstall.log"
           if ($p.ExitCode) { Get-Content uninstall.log -Tail 40; throw "uninstall failed: $($p.ExitCode)" }
@@ -128,6 +173,11 @@ jobs:
             throw "files left behind after uninstall"
           }
           if (-not (Test-Path "$env:RUNNER_TEMP\ar-home\index.db")) { throw "uninstall touched user data" }
+          if (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk") {
+            throw "Startup shortcut left after uninstall"
+          }
+          try { Invoke-RestMethod http://127.0.0.1:8756/api/stats | Out-Null; throw "still running after uninstall" }
+          catch { if ($_.Exception.Message -eq "still running after uninstall") { throw } }
 
       - uses: actions/upload-artifact@v4
         with:

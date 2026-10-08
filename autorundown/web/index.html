@@ -351,6 +351,13 @@
   <input id="sArchive" type="text">
   <label for="sIndex">Index path</label>
   <input id="sIndex" type="text">
+  <div id="sStartRow" hidden>
+    <label class="chip" style="cursor:pointer; margin-top:14px">
+      <input type="checkbox" id="sAutostart" style="width:auto;min-height:auto;padding:0">
+      Start AutoRundown when I sign in (runs in the background; tray icon to open or stop it)
+    </label>
+  </div>
+  <div id="sPhone" class="muted" style="margin-top:10px" hidden></div>
   <label for="sExtractor">Mercedes extractor folder</label>
   <input id="sExtractor" type="text" placeholder="found automatically on the Desktop — or paste the autorundown_extractor folder">
   <label>Data</label>
@@ -1245,6 +1252,13 @@ $('#settingsBtn').onclick = async () => {
   $('#sArchive').value = s.archive_dir || '';
   $('#sIndex').value = s.index_path || '';
   $('#sExtractor').value = s.extractor_dir || '';
+  $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
+  $('#sAutostart').checked = !!s.autostart;
+  const phone = s.phone_urls || [];
+  $('#sPhone').hidden = !phone.length;
+  $('#sPhone').innerHTML = phone.length
+    ? 'On your phone (same wifi): ' + phone.map(u => `<b>${esc(u)}</b>`).join(' or ')
+      + ' — open it, then "Add to Home Screen".' : '';
   $('#sKey').placeholder = s.has_api_key
     ? `key configured (${s.key_source}) — leave blank to keep`
     : 'sk-ant-...';
@@ -1256,13 +1270,16 @@ $('#saveBtn').onclick = async () => {
     archive_dir: $('#sArchive').value,
     index_path: $('#sIndex').value,
     extractor_dir: $('#sExtractor').value.trim(),
+    ...($('#sStartRow').hidden ? {} : {autostart: $('#sAutostart').checked}),
     model: $('#sModel').value,
   };
   if ($('#sKey').value.trim()) body.api_key = $('#sKey').value.trim();
-  await api('/api/settings', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(body)
-  });
+  try {
+    await api('/api/settings', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+  } catch (e) { alert('Settings not saved: ' + e.message); return; }
   $('#sKey').value = '';
   $('#settings').close();
   $('#model').value = $('#sModel').value;

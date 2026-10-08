@@ -32,20 +32,24 @@
       <Files Include="$(StageDir)\**" />
     </ComponentGroup>
 
-    <!-- python.exe, not pythonw.exe: the server runs in its own window, and
-         closing that window is how the user stops it. -->
+    <!-- pythonw.exe: no window; the tray icon opens or stops it
+         (autorundown/launcher.py, background mode). -->
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="Shortcuts">
         <Shortcut Id="StartMenuShortcut" Name="AutoRundown"
                   Description="Search your repair manuals"
-                  Target="[INSTALLFOLDER]python\python.exe"
-                  Arguments="-m autorundown.launcher"
+                  Target="[INSTALLFOLDER]python\pythonw.exe"
+                  Arguments="-m autorundown.launcher --background"
                   WorkingDirectory="INSTALLFOLDER" />
         <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="AutoRundown"
                   Description="Search your repair manuals"
-                  Target="[INSTALLFOLDER]python\python.exe"
-                  Arguments="-m autorundown.launcher"
+                  Target="[INSTALLFOLDER]python\pythonw.exe"
+                  Arguments="-m autorundown.launcher --background"
                   WorkingDirectory="INSTALLFOLDER" />
+        <!-- "Start when I sign in" (autostart.py) writes this; it must not
+             outlive the program it starts -->
+        <RemoveFile Id="RemoveStartupShortcut" Directory="StartupFolder"
+                    Name="AutoRundown.lnk" On="uninstall" />
         <RemoveFolder Id="RemoveProgramsDir" Directory="ProgramsDir" On="uninstall" />
         <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\AutoRundown" Name="installed"
@@ -53,6 +57,17 @@
       </Component>
     </StandardDirectory>
     <StandardDirectory Id="DesktopFolder" />
+    <StandardDirectory Id="StartupFolder" />
+
+    <!-- Upgrading or removing while it runs in the background would hit
+         "files in use": stop it first. Ignored if it fails (an old version
+         without --stop, or nothing running). -->
+    <CustomAction Id="StopRunning" Directory="INSTALLFOLDER" Execute="immediate" Return="ignore"
+                  ExeCommand="&quot;[INSTALLFOLDER]python\pythonw.exe&quot; -m autorundown.launcher --stop" />
+    <InstallExecuteSequence>
+      <Custom Action="StopRunning" Before="InstallValidate"
+              Condition="Installed OR WIX_UPGRADE_DETECTED" />
+    </InstallExecuteSequence>
 
     <Feature Id="Main" Title="AutoRundown">
       <ComponentGroupRef Id="AppFiles" />

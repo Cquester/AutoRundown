@@ -52,11 +52,27 @@ double-click it. It needs no admin rights and no Python. It installs for your
 user only, in `%LOCALAPPDATA%\Programs\AutoRundown`, and adds AutoRundown to
 the Start menu and desktop.
 
-Starting AutoRundown opens a console window (the server) and your browser.
-**Close the window to stop it.** The first time, Windows Firewall asks whether
-to allow it on private networks: allow it to use AutoRundown from a phone on
-your wifi, or decline to keep it on this PC only. With no manuals indexed yet,
-the import dialog opens by itself. Set your API key under Settings.
+Starting AutoRundown opens your browser; the server runs in the background
+with an **AR icon in the tray** (bottom-right, maybe under the ^ arrow):
+click it to open AutoRundown, right-click for *Start when I sign in* and
+*Stop AutoRundown*. The same sign-in option is under Settings (the gear).
+The first time, Windows Firewall asks whether to allow it on private
+networks: allow it to use AutoRundown from a phone on your wifi, or decline
+to keep it on this PC only. With no manuals indexed yet, the import dialog
+opens by itself. Set your API key under Settings.
+
+**On your phone:** open **http://autorundown.local:8756** (same wifi), then
+*Add to Home Screen* -- it opens like an app. AutoRundown announces that name
+on your network itself (mDNS, like a printer), so it keeps working when the
+PC's IP address changes, with no router setup. iPhones support it; Android
+does in recent versions of Chrome. If the name doesn't open (some guest or
+mesh networks block it), Settings shows the numeric address; to keep that
+one from changing, reserve the PC's IP in your router's DHCP settings
+("address reservation" / "static lease").
+
+It is not a Windows service on purpose: a service would need admin rights
+and run as a system account that can't see your VirtualBox VMs or your
+files. "Start when I sign in" runs it as you, in the background.
 
 - **"Windows protected your PC"**: the installer is not code-signed yet. Click
   *More info* -> *Run anyway*.

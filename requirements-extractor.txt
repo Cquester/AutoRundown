@@ -2,5 +2,5 @@
 # the import dialog): convert_images.py turns WIS graphics into PNG/SVG.
 # The Windows installer bundles these; from source, install them if you
 # extract from the VM yourself.
-Pillow>=10.0
+Pillow>=10.1
 ezdxf>=1.1

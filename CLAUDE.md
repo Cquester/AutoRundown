@@ -835,9 +835,26 @@ macOS/Linux run from source (README), by the user's decision.
   `rebuild_wis.py --index` (default: the configured index) and
   `importer_jobs.wis_backup()`. Before 2026-10-08 both used the repo folder,
   so a dialog rebuild ignored the served index.
-- `autorundown/launcher.py` is the shortcut target: it serves in a visible
-  console (close it to stop), opens the browser once the server answers, and
-  if one is already running it only opens the browser.
+- `autorundown/launcher.py` is the shortcut target. The MSI shortcuts run
+  `pythonw -m autorundown.launcher --background`: no console, output to
+  `~/.autorundown/autorundown.log`, a pystray tray icon (Open / phone
+  address / Start when I sign in / Open log / Stop); without a tray it serves
+  headless. Console mode (default from source) is the old behaviour. If one
+  is already running it only opens the browser; `--stop` POSTs
+  `/api/shutdown` (localhost only). A failed start in the background shows a
+  message box, since there is no console.
+- **Not a Windows service, deliberately** (the user asked for one): a service
+  needs admin and runs as SYSTEM, which can't see the user's VirtualBox VMs
+  or `~/.autorundown`. `autorundown/autostart.py` writes a Startup-folder
+  shortcut instead (Settings checkbox and tray item; Windows only, localhost
+  only); the MSI removes it on uninstall, and its `StopRunning` custom action
+  runs `--stop` before upgrade/uninstall so files aren't in use.
+- **`autorundown.local`**: `autorundown/mdns.py` (zeroconf) registers an
+  `_http._tcp` service whose host is `autorundown.local.`, so the PC answers
+  that name itself -- the user wanted a phone bookmark that survives IP
+  changes without router setup. Best effort: any failure is logged and the
+  server runs on; Settings shows `phone_urls` (name + numeric). Two PCs
+  running it would contend for the name.
 - Version: `autorundown/__init__.py` `__version__`; bump it per release (MSI
   MajorUpgrade needs a higher version to replace an install).
 - The WIS extractor is **not bundled**, deliberately: `vm_pipeline.py` finds

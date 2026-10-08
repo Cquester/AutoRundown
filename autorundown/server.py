@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import config, index, query
-from . import importer_jobs, synonyms, wis_original
+from . import autostart, importer_jobs, synonyms, wis_original
 from .search import get_page, scope_ids, search
 
 jobs = importer_jobs.ImportJobs()
@@ -47,6 +47,8 @@ class SettingsBody(BaseModel):
     api_key: str | None = None
     model: str | None = None
     extractor_dir: str | None = None
+    # Windows: start in the background at sign-in (autostart.py)
+    autostart: bool | None = None
 
 
 class ImportBody(BaseModel):
@@ -69,6 +71,8 @@ def _vehicle_or_404(conn, doc_id: str) -> dict:
 def create_app(index_path: str) -> FastAPI:
     app = FastAPI(title="AutoRundown")
     app.state.index_path = index_path
+    app.state.phone_urls = []
+    app.state.shutdown = lambda: None   # make_server() wires the real one
 
     def db():
         # SQLite connections are per-thread; make a fresh one per request.
@@ -277,10 +281,17 @@ def create_app(index_path: str) -> FastAPI:
     # Browsing folders and starting an import reach into this PC's files and
     # run a long job, so they answer only to the machine the server runs on --
     # never to a phone on the LAN, which the server otherwise welcomes.
-    def _local_only(request: Request) -> None:
+    def _local_only(request: Request,
+                    what: str = "Importing is") -> None:
         host = (request.client.host if request.client else "") or ""
         if host not in ("127.0.0.1", "::1", "localhost"):
-            raise HTTPException(403, "Importing is only available on the PC running AutoRundown.")
+            raise HTTPException(403, f"{what} only available on the PC running AutoRundown.")
+
+    @app.post("/api/shutdown")
+    def api_shutdown(request: Request) -> dict:
+        _local_only(request, "Stopping AutoRundown is")
+        app.state.shutdown()
+        return {"ok": True}
 
     @app.get("/api/browse")
     def api_browse(request: Request, path: str = "") -> dict:
@@ -347,10 +358,19 @@ def create_app(index_path: str) -> FastAPI:
             "has_api_key": bool(cfg.resolved_key),
             "key_source": ("config" if cfg.api_key
                            else "environment" if cfg.resolved_key else "none"),
+            # None: not offered on this OS
+            "autostart": autostart.is_enabled() if autostart.supported() else None,
+            "phone_urls": app.state.phone_urls,
         }
 
     @app.post("/api/settings")
-    def post_settings(body: SettingsBody) -> dict:
+    def post_settings(request: Request, body: SettingsBody) -> dict:
+        if body.autostart is not None and body.autostart != autostart.is_enabled():
+            _local_only(request, "Starting at sign-in is")
+            try:
+                autostart.set_enabled(body.autostart)
+            except RuntimeError as exc:
+                raise HTTPException(400, str(exc))
         cfg = config.load()
         for field_name in ("archive_dir", "index_path", "importer", "api_key",
                            "model", "extractor_dir"):
@@ -376,20 +396,43 @@ def lan_ip() -> str:
         s.close()
 
 
-def main(argv: list[str] | None = None) -> int:
+def make_server(index_path: str, host: str = "0.0.0.0", port: int = 8756):
+    """The uvicorn server, stoppable from outside (tray, /api/shutdown)."""
     import uvicorn
 
+    app = create_app(index_path)
+    srv = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning"))
+    app.state.shutdown = lambda: setattr(srv, "should_exit", True)
+    return srv
+
+
+def serve(srv) -> int:
+    """Run a make_server() server, announced on the LAN as autorundown.local."""
+    from . import mdns
+
+    app, host, port = srv.config.app, srv.config.host, srv.config.port
+    print(f"index: {app.state.index_path}")
+    print(f"  local : http://localhost:{port}")
+    ann = None
+    if host == "0.0.0.0":
+        ip = lan_ip()
+        ann = mdns.Announcer(port, ip).start()
+        app.state.phone_urls = [u for u in (ann.url, f"http://{ip}:{port}") if u]
+        print(f"  LAN   : http://{ip}:{port}   (phones on same wifi)")
+        print(f"  name  : {ann.url}" if ann.url else f"  name  : not announced ({ann.error})")
+    try:
+        srv.run()
+    finally:
+        if ann:
+            ann.close()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     cfg = config.load()
     ap = argparse.ArgumentParser(description="Serve the repair assistant UI.")
     ap.add_argument("--index", default=cfg.index_path)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8756)
     args = ap.parse_args(argv)
-
-    print(f"index: {args.index}")
-    print(f"  local : http://localhost:{args.port}")
-    if args.host == "0.0.0.0":
-        print(f"  LAN   : http://{lan_ip()}:{args.port}   (phones on same wifi)")
-    uvicorn.run(create_app(args.index), host=args.host, port=args.port,
-                log_level="warning")
-    return 0
+    return serve(make_server(args.index, args.host, args.port))
