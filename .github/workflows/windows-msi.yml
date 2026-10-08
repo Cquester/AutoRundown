@@ -48,7 +48,7 @@ jobs:
           $db = $wi.GetType().InvokeMember("OpenDatabase", "InvokeMethod", $null, $wi, @($msi, 0))
           function Rows($sql) {
             $v = $db.GetType().InvokeMember("OpenView", "InvokeMethod", $null, $db, @($sql))
-            $v.GetType().InvokeMember("Execute", "InvokeMethod", $null, $v, $null)
+            [void]$v.GetType().InvokeMember("Execute", "InvokeMethod", $null, $v, $null)
             $out = @()
             while ($r = $v.GetType().InvokeMember("Fetch", "InvokeMethod", $null, $v, $null)) {
               $out += $r.GetType().InvokeMember("StringData", "GetProperty", $null, $r, @(1))
