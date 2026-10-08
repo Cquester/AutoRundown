@@ -54,14 +54,14 @@ jobs:
           }
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$old`" /qn /l*v old-install.log"
           if ($p.ExitCode) { throw "0.1.1 install failed: $($p.ExitCode)" }
-          $v = Installed
+          $v = @(Installed)   # @(): one result would come back as a bare string
           "before upgrade: $v"
           if ($v.Count -ne 1 -or $v[0] -ne "0.1.1") { throw "expected 0.1.1 in Apps, found '$v'" }
           $new = (Get-ChildItem dist\*.msi).FullName
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$new`" /qn /l*v upgrade.log"
           if ($p.ExitCode) { Get-Content upgrade.log -Tail 80; throw "upgrade failed: $($p.ExitCode)" }
           $want = (python -c "import autorundown; print(autorundown.__version__)").Trim()
-          $v = Installed
+          $v = @(Installed)   # @(): one result would come back as a bare string
           "after upgrade: $v"
           if ($v.Count -ne 1 -or $v[0] -ne $want) { throw "expected only $want in Apps, found '$v'" }
           # and the upgraded app starts in the background
