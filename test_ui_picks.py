@@ -21,7 +21,7 @@ not from the page:
   - Browse: every option of every generation's Variant menu, picked with a
     real `change` event, plus "Any <engine>" options;
   - the VIN dialog, and one VIN prefix per variant that has one;
-  - a reload: the remembered pick (`autorundown.vehicle.v2`) still names
+  - a reload: the remembered pick (`autorundown.vehicle.v3`) still names
     the same car.
 
 The index is opened READ-ONLY (sqlite `mode=ro`) and /api/search is answered

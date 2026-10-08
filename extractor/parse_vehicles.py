@@ -7,7 +7,8 @@ Reads the TSVs written by pull_vehicles.js and writes, into the corpus dir
   variants.jsonl   one line per (model series, sales name):
                      {"model_series": "201", "name": "190 E 2.3 16",
                       "baumuster": ["201.034"], "wmi": ["WDB"],
-                      "engines": ["102.983"]}
+                      "engines": ["102.983"],
+                      "body_by_bm": {"201.034": "Sedan"}}
   vin_us.json      US VIN decoding: {"WDB": {"D": "201", ...}, ...}
                    A US VIN carries a coded letter at position 4, not the
                    Baumuster a European FIN carries at positions 4-9.
@@ -121,6 +122,84 @@ def vehicle_type(v, series, name, exact, by_series):
     return "UNIMOG" if re.match(r"^U\s?\d", name) else ""
 
 
+# Body style from ASRA_Typkennzahl's names (the 'type-number' of each vehicle).
+# One sales name covers several bodies -- "E 320 4MATIC" is both the W210
+# sedan (210.082) and the wagon (210.282) -- and the importer splits such a
+# variant per body, so the picker can tell a wagon from a sedan. First match
+# wins; English and German, since which language the table holds varies.
+BODY_STYLES = [
+    ("Shooting Brake", r"shooting"),
+    ("Wagon", r"\bwagon|estate|\bt-?\s?modell?\b|\bkombi"),
+    ("Convertible", r"cabrio|convertible"),
+    ("Roadster", r"roadster"),
+    ("Coupe", r"coup"),
+    ("Sedan", r"saloon|sedan|limousine"),
+]
+
+
+def body_style(name):
+    for body, rx in BODY_STYLES:
+        if re.search(rx, name or "", re.I):
+            return body
+    return ""
+
+
+def columns(name):
+    path = os.path.join(VEH, name + ".tsv")
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8", errors="replace", newline="") as f:
+        return f.readline().rstrip("\r\n").split("\t")
+
+
+def body_by_baumuster():
+    """Baumuster ("210.282") -> body style ("Wagon"), from ASRA_Typkennzahl.
+
+    The vehicle rows carry the type-number key (division, family, type
+    number, country); ASRA_Typkennzahl names it per language. Column names
+    are taken from the files, and every step that can't be made says so --
+    no body is better than a guessed one. Returns ({}, reason) when unusable.
+    """
+    tk_cols = columns("ASRA_Typkennzahl")
+    if not tk_cols:
+        return {}, "ASRA_Typkennzahl.tsv not pulled"
+    keys = [c for c in ("SparteAbk", "FamilieAbk", "TypkennzahlAbk", "ProduktionslandAbk")
+            if c in tk_cols]
+    name_col = "TypkennzahlName" if "TypkennzahlName" in tk_cols else \
+        next((c for c in tk_cols if "name" in c.lower()), "")
+    lang_col = next((c for c in tk_cols if c.lower().startswith("sprach")), "")
+    if "TypkennzahlAbk" not in keys or not name_col:
+        return {}, f"ASRA_Typkennzahl has no type-number key / name (columns: {tk_cols})"
+    table = next((t for t in ("ASRA_FahrzeugII", "ASRA_Fahrzeug")
+                  if set(keys) | {"TypBM"} <= set(columns(t))), "")
+    if not table:
+        return {}, f"no vehicle table carries {keys}"
+
+    # key -> language -> body; the language that names most bodies is preferred
+    named = defaultdict(dict)
+    per_lang = Counter()
+    for r in rows("ASRA_Typkennzahl"):
+        k = tuple(r[c].strip() for c in keys)
+        lang = r[lang_col].strip() if lang_col else ""
+        b = body_style(fix_mojibake(r[name_col]))
+        if b:
+            named[k][lang] = b
+            per_lang[lang] += 1
+    order = [lang for lang, _ in per_lang.most_common()]
+
+    votes = defaultdict(Counter)
+    for r in rows(table):
+        bm = r["TypBM"].strip()
+        if len(bm) != 6 or not bm.isdigit():
+            continue
+        langs = named.get(tuple(r[c].strip() for c in keys))
+        if langs:
+            votes[dotted(bm)][next(langs[l] for l in order if l in langs)] += 1
+    out = {bm: c.most_common(1)[0][0] for bm, c in votes.items()}
+    return out, (f"{table} x ASRA_Typkennzahl on {'+'.join(keys)}, "
+                 f"language {order[0] if order else '?'}")
+
+
 def main():
     # series -> name -> {"baumuster": set, "wmi": set, "engines": set}
     variants = defaultdict(lambda: defaultdict(lambda: {"baumuster": set(), "wmi": set(),
@@ -188,6 +267,7 @@ def main():
                 vin2fin[vin] = dotted(fin[3:])
 
     vtype, vtype_series = vehicle_types_by_baumuster()
+    bodies, body_how = body_by_baumuster()
 
     os.makedirs(OUT, exist_ok=True)
     n = 0
@@ -201,6 +281,9 @@ def main():
                                     "engines": sorted(v["engines"]),
                                     "engine_by_bm": {b: sorted(e) for b, e
                                                      in sorted(v["engine_by_bm"].items())},
+                                    # body style per Baumuster, where known
+                                    "body_by_bm": {b: bodies[b] for b
+                                                   in sorted(v["baumuster"]) if b in bodies},
                                     # "" when only AW_Fahrzeuge knew it
                                     "division": (v["division"].most_common(1)[0][0]
                                                  if v["division"] else ""),
@@ -233,6 +316,20 @@ def main():
     print(f"US VIN map: {sum(len(v) for v in vin_us.values())} codes across {len(vin_us)} WMIs")
     print(f"US VIN -> Baumuster (AW_VIN2FIN): {len(vin2fin)} VIN prefixes, "
           f"{len(set(vin2fin.values()))} Baumuster")
+    # body styles: printed with a real case to check by eye (W210 E 320
+    # 4MATIC = sedan 210.082 + wagon 210.282), since a wrong join is silent
+    if bodies:
+        print(f"body styles: {len(bodies)} Baumuster ({body_how}): "
+              + ", ".join(f"{b} {n}" for b, n in Counter(bodies.values()).most_common()))
+        mixed = [(s, name) for s in variants for name, v in variants[s].items()
+                 if len({bodies[b] for b in v["baumuster"] if b in bodies}) > 1]
+        print(f"  {len(mixed)} sales names span several bodies (split in the picker)")
+        for s, name in [m for m in mixed if m[0] == "210"][:3] or mixed[:3]:
+            v = variants[s][name]
+            print(f"  e.g. {s} {name}: " + ", ".join(
+                f"{b} {bodies.get(b, '?')}" for b in sorted(v["baumuster"])))
+    else:
+        print(f"body styles: none ({body_how}) -- the picker cannot split sedan/wagon")
     print(f"-> {os.path.join(OUT, 'variants.jsonl')}")
 
 
