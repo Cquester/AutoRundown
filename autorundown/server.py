@@ -46,6 +46,7 @@ class SettingsBody(BaseModel):
     importer: str | None = None
     api_key: str | None = None
     model: str | None = None
+    extractor_dir: str | None = None
 
 
 class ImportBody(BaseModel):
@@ -342,6 +343,7 @@ def create_app(index_path: str) -> FastAPI:
             "index_path": cfg.index_path,
             "importer": cfg.importer,
             "model": cfg.model,
+            "extractor_dir": cfg.extractor_dir,
             "has_api_key": bool(cfg.resolved_key),
             "key_source": ("config" if cfg.api_key
                            else "environment" if cfg.resolved_key else "none"),
@@ -351,7 +353,7 @@ def create_app(index_path: str) -> FastAPI:
     def post_settings(body: SettingsBody) -> dict:
         cfg = config.load()
         for field_name in ("archive_dir", "index_path", "importer", "api_key",
-                           "model"):
+                           "model", "extractor_dir"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)

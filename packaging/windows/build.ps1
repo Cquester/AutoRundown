@@ -47,9 +47,12 @@ Expand-Archive $zip -DestinationPath $py
     "import site"
 ) | Set-Content -Encoding ascii (Join-Path $py "python$tag._pth")
 
-# 2. dependencies, wheels only (no compiler on a user's PC or here)
+# 2. dependencies, wheels only (no compiler on a user's PC or here). The
+# extractor's (Pillow, ezdxf) too: the import dialog runs the user's WIS
+# extractor with this Python, and its build step converts images.
 & python -m pip install --disable-pip-version-check --only-binary=:all: `
-    --target (Join-Path $py "Lib\site-packages") -r (Join-Path $root "requirements.txt")
+    --target (Join-Path $py "Lib\site-packages") -r (Join-Path $root "requirements.txt") `
+    -r (Join-Path $root "requirements-extractor.txt")
 if ($LASTEXITCODE) { throw "pip install failed" }
 
 # 3. the app: the package plus the command-line tools a user may run
@@ -67,7 +70,7 @@ Get-ChildItem $app -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurs
 if ($LASTEXITCODE) { throw "compileall failed" }
 
 # 4. smoke test the stage before packaging it
-& (Join-Path $py "python.exe") -c "import sqlite3; c = sqlite3.connect(':memory:'); c.execute('CREATE VIRTUAL TABLE t USING fts5(x)'); import autorundown.server, autorundown.launcher, lxml.html, anthropic; print('stage ok, sqlite', sqlite3.sqlite_version)"
+& (Join-Path $py "python.exe") -c "import sqlite3; c = sqlite3.connect(':memory:'); c.execute('CREATE VIRTUAL TABLE t USING fts5(x)'); import autorundown.server, autorundown.launcher, lxml.html, anthropic, PIL.Image, ezdxf.recover, ezdxf.addons.drawing.svg; print('stage ok, sqlite', sqlite3.sqlite_version)"
 if ($LASTEXITCODE) { throw "stage smoke test failed" }
 
 # 5. MSI

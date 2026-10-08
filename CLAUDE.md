@@ -840,8 +840,16 @@ macOS/Linux run from source (README), by the user's decision.
   if one is already running it only opens the browser.
 - Version: `autorundown/__init__.py` `__version__`; bump it per release (MSI
   MajorUpgrade needs a higher version to replace an install).
-- The WIS extractor is not bundled; the installed app finds it only through
-  `extractor_dir` in config.
+- The WIS extractor is **not bundled**, deliberately: `vm_pipeline.py` finds
+  `tbjdbc.jar` and the EWA Java in the folder *above itself* (Mercedes
+  software, never shipped). `importer_jobs.extractor_candidates()`: config
+  `extractor_dir` (Settings -> "Mercedes extractor folder"), then
+  `../Mercedes Documents/autorundown_extractor` (source layout), then
+  `~/Desktop/...` and `~/OneDrive/Desktop/...` (the installed app; the user's
+  copy is on the Desktop). The bundle includes `requirements-extractor.txt`
+  (Pillow, ezdxf) because the extractor runs under the bundled Python and its
+  build step converts images. CI copies `extractor/` to the runner's Desktop
+  and checks `/api/vms` finds it.
 - Unsigned: SmartScreen warns (README says what to click). Signing needs a
   certificate; nothing in the build does it yet.
 

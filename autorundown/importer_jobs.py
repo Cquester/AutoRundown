@@ -33,13 +33,24 @@ def can_rebuild_wis(index_path: str | Path) -> bool:
     return wis_backup(index_path).is_file()
 
 
+def extractor_candidates() -> list[Path]:
+    """Where the WIS extractor is looked for, in order. Its own folder matters:
+    vm_pipeline.py finds tbjdbc.jar and the EWA Java in the folder above it,
+    so it is never bundled with the app -- the installed app has to find the
+    user's working copy, which sits on the Desktop (next to the repo, when
+    running from source)."""
+    from . import config
+    sub = Path("Mercedes Documents") / "autorundown_extractor"
+    home = Path.home()
+    return [Path(c) for c in (config.load().extractor_dir,) if c] + [
+        ROOT.parent / sub, home / "Desktop" / sub, home / "OneDrive" / "Desktop" / sub]
+
+
 def find_extractor() -> Path | None:
     """The WIS extractor folder (holds vm_pipeline.py), or None."""
-    from . import config
-    for c in (config.load().extractor_dir,
-              str(ROOT.parent / "Mercedes Documents" / "autorundown_extractor")):
-        if c and (Path(c) / "vm_pipeline.py").is_file():
-            return Path(c)
+    for c in extractor_candidates():
+        if (c / "vm_pipeline.py").is_file():
+            return c
     return None
 
 
@@ -48,8 +59,9 @@ def list_vms() -> dict:
     ext = find_extractor()
     if not ext:
         return {"extractor": "", "vms": [],
-                "error": "The Mercedes extractor (vm_pipeline.py) was not found. Set its folder "
-                         "as extractor_dir in ~/.autorundown/config.json."}
+                "error": "The Mercedes extractor (vm_pipeline.py) was not found. Looked in: "
+                         + "; ".join(str(c) for c in extractor_candidates())
+                         + ". Set its folder under Settings (the gear) -> Mercedes extractor folder."}
     r = subprocess.run([sys.executable, str(ext / "vm_pipeline.py"), "--list-vms"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
                        timeout=60)

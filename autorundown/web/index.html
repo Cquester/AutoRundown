@@ -351,6 +351,8 @@
   <input id="sArchive" type="text">
   <label for="sIndex">Index path</label>
   <input id="sIndex" type="text">
+  <label for="sExtractor">Mercedes extractor folder</label>
+  <input id="sExtractor" type="text" placeholder="found automatically on the Desktop — or paste the autorundown_extractor folder">
   <label>Data</label>
   <button class="ghost" id="openImport" type="button">Import data…</button>
   <span class="muted" style="margin-left:8px">add manuals, or rebuild the Mercedes WIS data</span>
@@ -1242,6 +1244,7 @@ $('#settingsBtn').onclick = async () => {
   showModelPrice();
   $('#sArchive').value = s.archive_dir || '';
   $('#sIndex').value = s.index_path || '';
+  $('#sExtractor').value = s.extractor_dir || '';
   $('#sKey').placeholder = s.has_api_key
     ? `key configured (${s.key_source}) — leave blank to keep`
     : 'sk-ant-...';
@@ -1252,6 +1255,7 @@ $('#saveBtn').onclick = async () => {
   const body = {
     archive_dir: $('#sArchive').value,
     index_path: $('#sIndex').value,
+    extractor_dir: $('#sExtractor').value.trim(),
     model: $('#sModel').value,
   };
   if ($('#sKey').value.trim()) body.api_key = $('#sKey').value.trim();

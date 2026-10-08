@@ -63,9 +63,13 @@ the import dialog opens by itself. Set your API key under Settings.
 - **Your data is not in the install folder.** The index, settings and spend
   log are in `%USERPROFILE%\.autorundown`. Upgrading (just run a newer
   `.msi`) or uninstalling (Settings -> Apps) never touches them.
-- **Importing from a Mercedes VM** needs the WIS extractor, which is not part
-  of the installer. Set `extractor_dir` in `%USERPROFILE%\.autorundown\config.json`
-  to its folder.
+- **Importing from a Mercedes VM** uses your own copy of the WIS extractor
+  (it needs the Mercedes software next to it, so it can't be part of the
+  installer). It is found automatically at `Desktop\Mercedes Documents\autorundown_extractor`;
+  anywhere else, set it under Settings (the gear) -> *Mercedes extractor folder*.
+  The installer includes the Python packages it needs. **If your manuals are
+  already extracted**, skip the VM: choose *From a folder* and pick
+  `Mercedes Documents\autorundown_out\wis_extract`.
 - The command-line tools are installed too:
   `"%LOCALAPPDATA%\Programs\AutoRundown\python\python.exe" "%LOCALAPPDATA%\Programs\AutoRundown\app\ask.py" --usage`.
 

@@ -10,7 +10,8 @@ on:
     paths:
       - "autorundown/**"
       - "*.py"
-      - "requirements.txt"
+      - "requirements*.txt"
+      - "extractor/**"
       - "packaging/windows/**"
       - ".github/workflows/windows-msi.yml"
   workflow_dispatch:
@@ -98,6 +99,15 @@ jobs:
           if ($hits.Count -lt 1) { throw "search found nothing" }
           $page = Invoke-WebRequest http://127.0.0.1:8756/ -UseBasicParsing
           if ($page.Content -notmatch "<html") { throw "UI not served" }
+          # the user's WIS extractor is found on the Desktop and run by the
+          # bundled Python (no VirtualBox here, so it stops at --list-vms)
+          $ext = "$env:USERPROFILE\Desktop\Mercedes Documents\autorundown_extractor"
+          New-Item -ItemType Directory -Force (Split-Path $ext) | Out-Null
+          Copy-Item -Recurse extractor $ext
+          $vms = Invoke-RestMethod http://127.0.0.1:8756/api/vms
+          "extractor: $($vms.extractor) | $($vms.error)"
+          Remove-Item -Recurse -Force (Split-Path $ext)
+          if ($vms.extractor -ne $ext) { throw "extractor on the Desktop not found" }
           # a second start must find the running server and exit at once
           & $py -m autorundown.launcher --no-browser --port 8756
           if ($LASTEXITCODE) { throw "second launch failed" }
