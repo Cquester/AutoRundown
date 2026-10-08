@@ -151,6 +151,8 @@
     display:inline-block; background:var(--accent-dim); color:#ffdca8;
     border-radius:6px; padding:2px 8px; font-weight:700;
   }
+  .safety{margin-top:14px; padding-top:10px; border-top:1px solid var(--line);
+    color:var(--muted); font-size:13px}
   details.caveat{margin:10px 0}
   details.caveat summary{cursor:pointer; color:var(--warn); font-size:14px;
     padding:8px 0; min-height:36px}
@@ -1065,6 +1067,11 @@ function renderAnswer(d) {
       h += `<div class="sechead">Sources</div>`
          + d.source_pages.map(srcBtn).join('');
     }
+    // shown on every answer: the model can be wrong, the manual page is the
+    // authority, and a wrong torque can hurt someone
+    h += `<div class="safety">AI-generated from the pages cited above. Check the
+      original page before you tighten, fill, wire or replace anything.
+      Use at your own risk.</div>`;
     h += `</div>`;
   }
   if (d.dropped_citations?.length) {

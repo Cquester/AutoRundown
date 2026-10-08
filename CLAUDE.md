@@ -47,6 +47,7 @@ python eval.py --answers                          # PAID, prints estimate
 python test_records.py                            # FREE, `records` importer
 python eval_wis.py                                # FREE, WIS retrieval + wrong-vehicle guards
 python make_sample_corpus.py                      # FREE, stand-in WIS corpus
+python test_ui_picks.py                           # FREE, UI sends the car it shows (~45 s)
 ```
 
 Mercedes WIS, end to end from this one session (VM -> index):
@@ -177,6 +178,13 @@ Fig 15", which renders in 30px type as though it were a torque.
 units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part
 of a multi-part question. Each of these fixed an observed failure.
+
+**Licence: MIT, "Copyright (c) 2026 cquester"** (the user's choice,
+2026-10-08). It covers this repo's own code and docs only. Never commit
+Mercedes software (`tbjdbc.jar`, the EWA JRE) or anything extracted from
+WIS/EPC (records, images, VIN tables, raw TSVs) — no licence makes that
+redistributable. `importers/data/*.csv` is hand-made reference knowledge and
+NHTSA-derived years, which is why it is allowed.
 
 ---
 
@@ -566,8 +574,24 @@ rest of the install uses (`tbadmin` for WIS, `tbuser` from `epc_cfg.xml`,
 which does open `SPECIALFILES`). That is a deliberate lock on that data; do
 not try to get around it. The user was told the legitimate routes: look a VIN
 up in the EPC program inside the VM, or use credentials issued with their
-licence if they have any. Untried lead: `SPECIALFILES` (42 tables) may hold
-option-code descriptions.
+licence if they have any.
+
+**No option-code (SA code) descriptions are reachable either — checked
+2026-10-08, do not look again.** `SPECIALFILES` (1.2 MB; "42 tables" counted
+the system catalogue and views: 12 base tables) has no code text. With
+`tbuser`, 11 of its 12 base tables refuse SELECT; their `_V` views are
+granted and hold only data-card *routing* metadata: `DC_MODEL_DESC`
+(43,447 rows, WMI + Baumuster → short model description, mostly
+trucks/buses), `WHC_MASTER(_MODELS)` (WMI → market/plant names),
+`VIN_MDL` (74 rows, VIN prefix → model stub — a subset of what
+`AW_VIN2FIN` already gives), `DCDBINFO` (which data-card DB serves which
+region), `AGG_FILTERS*`, `DB_LANGS`, `VERSIONS` ("DW 01/2017"), `SAREC_INI`
+(6 config rows). `PWORD`/`PWORD_V` were deliberately not read. The
+catalogue databases where EPC keeps code texts — `ALLTEXT`, `COMM`, and
+`SA_IMAGES`/`BM_IMAGES` — refuse `tbuser` at login, like the data cards.
+So decoding a pasted data card needs a code list from elsewhere; nothing
+was added to the pipeline. Survey output:
+`autorundown_out/epc_survey/`; script `extractor/probe_epc_survey.js`.
 
 **Per-model US model years: built once from NHTSA, committed.**
 `importers/data/mercedes_us_years.csv` (11 KB: Baumuster, US years, NHTSA
@@ -600,8 +624,9 @@ sent the sorted position; the server indexes the stored order. Choosing "E
 500/550 4MATIC" (28th by name) searched the W211's 28th stored entry, the
 E 63 AMG — 29 of 29 W211 positions differed. Now nothing sorts `_variants`;
 display order is sorted inside `engineGroups`, and the remembered-pick key
-became `autorundown.vehicle.v2` so old positions are dropped. A UI-level
-check that the sent index names the shown car would catch a recurrence.
+became `autorundown.vehicle.v2` so old positions are dropped.
+`test_ui_picks.py` now checks that the sent index names the shown car, for
+every pick the UI can make (see Verifying changes).
 
 **There is no per-variant model year in this database — do not look again.**
 `ASRA_FahrzeugII.ErstesModeljahr/LetztesModeljahr` are filled on 317 of 92,787
@@ -804,6 +829,22 @@ predates the end-view format. Features here degrade quietly by design.
    fewer prints IMPROVED — lower the ceiling when it does.
 2. For UI work: start the server, drive it with the browser tools, and inject
    payloads into `renderAnswer()` rather than paying for answers.
+   After any change to the vehicle picker (`#carInput`, Browse, VIN, the
+   variant menu, `loadVehicles`): `python test_ui_picks.py` — free, ~45 s,
+   needs `pip install -r requirements-dev.txt` (Playwright; it drives the
+   installed Edge/Chrome, no browser download). It loads the real page against
+   the index (opened `mode=ro`; `--index` to point elsewhere), makes picks —
+   typed queries with arrow/Enter, a US VIN and a FIN in the box and the VIN
+   dialog, Browse + reload, then every one-line suggestion (~2,500), every
+   Variant option (~1,600) and one VIN prefix per variant (~430) — captures
+   each `/api/search` and checks `variant=` against the stored
+   `vehicles.variants` read in Python: same name (and Baumuster for Browse),
+   engine families the car has, its engine buckets in `scope_ids`.
+   `/api/search` is answered by the test; any non-GET or `/api/ask` request is
+   aborted and fails the run. Re-adding the old in-place sort fails it with
+   6,242 failures, the first being the reported one (E 500/550 4MATIC → E 63
+   AMG). Known quirk it works around: typing "190 e 2.3 16" finds nothing —
+   `carMatches` reads a bare "16" as the year 2016.
 3. For extraction changes: re-index (~40s) and re-run `eval.py`. Watch
    `unique_pages` — if it moves, dedup behaviour changed and that should be
    deliberate.
@@ -825,8 +866,6 @@ pass, known-bad guards 33 -> 12.
 
 ## Known gaps
 
-- No `LICENSE` file. Without one, default copyright applies and nobody can
-  reuse the code. The user is creating a public repo — flag this.
 - `eval.py` cases are archive-specific (2015 F-150 page numbers). They will
   fail against any other archive; that is documented in the file.
 - Sibling-engine pages exist in the main tree identified only by their title
@@ -903,12 +942,12 @@ pass, known-bad guards 33 -> 12.
    pull_*.js, parse*.py, apply_*.py, convert_images.py). The site finds it
    via `config.extractor_dir` or that sibling path. Decide with the user
    whether to move it into this repo.
-3. **LICENSE** still missing (public repo).
-4. **A UI-level test for variant indexes** (the sorted-index bug of
-   2026-10-08) — the server-side evals can't see it.
-5. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
+3. ~~A UI-level test for variant indexes~~ — done: `test_ui_picks.py`.
+   Open: a bare two-digit word in the car box is always a year ("190 e 2.3
+   16" → 2016, no match).
+4. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
    and `index.v11.db` — the user may delete them; we never delete data.
-6. Cosmetic: printed figure numbers in the older "P01-5220-13" style are
+5. Cosmetic: printed figure numbers in the older "P01-5220-13" style are
    not stripped (`FIG_CAPTION_RE` only knows "W15.18-1024-01").
 
 ## Working style the user prefers
