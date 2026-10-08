@@ -662,6 +662,61 @@ def main():
         check("a chosen car carries its exact codes", scope_ids(w201, variant=0).codes,
               (("201.034",), ("102.983",)))
 
+        print("\n-- body style: one sales name, sedan and wagon --")
+        from autorundown.importers.records import split_by_body
+        # real W210 codes: E 320 4MATIC sedan 210.082, wagon 210.282
+        e320 = {"name": "E 320 4MATIC", "baumuster": ["210.082", "210.282"],
+                "engines": ["112.941"],
+                "engine_by_bm": {"210.082": ["112.941"], "210.282": ["112.941"]},
+                "body_by_bm": {"210.082": "Sedan", "210.282": "Wagon"}}
+        parts = split_by_body(e320)
+        check("a name spanning two bodies becomes two variants",
+              [(p["name"], p["baumuster"], p["body"]) for p in parts],
+              [("E 320 4MATIC Sedan", ["210.082"], "Sedan"),
+               ("E 320 4MATIC Wagon", ["210.282"], "Wagon")])
+        check("...each keeping its own engines", parts[1]["engines"], ["112.941"])
+        check("one body: name unchanged, body noted",
+              [(p["name"], p.get("body")) for p in split_by_body(
+                  {**e320, "baumuster": ["210.082"], "body_by_bm": {"210.082": "Sedan"}})],
+              [("E 320 4MATIC", "Sedan")])
+        check("no body data: unchanged", split_by_body({"name": "E 320", "baumuster": ["210.065"]}),
+              [{"name": "E 320", "baumuster": ["210.065"]}])
+        check("a Baumuster of unknown body goes with every split",
+              [p["baumuster"] for p in split_by_body(
+                  {**e320, "baumuster": ["210.082", "210.282", "210.999"]})],
+              [["210.082", "210.999"], ["210.282", "210.999"]])
+        w210 = {"doc_id": "x-210", "variants": json.dumps(parts + [
+            {"name": "E 430", "baumuster": ["210.070"], "engines": ["113.940"]},
+            {"name": "E 300 TURBODIESEL", "baumuster": ["210.025"], "engines": ["606.962"]}])}
+        check("the wagon's scope carries only the wagon's code",
+              scope_ids(w210, variant=1, engine="112").codes, (("210.282",), ("112.941",)))
+
+        print("\n-- answers keep only the chosen car's values --")
+        from autorundown.query import (AnswerModel, SpecItem, _drop_other_vehicles,
+                                       vehicle_codes)
+        codes = vehicle_codes(w210, scope_ids(w210, variant=1, engine="112"))
+        spec = lambda appl: SpecItem(name="Cylinder head cover", value="10 Nm",
+                                     applicability=appl, source_pages=["1"])
+        ans = AnswerModel(found=True, answer="x", specs=[spec(a) for a in (
+            "M112", "M113", "OM606", "engine 112.941", "Engine 113.940 in model 210.070",
+            "all engines", "all except M113", "M112, M113", "model 210.082",
+            "model 210.082, 210.282", "Engines 606, 613")])
+        gone = _drop_other_vehicles(ans, codes)
+        check("kept: this engine, no engine named, an 'except', a list naming ours",
+              [s.applicability for s in ans.specs],
+              ["M112", "engine 112.941", "all engines", "all except M113", "M112, M113",
+               "model 210.082, 210.282"])
+        check("removed, with the reason shown",
+              [(g["applicability"], g["reason"]) for g in gone],
+              [("M113", "for engine 113"), ("OM606", "for engine 606"),
+               ("Engine 113.940 in model 210.070", "for engine 113"),
+               ("model 210.082", "for model 210.082"), ("Engines 606, 613", "for engine 606, 613")])
+        check("whole generation chosen: nothing removed", vehicle_codes(w210, scope_ids(w210)), None)
+        only_other = AnswerModel(found=True, answer="M113: 10 Nm", specs=[spec("M113")])
+        _drop_other_vehicles(only_other, codes)
+        check("only other engines' values: not found, not their numbers",
+              (only_other.found, only_other.answer), (False, ""))
+
         print("\n-- US VIN -> exact variant (AW_VIN2FIN) --")
         from autorundown.importers.records import RecordsImporter
         vdir = Path(tempfile.mkdtemp(prefix="ar_vin_"))

@@ -64,7 +64,11 @@ class SpecItem(BaseModel):
                     "Include every unit the manual prints and no others. "
                     "Never compute a conversion."
     )
-    applicability: str = Field(description="Exact vehicle/engine/trim this applies to")
+    applicability: str = Field(
+        description="Exact vehicle/engine/trim this applies to, with the codes "
+                    "the page prints: 'M112 (112.941)', 'model 210.282', "
+                    "'all engines'"
+    )
     source_pages: list[str] = Field(
         description="Pages this same value is printed on. The first is the "
                     "primary source; add others only when they print the "
@@ -161,6 +165,15 @@ Hard rules:
   sub-assembly (for example "2.7L EcoBoost", "Transmission 722.3"). If it
   differs from the vehicle in the request, do not present it as the answer;
   say so in `caveats`.
+- ONLY THIS VEHICLE'S VALUES. The vehicle line names the exact car: its model
+  codes, its engine (and exact engine code), its body when known. Pages often
+  print one table for many engines or models -- a row per engine ("M112",
+  "M113", "OM613", "engine 112.941") or per model code ("210.082"). Give only
+  the rows for this vehicle. Leave rows for other engines, models or bodies
+  out entirely: do not list them as alternatives or "for reference". A row
+  that names no engine or model applies to all. If the passages only give
+  the value for other engines, report that part as not found and name the
+  engines they covered in `caveats`.
 - If the passages do not contain the answer, set found=false and leave answer
   empty. Saying "not in the archive" is a correct and useful response. Do not
   substitute general automotive knowledge.
@@ -217,6 +230,8 @@ class Result:
     queries: list[str] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
     dropped_citations: list[str] = field(default_factory=list)
+    # specs the model gave for another engine / model of the series
+    other_vehicle_specs: list[dict] = field(default_factory=list)
 
     @property
     def page_titles(self) -> dict[str, str]:
@@ -241,6 +256,7 @@ class Result:
             "caveats": self.answer.caveats,
             "queries": self.queries,
             "dropped_citations": self.dropped_citations,
+            "other_vehicle_specs": self.other_vehicle_specs,
             "usage": self.usage.as_dict(),
             "passages": [
                 {"page_no": p["page_no"], "title": p["title"],
@@ -454,6 +470,103 @@ def _verify_citations(answer: AnswerModel, passages: list[dict]) -> list[str]:
     return dropped
 
 
+# Engine and model codes in a spec's applicability text. "M112", "OM 613",
+# "engine(s) 112, 113", and dotted codes "112.941" / "210.082" -- a dotted
+# code is an engine when its family is a known engine and not this car's
+# series (the W123 and the M123 share a number). Three digits, so bolt sizes
+# ("M12x1.5") never match.
+_ENGINE_TAG_RE = _re.compile(r"\b(?:OM|M)\s?(\d{3})\b")
+_ENGINE_LIST_RE = _re.compile(
+    r"\bengines?\s+(\d{3}(?:\.\d{3})?(?:\s*(?:,|/|and|or|&)\s*\d{3}(?:\.\d{3})?)*)", _re.I)
+_DOTTED_RE = _re.compile(r"\b(\d{3})\.(\d{3})\b")
+_EXCEPT_RE = _re.compile(r"\bexcept\b|\bexcluding\b|\bnot (?:for|on|with)\b|\bwithout\b", _re.I)
+
+
+def mentioned_codes(text: str, engine_families: set[str],
+                    series: set[str]) -> tuple[set[str], set[str]]:
+    """(engine families, model codes of `series`) named in `text`."""
+    engines = set(_ENGINE_TAG_RE.findall(text or ""))
+    for m in _ENGINE_LIST_RE.finditer(text or ""):
+        engines.update(c[:3] for c in _re.findall(r"\d{3}(?:\.\d{3})?", m.group(1)))
+    models = set()
+    for fam, rest in _DOTTED_RE.findall(text or ""):
+        if fam in series:
+            models.add(f"{fam}.{rest}")
+        elif fam in engine_families:
+            engines.add(fam)
+    return engines - series, models
+
+
+def vehicle_codes(vehicle: dict, scope) -> dict | None:
+    """What a spec's applicability is checked against, or None to check nothing.
+
+    Only once a car or an engine is chosen: with the whole generation picked,
+    every engine's value is a fair answer.
+    """
+    import json as _json
+    ours = set(getattr(scope, "engines", ()) or ())
+    bms = set((getattr(scope, "codes", ((), ())) or ((), ()))[0])
+    if not ours and not bms:
+        return None
+    try:
+        variants = _json.loads(vehicle.get("variants") or "[]")
+    except ValueError:
+        variants = []
+    series = {b[:3] for v in variants for b in v.get("baumuster", [])}
+    families = {str(e)[:3] for v in variants for e in v.get("engines", [])}
+    try:
+        from .importers.records import SOURCE_ENGINES, curated_engines
+        for source in SOURCE_ENGINES:
+            families.update(curated_engines(source))
+    except Exception:  # reference table missing: the series' own engines still count
+        pass
+    return {"engines": ours, "models": bms, "series": series,
+            "families": {f for f in families if f.isdigit()} - series}
+
+
+def _drop_other_vehicles(answer: AnswerModel, codes: dict | None) -> list[dict]:
+    """Remove specs whose applicability names only other engines or models.
+
+    The user picked a 2001 E 320 4MATIC wagon and got torque values for every
+    W210 engine: a page that lists M112, M113 and OM613 rows passes the engine
+    filter (it names the M112 too), and the model copied every row. The
+    prompt says to keep only this car's rows; this checks it, as the citation
+    check does. A spec naming at least one of the car's engines (or codes),
+    or none at all, stays. Removed specs go back to the UI, collapsed, never
+    silently.
+    """
+    if not codes:
+        return []
+    kept, gone = [], []
+    for spec in answer.specs:
+        text = f"{spec.applicability} {spec.name}"
+        engines, models = mentioned_codes(text, codes["families"], codes["series"])
+        why = ""
+        if _EXCEPT_RE.search(text):
+            pass    # "all except M113" names an engine it is NOT for: keep
+        elif codes["engines"] and engines and not engines & codes["engines"]:
+            why = "engine " + ", ".join(sorted(engines))
+        elif codes["models"] and models and not models & codes["models"]:
+            why = "model " + ", ".join(sorted(models))
+        if why:
+            gone.append({**spec.model_dump(), "reason": f"for {why}"})
+        else:
+            kept.append(spec)
+    answer.specs = kept
+    if gone and not kept and not answer.steps and not answer.figures:
+        # every value was for another car: the prose would still quote them
+        answer.found = False
+        answer.answer = ""
+        answer.caveats = ("The pages found give this value only for other engines "
+                          "or models of this series (shown below, for reference). "
+                          + answer.caveats).strip()
+    elif gone:
+        note = (f"{len(gone)} value{'s' if len(gone) > 1 else ''} for other engines "
+                f"or models of this series removed.")
+        answer.caveats = f"{answer.caveats} {note}".strip()
+    return gone
+
+
 def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         per_query: int = 8, cap: int = 18,
         include_other_variants: bool = False,
@@ -490,7 +603,8 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     # a 190E 2.3-16 and WIS only says "cylinder head cover" (synonyms.py)
     from .synonyms import translate
     queries = list(dict.fromkeys([a for a in (translate(q) for q in queries) if a] + queries))
-    passages = multi_search(conn, scope_ids(vehicle, variant, engine), queries,
+    scope = scope_ids(vehicle, variant, engine)
+    passages = multi_search(conn, scope, queries,
                             per_query=per_query, cap=cap,
                             include_other_variants=include_other_variants)
 
@@ -533,6 +647,7 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     answer = response.parsed_output or AnswerModel(
         found=False, answer="", caveats="The model returned no parsable answer.")
     dropped = _verify_citations(answer, passages)
+    other = _drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
 
     # surface diagrams that belong to the pages actually cited
     cited = set(answer.source_pages)
@@ -545,4 +660,4 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     answer.diagrams = list(dict.fromkeys(diagrams))[:12]
 
     return Result(answer=answer, passages=passages, queries=queries,
-                  usage=usage, dropped_citations=dropped)
+                  usage=usage, dropped_citations=dropped, other_vehicle_specs=other)

@@ -181,6 +181,26 @@ torque" returned only the oil). Regression test: `multipart-oil-and-torque`.
 procedure). Without `figures`, the model writes a spec whose value is "see
 Fig 15", which renders in 30px type as though it were a torque.
 
+**The answer reads top-down the way the job is done** (the user's request,
+2026-10-08): Answer, Procedure, Figures, then Specifications, caveats,
+sources. It used to lead with specs.
+
+**Only the chosen car's values, checked after the model.** The user typed
+"2001 E 320 4MATIC" (W210, M112) and got torque values for every W210
+engine: a page listing M112, M113 and OM613 rows passes the SQL engine
+filter because it names the M112 too, and the model copied every row.
+`ANSWER_SYSTEM` now says to give only this vehicle's rows, and
+`query._drop_other_vehicles()` enforces it like the citation check: a spec
+whose `applicability` (+ name) names engines (`M113`, `OM 613`, `engines
+112, 113`, `113.940`) or model codes of this series (`210.082`) and none of
+the car's is removed. Unnamed, "all engines" and anything with "except" stay.
+Only when a car or engine is chosen (`vehicle_codes()` is None for the whole
+generation). Removed specs come back as `other_vehicle_specs` and render
+collapsed ("2 values for other engines or models — not your car, hidden");
+if nothing else is left the answer becomes not-found. Tests in
+`test_records.py` ("answers keep only the chosen car's values"). **Not yet
+tried on a paid answer.**
+
 **Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert
 units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part
@@ -626,6 +646,20 @@ M276" for a 2012-13 E 350) + `year`; the answer model is told all three. A
 VIN in the same box resolves the same way. Non-US variants are listed by
 name ("not a US model") under their generation's years.
 
+**Body style: one model per body (2026-10-08).** WIS sells the W210 sedan
+(210.082) and wagon (210.282) under one name, "E 320 4MATIC", so the user
+could not pick their wagon. `parse_vehicles.py` now writes `body_by_bm` from
+`ASRA_Typkennzahl` (already pulled; joined on the type-number key columns
+both tables share, language chosen by which names most bodies; it prints
+what it used and the W210 example -- **check that line**, the join was
+written without the real TSVs at hand). The importer's `split_by_body()`
+turns a name spanning bodies into "E 320 4MATIC Sedan" / "... Wagon", each
+with only its own Baumuster, so codes, US years, VIN prefixes and the answer
+label follow. The car box matches "wagon", "estate", "sedan", "cabriolet".
+Variant positions shift, so the remembered-pick keys are now `.v3`. To land
+on the real index (no VM needed): `python extractor/parse_vehicles.py`, then
+`python rebuild_wis.py`.
+
 **Fixed 2026-10-08: variant indexes were wrong since the variant picker
 shipped.** The UI sorted each generation's variants by name *in place* and
 sent the sorted position; the server indexes the stored order. Choosing "E
@@ -969,6 +1003,11 @@ pass, known-bad guards 33 -> 12.
    parser failed it too (973 of 3,000 sampled). Fixed; on that sample both
    parsers lose 0 words. The full 18-minute dry-run has not been re-run
    since the fix.
+
+6. **Sedan/wagon split and the other-engine filter are built but not run on
+   the real data** (see their sections). Next: `parse_vehicles.py` (read
+   its "body styles" lines), `rebuild_wis.py`, `test_ui_picks.py`,
+   `eval_wis.py`; then one scoped paid answer for a W210 wagon.
 
 ## Working style the user prefers
 

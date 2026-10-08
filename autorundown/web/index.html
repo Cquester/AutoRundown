@@ -413,8 +413,11 @@ const anyYear = v => !v._years.length && v._variants.length > 0;
 const label = v => [v.year_range, v.model].filter(Boolean).join(' ') || v.doc_id;
 
 // v2: variant indexes saved before 2026-10-08 were positions in a name-sorted
-// copy and now point at other cars; the new key drops them
-const REMEMBERED = 'autorundown.vehicle.v2';
+// copy and now point at other cars; the new key drops them.
+// v3: a sales name spanning bodies is now one variant per body ("E 320
+// 4MATIC Sedan" / "... Wagon"), which shifts the positions after it.
+const REMEMBERED = 'autorundown.vehicle.v3';
+const CARPICK = 'autorundown.carPick.v3';
 function remember(id) { try { localStorage.setItem(REMEMBERED, id); } catch (e) {} }
 function remembered() { try { return localStorage.getItem(REMEMBERED); } catch (e) { return null; } }
 
@@ -437,7 +440,7 @@ async function loadVehicles() {
   buildCarIndex();
   // bring back the last car typed in the box (its engine/year live outside the dropdowns)
   try {
-    const saved = JSON.parse(localStorage.getItem('autorundown.carPick') || 'null');
+    const saved = JSON.parse(localStorage.getItem(CARPICK) || 'null');
     if (saved && saved.doc === $('#vehicle').value) {
       carPick = {engine: saved.engine, year: saved.year, label: saved.label, sub: saved.sub};
     }
@@ -579,7 +582,7 @@ const engineSel = () => {
 const yearSel = () => (carPick && carPick.year) || null;
 function clearCarPick() {
   carPick = null;
-  try { localStorage.removeItem('autorundown.carPick'); } catch (_) {}
+  try { localStorage.removeItem(CARPICK); } catch (_) {}
   setTimeout(() => { $('#carInput').value = currentCarLabel(); }, 0);
 }
 function currentCarLabel() {
@@ -605,6 +608,10 @@ const yearsIn = s => String(s || '').split(',').flatMap(part => {
   const out = []; for (let y = a; y <= (b || a); y++) out.push(y); return out;
 });
 const compact = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+// what people call a body: "Wagon" is Mercedes' T-Model / Estate
+const BODY_WORDS = {Sedan: 'sedan saloon', Wagon: 'wagon estate tmodel kombi',
+                    Coupe: 'coupe', Convertible: 'convertible cabriolet cabrio',
+                    Roadster: 'roadster', 'Shooting Brake': 'shootingbrake wagon'};
 // "E 500/550 4MATIC" is Mercedes' name for what a US owner calls an E550
 const nameAliases = n => {
   const m = String(n).match(/^(.*?)(\d{3})\/(\d{3})(.*)$/);
@@ -627,7 +634,7 @@ function buildCarIndex() {
                    hay: compact(`${make} ${v.model}`)});
     v._variants.forEach((x, i) => {
       const hayBase = compact(`${make} ${v.model} ${nameAliases(x.name).join(' ')} `
-                              + `${(x.us_trims || []).join(' ')}`);
+                              + `${(x.us_trims || []).join(' ')} ${BODY_WORDS[x.body] || ''}`);
       const famLabel = fams => fams.map(f => (x.engine_families || {})[f] || `Engine ${f}`).join(' or ');
       const usYears = new Set(Object.values(x.us_years || {}).flatMap(yearsIn));
       if (usYears.size) {
@@ -680,7 +687,7 @@ function applyCar(e, typedYear) {
   $('#year').value = ''; $('#make').value = '';
   refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
   carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub};
-  try { localStorage.setItem('autorundown.carPick', JSON.stringify({...carPick, doc: e.doc, variant: e.variant})); } catch (_) {}
+  try { localStorage.setItem(CARPICK, JSON.stringify({...carPick, doc: e.doc, variant: e.variant})); } catch (_) {}
   $('#carInput').value = e.label;
   $('#carList').hidden = true;
   showScope(); loadConnectors();
@@ -1031,30 +1038,32 @@ function renderAnswer(d) {
       <div class="muted" style="margin-top:6px">${esc(d.caveats) || 'The manual pages searched did not contain this.'}</div>
     </div></div>`;
   } else {
-    // Specs lead: they are the answer people came for, and they should be
-    // readable at arm's length without wading through prose first.
+    // The answer and the procedure lead, the figures that go with the steps
+    // next, the spec values last -- the user asked for "procedure and AI
+    // description on top, torque specs on the bottom", reading down the way
+    // the job is done.
     h += `<div class="card">`;
-    if (d.specs.length) {
-      h += `<div class="sechead">Specification${d.specs.length > 1 ? 's' : ''}</div>`;
-      h += d.specs.map(specHtml).join('');
-    }
-    // figures next: for a tightening sequence the picture IS the answer,
-    // so it belongs beside the spec, not buried in the source pane
-    if (d.figures?.length) {
-      h += `<div class="sechead">Figure${d.figures.length > 1 ? 's' : ''}</div>`;
-      h += d.figures.map(figureHtml).join('');
+    if (d.answer) {
+      h += `<div class="sechead">Answer</div><div class="answer">`
+         + esc(d.answer).split(/\n{2,}|(?<=\.)\s(?=[A-Z])/)
+             .filter(s => s.trim())
+             .map(s => `<p style="margin:8px 0">${s.trim()}</p>`).join('')
+         + `</div>`;
     }
     if (d.steps?.length) {
       h += `<div class="sechead">Procedure</div><ol class="steps">`
          + d.steps.map(s => `<li>${inline(s)}</li>`).join('')
          + `</ol>`;
     }
-    if (d.answer) {
-      h += `<div class="sechead">Detail</div><div class="answer">`
-         + esc(d.answer).split(/\n{2,}|(?<=\.)\s(?=[A-Z])/)
-             .filter(s => s.trim())
-             .map(s => `<p style="margin:8px 0">${s.trim()}</p>`).join('')
-         + `</div>`;
+    // for a tightening sequence the picture IS the answer, so it stays in
+    // the answer card, not buried in the source pane
+    if (d.figures?.length) {
+      h += `<div class="sechead">Figure${d.figures.length > 1 ? 's' : ''}</div>`;
+      h += d.figures.map(figureHtml).join('');
+    }
+    if (d.specs.length) {
+      h += `<div class="sechead">Specification${d.specs.length > 1 ? 's' : ''}</div>`;
+      h += d.specs.map(specHtml).join('');
     }
     // caveats matter but are usually long; keep them one tap away
     if (d.caveats) {
@@ -1073,6 +1082,18 @@ function renderAnswer(d) {
       original page before you tighten, fill, wire or replace anything.
       Use at your own risk.</div>`;
     h += `</div>`;
+  }
+  // specs the model gave for the series' other engines / models, removed by
+  // the server (query._drop_other_vehicles): one tap away, never silent
+  if (d.other_vehicle_specs?.length) {
+    const n = d.other_vehicle_specs.length;
+    h += `<div class="card"><details class="caveat"><summary>${n} value${n > 1 ? 's' : ''} for other `
+      + `engines or models — not your car, hidden</summary>`
+      + d.other_vehicle_specs.map(s => `<div class="muted" style="margin:6px 0">`
+          + `${esc(s.name)}: ${esc(s.value)} <i>(${esc(s.applicability)})</i> — ${esc(s.reason)}`
+          + ` ${(s.source_pages || []).map(p => `<button class="pagelink" onclick="showPage('${esc(p)}')">`
+                                               + `page ${esc(p)}</button>`).join('')}</div>`).join('')
+      + `</details></div>`;
   }
   if (d.dropped_citations?.length) {
     h += `<div class="card"><div class="warnbox"><strong>Unverifiable citations removed</strong>
