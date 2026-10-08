@@ -293,7 +293,7 @@ def create_app(index_path: str) -> FastAPI:
         except OSError:
             dirs = []
         return {"path": str(p), "parent": str(p.parent) if p.parent != p else "",
-                "dirs": dirs[:500], "detected": importer_jobs.describe(p)}
+                "dirs": dirs[:500], "detected": importer_jobs.describe(p, app.state.index_path)}
 
     @app.get("/api/vms")
     def api_vms(request: Request) -> dict:
@@ -327,7 +327,7 @@ def create_app(index_path: str) -> FastAPI:
             raise HTTPException(400, f"Folder not found: {p}")
         if body.mode not in ("add", "rebuild_wis"):
             raise HTTPException(400, f"unknown mode {body.mode!r}")
-        if body.mode == "rebuild_wis" and not importer_jobs.can_rebuild_wis():
+        if body.mode == "rebuild_wis" and not importer_jobs.can_rebuild_wis(app.state.index_path):
             raise HTTPException(400, "No pre-WIS backup (index.before-wis.db) to rebuild from.")
         try:
             return jobs.start(p, app.state.index_path, body.mode)

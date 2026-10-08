@@ -1,0 +1,62 @@
+<!--
+  AutoRundown MSI (WiX v5). Built by build.ps1, which passes:
+    Version  - from autorundown/__init__.py
+    StageDir - the embeddable Python + app tree to install
+
+  Per-user: installs to %LOCALAPPDATA%\Programs\AutoRundown with no UAC
+  prompt, and Python can write there. Settings, the index and the spend log
+  live in %USERPROFILE%\.autorundown (autorundown/config.py) and are never
+  touched by install, upgrade or uninstall.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="AutoRundown"
+           Manufacturer="cquester"
+           Version="$(Version)"
+           UpgradeCode="6F1B2E9C-4A57-4D3B-9C8E-2B7A1D5E0F43"
+           Scope="perUser"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of AutoRundown is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Cquester/AutoRundown" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="AutoRundown" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(StageDir)\**" />
+    </ComponentGroup>
+
+    <!-- python.exe, not pythonw.exe: the server runs in its own window, and
+         closing that window is how the user stops it. -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="Shortcuts">
+        <Shortcut Id="StartMenuShortcut" Name="AutoRundown"
+                  Description="Search your repair manuals"
+                  Target="[INSTALLFOLDER]python\python.exe"
+                  Arguments="-m autorundown.launcher"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="AutoRundown"
+                  Description="Search your repair manuals"
+                  Target="[INSTALLFOLDER]python\python.exe"
+                  Arguments="-m autorundown.launcher"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveProgramsDir" Directory="ProgramsDir" On="uninstall" />
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\AutoRundown" Name="installed"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="Main" Title="AutoRundown">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="Shortcuts" />
+    </Feature>
+  </Package>
+</Wix>

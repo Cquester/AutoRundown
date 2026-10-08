@@ -1,0 +1,103 @@
+# Build the Windows MSI, install it on a clean runner, check the installed
+# app actually works (index a sample corpus, serve it, search it), then
+# uninstall and check nothing is left. Free: no Anthropic API calls.
+name: Windows installer
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    tags: ["v*"]
+    paths:
+      - "autorundown/**"
+      - "*.py"
+      - "requirements.txt"
+      - "packaging/windows/**"
+      - ".github/workflows/windows-msi.yml"
+  workflow_dispatch:
+
+jobs:
+  msi:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 5.0.2
+
+      - name: Build MSI
+        run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+
+      - name: Install MSI (silent, per-user)
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$msi`" /qn /l*v install.log"
+          if ($p.ExitCode) { Get-Content install.log -Tail 40; throw "install failed: $($p.ExitCode)" }
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          foreach ($f in "python\python.exe", "app\ingest.py", "app\autorundown\web\index.html") {
+            if (-not (Test-Path "$inst\$f")) { throw "missing after install: $f" }
+          }
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
+          if (-not (Test-Path $lnk)) { throw "no Start menu shortcut" }
+
+      - name: Smoke test the installed app
+        shell: pwsh
+        run: |
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          $py = "$inst\python\python.exe"
+          $env:AUTORUNDOWN_HOME = "$env:RUNNER_TEMP\ar-home"
+          # the sample corpus generator is a dev tool, not installed: run it
+          # from the checkout, then index and serve with the installed Python
+          python make_sample_corpus.py
+          & $py "$inst\app\ingest.py" --archive sample_corpus --index "$env:AUTORUNDOWN_HOME\index.db"
+          if ($LASTEXITCODE) { throw "ingest failed" }
+          # what the shortcut runs, from the install folder like the shortcut
+          $srv = Start-Process $py -WorkingDirectory $inst -PassThru -NoNewWindow `
+                   -ArgumentList "-m autorundown.launcher --no-browser --port 8756"
+          $ok = $false
+          foreach ($i in 1..60) {
+            try { $stats = Invoke-RestMethod http://127.0.0.1:8756/api/stats; $ok = $true; break }
+            catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $ok) { throw "server did not start" }
+          $stats | Format-List
+          if ($stats.vehicles -lt 1 -or $stats.pages -lt 1) { throw "empty index served" }
+          $v = (Invoke-RestMethod http://127.0.0.1:8756/api/vehicles)[0]
+          $hits = @(Invoke-RestMethod "http://127.0.0.1:8756/api/search?doc_id=$($v.doc_id)&q=torque")
+          "search 'torque' on $($v.doc_id): $($hits.Count) result(s)"
+          if ($hits.Count -lt 1) { throw "search found nothing" }
+          $page = Invoke-WebRequest http://127.0.0.1:8756/ -UseBasicParsing
+          if ($page.Content -notmatch "<html") { throw "UI not served" }
+          # a second start must find the running server and exit at once
+          & $py -m autorundown.launcher --no-browser --port 8756
+          if ($LASTEXITCODE) { throw "second launch failed" }
+          Stop-Process -Id $srv.Id -Force
+
+      - name: Uninstall
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn /l*v uninstall.log"
+          if ($p.ExitCode) { Get-Content uninstall.log -Tail 40; throw "uninstall failed: $($p.ExitCode)" }
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          if (Test-Path $inst) {
+            Get-ChildItem $inst -Recurse | Select-Object -First 20 FullName
+            throw "files left behind after uninstall"
+          }
+          if (-not (Test-Path "$env:RUNNER_TEMP\ar-home\index.db")) { throw "uninstall touched user data" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoRundown-msi
+          path: dist/*.msi
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: msi-logs
+          path: "*.log"

@@ -42,7 +42,41 @@ built to prefer it over a plausible guess.
 
 ---
 
-## Requirements
+## Install
+
+### Windows: the installer
+
+Download `AutoRundown-<version>.msi` (from the repo's Releases, or the
+`AutoRundown-msi` artifact of the "Windows installer" GitHub Actions run) and
+double-click it. It needs no admin rights and no Python. It installs for your
+user only, in `%LOCALAPPDATA%\Programs\AutoRundown`, and adds AutoRundown to
+the Start menu and desktop.
+
+Starting AutoRundown opens a console window (the server) and your browser.
+**Close the window to stop it.** The first time, Windows Firewall asks whether
+to allow it on private networks: allow it to use AutoRundown from a phone on
+your wifi, or decline to keep it on this PC only. With no manuals indexed yet,
+the import dialog opens by itself. Set your API key under Settings.
+
+- **"Windows protected your PC"**: the installer is not code-signed yet. Click
+  *More info* -> *Run anyway*.
+- **Your data is not in the install folder.** The index, settings and spend
+  log are in `%USERPROFILE%\.autorundown`. Upgrading (just run a newer
+  `.msi`) or uninstalling (Settings -> Apps) never touches them.
+- **Importing from a Mercedes VM** needs the WIS extractor, which is not part
+  of the installer. Set `extractor_dir` in `%USERPROFILE%\.autorundown\config.json`
+  to its folder.
+- The command-line tools are installed too:
+  `"%LOCALAPPDATA%\Programs\AutoRundown\python\python.exe" "%LOCALAPPDATA%\Programs\AutoRundown\app\ask.py" --usage`.
+
+To build the installer yourself, see `packaging/windows/build.ps1`.
+
+### macOS and Linux: run from source
+
+There is no installer for these yet. Install Python and run the commands
+below. Everything works the same, including the phone access.
+
+### Requirements (running from source)
 
 - Python 3.10+
 - An [Anthropic API key](https://console.anthropic.com) (yours — billing and
@@ -59,11 +93,17 @@ No OCR engine, no GPU, no vector database, no cloud services beyond the LLM call
 
 ---
 
-## Quick start
+## Quick start (from source)
 
 ```bash
+git clone https://github.com/Cquester/AutoRundown.git
+cd AutoRundown
+python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+(On macOS, `python3` comes with the Xcode command-line tools or from
+python.org. On Linux, use your distribution's `python3` and `python3-venv`.)
 
 Build the index from your archive directory:
 

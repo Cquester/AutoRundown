@@ -6,7 +6,8 @@ API. Read `README.md` for the product description — this file is the working
 context: what is already decided, what is already tried, and what will break.
 
 **Status: working end to end.** Importer, index, retrieval, Claude query
-layer, web UI. Not built: installer, packaging, tests beyond `eval.py`.
+layer, web UI, Windows MSI (see "Windows installer"). Not built: macOS/Linux
+packages (they run from source, by the user's decision), code signing.
 
 ---
 
@@ -48,6 +49,7 @@ python test_records.py                            # FREE, `records` importer
 python eval_wis.py                                # FREE, WIS retrieval + wrong-vehicle guards
 python make_sample_corpus.py                      # FREE, stand-in WIS corpus
 python test_ui_picks.py                           # FREE, UI sends the car it shows (~45 s)
+python -m autorundown.launcher                    # what the Windows shortcut runs
 ```
 
 Mercedes WIS, end to end from this one session (VM -> index):
@@ -801,6 +803,40 @@ second cold boot before giving up — one boot after 12 clean batches never
 brought the DB up in 10 min. Conversion sorts largest-first, so its ETA
 reads ~3 h while on the DXF/SVG diagrams and then drops; ~40 min in total.
 
+## Windows installer
+
+`packaging/windows/build.ps1` + `AutoRundown.wxs` (WiX 5) build a **per-user
+MSI** to `%LOCALAPPDATA%\Programs\AutoRundown`: no UAC prompt, and Python
+can write there. `.github/workflows/windows-msi.yml` builds it on
+`windows-latest`, installs it silently, indexes the sample corpus with the
+*installed* Python, serves and searches it, launches a second time, then
+uninstalls and checks nothing is left. It uploads the MSI as an artifact.
+macOS/Linux run from source (README), by the user's decision.
+
+- **Embeddable Python, not PyInstaller/Briefcase.** Import jobs re-run
+  `ingest.py` / `rebuild_wis.py` / `vm_pipeline.py` with `sys.executable`,
+  and a frozen exe would launch itself. The bundle is the official
+  `python-<ver>-embed-amd64.zip` (same version as the build's Python, so pip
+  wheels match) + `pip install --target Lib/site-packages` + the source.
+- **`python3XY._pth` replaces sys.path** and stops Python adding a script's
+  own folder. Its `..\app` line is what lets `python ingest.py` import
+  `autorundown`. Anything the installed app imports must live in `app\`.
+- **User data is outside the install** (`~/.autorundown`, `config.py`), so
+  upgrade and uninstall never touch the index or the spend log. The WIS
+  backup `index.before-wis.db` sits *next to the index it belongs to*:
+  `rebuild_wis.py --index` (default: the configured index) and
+  `importer_jobs.wis_backup()`. Before 2026-10-08 both used the repo folder,
+  so a dialog rebuild ignored the served index.
+- `autorundown/launcher.py` is the shortcut target: it serves in a visible
+  console (close it to stop), opens the browser once the server answers, and
+  if one is already running it only opens the browser.
+- Version: `autorundown/__init__.py` `__version__`; bump it per release (MSI
+  MajorUpgrade needs a higher version to replace an install).
+- The WIS extractor is not bundled; the installed app finds it only through
+  `extractor_dir` in config.
+- Unsigned: SmartScreen warns (README says what to click). Signing needs a
+  certificate; nothing in the build does it yet.
+
 ## Archive-specific traps
 
 These are properties of the archive, discovered the hard way. A flat or
@@ -871,7 +907,6 @@ pass, known-bad guards 33 -> 12.
 - Sibling-engine pages exist in the main tree identified only by their title
   (e.g. "Generator - 2.7L EcoBoost"). The prompt requires flagging
   applicability, but this is prompt-level, not structural.
-- No installer or packaging.
 - The spend log lives inside the index. `rebuild_wis.py` carries it across a
   WIS rebuild; any *other* way of rebuilding (deleting `index.db`, copying a
   backup over it) still loses it.

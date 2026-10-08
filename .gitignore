@@ -13,3 +13,5 @@ index.v1*.db*
 tools/out/
 tools/.us_years_cache.json
 *.log
+build/
+dist/
