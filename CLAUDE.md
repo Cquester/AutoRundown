@@ -858,7 +858,7 @@ pass, known-bad guards 33 -> 12.
    a `/api/original/<doc_id>/<page_no>` route + an "Original layout" button
    on WIS pages, an offset index for `bodies.pack` (don't load 468 MB per
    request), then check torque tables and wiring legends.
-2. **Extractor is not in this repo** — it lives in
+2. **Extractor: two copies.** `extractor/` in this repo holds the source and docs (see `docs/MERCEDES_WIS_EXTRACTION.md`), copied 2026-10-08; the working copy the site runs is in
    `../Mercedes Documents/autorundown_extractor` (vm_pipeline.py,
    pull_*.js, parse*.py, apply_*.py, convert_images.py). The site finds it
    via `config.extractor_dir` or that sibling path. Decide with the user
