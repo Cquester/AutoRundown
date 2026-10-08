@@ -1,0 +1,1432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AutoRundown</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#12141a">
+<style>
+  :root{
+    --bg:#12141a; --panel:#191c24; --panel-2:#212632; --line:#2c323f;
+    --text:#e8ecf4; --muted:#9aa4b8; --accent:#ffb02e; --accent-dim:#7a5410;
+    --good:#4ade80; --warn:#fb923c; --bad:#f87171;
+    --tap:48px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-text-size-adjust:100%;
+  }
+  header{
+    display:flex; gap:10px; align-items:center; padding:10px 14px; flex-wrap:wrap;
+    background:var(--panel); border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:20;
+  }
+  .brand{font-weight:700; letter-spacing:.3px; white-space:nowrap}
+  .brand span{color:var(--accent)}
+  select,input,button,textarea{font:inherit; color:inherit}
+  select,input,textarea{
+    background:var(--panel-2); border:1px solid var(--line);
+    border-radius:10px; padding:12px; min-height:var(--tap); width:100%;
+  }
+  select{min-width:0}
+  /* compact enough to sit inline with the toolbar chips */
+  select.inline{width:auto; min-height:40px; padding:6px 10px; font-size:14px}
+  /* year / make / model. Wraps to a second row on a phone rather than
+     squeezing three selects into one line */
+  .carbox{position:relative; display:flex; gap:8px; flex:1; min-width:0}
+  .carbox input{flex:1; min-width:0}
+  .suggest{position:absolute; top:calc(100% + 4px); left:0; right:70px; z-index:30;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    max-height:60vh; overflow:auto; box-shadow:0 10px 30px #0008}
+  .suggest .opt{padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--line)}
+  .suggest .opt:last-child{border-bottom:0}
+  .suggest .opt.on, .suggest .opt:hover{background:#ffffff10}
+  .suggest .opt .sub{color:var(--muted); font-size:13px}
+  .picker{display:flex; gap:8px; flex:1 0 100%; min-width:0; flex-wrap:wrap}
+  .picker[hidden]{display:none}
+  .picker #year{flex:0 1 124px}
+  .picker #make{flex:0 1 160px}
+  .picker #vehicle{flex:1 1 190px}
+  .picker #variant{flex:0 1 190px}
+  .picker button{padding:0 14px}
+  /* on a phone the brand and gear keep the top line and the picker takes the
+     full width below: year+make on one row, model+VIN on the next */
+  @media (max-width:700px){
+    header{flex-wrap:wrap}
+    .brand{order:1}
+    #settingsBtn{order:2; margin-left:auto}
+    .picker{order:3; flex:1 0 100%}
+    .picker #year,.picker #make{flex:1 1 calc(50% - 4px)}
+    .picker #vehicle{flex:1 1 100%}
+    .picker #variant{flex:1 1 calc(100% - 74px)}
+    .picker #vinBtn{flex:0 0 auto}
+  }
+  .vinrow{display:flex; gap:8px; align-items:flex-start}
+  .vinrow input{font-variant-numeric:tabular-nums; letter-spacing:.5px}
+  .vinnote{margin-top:10px; font-size:14px; color:var(--muted)}
+  button{
+    background:var(--accent); color:#20160a; border:0; border-radius:10px;
+    padding:0 20px; min-height:var(--tap); font-weight:700; cursor:pointer;
+    white-space:nowrap;
+  }
+  button.ghost{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
+  button:disabled{opacity:.5; cursor:default}
+
+  main{display:grid; grid-template-columns:1fr 1fr; height:calc(100% - 62px)}
+  @media (max-width:900px){ main{grid-template-columns:1fr} }
+  .pane{overflow-y:auto; padding:16px; -webkit-overflow-scrolling:touch}
+  #right{border-left:1px solid var(--line); background:#141821}
+  @media (max-width:900px){
+    #right{
+      position:fixed; inset:62px 0 0 0; z-index:15; border-left:0;
+      transform:translateX(100%); transition:transform .22s ease;
+    }
+    #right.open{transform:translateX(0)}
+  }
+  .askbar{display:flex; gap:10px; margin-bottom:14px}
+  .askbar textarea{resize:vertical; min-height:var(--tap); max-height:180px}
+  .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  .muted{color:var(--muted); font-size:14px}
+  .chip{
+    display:inline-flex; align-items:center; gap:6px; background:var(--panel-2);
+    border:1px solid var(--line); border-radius:999px; padding:6px 12px;
+    font-size:13px; color:var(--muted);
+  }
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:16px; margin-bottom:14px;
+  }
+  .answer{font-size:17px}
+  .spec{
+    background:var(--panel-2); border:1px solid var(--line);
+    border-left:4px solid var(--accent); border-radius:10px;
+    padding:14px; margin:10px 0;
+  }
+  .spec .name{color:var(--muted); font-size:14px; text-transform:uppercase; letter-spacing:.6px}
+  /* readable at arm's length, under a truck */
+  .spec .value{font-size:30px; font-weight:800; line-height:1.15; margin:4px 0}
+  .spec .appl{font-size:14px; color:var(--muted)}
+  .pagelink{
+    display:inline-block; background:var(--accent-dim); color:#ffdca8;
+    border:0; border-radius:8px; padding:8px 12px; font-size:14px;
+    font-weight:700; cursor:pointer; margin:4px 6px 0 0; min-height:36px;
+  }
+  .warnbox{border-left:4px solid var(--warn); background:#2a2015; padding:12px; border-radius:10px; margin:10px 0}
+  .errbox{border-left:4px solid var(--bad); background:#2a1717; padding:12px; border-radius:10px}
+  .notfound{border-left:4px solid var(--muted); background:var(--panel-2); padding:14px; border-radius:10px}
+  .src{font-size:15px; line-height:1.6}
+  .src p{margin:10px 0}
+  /* pipe tables from the extractor are rebuilt as real tables here */
+  .src table{border-collapse:collapse; width:100%; margin:14px 0; font-size:14px}
+  .src th,.src td{border:1px solid var(--line); padding:8px 10px;
+    text-align:left; vertical-align:top}
+  .src th{background:var(--panel-2); font-weight:700; position:sticky; top:0}
+  .src tbody tr:nth-child(even) td{background:#171b23}
+  .tablewrap{overflow-x:auto; -webkit-overflow-scrolling:touch}
+  .step{display:flex; gap:12px; margin:16px 0}
+  .step .num{
+    flex:0 0 30px; height:30px; border-radius:50%; background:var(--accent);
+    color:#20160a; font-weight:800; font-size:14px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .step .body{flex:1; min-width:0}
+  .note{
+    border-left:3px solid var(--muted); background:var(--panel-2);
+    padding:10px 12px; border-radius:8px; margin:10px 0; font-size:14px;
+  }
+  .note.warn{border-left-color:var(--warn); background:#2a2015}
+  .note b{color:var(--warn)}
+  .torque{
+    display:inline-block; background:var(--accent-dim); color:#ffdca8;
+    border-radius:6px; padding:2px 8px; font-weight:700;
+  }
+  details.caveat{margin:10px 0}
+  details.caveat summary{cursor:pointer; color:var(--warn); font-size:14px;
+    padding:8px 0; min-height:36px}
+  .sechead{
+    font-size:12px; letter-spacing:.8px; text-transform:uppercase;
+    color:var(--muted); margin:18px 0 8px; font-weight:700;
+  }
+  /* a citation should say what the page IS, not just its number */
+  .srcbtn{
+    display:flex; gap:10px; align-items:baseline; width:100%; text-align:left;
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-radius:10px; padding:10px 12px; margin:6px 0; cursor:pointer;
+    min-height:44px;
+  }
+  .srcbtn:hover{border-color:var(--accent)}
+  .srcbtn .pno{color:var(--accent); font-weight:700; font-size:13px;
+    white-space:nowrap; flex:0 0 auto}
+  .srcbtn .ptitle{font-size:14px; line-height:1.35}
+  .conn{
+    display:inline-block; background:#1d3a52; color:#8fd3ff;
+    border:1px solid #2f5c80; border-radius:6px; padding:1px 7px;
+    font-weight:700; cursor:pointer; font-size:.95em;
+  }
+
+  .conn:hover{background:#26506f; border-color:#4a8cbf}
+  .connhead{
+    display:flex; gap:10px; align-items:center; margin:4px 0 10px;
+    font-size:20px; font-weight:800;
+  }
+  .connkind{
+    font-size:12px; letter-spacing:.6px; text-transform:uppercase;
+    color:var(--muted); font-weight:700; margin:16px 0 6px;
+  }
+  .xref{
+    color:var(--accent); cursor:pointer; text-decoration:underline;
+    text-underline-offset:2px; font-weight:600;
+  }
+  .xref:hover{background:var(--accent-dim); border-radius:4px}
+  .figure{margin:12px 0}
+  .figure .cap{font-size:14px; color:var(--muted); margin-bottom:6px}
+  .figure .cap b{color:var(--text)}
+  ol.steps{margin:8px 0; padding-left:0; list-style:none; counter-reset:s}
+  ol.steps li{
+    counter-increment:s; position:relative; padding-left:38px; margin:12px 0;
+    font-size:15px; line-height:1.5;
+  }
+  ol.steps li::before{
+    content:counter(s); position:absolute; left:0; top:0;
+    width:28px; height:28px; border-radius:50%; background:var(--accent);
+    color:#20160a; font-weight:800; font-size:13px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  img.diagram{max-width:100%; border-radius:10px; background:#fff; margin:8px 0; display:block}
+  .hit{padding:12px; border-bottom:1px solid var(--line); cursor:pointer}
+  .hit:hover{background:var(--panel-2)}
+  .hit .t{font-weight:600}
+  .hit .s{font-size:13px; color:var(--muted)}
+  .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--accent);
+    border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  dialog{
+    background:var(--panel); color:var(--text); border:1px solid var(--line);
+    border-radius:14px; padding:20px; width:min(520px,92vw);
+  }
+  dialog::backdrop{background:#000a}
+  #scopeNote.pickhint{color:var(--accent); font-weight:600}
+  #importDlg{width:min(720px,94vw)}
+  #importDlg input[type=radio], #importDlg input[type=checkbox]{
+    width:auto; height:auto; padding:0; margin:0 6px 0 0; vertical-align:middle; accent-color:var(--accent)}
+  #importDlg label:has(> input[type=radio]), #importDlg label:has(> input[type=checkbox]){
+    display:inline-flex; align-items:center; color:var(--text)}
+  #impSteps{gap:6px 16px}
+  .dirlist{max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px}
+  .dirlist button{display:block; width:100%; text-align:left; background:none; border:0;
+    border-bottom:1px solid var(--line); color:var(--text); padding:7px 10px; font:inherit; cursor:pointer}
+  .dirlist button:hover{background:#ffffff10}
+  .implog{max-height:260px; overflow:auto; background:#0008; border-radius:10px; padding:10px;
+    font:12px/1.4 ui-monospace,Consolas,monospace; white-space:pre-wrap; margin-top:10px}
+  .detected{margin-top:10px; padding:10px; border-radius:10px; background:#ffffff0c; font-size:14px}
+  label{display:block; margin:12px 0 6px; font-size:14px; color:var(--muted)}
+  .closebtn{position:absolute; right:14px; top:70px; z-index:16}
+  @media (min-width:901px){ .closebtn{display:none} }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Auto<span>Rundown</span></div>
+  <div class="carbox">
+    <input id="carInput" type="text" autocomplete="off" spellcheck="false"
+           placeholder="Your car — e.g. 2009 E550 4MATIC — or paste a VIN" aria-label="Vehicle">
+    <div class="suggest" id="carList" hidden></div>
+    <button class="ghost" id="browseBtn" title="Pick from lists instead">Browse</button>
+  </div>
+  <div class="picker" id="picker" hidden>
+    <select id="year" aria-label="Year"></select>
+    <select id="make" aria-label="Make"></select>
+    <select id="vehicle" aria-label="Model"></select>
+    <select id="variant" aria-label="Variant (optional)" hidden></select>
+    <button class="ghost" id="vinBtn" title="Find the vehicle from a VIN">VIN</button>
+  </div>
+  <button class="ghost" id="settingsBtn" title="Settings">&#9881;</button>
+</header>
+
+<main>
+  <section class="pane" id="left">
+    <div class="askbar">
+      <textarea id="q" rows="1" placeholder="Torque for the front caliper anchor plate bolts?"></textarea>
+      <button id="askBtn">Ask</button>
+    </div>
+    <div class="row" style="margin-bottom:14px">
+      <button class="ghost" id="searchBtn" style="padding:0 14px">Keyword search</button>
+      <select id="model" class="inline" aria-label="Model"></select>
+      <label class="chip" style="cursor:pointer">
+        <input type="checkbox" id="variants" style="width:auto;min-height:auto;padding:0">
+        include other trims/engines
+      </label>
+      <span class="chip" id="cost">$0.0000 this session</span>
+    </div>
+    <div class="muted" id="scopeNote" hidden style="margin:-6px 0 12px; font-size:14px"></div>
+    <div id="out"></div>
+  </section>
+
+  <section class="pane" id="right">
+    <button class="ghost closebtn" onclick="document.getElementById('right').classList.remove('open')">Close</button>
+    <div id="srcout"><p class="muted">Cited pages and diagrams appear here.</p></div>
+  </section>
+</main>
+
+<dialog id="vinDlg">
+  <h3 style="margin:0 0 4px">Find by VIN</h3>
+  <div class="muted">Decodes US VINs and European FINs using Mercedes' own
+    tables. Nothing is sent anywhere &mdash; the lookup is local.</div>
+  <label for="vinInput">VIN (the full 17 characters also gives the model year)</label>
+  <div class="vinrow">
+    <input id="vinInput" type="text" maxlength="17" autocapitalize="characters"
+           spellcheck="false" placeholder="WDD2040081A123456">
+    <button id="vinFind">Find</button>
+  </div>
+  <div class="vinnote" id="vinNote"></div>
+  <div class="row" style="margin-top:16px; justify-content:flex-end">
+    <button class="ghost" id="vinClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="importDlg">
+  <h3 style="margin:0 0 4px">Import data</h3>
+  <p class="muted" id="impIntro" style="margin:0">Pick a folder on this PC that holds manuals:
+    an HTML manual archive, a Mercedes WIS corpus from the extractor (records.jsonl + manifest.json),
+    or a folder of HTML / text / PDF files. The format is detected for you.</p>
+  <div class="row" style="margin-top:12px">
+    <label style="margin:0"><input type="radio" name="impSrc" value="folder" checked> From a folder</label>
+    <label style="margin:0 0 0 14px"><input type="radio" name="impSrc" value="vm"> From a Mercedes virtual machine</label>
+  </div>
+  <div id="impFolder">
+    <label for="impPath">Folder</label>
+    <div class="row"><input id="impPath" type="text" style="flex:1">
+      <button class="ghost" id="impGo">Open</button><button class="ghost" id="impUp" title="Parent folder">Up</button></div>
+    <div class="dirlist" id="impDirs"></div>
+    <div class="detected" id="impDetected"></div>
+    <div id="impModes" style="margin-top:10px"></div>
+  </div>
+  <div id="impVmPanel" hidden>
+    <label for="impVm">VirtualBox VM</label>
+    <select id="impVm"></select>
+    <div class="detected" id="impVmNote"></div>
+    <label>Steps (each one resumes where it stopped)</label>
+    <div class="row" id="impSteps">
+      <label style="margin:0"><input type="checkbox" value="docs" checked> Documents</label>
+      <label style="margin:0"><input type="checkbox" value="applic" checked> Model links</label>
+      <label style="margin:0"><input type="checkbox" value="vehicles" checked> Vehicles &amp; VIN tables</label>
+      <label style="margin:0"><input type="checkbox" value="images" checked> Images</label>
+      <label style="margin:0"><input type="checkbox" value="build" checked> Build corpus</label>
+    </div>
+    <p class="muted" style="margin:10px 0 0">Starts the VM headless, reads the Mercedes database (read only),
+      then shuts it down and rebuilds the Mercedes part of the index. It never takes snapshots or changes
+      the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
+      off in between); a re-run skips what is already pulled.</p>
+  </div>
+  <div class="implog" id="impLog" hidden></div>
+  <div class="row" style="margin-top:16px; justify-content:flex-end">
+    <span class="muted" id="impStatus" style="margin-right:auto"></span>
+    <button class="ghost" id="impClose">Close</button>
+    <button id="impStart">Import</button>
+  </div>
+</dialog>
+
+<dialog id="settings">
+  <h3 style="margin:0 0 4px">Settings</h3>
+  <p class="muted" style="margin:0">Stored locally in ~/.autorundown/config.json. The key is sent only to Anthropic.</p>
+  <label for="sKey">Anthropic API key</label>
+  <input id="sKey" type="password" placeholder="sk-ant-...">
+  <label for="sModel">Model</label>
+  <select id="sModel"></select>
+  <div class="muted" id="modelPrice" style="margin-top:6px"></div>
+  <label for="sArchive">Archive directory</label>
+  <input id="sArchive" type="text">
+  <label for="sIndex">Index path</label>
+  <input id="sIndex" type="text">
+  <label>Data</label>
+  <button class="ghost" id="openImport" type="button">Import data…</button>
+  <span class="muted" style="margin-left:8px">add manuals, or rebuild the Mercedes WIS data</span>
+  <div class="row" style="margin-top:18px; justify-content:flex-end">
+    <button class="ghost" onclick="document.getElementById('settings').close()">Cancel</button>
+    <button id="saveBtn">Save</button>
+  </div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const out = $('#out'), srcout = $('#srcout');
+let vehicles = [], sessionCost = 0, modelList = [];
+
+const esc = s => (s ?? '').replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(()=>({detail:r.statusText}))).detail);
+  return r.json();
+}
+
+// "2007-2014" | "2016+" | "2015" | "" -> the years that vehicle covers.
+// A vehicle with no year (the unscoped bucket) matches "Any year" only.
+// Years are clamped: the source catalogue has at least one transposed date
+// (series 124 stamped 1194 for 1984), and one of those would otherwise put
+// eight centuries of junk in the dropdown.
+const YEAR_MIN = 1900, YEAR_MAX = new Date().getFullYear() + 2;
+const sane = y => y >= YEAR_MIN && y <= YEAR_MAX;
+
+// Exact years, no padding. Padding a year each side put the W123 (ended 1986)
+// under 1987 -- a list that shows cars that didn't exist that year is wrong,
+// not safe.
+function yearsOf(v) {
+  const r = String(v.year_range || '').trim();
+  const span = (a, b) => Array.from({length: b - a + 1}, (_, i) => a + i)
+                              .filter(sane);
+  let m;
+  if ((m = r.match(/^(\d{4})\s*-\s*(\d{4})$/))) {
+    const [a, b] = [+m[1], +m[2]];
+    if (!sane(a) || !sane(b)) return [];
+    return span(Math.min(a, b), Math.max(a, b));
+  }
+  if ((m = r.match(/^(\d{4})\s*\+$/))) {
+    if (!sane(+m[1])) return [];
+    return span(+m[1], new Date().getFullYear());
+  }
+  if ((m = r.match(/^(\d{4})$/))) return sane(+m[1]) ? span(+m[1], +m[1]) : [];
+  return [];
+}
+// A vehicle we have no production years for is shown under every year rather
+// than hidden. Only real vehicles qualify -- a series with named models.
+// Engines and components (no names) stay under "Any year": engines are
+// reached through the model you pick, and 129 of them in every year's list
+// would bury the cars.
+const anyYear = v => !v._years.length && v._variants.length > 0;
+
+// no make: it's the step before, and repeating it truncated the model name
+const label = v => [v.year_range, v.model].filter(Boolean).join(' ') || v.doc_id;
+
+// v2: variant indexes saved before 2026-10-08 were positions in a name-sorted
+// copy and now point at other cars; the new key drops them
+const REMEMBERED = 'autorundown.vehicle.v2';
+function remember(id) { try { localStorage.setItem(REMEMBERED, id); } catch (e) {} }
+function remembered() { try { return localStorage.getItem(REMEMBERED); } catch (e) { return null; } }
+
+async function loadVehicles() {
+  vehicles = await api('/api/vehicles');
+  vehicles.forEach(v => {
+    v._years = yearsOf(v);
+    try { v._variants = JSON.parse(v.variants || '[]'); } catch (e) { v._variants = []; }
+    // NOT sorted in place: a variant is sent to the server by its index, and
+    // the server indexes the stored order. Sorting here made "E 500/550
+    // 4MATIC" (28th by name) search the server's 28th entry, the E 63 AMG.
+    // Display order is sorted where the list is drawn (engineGroups).
+  });
+
+  const years = [...new Set(vehicles.flatMap(v => v._years))].sort((a, b) => b - a);
+  $('#year').innerHTML = `<option value="">Any year</option>`
+    + years.map(y => `<option value="${y}">${y}</option>`).join('');
+
+  refreshPicker(remembered());
+  buildCarIndex();
+  // bring back the last car typed in the box (its engine/year live outside the dropdowns)
+  try {
+    const saved = JSON.parse(localStorage.getItem('autorundown.carPick') || 'null');
+    if (saved && saved.doc === $('#vehicle').value) {
+      carPick = {engine: saved.engine, year: saved.year, label: saved.label, sub: saved.sub};
+    }
+  } catch (_) {}
+  $('#carInput').value = carPick ? carPick.label : currentCarLabel();
+  await loadConnectors();
+}
+
+// Year narrows make, make narrows model. Each level keeps its own selection
+// when it is still valid, so changing the year does not silently move you to
+// a different car.
+// Sources spell makes differently -- the HTML archive says "Mercedes Benz",
+// the WIS corpus "Mercedes-Benz" -- so makes are grouped on a folded key and
+// shown in the most common spelling. Presentation only; stored data is left
+// exactly as each importer wrote it.
+const makeKey = m => String(m || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+function refreshPicker(preferId) {
+  const y = $('#year').value, wantMake = $('#make').value;
+
+  const byYear = vehicles.filter(v => !y || v._years.includes(+y) || anyYear(v));
+  const spellings = {};
+  for (const v of vehicles) {
+    if (!v.make) continue;
+    const counts = (spellings[makeKey(v.make)] ??= {});
+    counts[v.make] = (counts[v.make] || 0) + 1;
+  }
+  const shownAs = k => Object.entries(spellings[k] || {})
+                             .sort((a, b) => b[1] - a[1])[0]?.[0] || k;
+  const keys = [...new Set(byYear.map(v => makeKey(v.make)).filter(Boolean))]
+               .sort((a, b) => shownAs(a).localeCompare(shownAs(b)));
+  $('#make').innerHTML = `<option value="">Any make</option>`
+    + keys.map(k => `<option value="${esc(k)}">${esc(shownAs(k))}</option>`).join('');
+  if (wantMake && keys.includes(wantMake)) $('#make').value = wantMake;
+
+  const mk = $('#make').value;
+  const shown = byYear.filter(v => !mk || makeKey(v.make) === mk);
+  const prev = $('#vehicle').value;
+  // Model = the generation ("W201 190", "R107 SL"): years are known per
+  // generation, so this list is right for the chosen year. Which variants
+  // were sold in a given year is NOT in the data (see CLAUDE.md), so the
+  // variant is a separate, optional menu -- listing them all here showed a
+  // 280 SL under 1987.
+  //
+  // Generations come first. WIS also files documents under engines ("Engine
+  // 102") and components with no model name (the 722 automatic gearbox):
+  // real buckets, not cars, so they sit in their own sections at the end.
+  const plain = v => `<option value="${esc(v.doc_id)}">${esc(label(v))}</option>`;
+  const isEngine = v => /^Engine /.test(v.model || '');
+  const isOther = v => !isEngine(v) && !v._variants.length
+    && (v.model_code || /-general$/.test(v.doc_id));
+  // dated vehicles first; ones with no known years (shown under every year)
+  // after them, rather than sorting to the top because "" sorts first
+  const cars = shown.filter(v => !isEngine(v) && !isOther(v))
+    .sort((a, b) => !a.year_range - !b.year_range);
+  const engines = shown.filter(isEngine), others = shown.filter(isOther);
+  const section = (title, list) => list.length
+    ? `<optgroup label="${esc(title)}">${list.map(plain).join('')}</optgroup>` : '';
+  $('#vehicle').innerHTML = shown.length
+    ? cars.map(plain).join('')
+      + section('Engines — documents filed by engine', engines)
+      + section('Other Mercedes documents (no model name)', others)
+    : `<option value="">no vehicle matches</option>`;
+
+  // preferId / remembered values may be "doc_id::n" (a variant): the part
+  // before "::" picks the generation, the rest the variant
+  const [wantId, wantN] = String(preferId || '').split('::');
+  const ids = [...$('#vehicle').options].map(o => o.value);
+  const hit = [wantId, prev].find(x => x && ids.includes(x));
+  if (hit) $('#vehicle').value = hit;
+  refreshVariants(hit === wantId ? wantN : undefined);
+}
+
+// The optional second step. "All variants" (the default) searches the
+// generation's manual plus every engine it was built with; one variant
+// narrows the engines to that variant's.
+// Grouped by engine, because the engine is what a choice changes in the
+// search: "Any M272 · V6 petrol" narrows to that engine's documents (and drops
+// car pages that are for other engines); a single car under it narrows the
+// same way, by its own engines. 87 flat W212 names hid that.
+function engineGroups(v) {
+  const groups = new Map();                       // family -> {label, idx[]}
+  v._variants.forEach((x, i) => {
+    const fams = Object.keys(x.engine_families || {});
+    if (!fams.length) fams.push('');
+    for (const f of fams) {
+      if (!groups.has(f)) groups.set(f, {label: f ? x.engine_families[f] : 'Other', idx: []});
+      groups.get(f).idx.push(i);
+    }
+  });
+  const byName = (i, j) => v._variants[i].name.localeCompare(v._variants[j].name, undefined, {numeric: true});
+  for (const g of groups.values()) g.idx.sort(byName);
+  return [...groups.entries()].sort((a, b) => a[1].label.localeCompare(b[1].label));
+}
+function refreshVariants(n) {
+  const v = vehicles.find(x => x.doc_id === $('#vehicle').value);
+  const sel = $('#variant');
+  if (!v || !v._variants.length) {
+    sel.innerHTML = ''; sel.hidden = true;
+  } else {
+    const groups = engineGroups(v);
+    const multi = groups.filter(([f]) => f).length > 1;
+    sel.innerHTML = `<option value="">${multi ? `All ${groups.length} engines — pick yours`
+                                              : `All variants (${v._variants.length})`}</option>`
+      + groups.map(([f, g]) => {
+          const cars = [...new Set(g.idx.map(i => v._variants[i].name))];
+          const any = f ? `<option value="e:${esc(f)}">Any ${esc(g.label)} — ${esc(cars.slice(0, 4).join(', '))}${cars.length > 4 ? '…' : ''}</option>` : '';
+          return `<optgroup label="${esc(g.label)}">${any}`
+            + g.idx.map(i => `<option value="${i}" title="${esc(v._variants[i].baumuster.join(', '))}">&nbsp;&nbsp;${esc(v._variants[i].name)}</option>`).join('')
+            + `</optgroup>`;
+        }).join('');
+    sel.hidden = false;
+    if (n !== undefined && n !== '' && [...sel.options].some(o => o.value === String(n))) sel.value = String(n);
+  }
+  rememberPick();
+  showScope();
+}
+
+function rememberPick() {
+  if (!$('#vehicle').value) return;
+  const n = $('#variant').hidden ? '' : $('#variant').value;   // "", "e:272" or an index
+  remember(n === '' ? $('#vehicle').value : `${$('#vehicle').value}::${n}`);
+}
+
+const docId = () => $('#vehicle').value;
+// the chosen variant (index into the vehicle's variants), or null for "All
+// variants". Not to be confused with variants(), which is the "include other
+// trims/engines" checkbox.
+const variantIdx = () => {
+  const n = $('#variant').hidden ? '' : $('#variant').value;
+  return n === '' || n.startsWith('e:') ? null : +n;
+};
+// the chosen engine family ("272") when "Any M272" is picked, else null
+const engineSel = () => {
+  if (carPick && carPick.engine) return carPick.engine;
+  const n = $('#variant').hidden ? '' : $('#variant').value;
+  return n.startsWith('e:') ? n.slice(2) : null;
+};
+const yearSel = () => (carPick && carPick.year) || null;
+function clearCarPick() {
+  carPick = null;
+  try { localStorage.removeItem('autorundown.carPick'); } catch (_) {}
+  setTimeout(() => { $('#carInput').value = currentCarLabel(); }, 0);
+}
+function currentCarLabel() {
+  const v = vehicles.find(x => x.doc_id === $('#vehicle').value);
+  if (!v) return '';
+  const n = variantIdx();
+  return n !== null && v._variants[n] ? `${v.make} ${v._variants[n].name} (${v.model})`
+                                      : `${v.year_range || ''} ${v.make} ${v.model}`.trim();
+}
+
+// -- one-line vehicle box ------------------------------------------------------
+// "2009 Mercedes-Benz E550 4Matic" -> that car, that year, and so that engine:
+// a sales name can span engines (E 350: M272 to 2011, M276 after), and the
+// NHTSA year table (importers/data/mercedes_us_years.csv) says which exact
+// model -- and so which engine -- a year means. A VIN goes in the same box.
+// The old dropdowns stay as "Browse" and still hold the selection state.
+let carPick = null, carIndex = [], carSel = -1;
+const famsOf = (x, bms) => [...new Set(bms.flatMap(b => (x.engine_by_bm || {})[b] || [])
+  .map(e => String(e).slice(0, 3)))].filter(f => /^\d{3}$/.test(f));
+const yearsIn = s => String(s || '').split(',').flatMap(part => {
+  const [a, b] = part.split('-').map(Number);
+  if (!a) return [];
+  const out = []; for (let y = a; y <= (b || a); y++) out.push(y); return out;
+});
+const compact = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+// "E 500/550 4MATIC" is Mercedes' name for what a US owner calls an E550
+const nameAliases = n => {
+  const m = String(n).match(/^(.*?)(\d{3})\/(\d{3})(.*)$/);
+  return m ? [n, `${m[1]}${m[2]}${m[4]}`, `${m[1]}${m[3]}${m[4]}`] : [n];
+};
+function buildCarIndex() {
+  carIndex = [];
+  for (const v of vehicles) {
+    const make = v.make || '';
+    if (!v._variants.length) {
+      carIndex.push({label: `${v.year_range || ''} ${make} ${v.model}`.trim(), sub: '',
+                     doc: v.doc_id, variant: null, engine: null, year: null,
+                     years: v._years, hay: compact(`${make} ${v.model} ${v.doc_id}`)});
+      continue;
+    }
+    const engines = engineGroups(v).filter(([f]) => f).length;
+    carIndex.push({label: `${v.year_range} ${make} ${v.model}`, generation: true,
+                   sub: engines > 1 ? `whole generation — all ${engines} engines` : 'whole generation',
+                   doc: v.doc_id, variant: null, engine: null, year: null, years: v._years,
+                   hay: compact(`${make} ${v.model}`)});
+    v._variants.forEach((x, i) => {
+      const hayBase = compact(`${make} ${v.model} ${nameAliases(x.name).join(' ')} `
+                              + `${(x.us_trims || []).join(' ')}`);
+      const famLabel = fams => fams.map(f => (x.engine_families || {})[f] || `Engine ${f}`).join(' or ');
+      const usYears = new Set(Object.values(x.us_years || {}).flatMap(yearsIn));
+      if (usYears.size) {
+        for (const y of [...usYears].sort()) {
+          const bms = Object.keys(x.us_years).filter(b => yearsIn(x.us_years[b]).includes(y));
+          const fams = famsOf(x, bms);
+          carIndex.push({label: `${y} ${make} ${x.name}`, sub: `${v.model} · ${famLabel(fams)}`,
+                         doc: v.doc_id, variant: i, engine: fams.join(',') || null, year: y,
+                         years: [y], hay: hayBase});
+        }
+      } else {
+        const fams = Object.keys(x.engine_families || {});
+        carIndex.push({label: `${make} ${x.name}`,
+                       sub: `${v.year_range} ${v.model} · ${famLabel(fams)} · not a US model`,
+                       doc: v.doc_id, variant: i, engine: null, year: null,
+                       years: v._years, hay: hayBase});
+      }
+    });
+  }
+}
+// every typed word must appear; a year narrows to cars of that year
+function carMatches(q) {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  let year = null; const terms = [];
+  for (const w of words) {
+    if (/^(19|20)\d\d$/.test(w)) year = +w;
+    else if (/^'?\d\d$/.test(w)) { const n = +w.replace("'", ''); year = n <= 30 ? 2000 + n : 1900 + n; }
+    else if (!/^(mercedes|benz|mercedes-benz|mb)$/.test(w)) terms.push(compact(w));
+  }
+  const hits = carIndex.filter(e => (!year || (e.years || []).includes(year))
+                                    && terms.every(t => !t || e.hay.includes(t)));
+  // exact-year models first, then generations, then the rest; shorter names first
+  const rank = e => (e.year === year && year ? 0 : e.generation ? 1 : 2) * 1000 + e.label.length;
+  return {year, hits: hits.sort((a, b) => rank(a) - rank(b)).slice(0, 12)};
+}
+function showCarList(items) {
+  const list = $('#carList');
+  carSel = items.length ? 0 : -1;
+  list._items = items;
+  list.innerHTML = items.length ? items.map((e, k) =>
+    `<div class="opt${k === 0 ? ' on' : ''}" data-k="${k}"><div>${esc(e.label)}</div>`
+    + (e.sub ? `<div class="sub">${esc(e.sub)}</div>` : '') + `</div>`).join('')
+    : '<div class="opt"><div class="sub">No match — try fewer words, or Browse.</div></div>';
+  list.hidden = false;
+  list.querySelectorAll('.opt[data-k]').forEach(o =>
+    o.onmousedown = ev => { ev.preventDefault(); applyCar(list._items[+o.dataset.k]); });
+}
+function applyCar(e, typedYear) {
+  if (!e) return;
+  $('#year').value = ''; $('#make').value = '';
+  refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
+  carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub};
+  try { localStorage.setItem('autorundown.carPick', JSON.stringify({...carPick, doc: e.doc, variant: e.variant})); } catch (_) {}
+  $('#carInput').value = e.label;
+  $('#carList').hidden = true;
+  showScope(); loadConnectors();
+}
+function carFromVin(raw) {
+  const r = vinLookup(raw);
+  if (r.error) return {error: r.error};
+  const x = r.variant !== null ? r.vehicle._variants[r.variant] : null;
+  const fams = x && r.bm ? famsOf(x, [r.bm]) : [];
+  const make = r.vehicle.make || '';
+  return {label: `${r.year || ''} ${make} ${x ? x.name : r.vehicle.model}`.trim(),
+          sub: `from the VIN · ${r.vehicle.model}` + (fams.length
+               ? ` · ${fams.map(f => (x.engine_families || {})[f] || 'Engine ' + f).join(' or ')}` : ''),
+          doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year};
+}
+const looksLikeVin = s => /^[A-HJ-NPR-Z0-9]{9,17}$/i.test(s.replace(/\s/g, '')) && /\d/.test(s) && /[A-Z]/i.test(s)
+                          && s.replace(/\s/g, '').length >= 11;
+$('#carInput').addEventListener('input', () => {
+  const q = $('#carInput').value.trim();
+  if (!q) { $('#carList').hidden = true; return; }
+  if (looksLikeVin(q)) {
+    const e = carFromVin(q);
+    if (e.error) { $('#carList').innerHTML = `<div class="opt"><div class="sub">${esc(e.error)}</div></div>`;
+                   $('#carList').hidden = false; $('#carList')._items = []; carSel = -1; return; }
+    return showCarList([e]);
+  }
+  const {hits} = carMatches(q);
+  showCarList(hits);
+});
+$('#carInput').addEventListener('keydown', ev => {
+  const list = $('#carList'), items = list._items || [];
+  if (list.hidden || !items.length) return;
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    carSel = (carSel + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    list.querySelectorAll('.opt').forEach((o, k) => o.classList.toggle('on', k === carSel));
+  } else if (ev.key === 'Enter') {
+    ev.preventDefault(); applyCar(items[Math.max(carSel, 0)]);
+  } else if (ev.key === 'Escape') { list.hidden = true; }
+});
+$('#carInput').addEventListener('focus', () => $('#carInput').select());
+$('#carInput').addEventListener('blur', () => setTimeout(() => $('#carList').hidden = true, 150));
+$('#browseBtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; };
+
+// Documents are filed per generation, not per variant. Say what a choice
+// actually searches, so a variant name doesn't imply a precision the manuals
+// don't have.
+function showScope() {
+  const v = vehicles.find(x => x.doc_id === docId());
+  const note = $('#scopeNote');
+  if (!v || !v._variants.length) { note.hidden = true; return; }
+  note.classList.remove('pickhint');
+  if (carPick && carPick.engine) {
+    note.textContent = `${carPick.label} — ${carPick.sub}. Searches the ${v.model} manual without `
+      + `pages for its other engines, plus this engine's own documents.`;
+    note.hidden = false;
+    return;
+  }
+  const n = variantIdx(), eng = engineSel();
+  note.classList.remove('pickhint');
+  if (eng) {
+    const g = engineGroups(v).find(([f]) => f === eng);
+    note.textContent = `${g ? g[1].label : 'Engine ' + eng} — searches the ${v.model} manual `
+      + `without pages that are for its other engines, plus this engine's own documents.`;
+  } else if (n === null) {
+    const engines = engineGroups(v).filter(([f]) => f).length;
+    if (engines > 1) {
+      note.textContent = `This ${v.model} was built with ${engines} different engines, so answers `
+        + `mix them (V6, V8, diesel …). Pick your engine above for exact specs.`;
+      note.classList.add('pickhint');
+    } else {
+      note.textContent = `Searching the ${v.model} manual (all ${v._variants.length} variants)`
+        + (engines ? ' plus the documents for its engine.' : '.');
+    }
+  } else {
+    const x = v._variants[n];
+    const eng = (x.engines || []).join(', ');
+    const engNote = (x.engine_ids || []).length
+      ? ` plus the documents for its engine${x.engines.length > 1 ? 's' : ''} (${eng})`
+      : eng ? ` (engine ${eng}: no separate engine documents in this index)` : '';
+    note.textContent = `${x.name} (${x.baumuster.join(', ')}) — searches the ${v.model} `
+      + `manual, which covers all ${v._variants.length} variants${engNote}.`;
+  }
+  note.hidden = false;
+}
+const variants = () => $('#variants').checked;
+const model = () => $('#model').value || undefined;
+
+// The toolbar picker is the live one; changing it also saves the default so
+// the choice survives a reload, and keeps the Settings copy in step.
+async function loadModels() {
+  modelList = await api('/api/models');
+  const current = (await api('/api/settings')).model;
+  $('#model').innerHTML = modelList.map(m =>
+    `<option value="${esc(m.id)}">${esc(m.label.split(' — ')[0])}</option>`).join('');
+  if (current) $('#model').value = current;
+}
+
+$('#model').onchange = async () => {
+  await api('/api/settings', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({model: $('#model').value})
+  });
+  if ($('#sModel').options.length) $('#sModel').value = $('#model').value;
+};
+
+function openRight() {
+  if (window.innerWidth <= 900) $('#right').classList.add('open');
+}
+
+// diagram refs may contain slashes (nested archives), so encode each
+// segment rather than the whole ref
+const imgUrl = n =>
+  `/api/image/${encodeURIComponent(docId())}/`
+  + String(n).split('/').map(encodeURIComponent).join('/');
+
+// wrapped in a link: a wiring diagram is far wider than the panel, and the
+// browser's own viewer zooms an SVG without losing detail
+const imgTag = n =>
+  `<a href="${imgUrl(n)}" target="_blank" rel="noopener" title="Open full size">`
+  + `<img class="diagram" loading="lazy" alt="diagram ${esc(n)}" src="${imgUrl(n)}"></a>`;
+
+// The extractor emits pipe tables and [diagram: file] markers. Rebuild both
+// as real HTML so a spec table reads as a table and each diagram sits with
+// the step it belongs to, rather than all of them piled up at the end.
+function renderCells(row) {
+  return row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+}
+
+function renderTable(lines) {
+  const rows = lines.map(renderCells);
+  const isSep = r => r.every(c => /^-{2,}$/.test(c) || c === '');
+  let head = null, body = rows;
+  if (rows.length > 1 && isSep(rows[1])) { head = rows[0]; body = rows.slice(2); }
+  else if (rows.length && isSep(rows[0])) { body = rows.slice(1); }
+  const cell = (c, tag) => `<${tag}>${inline(c)}</${tag}>`;
+  return `<div class="tablewrap"><table>`
+    + (head && head.some(h => h)
+        ? `<thead><tr>${head.map(h => cell(h,'th')).join('')}</tr></thead>` : '')
+    + `<tbody>${body.map(r =>
+        `<tr>${r.map(c => cell(c,'td')).join('')}</tr>`).join('')}</tbody>`
+    + `</table></div>`;
+}
+
+// inline formatting shared by cells and paragraphs. `layout` marks WIS text
+// (see renderSource), which writes the unit BEFORE the value: "Stage 1 Nm
+// 115 115". The LEMON pattern would highlight "1 Nm" there -- the stage
+// number shown as a torque -- so WIS gets its own pattern.
+function inline(s, layout = false) {
+  let h = esc(s);
+  h = h.replace(/\[diagram:\s*([^\]]+)\]/g, (_, n) => imgTag(n.trim()));
+  // cross-references the manual itself carried, made followable again
+  h = h.replace(/\[\[ref:(\d+)::([^\]]*)\]\]/g,
+    (_, pg, label) => `<a class="xref" onclick="showPage('${pg}')">${label}</a>`);
+  // connector ids are bare text in the manual; link only ids we actually
+  // have pages for, so DTC codes and table data do not become dead links
+  if (connectorIds.size) {
+    h = h.replace(/\b(C\d{3,4}[A-Z]?)\b/g, (m, id) =>
+      connectorIds.has(id)
+        ? `<span class="conn" onclick="showConnector('${id}')">${id}</span>`
+        : m);
+  }
+  // make torque values jump out; they are what people are usually here for
+  h = layout
+    ? h.replace(WIS_TORQUE, '<span class="torque">$&</span>')
+    : h.replace(/(\d[\d.,]*\s*(?:lb\.?\s?ft|lb\.?\s?in|Nm|N\.m)\b)/gi,
+                '<span class="torque">$1</span>');
+  return h;
+}
+
+// ---- WIS layout lines -------------------------------------------------
+// WIS text (parse_sids.py) is one line per layout line: a torque-table row,
+// a legend item ("3 Bolt"), a step, or a whole prose paragraph. Measured on
+// 3,000 WIS pages: ~3.5% of adjacent line pairs start lowercase, and nearly
+// all of those are wiring colour codes or "with CODE ..." qualifier lists,
+// not wrapped sentences. So for WIS a line break is kept, and lines are
+// joined only where the next line finishes the previous one's value:
+//   "...to crankcase Nm" + "20"     "Guide pin to caliper support" + "Nm 25 25"
+// LEMON (HTML) text is a wrapped sentence per paragraph and keeps the old
+// join-everything rule; nothing below runs for it.
+const WIS_SOURCE = /^mercedes-wis/;
+const WIS_VAL = String.raw`(?:\d[\d.,]*(?:\.\.\.\d[\d.,]*)?|[-–]|â[\u0080-\u009f]*)`;
+const WIS_VALS = `${WIS_VAL}(?:\\s+${WIS_VAL})*`;
+const WIS_UNIT_VAL = new RegExp(String.raw`^(?:Nm|\(°|°|mm|bar|Liter|Litros|l)\s+${WIS_VAL}(?:\s|$)`);
+const WIS_ONLY_VALS = new RegExp(`^${WIS_VALS}$`);
+const WIS_ENDS_VAL = new RegExp(String.raw`(?:^|\s)${WIS_VAL}$`);
+const WIS_BARE_UNIT = /(?:^|\s)(?:Nm|\(°)$/;
+const WIS_VAL_UNIT = new RegExp(String.raw`${WIS_VAL}\s+(?:Nm|\(°)$`);
+// a flattened table row ends at its value run: "... Nm 8 8 Bleed screw ..."
+const WIS_ROW_END = new RegExp(String.raw`((?:\bNm|\(°)\s+${WIS_VALS})\s+(?=[A-Z])`, 'g');
+// unit-first ("Nm 115 115") or value-first not followed by more numbers
+// ("120 to 130 Nm"); "Stage 1 Nm 115" highlights "Nm 115", not "1 Nm"
+const WIS_TORQUE = new RegExp(
+  String.raw`\bNm\s+${WIS_VALS}|\d[\d.,]*\s*(?:lb\.?\s?ft|lb\.?\s?in|Nm|N\.m)\b(?!\s+[\d–-])`, 'g');
+
+function wisJoins(a, b) {
+  return WIS_UNIT_VAL.test(b)                               // "Nm 25 25 ..."
+    || (WIS_ONLY_VALS.test(b) && !WIS_ENDS_VAL.test(a))     // label + "20"
+    || (WIS_BARE_UNIT.test(a) && !WIS_VAL_UNIT.test(a))     // "... Nm" + value
+    || (/[A-Za-z]-$/.test(a) && /^[a-z]/.test(b));          // "cross-" "section"
+}
+
+// UTF-8 read as Latin-1 survives the import repair (fix_mojibake handles the
+// cp1252 form): "Nm â\u0080\u0093 30" is "Nm – 30". Display-only, and a run is
+// rewritten only when its bytes are valid UTF-8.
+const UTF8_DEC = new TextDecoder('utf-8', { fatal: true });
+const wisDemojibake = s => s.replace(/[Â-ô][\u0080-¿]{1,3}/g, m => {
+  try { return UTF8_DEC.decode(Uint8Array.from(m, c => c.charCodeAt(0))); }
+  catch { return m; }
+});
+
+function wisRows(lines) {
+  const joined = [];
+  for (const l0 of lines) {
+    const l = wisDemojibake(l0);
+    if (joined.length && wisJoins(joined[joined.length - 1], l)) {
+      joined[joined.length - 1] += (/[A-Za-z]-$/.test(joined[joined.length - 1])
+                                    && /^[a-z]/.test(l) ? '' : ' ') + l;
+    } else joined.push(l);
+  }
+  return joined.flatMap(r => r.replace(/^(Number Designation)\s+/, '$1\n')
+                               .replace(WIS_ROW_END, '$1\n').split('\n'));
+}
+
+// `layout` = WIS text, one line per layout line (see wisRows). Off for
+// every other source, whose output this must not change.
+function renderSource(text, layout = false) {
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0, pendingStep = null;
+
+  const emit = html => {
+    if (pendingStep !== null) {
+      out.push(`<div class="step"><div class="num">${pendingStep}</div>`
+             + `<div class="body">${html}</div></div>`);
+      pendingStep = null;
+    } else out.push(html);
+  };
+
+  while (i < lines.length) {
+    const raw = lines[i], line = raw.trim();
+    if (!line) { i++; continue; }
+
+    if (line.startsWith('|')) {                     // table block
+      const block = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) block.push(lines[i++]);
+      emit(renderTable(block));
+      continue;
+    }
+    if (/^\d+\.$/.test(line)) {                     // step number, own line
+      pendingStep = line.replace('.', '');
+      i++;
+      continue;
+    }
+    if (/^(NOTE|WARNING|CAUTION)[:]?$/i.test(line)) {   // callout
+      const label = line.replace(':', '');
+      i++;
+      const buf = [];
+      while (i < lines.length && lines[i].trim()
+             && !lines[i].trim().startsWith('|')) buf.push(lines[i++].trim());
+      const warn = /WARNING|CAUTION/i.test(label) ? ' warn' : '';
+      emit(`<div class="note${warn}"><b>${esc(label)}:</b> ${inline(buf.join(' '))}</div>`);
+      continue;
+    }
+    const buf = [];                                  // paragraph
+    while (i < lines.length && lines[i].trim()
+           && !lines[i].trim().startsWith('|')
+           && !/^\d+\.$/.test(lines[i].trim())) buf.push(lines[i++].trim());
+    emit(layout
+      ? `<p>${wisRows(buf).map(r => inline(r, true)).join('<br>')}</p>`
+      : `<p>${inline(buf.join(' '))}</p>`);
+  }
+  return out.join('');
+}
+
+let pageTitles = {};
+let connectorIds = new Set();
+
+async function loadConnectors() {
+  try {
+    connectorIds = new Set(await api(`/api/connectors/${encodeURIComponent(docId())}`));
+  } catch { connectorIds = new Set(); }
+}
+
+// One card showing both halves the archive splits apart: the pinout (end
+// view) and where the connector physically sits on the vehicle.
+async function showConnector(id) {
+  srcout.innerHTML = `<span class="spinner"></span>`;
+  openRight();
+  try {
+    const d = await api(`/api/connector/${encodeURIComponent(docId())}/${encodeURIComponent(id)}`);
+    const order = { endview: 0, location: 1 };
+    const label = { endview: 'Pinout — connector end view', location: 'Location on vehicle' };
+    const parts = d.entries
+      .sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9))
+      .map(e =>
+        `<div class="connkind">${label[e.kind] || esc(e.kind)}</div>
+         <div class="muted" style="margin-bottom:6px">${esc(e.title)}</div>
+         ${e.images.map(imgTag).join('')}
+         <div class="src">${renderSource(e.text || '')}</div>
+         <button class="pagelink" onclick="showPage('${esc(e.page_no)}')">open page ${esc(e.page_no)}</button>`);
+    srcout.innerHTML = `<div class="connhead">Connector ${esc(d.connector_id)}</div>`
+      + (parts.length ? parts.join('<hr style="border:0;border-top:1px solid var(--line);margin:18px 0">')
+                      : '<div class="notfound">No connector pages found.</div>');
+  } catch (e) {
+    srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+function specHtml(s) {
+  return `<div class="spec">
+    <div class="name">${esc(s.name)}</div>
+    <div class="value">${esc(s.value)}</div>
+    <div class="appl">${esc(s.applicability)}</div>
+    ${(s.source_pages||[]).map((p, i) =>
+      `<button class="pagelink" onclick="showPage('${esc(p)}')">`
+      + `${i === 0 ? 'page' : 'also'} ${esc(p)}</button>`).join('')}
+  </div>`;
+}
+
+// citations carry the page's title so you know what you are opening
+function srcBtn(p) {
+  const t = pageTitles[String(p)] || '';
+  return `<button class="srcbtn" onclick="showPage('${esc(p)}')">
+    <span class="pno">p${esc(p)}</span>
+    <span class="ptitle">${esc(t) || 'open page'}</span>
+  </button>`;
+}
+
+function figureHtml(f) {
+  return `<div class="figure">
+    <div class="cap"><b>${esc(f.caption)}</b>${f.page ? ' — page ' + esc(f.page) : ''}</div>
+    ${imgTag(f.image)}
+    ${f.page ? `<button class="pagelink" onclick="showPage('${esc(f.page)}')">open page ${esc(f.page)}</button>` : ''}
+  </div>`;
+}
+
+function renderAnswer(d) {
+  pageTitles = d.page_titles || {};
+  sessionCost += d.usage?.cost_usd || 0;
+  $('#cost').textContent = '$' + sessionCost.toFixed(4) + ' this session'
+    + (d.usage?.model ? ' · ' + d.usage.model.replace('claude-', '') : '');
+
+  let h = '';
+  if (!d.found) {
+    h += `<div class="card"><div class="notfound">
+      <strong>Not found in this archive.</strong>
+      <div class="muted" style="margin-top:6px">${esc(d.caveats) || 'The manual pages searched did not contain this.'}</div>
+    </div></div>`;
+  } else {
+    // Specs lead: they are the answer people came for, and they should be
+    // readable at arm's length without wading through prose first.
+    h += `<div class="card">`;
+    if (d.specs.length) {
+      h += `<div class="sechead">Specification${d.specs.length > 1 ? 's' : ''}</div>`;
+      h += d.specs.map(specHtml).join('');
+    }
+    // figures next: for a tightening sequence the picture IS the answer,
+    // so it belongs beside the spec, not buried in the source pane
+    if (d.figures?.length) {
+      h += `<div class="sechead">Figure${d.figures.length > 1 ? 's' : ''}</div>`;
+      h += d.figures.map(figureHtml).join('');
+    }
+    if (d.steps?.length) {
+      h += `<div class="sechead">Procedure</div><ol class="steps">`
+         + d.steps.map(s => `<li>${inline(s)}</li>`).join('')
+         + `</ol>`;
+    }
+    if (d.answer) {
+      h += `<div class="sechead">Detail</div><div class="answer">`
+         + esc(d.answer).split(/\n{2,}|(?<=\.)\s(?=[A-Z])/)
+             .filter(s => s.trim())
+             .map(s => `<p style="margin:8px 0">${s.trim()}</p>`).join('')
+         + `</div>`;
+    }
+    // caveats matter but are usually long; keep them one tap away
+    if (d.caveats) {
+      h += d.caveats.length > 180
+        ? `<details class="caveat"><summary>Applicability notes &amp; caveats</summary>
+             <div class="warnbox">${esc(d.caveats)}</div></details>`
+        : `<div class="warnbox">${esc(d.caveats)}</div>`;
+    }
+    if (d.source_pages?.length) {
+      h += `<div class="sechead">Sources</div>`
+         + d.source_pages.map(srcBtn).join('');
+    }
+    h += `</div>`;
+  }
+  if (d.dropped_citations?.length) {
+    h += `<div class="card"><div class="warnbox"><strong>Unverifiable citations removed</strong>
+      <div class="muted">${d.dropped_citations.map(esc).join('<br>')}</div></div></div>`;
+  }
+  h += `<div class="muted">searched: ${d.queries.map(esc).join(' &middot; ')}</div>`;
+  out.innerHTML = h;
+
+  if (d.diagrams?.length) {
+    srcout.innerHTML = `<div class="sechead">Diagrams from cited pages</div>`
+      + d.diagrams.map(imgTag).join('');
+    openRight();
+  }
+}
+
+async function ask() {
+  const q = $('#q').value.trim();
+  if (!q) return;
+  $('#askBtn').disabled = true;
+  out.innerHTML = `<div class="card"><span class="spinner"></span> searching the manual&hellip;</div>`;
+  try {
+    renderAnswer(await api('/api/ask', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({doc_id:docId(), question:q, include_other_variants:variants(),
+                            model:model(), variant:variantIdx(), engine:engineSel(), year:yearSel()})
+    }));
+  } catch (e) {
+    out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
+  } finally {
+    $('#askBtn').disabled = false;
+  }
+}
+
+async function keywordSearch() {
+  const q = $('#q').value.trim();
+  if (!q) return;
+  out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
+  try {
+    const rows = await api(`/api/search?doc_id=${encodeURIComponent(docId())}`
+      + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
+      + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
+      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+    // the server also searches the manual's own wording ("valve cover" ->
+    // "cylinder head cover"); say so, or the results look off-topic
+    const alt = rows.find(r => r.query && r.query.toLowerCase() !== q.toLowerCase());
+    out.innerHTML = (alt ? `<div class="muted" style="margin:0 0 8px">Also searched the manual's term: `
+                         + `<b>${esc(alt.query)}</b></div>` : '')
+      + (rows.length ? `<div class="card" style="padding:0">` + rows.map(r =>
+      `<div class="hit" onclick="showPage('${esc(r.page_no)}')">
+         <div class="t">${esc(r.title)}${r.applicability!=='this_vehicle'
+           ? ' <span style="color:var(--warn)">[other variant]</span>' : ''}</div>
+         <div class="s">${esc(r.section_path)}</div>
+       </div>`).join('') + `</div>`
+      : `<div class="card"><div class="notfound">No keyword matches.</div></div>`);
+  } catch (e) {
+    out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
+  }
+}
+
+async function showPage(pageNo) {
+  srcout.innerHTML = `<span class="spinner"></span>`;
+  openRight();
+  try {
+    const p = await api(`/api/page/${encodeURIComponent(docId())}/${encodeURIComponent(pageNo)}`);
+    // the extracted text repeats the page title as its first line
+    let body = p.text || '';
+    if (p.title && body.trimStart().startsWith(p.title)) {
+      body = body.trimStart().slice(p.title.length).trimStart();
+    }
+    // the page may come from a companion bucket (general, engine), so look
+    // up the vehicle that owns it, falling back to the selected one
+    const owner = vehicles.find(x => x.doc_id === p.doc_id)
+               || vehicles.find(x => x.doc_id === docId());
+    const wis = WIS_SOURCE.test(owner?.source_name || '');
+    // WIS pages end with the text read out of their diagrams ("Diagram
+    // labels: N26/15 X63/4 ...") and the figure numbers. That is there to be
+    // searched, not read -- the diagram itself is on the page.
+    if (wis) body = body.split('\n')
+      .filter(l => !/^(Diagram labels|Figures): /.test(l)).join('\n');
+    const bodyHtml = renderSource(body, wis);
+    // any diagram not already placed inline goes at the end
+    const shown = new Set([...(p.text||'').matchAll(/\[diagram:\s*([^\]]+)\]/g)]
+      .map(m => m[1].trim()));
+    const extra = (p.images||[]).filter(n => !shown.has(n));
+    srcout.innerHTML =
+      `<div class="muted">${esc(p.section_path)}</div>
+       <h3 style="margin:6px 0 2px">${esc(p.title)}</h3>
+       <div class="muted" style="margin-bottom:12px">page ${esc(p.page_no)}</div>
+       ${p.applicability!=='this_vehicle'
+         ? '<div class="warnbox">This page documents a different variant or trim.</div>' : ''}
+       <div class="src">${bodyHtml}</div>`
+      + (p.links?.length
+          ? `<div class="sechead">Referenced pages</div>`
+            + p.links.map(l =>
+                `<button class="srcbtn" onclick="showPage('${esc(l.page)}')">`
+                + `<span class="pno">p${esc(l.page)}</span>`
+                + `<span class="ptitle">${esc(l.label)}</span></button>`).join('')
+          : '')
+      + (extra.length ? `<div class="sechead">${shown.size ? 'Other diagrams' : 'Diagrams'}</div>` : '')
+      + extra.map(imgTag).join('');
+  } catch (e) {
+    srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+$('#askBtn').onclick = ask;
+$('#searchBtn').onclick = keywordSearch;
+$('#q').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+});
+
+function showModelPrice() {
+  const m = modelList.find(x => x.id === $('#sModel').value);
+  $('#modelPrice').textContent = m
+    ? `$${m.price_in}/M input, $${m.price_out}/M output — roughly `
+      + `$${((6000/1e6)*m.price_in + (900/1e6)*m.price_out).toFixed(4)} per question`
+    : '';
+}
+
+$('#settingsBtn').onclick = async () => {
+  const [s, models] = await Promise.all([api('/api/settings'), api('/api/models')]);
+  modelList = models;
+  $('#sModel').innerHTML = models.map(m =>
+    `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('');
+  $('#sModel').value = s.model || models[0].id;
+  showModelPrice();
+  $('#sArchive').value = s.archive_dir || '';
+  $('#sIndex').value = s.index_path || '';
+  $('#sKey').placeholder = s.has_api_key
+    ? `key configured (${s.key_source}) — leave blank to keep`
+    : 'sk-ant-...';
+  $('#settings').showModal();
+};
+$('#sModel').onchange = showModelPrice;
+$('#saveBtn').onclick = async () => {
+  const body = {
+    archive_dir: $('#sArchive').value,
+    index_path: $('#sIndex').value,
+    model: $('#sModel').value,
+  };
+  if ($('#sKey').value.trim()) body.api_key = $('#sKey').value.trim();
+  await api('/api/settings', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  $('#sKey').value = '';
+  $('#settings').close();
+  $('#model').value = $('#sModel').value;
+  loadVehicles();
+};
+
+loadModels().catch(()=>{});
+$('#year').addEventListener('change', () => { clearCarPick(); refreshPicker(); loadConnectors(); });
+$('#make').addEventListener('change', () => { clearCarPick(); refreshPicker(); loadConnectors(); });
+$('#vehicle').addEventListener('change', () => {
+  clearCarPick();
+  refreshVariants();          // a new generation starts at "All variants"
+  loadConnectors();
+});
+$('#variant').addEventListener('change', () => { clearCarPick(); rememberPick(); showScope(); });
+
+// Model year from VIN position 10 (US standard). Letters repeat every 30
+// years (H = 1987 or 2017), so pick the candidate inside the vehicle's own
+// production span; digits 1-9 are 2001-2009.
+const YEAR_CODES = 'ABCDEFGHJKLMNPRSTVWXY';
+function vinYear(vin, v) {
+  const c = vin[9];
+  if (!c) return null;
+  let cands = [];
+  if (/[1-9]/.test(c)) cands = [2000 + +c];
+  else if (YEAR_CODES.includes(c)) {
+    const base = 1980 + YEAR_CODES.indexOf(c);
+    cands = [base, base + 30];
+  }
+  const inSpan = cands.filter(y => v._years.includes(y));
+  return inSpan.length === 1 ? inSpan[0] : null;
+}
+
+// Two formats, both decoded from Mercedes' own tables:
+//  - European FIN: characters 4-9 ARE the Baumuster (WDB 201034 ...), so it
+//    names the series and usually the exact variant.
+//  - US VIN: character 4 is a coded letter. USTypBM2TypBM maps WMI + letter to
+//    a series (WDB + D = 201); the vehicle stores those as vin_codes. A US VIN
+//    names the series, not the variant.
+// A VIN from another make matches nothing and says so.
+function vinLookup(raw) {
+  const vin = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (vin.length < 4)
+    return {error: 'Enter the VIN — at least the first 4 characters.'};
+  const wmi = vin.slice(0, 3);
+
+  if (/^\d{3}/.test(vin.slice(3, 6))) {                     // European FIN
+    const series = vin.slice(3, 6);
+    const v = vehicles.find(x => x.model_code === series);
+    if (!v) return {error: `That is model series ${series}, which is not in this `
+                          + `index. It may be a model the corpus does not cover.`};
+    const bm = vin.length >= 9 ? `${series}.${vin.slice(6, 9)}` : null;
+    const n = bm ? v._variants.findIndex(x => x.baumuster.includes(bm)) : -1;
+    return {vehicle: v, variant: n >= 0 ? n : null, year: null, bm,
+            how: n >= 0 ? `Baumuster ${bm} (from the FIN)` : `series ${series}`};
+  }
+
+  // US VIN, exact: Mercedes' AW_VIN2FIN maps the first 9 characters (check
+  // digit included) to the Baumuster, so it names the variant itself
+  if (vin.length >= 9) {
+    const vin9 = vin.slice(0, 9);
+    for (const x of vehicles) {
+      const n = (x._variants || []).findIndex(y => (y.vin9 || []).includes(vin9));
+      if (n >= 0) {
+        const bm = x._variants[n].baumuster.find(b => b.startsWith(x.model_code)) || '';
+        return {vehicle: x, variant: n, year: vinYear(vin, x), bm,
+                how: `Mercedes' VIN table (${vin9} = Baumuster ${bm}, ${x._variants[n].name})`};
+      }
+    }
+  }
+
+  const code = `,${wmi}:${vin[3]},`;                        // US VIN, series only
+  const v = vehicles.find(x => (x.vin_codes || '').includes(code));
+  if (!v) return {error: `No Mercedes model uses the code ${wmi} + "${vin[3]}" at `
+                        + `position 4. This lookup decodes Mercedes VINs only.`};
+  return {vehicle: v, variant: null, year: vinYear(vin, v),
+          how: `${wmi} + "${vin[3]}" at position 4 (a US VIN names the series; `
+             + `pick your variant below)`};
+}
+
+$('#vinBtn').onclick = () => {
+  $('#vinNote').textContent = '';
+  $('#vinInput').value = '';
+  $('#vinDlg').showModal();
+  $('#vinInput').focus();
+};
+$('#vinClose').onclick = () => $('#vinDlg').close();
+$('#vinFind').onclick = () => {
+  const r = vinLookup($('#vinInput').value);
+  if (r.error) { $('#vinNote').textContent = r.error; return; }
+  // set the year the VIN states (if we could pin one) and clear make, so the
+  // matched vehicle is definitely in the list
+  const hasYear = r.year && [...$('#year').options].some(o => +o.value === r.year);
+  $('#year').value = hasYear ? String(r.year) : '';
+  $('#make').value = '';
+  refreshPicker(r.variant !== null ? `${r.vehicle.doc_id}::${r.variant}`
+                                   : r.vehicle.doc_id);
+  loadConnectors();
+  $('#vinNote').textContent = `Found by ${r.how}`
+    + (hasYear ? `, model year ${r.year}.` : '.');
+  setTimeout(() => $('#vinDlg').close(), 1600);
+};
+$('#vinInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('#vinFind').click(); }
+});
+// -- import -----------------------------------------------------------------
+// Browsing and importing run on the PC hosting AutoRundown; the server refuses
+// them from other devices, and the dialog says so.
+let impPoll = null, impSeq = 0;
+async function impBrowse(path) {
+  // a big folder takes seconds to check; a reply for a folder the user has
+  // already left must not overwrite the one they are looking at now
+  const seq = ++impSeq;
+  $('#impDetected').innerHTML = '<span class="muted">Checking this folder…</span>';
+  $('#impStart').disabled = true;
+  try {
+    const r = await api('/api/browse?path=' + encodeURIComponent(path || ''));
+    if (seq !== impSeq) return;
+    $('#impPath').value = r.path;
+    $('#impUp').dataset.parent = r.parent;
+    $('#impDirs').innerHTML = r.dirs.length
+      ? r.dirs.map(d => `<button type="button" data-d="${esc(d)}">&#128193; ${esc(d)}</button>`).join('')
+      : '<div class="muted" style="padding:8px 10px">No subfolders.</div>';
+    $('#impDirs').querySelectorAll('button').forEach(b => b.onclick = () =>
+      impBrowse(r.path.replace(/[\\/]$/, '') + (r.path.includes('\\') ? '\\' : '/') + b.dataset.d));
+    const det = r.detected || {};
+    $('#impDetected').innerHTML = det.importer
+      ? `<b>Detected:</b> ${esc(det.summary)}` : `<span class="muted">${esc(det.summary || '')}</span>`;
+    $('#impStart').disabled = !det.importer;
+    $('#impModes').innerHTML = det.importer === 'records' && det.rebuildable
+      ? `<label style="margin:0"><input type="radio" name="impMode" value="add" checked> Add / update (keeps what is there, skips pages already imported)</label>
+         <label style="margin:4px 0 0"><input type="radio" name="impMode" value="rebuild_wis"> Rebuild the Mercedes WIS data from this folder (keeps your other manuals and the spend log; ~6 min)</label>`
+      : '';
+  } catch (e) {
+    if (seq !== impSeq) return;
+    $('#impDetected').innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    $('#impStart').disabled = true;
+  }
+}
+function impShow(s) {
+  const log = $('#impLog');
+  if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; return; }
+  log.hidden = false;
+  log.textContent = (s.log || []).join('\n');
+  log.scrollTop = log.scrollHeight;
+  const t = s.elapsed >= 60 ? `${Math.floor(s.elapsed/60)} min ${s.elapsed%60} s` : `${s.elapsed} s`;
+  $('#impStatus').textContent = s.state === 'running' ? `Importing… ${t}`
+    : s.state === 'done' ? `Finished in ${t}.` : `Failed (exit ${s.returncode}) after ${t} — see the log.`;
+  $('#impStart').disabled = s.state === 'running';
+}
+async function impWatch() {
+  clearInterval(impPoll);
+  const tick = async () => {
+    const s = await api('/api/import');
+    impShow(s);
+    if (s.state !== 'running') {
+      clearInterval(impPoll); impPoll = null;
+      if (s.state === 'done') loadVehicles();
+    }
+  };
+  await tick();
+  if ($('#impStatus').textContent.startsWith('Importing')) impPoll = setInterval(tick, 1500);
+}
+async function openImport(first) {
+  $('#impIntro').firstChild.textContent = first
+    ? 'No manuals are indexed yet. Import them from a folder on this PC, or extract them from a Mercedes virtual machine. '
+    : 'Import manuals from a folder on this PC, or extract them from a Mercedes virtual machine. ';
+  $('#importDlg').showModal();
+  await impBrowse($('#impPath').value);
+  impWatch().catch(() => {});
+}
+$('#openImport').onclick = () => { $('#settings').close(); openImport(false); };
+$('#impGo').onclick = () => impBrowse($('#impPath').value);
+$('#impPath').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); impBrowse($('#impPath').value); } });
+$('#impUp').onclick = () => $('#impUp').dataset.parent && impBrowse($('#impUp').dataset.parent);
+$('#impClose').onclick = () => $('#importDlg').close();
+const impSource = () => document.querySelector('input[name=impSrc]:checked').value;
+async function impVms() {
+  $('#impVmNote').innerHTML = '<span class="muted">Looking for virtual machines…</span>';
+  $('#impStart').disabled = true;
+  try {
+    const r = await api('/api/vms');
+    if (r.error) { $('#impVmNote').innerHTML = `<div class="errbox">${esc(r.error)}</div>`; return; }
+    $('#impVm').innerHTML = r.vms.map(v =>
+      `<option value="${esc(v.name)}">${esc(v.name)} (${esc(v.state)})</option>`).join('');
+    $('#impVmNote').innerHTML = r.vms.length
+      ? `Output goes to <b>${esc(r.out_root)}</b>.`
+      : '<span class="muted">No VirtualBox VMs found on this PC.</span>';
+    $('#impStart').disabled = !r.vms.length;
+  } catch (e) { $('#impVmNote').innerHTML = `<div class="errbox">${esc(e.message)}</div>`; }
+}
+document.querySelectorAll('input[name=impSrc]').forEach(r => r.onchange = () => {
+  const vm = impSource() === 'vm';
+  $('#impFolder').hidden = vm; $('#impVmPanel').hidden = !vm;
+  $('#impStart').textContent = vm ? 'Extract & import' : 'Import';
+  if (vm) impVms(); else impBrowse($('#impPath').value);
+});
+$('#impStart').onclick = async () => {
+  if (impSource() === 'vm') {
+    const steps = [...document.querySelectorAll('#impSteps input:checked')].map(c => c.value);
+    if (!steps.length) { $('#impStatus').textContent = 'Pick at least one step.'; return; }
+    if (!confirm(`Extract from ${$('#impVm').value} and rebuild the Mercedes data? `
+        + 'The VM will be started and shut down by this job.')) return;
+    try {
+      impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: '', mode: 'vm', vm: $('#impVm').value, steps: steps.join(',')})}));
+      impWatch();
+    } catch (e) { $('#impStatus').textContent = e.message; }
+    return;
+  }
+  const mode = document.querySelector('input[name=impMode]:checked')?.value || 'add';
+  if (mode === 'rebuild_wis' && !confirm('Rebuild the Mercedes WIS data from this folder? '
+      + 'Search will show partial Mercedes results until it finishes.')) return;
+  try {
+    impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                      body: JSON.stringify({path: $('#impPath').value, mode})}));
+    impWatch();
+  } catch (e) { $('#impStatus').textContent = e.message; }
+};
+
+loadVehicles().then(() => { if (!vehicles.length) openImport(true); })
+  .catch(e => out.innerHTML =
+  `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`);
+</script>
+</body>
+</html>

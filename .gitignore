@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+index.db
+index.db-wal
+index.db-shm
+.venv/
+sample_corpus/
+sample_wis.db
+sample_wis.db-wal
+sample_wis.db-shm
+index.before-wis.db
+index.v1*.db*
+tools/out/
+tools/.us_years_cache.json
+*.log

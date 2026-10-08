@@ -1,0 +1,61 @@
+family,name,description
+# Mercedes-Benz engine families: reference knowledge, not Mercedes data -- the
+# WIS database names engines only by number (272.980). Used to label engines
+# in the picker and for the answer model. A family with no row is shown by its
+# number and the cars that use it. Add rows only when sure.
+102,M102,I4 petrol
+103,M103,I6 petrol
+104,M104,I6 petrol
+110,M110,I6 petrol
+111,M111,I4 petrol
+112,M112,V6 petrol
+113,M113,V8 petrol
+115,M115,I4 petrol
+116,M116,V8 petrol
+117,M117,V8 petrol
+119,M119,V8 petrol
+120,M120,V12 petrol
+133,M133,I4 turbo petrol (AMG)
+137,M137,V12 petrol
+152,M152,V8 petrol (AMG)
+155,M155,V8 supercharged petrol (AMG)
+156,M156,V8 petrol (AMG 6.2)
+157,M157,V8 biturbo petrol (AMG 5.5)
+159,M159,V8 petrol (AMG 6.2)
+166,M166,I4 petrol
+177,M177,V8 biturbo petrol (AMG 4.0)
+178,M178,V8 biturbo petrol (AMG 4.0)
+256,M256,I6 turbo petrol
+264,M264,I4 turbo petrol
+266,M266,I4 petrol
+270,M270,I4 turbo petrol
+271,M271,I4 supercharged/turbo petrol
+272,M272,V6 petrol
+273,M273,V8 petrol
+274,M274,I4 turbo petrol
+275,M275,V12 biturbo petrol
+276,M276,V6 petrol
+277,M277,V12 biturbo petrol
+278,M278,V8 biturbo petrol
+279,M279,V12 biturbo petrol
+601,OM601,I4 diesel
+602,OM602,I5 diesel
+603,OM603,I6 diesel
+605,OM605,I5 diesel
+606,OM606,I6 diesel
+611,OM611,I4 CDI diesel
+612,OM612,I5 CDI diesel
+613,OM613,I6 CDI diesel
+615,OM615,I4 diesel
+616,OM616,I4 diesel
+617,OM617,I5 diesel
+628,OM628,V8 CDI diesel
+629,OM629,V8 CDI diesel
+640,OM640,I4 CDI diesel
+642,OM642,V6 CDI diesel
+646,OM646,I4 CDI diesel
+647,OM647,I5 CDI diesel
+648,OM648,I6 CDI diesel
+651,OM651,I4 diesel
+654,OM654,I4 diesel
+656,OM656,I6 diesel

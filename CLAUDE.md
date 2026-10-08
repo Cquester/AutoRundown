@@ -1,0 +1,879 @@
+# AutoRundown — working notes for Claude
+
+Local repair-manual search over the user's own service-manual archive.
+Retrieval is local (SQLite FTS5); the only network call is to the Anthropic
+API. Read `README.md` for the product description — this file is the working
+context: what is already decided, what is already tried, and what will break.
+
+**Status: working end to end.** Importer, index, retrieval, Claude query
+layer, web UI. Not built: installer, packaging, tests beyond `eval.py`.
+
+---
+
+## First: this folder is transport, not a workspace
+
+If you are running inside `OneDrive\AutoRundown`, **set up a local copy before
+doing anything else.** Do not build the index or run the server from here:
+SQLite writes on every question, and a sync daemon touching an open database
+corrupts it.
+
+```bash
+# 1. copy source + index.db to a local folder (NOT archives/)
+# 2. extract archives/*.zip locally, e.g. C:\Users\<you>\Manuals\
+# 3. repoint the index at that archive location:
+python ingest.py --archive "C:/Users/<you>/Manuals" --index index.db --repath
+# 4. verify (free, no API calls):
+python eval.py --index index.db      # expect 0 failure(s)
+```
+
+`SETUP-ON-NEW-PC.md` has the long version. Step 3 is not optional if the user
+wants diagrams: page *text* is in the index, but *images* are served from the
+archive on disk, and the index stores the absolute path from whichever machine
+built it.
+
+---
+
+## Commands
+
+```bash
+python serve.py                                   # web UI, localhost + LAN
+python ingest.py --archive <dir> --index index.db # build index (~40s)
+python ingest.py --archive <dir> --repath         # fix archive path only
+python ask.py --vehicle f-150 "<question>"        # CLI, costs money
+python ask.py --vehicle f-150 --search "<terms>"  # keyword only, FREE
+python ask.py --usage                             # spend, by source
+python eval.py                                    # FREE retrieval check
+python eval.py --answers                          # PAID, prints estimate
+python test_records.py                            # FREE, `records` importer
+python eval_wis.py                                # FREE, WIS retrieval + wrong-vehicle guards
+python make_sample_corpus.py                      # FREE, stand-in WIS corpus
+```
+
+Mercedes WIS, end to end from this one session (VM -> index):
+
+```bash
+# 1. pull (VM must be off or idle; boots headless, ~15 min, resumable)
+powershell -ExecutionPolicy Bypass -File "../Mercedes Documents/autorundown_extractor/extract.ps1" -VM "Mercedes_Ultimate_207"
+# 2. vehicle names + VIN tables (VM up; 9 s) then parse (offline) -- see
+#    the Vehicle selection section. pull_vehicles.js runs like pull.js: from a
+#    space-free staging dir with AR_HOST/AR_PORT/AR_DB/AR_OUT set
+#    (AR_OUT = autorundown_out/wis_vehicles).
+python "../Mercedes Documents/autorundown_extractor/parse_vehicles.py"
+# 2b. real applicability (schema 1.2): pull_applic2.js (VM up, ~5 min, same
+#     env vars, AR_OUT = autorundown_out/wis_applic2) then, offline:
+python "../Mercedes Documents/autorundown_extractor/apply_applic.py"
+#     until parse.py does this join itself, a fresh pull is schema 1.1 again
+#     and this step is NOT optional -- the importer would then file by text
+#     only (it prints "structured model links IGNORED").
+# 2c. images (schema 1.3): pull in 15k batches, VM off between (~2 h), then
+#     convert + attach (offline). Resumable; re-run after any stop.
+#     After a parse_sids.py change, `reparse_bodies.py` (offline, ~18 min)
+#     updates body_text only; then re-run apply_images.py.
+bash "../Mercedes Documents/autorundown_extractor/pull_images_batches.sh"
+python "../Mercedes Documents/autorundown_extractor/convert_images.py" --jobs 4
+python "../Mercedes Documents/autorundown_extractor/apply_images.py"
+# 3. rebuild the WIS part of the main index (~6 min): restores
+#    index.before-wis.db, carries the spend log across, re-ingests
+python rebuild_wis.py
+```
+
+**Never rebuild by copying `index.before-wis.db` over `index.db` by hand.**
+The spend log (`usage_log`) lives inside the index, so that silently deletes
+every paid question asked since the backup — it happened on several rebuilds
+in this project before `rebuild_wis.py` existed. The script copies the newer
+log rows across and checks the count before it re-ingests.
+
+The WIS DB drops its connection under load. `pull.js` now aborts and
+checkpoints at the last good document instead of carrying on, so if step 1
+stops with `ABORT`, power-cycle the VM headless and re-run the same command.
+
+To work on the UI for the WIS source without the VM (all free):
+
+```bash
+python make_sample_corpus.py       # uses the REAL 406-series catalogue
+python ingest.py --archive sample_corpus --index sample_wis.db
+python serve.py --index sample_wis.db
+```
+
+The sample now draws its vehicles from the **real** `models.jsonl` preserved at
+`../Mercedes Documents/autorundown_out/wis_applic/` — real Baureihe codes, real
+production spans, real Baumuster, so the picker and the VIN lookup behave as
+they will on the real corpus. **The document text is still invented.**
+`--catalogue <path>` points it elsewhere; without a catalogue it falls back to
+a small invented one.
+
+---
+
+## Spend discipline — read this before running anything
+
+The user pays per API call and has said so directly. Earlier in this project
+~87% of all spend was *testing*, not use. Rules:
+
+- **`python eval.py` is free** (no API calls). Run it freely after any change
+  to extraction, indexing, chunking, or search.
+- **`python eval.py --answers` costs ~$0.08 (Haiku) to ~$0.36 (Sonnet).**
+  Only after changing prompts, the answer schema, or models. Not routinely.
+  Scope it: `--case <id> --model claude-haiku-4-5` is ~$0.01.
+- **Prefer testing UI rendering by injecting a payload into `renderAnswer()`
+  via the browser console** rather than asking a real question. Free, and it
+  exercises the same code.
+- Every paid call is logged to `usage_log` in the index; `ask.py --usage`
+  attributes spend to `web` / `cli` / `eval`.
+
+---
+
+## Architecture
+
+```
+autorundown/
+  importers/     archive-specific code lives ONLY here
+    base.py        Importer interface + VehicleRecord / PageRecord
+    lemon.py       HTML manual archives (the one in use)
+    records.py     normalized corpus: records.jsonl + manifest.json
+    folder.py      generic fallback: HTML / text / PDF
+  extract.py     HTML -> text; tables -> pipe tables; image + link refs
+  index.py       FTS5 schema, chunking, dedup, connectors, usage log
+  search.py      BM25 + mandatory vehicle filter, round-robin merge
+  query.py       Claude planner + answerer + citation verification
+  server.py      FastAPI local server
+  web/index.html the whole UI, one file
+```
+
+Everything downstream of `importers/` reads only the normalized records. A new
+archive format = one new `Importer` subclass, nothing else changes. Keep that
+boundary.
+
+---
+
+## Decisions already made — do not silently undo these
+
+**No OCR.** The archive is HTML, not scans. Spec tables are real `<table>`
+elements. If someone later points this at scanned PDFs, OCR plugs in at the
+importer layer.
+
+**No embeddings.** BM25 + Claude-generated search terms. Manual text is dense
+with exact tokens (`3.5L`, `coil-on-plug`, part numbers) where BM25 wins, and
+this avoids a multi-GB model download. Add vectors *alongside* only if
+retrieval starts missing on vague questions — measure first.
+
+**Vehicle filter is applied in SQL before ranking**, not as post-filtering. A
+wrong-vehicle spec must never be a candidate.
+
+**Citations are verified, not trusted.** `_verify_citations()` drops any page
+or figure the retrieval did not actually return, and withholds an answer left
+with no surviving citation. This is the core safety property — a confident
+wrong torque is worse than no answer. Do not weaken it.
+
+**Retrieval merges round-robin, not by global score.** Global ranking let one
+half of a two-part question crowd out the other ("how much oil AND drain plug
+torque" returned only the oil). Regression test: `multipart-oil-and-torque`.
+
+**Answer schema is split by shape**: `specs` (values only), `figures`
+(diagrams that *are* the answer, e.g. tightening sequences), `steps` (ordered
+procedure). Without `figures`, the model writes a spec whose value is "see
+Fig 15", which renders in 30px type as though it were a torque.
+
+**Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert
+units; one entry per fastener; a conflict is only *same unit, different
+number* — different units are the same spec written twice; answer every part
+of a multi-part question. Each of these fixed an observed failure.
+
+---
+
+---
+
+## The `records` importer (second source: Mercedes WIS)
+
+The WIS extractor lives outside this repo (`Desktop/Mercedes Documents/
+autorundown_extractor/`) and emits a source-agnostic corpus: `records.jsonl`
+(one normalized doc per line) + `manifest.json` (provenance, counts,
+`schema_version`). `IMPORT_SPEC.md` there is the contract.
+
+**One importer for the whole spec, not one per source.** Future adapters
+(another OEM DB, a folder of PDFs) emit the same two files, so they need an
+adapter over there and no code here. `records.py` gates on
+`schema_version` major == 1.
+
+**Grouping is a mode, not a rewrite** — `--importer records` or
+`records:model`. `get()` splits an importer name on `:` and passes the tail to
+the constructor; that's the only reason `base.Importer` has an `__init__`.
+
+- `passenger` (default): per model series, **passenger vehicles only** — the
+  user's decision. Uses Mercedes' own passenger-car division (ASRA
+  `SparteAbk` 00; for the few series with no division, the vehicle type):
+  cars, G-Class, smart and the passenger vans (Vito/Viano, V-Class, Vaneo,
+  Citan) stay; the commercial division (Sprinter/T1/Vario, trucks, buses,
+  Unimog) and engine buckets only commercial vehicles use are left out. 200
+  series dropped; the index goes from 3.3 GB to 2.4 GB.
+- `model`: per model series, everything — `--importer records:model`.
+- `corpus`: one vehicle per (source, language), the whole set in one.
+Both per-series modes add a bucket for documents tied to no series at all.
+
+**Model applicability: schema 1.2's WS/WC join, verified against the text.**
+This is the single most important thing in this file about the WIS source,
+and it has been wrong twice. Schema 1.1 joined `W_Dok2Reihe.ReihenID` straight
+to `W_Baumusterzeile.BMZeilenNr` — different keys whose ranges overlap — so on
+the 97,891 documents that also state their model in their own text, **98.4%
+were linked to a different model** (a Sprinter bulletin, MODEL 901-904, linked
+to the 447 V-Class). Each car's list was mostly other cars' pages; the user
+found it as "no documents for repair procedures / torque sequence". An "0
+misfiled" check written then was circular (it compared the filing with the
+field it was filed from) and missed it — which is why `eval_wis.py` checks
+page *text*, never buckets.
+
+The right join (schema 1.2, `apply_applic.py` in the extractor; HANDBACK §0a):
+`W_Dok2Reihe (DokNrID, ReihenID)` -> `WS1-3 / WC1-8 (BMZeilenNr, ReihenID)` ->
+`W_Baumusterzeile.BMReihe`, where the table is the role — 1 vehicle, 2 engine,
+3 transmission, 4-8 other aggregates; ReihenID -1 = all. Records carry
+`model_series` (vehicle role), `baumuster`, `engine_series`,
+`transmission_series`, `applicability_summary` (W_Kurzgueltigkeit's one-line
+validity text, put in the page as "Validity: …"), and null years. Measured
+independently on our side: the vehicle role agrees with the documents' own
+MODEL lines on **99.94%** of 108,853, the engine role with ENGINE lines on
+99.1%. 223,968 of 272,607 records get a vehicle series (1.1's prose-only
+fallback reached ~98k).
+
+**The importer still measures before it trusts.** `structured_agreement()`
+compares `model_series` with the prose on every document carrying both; below
+`STRUCTURED_MIN_AGREEMENT` (0.5) it ignores the field for the whole corpus and
+prints `! structured model links IGNORED` (1.1 scored 1.6%). Tests:
+`ar_badlink_` and `ar_v12_` in `test_records.py`. If a future pull regresses
+the join, filing falls back to the text automatically.
+
+`record_series()` rules, each fixing an observed failure:
+- vehicle series from the table; **if the table names no vehicle, the text's
+  MODEL lines** (the table's "Capacities: Cross-country vehicles" is
+  engine-only yet says MODEL 460/461/463 — it reached a 190E through E102);
+- **only a document tied to no vehicle goes to its engine bucket** (`E102`).
+  One that names vehicles is already under each of them, and every car with
+  that engine searches the engine bucket — filing "463 with engine 102" there
+  put G-Class oil capacities in front of a 190E and Viano glow plugs in front
+  of a C 220 CDI (`eval_wis.py` caught both);
+- neither: the general pool, never a guessed car. Prose codes must be series
+  in `models.jsonl` (drops part numbers like "MODEL 346 332 04 16"), and the
+  slash parser below applies.
+`transmission_series` is carried but not filed on: 5,410 of the 6,138 722
+gearbox documents name their cars and are under them; the rest are general.
+
+**WIS slash lists are variants, not series — this was a wrong-vehicle bug.**
+`MODEL 639.601/603/605/701/703` is five variants of the one series 639; the
+suffixes are three digits too. The original regex took every 3-digit number
+as a series, so `906.111 /113 /211 /213` filed Sprinter documents under 211
+and 213 — the E-Class. 59,634 such suffixes occur; it inflated the picker from
+~400 to 621 entries. `_block_families()`: a dotted head claims every slash
+suffix after it; a bare head gains a second series only as an exact *pair*
+(`MODELS 202/210`), because longer bare chains are variant lists with the dot
+dropped (`203 /018 /065 /218` — 218 is the CLS). Test cases use the exact
+strings from the corpus.
+
+**The general bucket is narrowed by vehicle type.** It is 28,829 pages since
+schema 1.2 (126,641 when only a document's own text could file it) —
+and not all of it is universal: bus engine specs, truck capacities, Smart
+bulletins. On the real index a Sprinter oil-capacity search returned
+"Capacities: Medium-heavy trucks". WIS flags every record with vehicle-type
+bits (`fzg_art_indices`, IMPORT_SPEC applicability layer 3), and each series'
+own documents carry a consistent set — so each model vehicle stores
+`vehicle_types` and a general page is only in scope if it shares one
+(`search.Scope.types`; unflagged pages always pass). The vehicle's *own*
+pages are never type-filtered: being filed under the model is stronger
+evidence than a bit. Deriving a model's types, three rules each fixed a real
+failure: ignore documents flagged for 7+ types (the "every type" flag — 18,166
+of them, against 64 with six); use only documents naming *just that series*,
+because a multi-model document carries the union of its models' bits; keep
+bits on ≥1% of those (drops single mis-tags). A series with no informative
+documents gets no types, which means no narrowing — the safe default. Note the
+bits are WIS's divisions, not "car vs van": the Sprinter shares bit 0 with the
+passenger cars.
+
+**`model` mode reads byte offsets, not records.** `discover()` scans the corpus
+once and buckets file offsets per family; `pages()` seeks. The alternative is
+re-reading ~800 MB once per model vehicle.
+
+**Figure-only records become pages when their graphic exists (schema 1.3).**
+Records with no `body_text` — 24,972 in the English set — are graphics:
+wiring diagrams, tightening sequences, scanned manual pages. 24,968 now carry
+converted images and are indexed; a record with no text *and* no image on
+disk is still dropped and counted (`figure-only` in the tally, 4 today —
+malformed DXF). The test is *empty body*, not `body_format`: the spec says
+RTF is always figure-only, but 15,266 of the 40,238 real RTF records carry
+text.
+
+**The image pass (extractor side).** `pull_images.js` reads each graphic
+once from `ID2Blob_<cluster>` (`DokID = 0 AND GraphikID = ?` — graphics are
+not stored under the citing document) into
+`autorundown_out/wis_images/raw/<cluster>/<gid>.bin`, resumable;
+`convert_images.py` (Pillow, ezdxf) writes `wis_extract/images/` +
+`catalog.tsv`: TIFF G4 / JPEG 2000 -> PNG, JPEG/PNG/GIF copied, gzip'd SVG
+re-encoded, DXF R12 -> SVG via `ezdxf.recover` (WIS DXF reuses entity
+handles; a strict read silently draws nothing), plus the text labels of
+vector graphics; `apply_images.py` adds `image_files` / `figure_text` to
+records. **Pull in batches** (`pull_images_batches.sh`, 15k each, VM off
+between): the in-VM database resets its connection after ~19.5k graphics in
+one session, and the host crashed twice (bugcheck 0x9F, VirtualBox 7.1.4)
+during long VM runs — none since updating to 7.2.18 and batching. Full
+English pass: 272,185 graphics, ~2 h in 11 batches, conversion minutes.
+
+**Every line is accounted for, and the arithmetic is printed.** Ingest reports
+`N records = K indexed + F figure-only + M MALFORMED` and checks `N` against
+the manifest's `record_count` (IMPORT_SPEC section 4 exists for exactly this).
+A malformed line is called out as data loss, not filtering. Before this the
+importer dropped unparseable lines silently, so a truncated `records.jsonl`
+was indistinguishable from a smaller corpus — the one failure mode nobody
+notices. In model mode it also prints the fan-out (`227 page rows from 167
+documents`), because a document is filed under every model it names and the
+page total otherwise looks like it invented records. **If someone asks whether
+records are missing, this output is the answer** — check it before suspecting
+the extractor.
+
+**WIS pages render line by line, not as paragraphs (UI only, WIS only).**
+Measured on real WIS text, consecutive lines are rows, not wrapped prose: the
+extractor emits one whole paragraph per line, only ~0.2% of adjacent pairs are
+a wrapped sentence, and joining them (LEMON's rule in `renderSource()`) ran
+torque tables, legends and steps together ("Guide pin … Nm 25 25 Bleed screw …
+Nm 14 14"). `showPage()` turns on `layout` mode when the page's owning
+vehicle's `source_name` matches `/^mercedes-wis/`, and then `renderSource`
+keeps each line, joins a line only when the next one finishes its value
+(`wisJoins`: next starts with unit+value like `Nm 25`/`(° 90`, is values only,
+previous ends in a bare `Nm`, or a hyphenated word continues), and splits
+rows flattened inside one line (`wisRows`: after an `Nm`/`(°` value run
+followed by a capital). Checked by eye on 607 line pairs over 42 pages: 0
+wrong joins found. **LEMON is untouched** — 300/300 sampled pages rendered
+byte-identical before and after. The connector view and answer rendering do
+not use layout mode.
+
+**WIS writes the unit before the value** (`Stage 1 Nm 115 115`), so the old
+value-then-unit torque highlight lit up "1 Nm" — the *stage number* shown as
+a torque. In layout mode `inline()` uses `WIS_TORQUE` and highlights
+`Nm 115 115`; value-first readings (`120 to 130 Nm`) still highlight.
+
+**WIS images (schema 1.3): only files that exist, as `[diagram:]` markers.**
+`server.py` serves figures from `<vehicle.file_path>/images/<name>`; for WIS
+`file_path` is the corpus dir, and every bucket shares it, so
+`images/<cluster>/<graphik_id>.<ext>` resolves from any WIS vehicle with no
+server change. `query.py` treats anything in `images` as a citable figure,
+so `record_images()` keeps only `image_files` entries that exist on disk
+(and refuses `..`) — `_verify_citations()` can never accept a figure that
+resolves to no file. Each image is a `[diagram: 4/74443.png]` marker in the
+page text — the answer model only sees the retrieved chunk, and can only cite
+a figure whose marker it was shown; the UI renders the marker in place.
+
+**Figures sit after their step (the user asked: step, then picture).** The
+raw SIDS carries each graphic inline (`".P.w1518102401|8.5|6.4|TIFF"`), just
+before the step number it illustrates. `parse_sids.py` turns it into
+`[figure: <graphik_nr>]` and emits it at the end of that step — before the
+next figure or the next step number; a figure with no text after it belongs
+to the step about to start. `apply_images.py` rewrites it to
+`[diagram: <file>]`, or drops it if nothing was converted; the importer puts
+only figures *not* placed inline up front, and removes any inline marker
+whose file failed `record_images()`. 380,428 of 380,429 placed. Approximate
+where Mercedes lays several steps beside one figure column (steps 1-2 then
+one picture). Printed figure numbers ("W15.18-1024-01") are stripped as
+clutter. Landed via `reparse_bodies.py`, which re-parses only `body_text`
+and refuses to write if more than 50 bodies lose or change a word: 44,625
+*gained* text the old cleanup had eaten (`\S*\|w\|h\|FMT` swallowed whatever
+was glued to a graphic token, e.g. the last "00" of tool number
+"611 589 00 40 00"); 39 gained stray graphic ids, none lost text.
+
+Diagram labels and figure numbers are
+appended as "Diagram labels: …" / "Figures: …" for BM25 and the model, and
+hidden in the page view. Images open full size on click (wiring diagrams are
+~6,800 px wide SVG). Cross-refs are WIS docnrs (`SI00.00-D-0026A`) with no
+docnr -> dok_id map, so they stay text, not links.
+
+---
+
+## Vehicle selection: year / make / model, and VIN
+
+Built: **Year → Make → Model → Variant (optional)**, plus a VIN box.
+
+- **Model is the generation** ("W201 190", "R107/C107 SL/SLC"). Years are
+  known per generation (curated table, exact — no padding), so the Model list
+  is right for the chosen year.
+- **Variant is optional** ("All variants" by default) and lists every variant
+  of the generation *regardless of year*, because the data cannot say which
+  variants were sold in which year: checked against 21 variants with known
+  years, 7 of the 11 R107 variants have no date rows at all and the one real
+  end date was wrong. An earlier design listed variants in the Model menu and
+  showed a 280 SL under 1987 — the user caught it. What a variant changes is
+  the engine documents searched (see below); "All variants" searches every
+  engine the generation was built with.
+- Engines ("Engine 102") and unnamed components (the 722 gearbox) sit in their
+  own sections at the end of Model, under "Any year" only.
+- The Model label omits the make (it's the step before).
+
+Three sidecars in the corpus dir feed it, all optional:
+
+- `models.jsonl` (IMPORT_SPEC 3a) — series production spans → the Year list.
+- `variants.jsonl` (3b) — one line per (series, sales name) with Baumuster and
+  engines, from `ASRA_FahrzeugII` + `AW_Fahrzeuge`. 5,936 models across 234
+  series. (Counts of named vs unnamed indexed series were taken under the old
+  structured filing and have not been re-measured.)
+- `vin_us.json` (3b) — `USTypBM2TypBM`, 38 rows: WMI + VIN position 4 → series.
+- `vin2fin.json` — `AW_VIN2FIN`, 7,577 US VIN prefixes (first 9 characters,
+  check digit included) → Baumuster. The importer attaches them to each
+  variant as `vin9`.
+
+They come from `pull_vehicles.js` (8 tables, 9 s, VM on) and
+`parse_vehicles.py` (offline) in the extractor folder. Raw TSVs are kept in
+`autorundown_out/wis_vehicles/`.
+
+**Picking a variant selects the series' manual plus that variant's engine.**
+Documents are filed per series, so there is no per-variant manual — the scope
+note under the toolbar says so ("searches the 190 (201) manual, which covers
+all 11 variants … plus the documents for its engine (102.983)"). What a variant
+*does* change is the engine: a document whose text says `ENGINE 102` is filed
+under the engine (`E102`, 233 pages), not under the W201, so without this the
+190E 2.3-16's engine documents are unreachable from the car. Spot check after
+the rebuild: "cylinder head bolts tightening" on the 190 E 2.3 16 returns
+W201, E102 and general pages interleaved. `scope_ids(vehicle, variant)` = car, its
+engine bucket(s), then the general pool (only the general pool is
+type-narrowed). Choosing the series itself includes every variant's engines.
+The variant index travels as `variant=` on `/api/search` and in the ask body;
+`get_page` uses the series-level scope, so a cited engine page always opens.
+
+**The engine is the choice that matters, so the picker is grouped by it.**
+The user picked "W212 E-Class, all 87 variants", searched "valve cover", and
+got V6, V8, AMG and diesel answers side by side -- 10 engine families, all in
+scope. Now the Variant menu is grouped by engine ("M272 · V6 petrol"), each
+group with "Any M272 — E 250, E 300, …" plus its cars; with several engines
+and none chosen, the scope note says "Pick your engine above for exact specs"
+in accent colour. Engine labels come from `importers/data/mercedes_engines.csv`
+(reference knowledge, like the year table; an unknown family shows its number),
+attached per variant as `engine_families`.
+
+An engine choice (`engine=272` on `/api/search` and in the ask body) narrows
+twice, both in SQL before ranking:
+- **buckets**: only that engine's bucket is added — a sales name can span
+  engines ("E 300" = M272, later M276), so taking the variants' engine_ids
+  pulled in E274/E276;
+- **pages**: `pages.engines` (",642,") holds the engines a page is limited
+  to — the engine role, else ENGINE lines, else an engine code in the title
+  (`TITLE_ENGINE_RE`, three digits so bolt sizes never match; 3,178 untied
+  pages, e.g. "Cylinder head cover, OM457"). With an engine (or a car) chosen,
+  a page passes only if it names no engine or that one. 60,023 car-filed
+  records name an engine: "Bolt tightening procedure for cylinder head cover"
+  under the W212 is OM642 only and showed for an M272 E 350 before.
+`Scope.engines` carries it; a chosen car filters to its own engines. The
+answer model is told the choice (`query.narrowed()`: "M272 · V6 petrol;
+models: E 250, E 300 …"), not just "W212 E-Class".
+
+**Exact codes: a family-level engine filter is not enough.** The user asked
+about a 190E 2.3-16's valve cover and got **15 Nm from 50000338, "Engine 102
+(except 102.983/99 …)"** — a page that excludes this car's engine (the
+16-valve 102.983). Its own page, 49013390 "Engine 102 KE in model 201",
+says cap nuts 10 Nm and plastic screws 2 Nm. Three fixes:
+- `code_limits()` stores per page `codes_except` (codes after "except" in
+  title, MODEL/ENGINE lines or validity text; 6,805 records) and
+  `codes_only` (exact codes left in the title, "Engine 102.942 …"; 1,533).
+  Model and engine codes alike. With a car chosen, `Scope.codes` = (its
+  Baumuster, its engine codes, narrowed by the year-picked engines) and the
+  SQL drops a page that excludes *all* of either group, or whose only-codes
+  name none of the car's. All-of, so a choice spanning codes loses nothing.
+- `CODE_BOOST` (1.35) multiplies BM25 for pages naming the car's exact
+  **engine** code: 49013390 was #14 behind 8-valve M102 pages. Boosting on
+  model codes too (or ≥1.5) pushed the right W124 brake-pad / wheel-bolt
+  pages out of the top 10 — `eval_wis.py` caught it; tuned on all 19 cases.
+- The answer model is told the exact codes ("190 E 2.3 16 (201.034) …
+  exact engine code 102.983"), and the Ask path translates the planner's
+  queries too ("valve cover" -> "cylinder head cover").
+Regression case: `w201-2316-valve-cover` (expect 49013390, forbid 50000338).
+
+**Keyword search translates shop words** (`autorundown/synonyms.py`): WIS
+says "cylinder head cover", never "valve cover". `/api/search` runs the
+manual's wording first, then the user's, and returns one row per page (two
+matching chunks of one page used to show twice). The UI says "Also searched
+the manual's term: …". Ask doesn't need it — its planner rewrites queries.
+Unambiguous pairs only; bare "rotor" was left out (distributor rotor).
+
+**Engine documents have their own namespace, so engine and vehicle numbers
+never collide.** 906 is the OM906 truck engine and the Sprinter; 651 the
+OM651 diesel and a truck series; 123 the M123 and the W123. Engine buckets
+are `E<nnn>` (`E651`), filed from the engine *role* (schema 1.2) or an
+`ENGINE` line, so no vehicle can share one; `engine_ids` prefers the `E`
+bucket. Measured on the current index: all 1,230 passenger variants link to
+an engine bucket (OM651: 123 of 123), 0 links point at a vehicle bucket.
+Engine doc_ids are lowercase (`…-e102`). Passenger mode drops `E` buckets
+that no car variant uses. Engine buckets are **not** type-narrowed (see Known
+gaps).
+
+**VIN: two formats, both from Mercedes' own tables.** A European FIN carries
+the Baumuster in positions 4-9 (`WDB 201034 …`), so it pins the series *and
+the exact variant*. A US VIN carries a coded letter at position 4
+(`USTypBM2TypBM`: `WDB`+`D` = 201), so it pins the series only — the user
+picks the variant — and position 10 gives the model year (letters repeat
+every 30 years; the candidate inside the series span is used). Stored per
+vehicle as `vin_codes` (",WDB:D,"). `USMotKar2TypBM4` maps another position to
+the Baumuster's 4th digit, but which VIN position is not established, so it
+is pulled and unused. A non-Mercedes VIN fails with a clear message.
+
+**US VINs pin the exact variant via Mercedes' own decoder table.**
+`AW_VIN2FIN` (WIS, 7,870 rows, pulled by `pull_vehicles.js`; `AR_TABLES=`
+pulls single tables) maps the first 9 VIN characters to the first 9 of the
+FIN = WMI + Baumuster: `WDBDA34D4` → 201.034 190 E 2.3 16, `WDDGF8AB3` →
+204.080 C 300 4MATIC. `vinLookup()` tries it first (variant + year), then
+falls back to the series-only position-4 code. Covers 84 series up to ~2016
+(the database is dated 2016-11); newer US VINs fall back to series only.
+
+**Data cards (EPC) are not available — they are access-protected.** The EPC
+install has the data card databases (`DAG_DCPC`, `MBNA_DCNA`, `MBOE_DCCAR`,
+… 2016-11-23, up to 8 GB each, port 2034), but they refuse both accounts the
+rest of the install uses (`tbadmin` for WIS, `tbuser` from `epc_cfg.xml`,
+which does open `SPECIALFILES`). That is a deliberate lock on that data; do
+not try to get around it. The user was told the legitimate routes: look a VIN
+up in the EPC program inside the VM, or use credentials issued with their
+licence if they have any. Untried lead: `SPECIALFILES` (42 tables) may hold
+option-code descriptions.
+
+**Per-model US model years: built once from NHTSA, committed.**
+`importers/data/mercedes_us_years.csv` (11 KB: Baumuster, US years, NHTSA
+trims) comes from `tools/build_us_years.py`, run by hand: for each of the 887
+`AW_VIN2FIN` patterns (first 8 VIN characters; vPIC ignores the check digit)
+it decodes a synthetic VIN per plausible year via vPIC's batch endpoint and
+keeps the years vPIC recognises — with a trim (a bare "M-Class" is a generic
+match) and clipped to the generation span +1. The site never calls NHTSA; if
+vPIC changes, nothing breaks (cache in `tools/.us_years_cache.json`).
+304 Baumuster got years. Checked against known cars: right for 2000s models
+(W212 E550 4MATIC M273 2010-11, M278 2012+; E350 4MATIC M272 2010-12), loose
+for 1980s ones (190E 2.3-16 shows 1983-87, sold 1986-87) and one stray year
+(212.072 2015) — extra years, never a hidden car. `parse_vehicles.py` now
+writes `engine_by_bm` per variant, so a year picks the engine.
+
+**One line picks the car** (`#carInput`, the dropdowns are "Browse"). Type
+"2009 Mercedes-Benz E550 4Matic" or "09 e550 4matic": suggestions are built
+client-side (`buildCarIndex`, ~2,500 entries) from each variant x its US
+years → the Baumuster valid that year → their engines; Mercedes' slash names
+("E 500/550") also match "E550", and NHTSA trims are matched too. A 2009
+E550 4MATIC resolves to the **W211** (the W212 is 2010+ in the US). Picking
+sends `variant` + `engine` (comma list when a year is ambiguous, "M272 or
+M276" for a 2012-13 E 350) + `year`; the answer model is told all three. A
+VIN in the same box resolves the same way. Non-US variants are listed by
+name ("not a US model") under their generation's years.
+
+**Fixed 2026-10-08: variant indexes were wrong since the variant picker
+shipped.** The UI sorted each generation's variants by name *in place* and
+sent the sorted position; the server indexes the stored order. Choosing "E
+500/550 4MATIC" (28th by name) searched the W211's 28th stored entry, the
+E 63 AMG — 29 of 29 W211 positions differed. Now nothing sorts `_variants`;
+display order is sorted inside `engineGroups`, and the remembered-pick key
+became `autorundown.vehicle.v2` so old positions are dropped. A UI-level
+check that the sent index names the shown car would catch a recurrence.
+
+**There is no per-variant model year in this database — do not look again.**
+`ASRA_FahrzeugII.ErstesModeljahr/LetztesModeljahr` are filled on 317 of 92,787
+rows (engine series only). `ProduktionVon/Bis` there are **chassis-number
+ranges** (`034959`–`999999`), not dates, despite the name. Per-Baumuster dates
+from `W_Baumusterzeile` start late and run open: 124.030 (300E, 1985-1993)
+comes out 1990-1995, which would *hide* the car from a 1987 filter. So years
+stay at series level (below) — and those are unreliable too.
+
+**Production years from `W_Baumusterzeile` are approximate, and sometimes
+wrong.** They are a plain min/max over every row of a Baureihe, and those rows
+are documentation-validity windows, not market years. Verified against the real
+catalogue: the W140 S-Class (1991-1998) reports 1983-2000, the W202 C-Class
+(1993-2000) reports 1985-2019, and the C117 CLA (a 2013 car) reports 1985-2016.
+The error is *usually* too wide, but not always — see the measured result
+below, where it hides 6 of 46 known series. Do not try to tighten it with a
+heuristic: taking the minimum over only the specific-Baumuster
+rows (ignoring the `*/*/*` wildcard rows) was tested and fixes 140 and 202 but
+makes 201 and 164 worse and does nothing for 117. (`ASRA_Fahrzeug` was
+expected to be the fix; it is not — see above.)
+
+**The year filter is not trustworthy, and it does hide cars — a measured
+fact, not a guess.** Scored against 46 series with known production years
+(±1 year): the current min/max spans *hide 6* (the W126 from 1979 and R107 SL
+from 1971 both show 1983 — the database's documentation epoch — so a 1980 W126
+is missing under 1980; the W123 and W213 have no start at all) and add ~17
+spurious years on average, mostly because rows without an end date make spans
+run to today (why a 1990s W202 shows under 2010). Every alternative estimator
+over `W_Baumusterzeile` was worse: ignoring wildcard rows hides 22, trimmed
+percentiles hide 14-25. The dates are documentation validity; no rule recovers
+production years from them. (An earlier note here claimed the spans were "too
+wide, never hiding a car" — that was wrong.) The evaluation script and the
+46-series truth table are in the session history; rebuilding them is cheap.
+
+**So years (and series names) come from a hand-maintained table — the user's
+decision, made on that evidence.** `importers/data/mercedes_years.csv`:
+`series, year_from, year_to, known_as` for 78 car/van/smart series. It is
+reference knowledge, not Mercedes data, and says so in the code. Rules:
+- A series with no row gets **no year and is shown under every year** — never
+  hidden. Six vans were left out deliberately rather than guessed (448, 611,
+  636, 690, 900, 909); trucks, buses and Unimogs are not in the table at all.
+  Engines and components (no named models) stay under "Any year" only.
+- Years filter **exactly**. An earlier ±1-year padding put the W123 (ended
+  1986) under 1987; the user expects the list to match the year.
+- `known_as` is the series label ("W126 S-Class", "NCV3 Sprinter"); a name
+  shared by several series gets its number ("Vario (667)").
+- Page text no longer says "built <years>": those came from the unreliable
+  catalogue dates and are what the answer model reads.
+- **Add a row when a new model appears.** `test_records.py` checks the file is
+  well-formed and that no two series share a label.
+Other sources have no table and keep their catalogue spans.
+
+**Makes come from Mercedes' own vehicle type.** WIS covers cars, vans, trucks,
+buses and Unimogs in one corpus; 70-odd truck series listed among the cars is
+what made the picker unusable. `AW_Fahrzeuge.FzgArtCode` names each Baumuster
+CAR / 4xWD / Light or Heavy transporter / TRUCK / BUS / UNIMOG / smart, which
+`parse_vehicles.py` writes as `vehicle_type` (exact Baumuster, else the
+series' majority), and `series_make()` maps to Mercedes-Benz / Vans / Trucks /
+Buses / Unimog / smart. Falls back to `SparteAbk` (00 car, 10 commercial →
+"Mercedes-Benz Commercial", 30 old series). One name rule is used: "U <n>" is
+Unimog in 75/75 known cases. The matching "O <n>" = bus rule is **not** used —
+only 78% agree (van-based minibuses). Note the Vito is a *Light transporter*
+though its `SparteAbk` is car; the type table is the better signal.
+
+**Double-encoded text is repaired at import.** The WIS driver decodes the DB's
+UTF-8 as Windows-1252, so "Coupé" arrived as "CoupÃ©" and "Ø" as "Ã˜" — ~1,000
+vehicle names and 12,751 document bodies (the diameter sign in specs).
+`fix_mojibake()` (importer and `parse_vehicles.py`) rewrites a run only when
+its bytes are valid UTF-8, so correct text is never touched. It handles both
+forms the driver produces: cp1252 ("Ã©") and Latin-1, where "–" arrives as
+"â" plus raw C1 control characters — 11,398 WIS pages in the index built
+before 2026-10-01 still carry that second form (it reads "Nm â 30"), and the
+next re-ingest repairs 11,371 of them. `wisDemojibake()` in the UI repairs
+the display meanwhile. The proper fix is upstream (decode as UTF-8 in the pull);
+the repair makes the index clean regardless.
+
+**Series without a curated name fall back to the real sales names.** `class_name()` over a
+series' variants gives "C-Class"-style labels only when every name shares its
+first word (W201 → "190 (201)"). Most series don't ("260 SE", "560 SEL"), so
+`sample_names()` shows a spread instead: "MODEL 126: 260 SE, 380 SEL, 560 SEL
+…". The label also reaches the answer planner as vehicle context, where a bare
+number means nothing. Names are as stored: `Verkaufsbezeichnung` is char(18),
+so some arrive clipped ("300 SD, S 350 Turb").
+
+**A search scope is a set of doc_ids, not one.** `search.scope_ids(vehicle,
+variant)` returns the selected vehicle, then its engine buckets, then the
+general pool (`general_doc_id`). **The core property is intact** — each query
+is still filtered to one doc_id before ranking; the scope only decides which
+doc_ids are queried, so a wrong-model spec is still never a candidate.
+
+The general pool is 28,829 pages since schema 1.2 and it is narrowed by
+vehicle type (see the `records` importer section), because not all of it is
+universal.
+
+**Duplicates are removed by `page_no`, not `page_uid`.** A document naming
+both a model and an engine is filed in both buckets, so a scope holding both
+would show it twice. A scope never mixes sources, so `page_no` (the WIS
+DokID) is unique within it.
+
+**Results are interleaved, and the round is ordered by score.** The general
+bucket is far larger, so ranking the two together would bury the model's own
+pages — hence round-robin, as with `multi_search`. But unlike `multi_search`
+these lists answer the *same* query, so BM25 scores are comparable and the
+better one wins within each round. Without that, a loose OR-match on the model
+took rank 1 over a tight match from the general bucket. That is what
+`_interleave(..., by_score=True)` is for; `multi_search` keeps `by_score=False`
+because scores from different queries are not comparable.
+
+**Nullable columns were added after the first release** — `vehicles`:
+`general_doc_id`, `model_code`, `vehicle_types`, `variants` (JSON),
+`vin_codes`; `pages`: `vehicle_types` —
+with an `ALTER TABLE` migration in `index._migrate` (`ADDED_COLUMNS`), because
+`CREATE TABLE IF NOT EXISTS` never touches an existing index and an index
+should not need rebuilding for a nullable column. Other importers leave them
+NULL and `scope_ids` degrades to a single, unnarrowed id.
+
+**Makes are grouped on a folded key in the picker.** The HTML archive says
+"Mercedes Benz", WIS says "Mercedes-Benz"; `makeKey()` in `index.html` folds
+case and punctuation and shows the commonest spelling. Presentation only —
+stored data is left as each importer wrote it.
+
+**"C-Class" is a heuristic, not data.** The database has no marketing class
+name, only per-variant sales designations. `class_name()` takes the shared
+first token and expands a single letter, and **returns "" when the designations
+disagree** rather than guessing — `sample_names()` covers that case.
+
+---
+
+## Importing from the site
+
+Gear icon → Settings → **Import data…**, and automatically on first start
+when the index is empty. A folder browser plus format detection
+(`importer_jobs.describe()`: a folder with `manifest.json` + `records.jsonl`
+is a corpus straight away — letting the other detectors walk its `images/`
+took 15 s), then a background job that runs **the same CLI**: `ingest.py
+--importer auto` (add / update, resumable) or, for a WIS corpus,
+`rebuild_wis.py` (replace the WIS part, keep other manuals and the spend log).
+One job at a time; the child runs with `PYTHONIOENCODING=utf-8` (a piped
+child on Windows otherwise dies printing "Coupé"); the log streams into the
+dialog. `/api/browse` and `/api/import` answer **only to localhost** (403 to
+a phone on the LAN, measured) since they list folders and run long jobs;
+search stays open to the LAN. Verified end to end: a WIS rebuild started
+from the dialog finished in 3 min 13 s, rc 0, evals unchanged.
+
+**From a Mercedes virtual machine** (second source in the same dialog):
+`/api/vms` lists VirtualBox VMs; the job runs the extractor's
+`vm_pipeline.py --vm <name> --out-root <autorundown_out> --steps …` and then
+`rebuild_wis.py` on `<out_root>/wis_extract`. The pipeline is the manual
+procedure in one resumable script: docs (`pull.js`, power-cycle + resume on a
+drop, 6 tries) → applic (`pull_applic.js`, `pull_applic2.js`) → vehicles
+(`pull_vehicles.js`) → images (list from `figures.tsv`, 15k per batch, VM off
+60 s between) → build (`parse.py` → `apply_applic.py --rebuild-join` →
+`parse_vehicles.py` → `convert_images.py --jobs 3` → `apply_images.py`). It
+only starts/stops the VM headless and reads the DB; it never snapshots,
+changes the NIC or the guest firewall (the old `extract.ps1` did) — if the DB
+isn't reachable it says what to set up by hand. A saved VM state is
+discarded for a cold boot (a 7.1 save state may not resume under 7.2). Finds
+VBoxManage, the EWA `sun_jre` Java and `tbjdbc.jar` itself; the extractor
+folder is `config.extractor_dir` or `../Mercedes Documents/
+autorundown_extractor`. Verified from the dialog with steps
+vehicles,build: 25 min, rc 0, every corpus count identical to the hand-run
+build (223,968 vehicle-tied, 380,428 figures placed, 7,577 VIN prefixes).
+**From-scratch run, 2026-10-07** (old outputs moved to
+`autorundown_out/_previous_2026-10-07`, not deleted): ~4 h from the dialog,
+every manifest count identical to the previous corpus (272,607 records,
+223,968 vehicle-tied, 76,667 engine, 272,181 images, 380,428 placed). It
+found three gaps, now fixed in `vm_pipeline.py`: every pull (not just
+`pull.js`) power-cycles and resumes on a DB drop — `pull_applic2.js` lost
+the connection on its last table; a failed run always shuts the VM down
+(`STARTED` + `finally`) — it had been left running; and `vm_up` tries a
+second cold boot before giving up — one boot after 12 clean batches never
+brought the DB up in 10 min. Conversion sorts largest-first, so its ETA
+reads ~3 h while on the DXF/SVG diagrams and then drops; ~40 min in total.
+
+## Archive-specific traps
+
+These are properties of the archive, discovered the hard way. A flat or
+simple archive hides most of them.
+
+| Trap | Handling |
+|---|---|
+| Each article filed under ~3.2 folders | dedup by content hash; citations name the canonical page |
+| Manual contains other engines' pages (2,747) | flagged `other_variant` at import, excluded from search by default |
+| Images flat *or* nested (`images/A/B/x.png`) | refs kept relative to `images/`, never basename |
+| UI icons are `<img>` too | anything outside `images/` rejected |
+| "Refer to: X" was a real link | preserved as `[[ref:N::label]]`, stripped before the model sees it |
+| Connector IDs (`C906`) are bare text | indexed from page titles; 529 for the Ford, 0 for the Mercedes |
+
+The Mercedes yielding zero connectors is correct, not a bug — a 1987 manual
+predates the end-view format. Features here degrade quietly by design.
+
+---
+
+## Verifying changes
+
+1. `python eval.py` — free, catches indexing/ranking/dedup/variant regressions
+   on the F-150. `python eval_wis.py` — free, 18 WIS cases (~15 s): expected
+   DokIDs plus wrong-vehicle guards that read page *text*. Guards that fail
+   today are a ratchet (`KNOWN_BAD` ceilings): more offenders fails the run,
+   fewer prints IMPROVED — lower the ceiling when it does.
+2. For UI work: start the server, drive it with the browser tools, and inject
+   payloads into `renderAnswer()` rather than paying for answers.
+3. For extraction changes: re-index (~40s) and re-run `eval.py`. Watch
+   `unique_pages` — if it moves, dedup behaviour changed and that should be
+   deliberate.
+4. Only then, if prompts or schema changed: `eval.py --answers`.
+
+Current baseline: 45,507 pages → 16,034 unique → 21,401 chunks, 189 MB, ~40 s.
+Eval 7/7 on both Sonnet 5 and Haiku 4.5.
+
+With Mercedes WIS (English, passenger mode, schema 1.3 with images) in the
+same `index.db`: 272,607 records = 272,603 indexed + 4 figure-only, 531,847
+page rows (x1.95), index 3.5 GB, ~6 min via `rebuild_wis.py`. Images live
+outside the index: 272,181 graphics, 11 GB, in `wis_extract/images/`.
+W201: 1,181 pages, W124: 2,522 (under schema 1.2). `index.before-wis.db` is
+the pre-WIS backup the script restores; `index.v11.db` is the last
+schema-1.1 index, kept for rollback (both gitignored). `eval_wis.py`: 18/18
+pass, known-bad guards 33 -> 12.
+
+---
+
+## Known gaps
+
+- No `LICENSE` file. Without one, default copyright applies and nobody can
+  reuse the code. The user is creating a public repo — flag this.
+- `eval.py` cases are archive-specific (2015 F-150 page numbers). They will
+  fail against any other archive; that is documented in the file.
+- Sibling-engine pages exist in the main tree identified only by their title
+  (e.g. "Generator - 2.7L EcoBoost"). The prompt requires flagging
+  applicability, but this is prompt-level, not structural.
+- No installer or packaging.
+- The spend log lives inside the index. `rebuild_wis.py` carries it across a
+  WIS rebuild; any *other* way of rebuilding (deleting `index.db`, copying a
+  backup over it) still loses it.
+- **WIS retrieval is checked by `eval_wis.py`, not by answers.** 18 cases,
+  13 known-bad guards left (other engines' documents in the general pool,
+  engine buckets not type-narrowed, title-only applicability). The right page
+  is found in every case but often at rank 4-7; one page can fill several of
+  the top 10 as separate chunks (dedup is per chunk), visibly so in the UI's
+  keyword list.
+- **Answers over WIS have not been tried.** Everything above is keyword
+  search; no paid question has been asked against the WIS corpus. The answer
+  prompt was tuned on LEMON HTML.
+- WIS pages have no system taxonomy (`system` is left empty), so the
+  connector index does nothing for that source (`/api/connectors` returns
+  `[]`), as with the Mercedes HTML set.
+- **The vehicle-type narrowing is a derived heuristic.** The thresholds
+  (7+ bits = universal, ≥1% share, single-series documents) are fitted to the
+  English corpus and verified on a handful of models. A general document with
+  a type bit its model's own documents never carry is hidden — that is the
+  point, but if WIS mis-flagged a genuinely relevant bulletin, it's hidden
+  too. The "include other trims/engines" checkbox does *not* bypass this.
+- **The W124 E-Class has no year range at all**, so it only appears under "Any
+  year". One row in `W_Baumusterzeile` stamps it `1194-03-01` (a transposed
+  1984) — the only implausible date in all 33,085 — and the importer refuses
+  it rather than guessing. This is the one case where the year filter is
+  *under*-inclusive, which is the unsafe direction. Fixed by the extractor
+  ignoring out-of-range dates in the rollup; reported in `HANDBACK.md`.
+- **The real corpus lives outside the repo** at
+  `Mercedes Documents/autorundown_out/wis_extract/` (records.jsonl 861 MB,
+  models.jsonl, manifest.json). Real numbers: `records_with_models` is
+  197,658 — 72%, not the ~98% the IMPORT_SPEC example claims — and
+  `model_series_count` is 406, not 190. Treat that example as illustrative.
+- **Leftover font fragments** ("MATH A 10", "CLASSIC 12") show as their own
+  lines on WIS pages; the "Tightening torques: Passenger cars: …" summary
+  documents (e.g. 10010804) carry component names but no values — an
+  extraction gap in the extractor, not a rendering problem.
+- **4 wiring diagrams don't convert** (malformed DXF, e.g. 6/190775
+  "Invalid group code VERTEX"); their records stay figure-only and dropped.
+- **Scanned manual pages (classes 10/30, ~2,700 records for old cars) are
+  findable by title only** — no text layer, and no OCR by decision.
+- **Wiring diagrams rank behind text pages.** A component-code search
+  (`X63/4 N3/10`) finds the W203 engine-CAN diagram at #7 with "All
+  variants": every engine bucket gets a slot per round. Picking a variant
+  narrows it.
+- **Transmission-only documents stay general.** Most gearbox documents name
+  their cars and are filed under them (schema 1.2); the ~700 that name only a
+  transmission go to the general pool, since no car→gearbox map exists. The
+  `MODEL 722` bucket is down to 1 page.
+- **Engine-titled documents in the general pool.** Untied documents like
+  "Repair notes for the cylinder heads … Engines 601, 602" still reach a
+  petrol 190E. The type filter can't catch them (same vehicle-type bit);
+  their applicability is visible and the prompt must flag it.
+- **More buckets, slower search.** A whole-series scope for the W140 queries 7
+  buckets: ~0.7 s per keyword search, more for an answer (several planner
+  queries). Picking a specific variant narrows it.
+- Series with no sales names keep "MODEL xxx" labels; engine buckets are
+  labelled "Engine xxx" and sit at the end of the Model list.
+
+---
+
+## Where we left off (2026-10-08) — start here in a new session
+
+1. **"Original layout" view.** The user finds the reading view "bunched up"
+   next to WIS's own layout. `tools/sids_render.py <dok_id>` is a working
+   prototype that redraws a document from its SIDS layout (blocks, framed
+   boxes, pictures at their anchors, two-column step rows, notes, fonts);
+   verified on 49013390 (190E 2.3-16 head cover), sent to the user. Next:
+   a `/api/original/<doc_id>/<page_no>` route + an "Original layout" button
+   on WIS pages, an offset index for `bodies.pack` (don't load 468 MB per
+   request), then check torque tables and wiring legends.
+2. **Extractor is not in this repo** — it lives in
+   `../Mercedes Documents/autorundown_extractor` (vm_pipeline.py,
+   pull_*.js, parse*.py, apply_*.py, convert_images.py). The site finds it
+   via `config.extractor_dir` or that sibling path. Decide with the user
+   whether to move it into this repo.
+3. **LICENSE** still missing (public repo).
+4. **A UI-level test for variant indexes** (the sorted-index bug of
+   2026-10-08) — the server-side evals can't see it.
+5. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
+   and `index.v11.db` — the user may delete them; we never delete data.
+6. Cosmetic: printed figure numbers in the older "P01-5220-13" style are
+   not stripped (`FIG_CAPTION_RE` only knows "W15.18-1024-01").
+
+## Working style the user prefers
+
+- Verify claims by running things, not by asserting them. Several bugs here
+  were found only because a "done" result was actually tested.
+- Say plainly when something is broken, unverified, or self-inflicted.
+- Don't spend their API credit to prove a UI change works.

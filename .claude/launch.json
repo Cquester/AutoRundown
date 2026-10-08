@@ -1,0 +1,27 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "autorundown",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "serve.py",
+        "--port",
+        "8756"
+      ],
+      "port": 8756
+    },
+    {
+      "name": "autorundown-sample-wis",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "serve.py",
+        "--port",
+        "8757",
+        "--index",
+        "sample_wis.db"
+      ],
+      "port": 8757
+    }
+  ]
+}
