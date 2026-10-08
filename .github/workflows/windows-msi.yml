@@ -45,15 +45,25 @@ jobs:
           powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -Out dist-old
           Pop-Location
           $old = (Get-ChildItem ..\old\dist-old\*.msi).FullName
+          # Windows Installer keeps a per-user product's Apps entry under
+          # HKLM\...\Installer\UserData\<SID>, never HKCU\...\Uninstall
+          $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          function Installed {
+            @(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\$sid\Products\*\InstallProperties" -ErrorAction SilentlyContinue |
+              Where-Object DisplayName -eq "AutoRundown" | ForEach-Object DisplayVersion)
+          }
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$old`" /qn /l*v old-install.log"
           if ($p.ExitCode) { throw "0.1.1 install failed: $($p.ExitCode)" }
+          $v = Installed
+          "before upgrade: $v"
+          if ($v.Count -ne 1 -or $v[0] -ne "0.1.1") { throw "expected 0.1.1 in Apps, found '$v'" }
           $new = (Get-ChildItem dist\*.msi).FullName
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$new`" /qn /l*v upgrade.log"
           if ($p.ExitCode) { Get-Content upgrade.log -Tail 80; throw "upgrade failed: $($p.ExitCode)" }
-          $arp = @(Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
-                   Where-Object DisplayName -eq "AutoRundown")
-          "installed: $($arp | ForEach-Object { $_.DisplayVersion })"
-          if ($arp.Count -ne 1) { throw "expected one AutoRundown in Apps, found $($arp.Count)" }
+          $want = (python -c "import autorundown; print(autorundown.__version__)").Trim()
+          $v = Installed
+          "after upgrade: $v"
+          if ($v.Count -ne 1 -or $v[0] -ne $want) { throw "expected only $want in Apps, found '$v'" }
           # and the upgraded app starts in the background
           $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
           Start-Process "$inst\python\pythonw.exe" -WorkingDirectory $inst `
