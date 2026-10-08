@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # the upgrade test builds an older version
 
       - uses: actions/setup-python@v5
         with:
@@ -33,7 +35,40 @@ jobs:
       - name: Build MSI
         run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 
-      - name: Install MSI (silent, per-user)
+      - name: Upgrade over 0.1.1 (what a user already has)
+        shell: pwsh
+        run: |
+          # build the 0.1.1 installer from its own commit, install it, then
+          # install this build over it -- the path a real user takes
+          git worktree add ..\old 1373ebc
+          Push-Location ..\old
+          powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -Out dist-old
+          Pop-Location
+          $old = (Get-ChildItem ..\old\dist-old\*.msi).FullName
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$old`" /qn /l*v old-install.log"
+          if ($p.ExitCode) { throw "0.1.1 install failed: $($p.ExitCode)" }
+          $new = (Get-ChildItem dist\*.msi).FullName
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$new`" /qn /l*v upgrade.log"
+          if ($p.ExitCode) { Get-Content upgrade.log -Tail 80; throw "upgrade failed: $($p.ExitCode)" }
+          $arp = @(Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+                   Where-Object DisplayName -eq "AutoRundown")
+          "installed: $($arp | ForEach-Object { $_.DisplayVersion })"
+          if ($arp.Count -ne 1) { throw "expected one AutoRundown in Apps, found $($arp.Count)" }
+          # and the upgraded app starts in the background
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          Start-Process "$inst\python\pythonw.exe" -WorkingDirectory $inst `
+            -ArgumentList "-m autorundown.launcher --background --no-browser"
+          $ok = $false
+          foreach ($i in 1..60) {
+            try { Invoke-RestMethod http://127.0.0.1:8756/api/stats | Out-Null; $ok = $true; break }
+            catch { Start-Sleep -Milliseconds 500 }
+          }
+          Get-Content "$env:USERPROFILE\.autorundown\autorundown.log" -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "upgraded app did not start" }
+          & "$inst\python\python.exe" -m autorundown.launcher --stop
+          Remove-Item -Recurse -Force "$env:USERPROFILE\.autorundown"   # next step is a first start
+
+      - name: Install MSI again (same version, silent, per-user)
         shell: pwsh
         run: |
           $msi = (Get-ChildItem dist\*.msi).FullName
