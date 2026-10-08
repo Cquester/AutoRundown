@@ -59,8 +59,7 @@ jobs:
             catch { Start-Sleep -Milliseconds 500 }
           }
           if (-not $ok) { throw "the shortcut did not start the server" }
-          python packaging\windows\ui_check.py --channel msedge --corpus sample_corpus `
-            --shots ui-shots --log-shots 03-imported,05-page
+          python packaging\windows\ui_check.py --channel msedge --corpus sample_corpus --shots ui-shots
           $rc = $LASTEXITCODE
           Get-Process python -ErrorAction SilentlyContinue | Where-Object Path -eq $py | Stop-Process -Force
           Start-Sleep -Seconds 2

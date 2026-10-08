@@ -15,7 +15,6 @@ Dev-only: needs `pip install -r requirements-dev.txt`, not shipped.
 from __future__ import annotations
 
 import argparse
-import base64
 import sys
 from pathlib import Path
 
@@ -31,9 +30,6 @@ def main() -> int:
     ap.add_argument("--channel", default=None, help="msedge / chrome; default: bundled Chromium")
     ap.add_argument("--executable", default=None, help="a browser binary instead of --channel")
     ap.add_argument("--shots", default="ui-shots")
-    ap.add_argument("--log-shots", default="",
-                    help="comma list of shot names to also print as base64 JPEG between "
-                         "'BEGIN SHOT <name>' / 'END SHOT' lines (to read them from a CI log)")
     args = ap.parse_args()
     shots = Path(args.shots)
     shots.mkdir(parents=True, exist_ok=True)
@@ -46,17 +42,9 @@ def main() -> int:
         page.on("pageerror", lambda e: errors.append(f"page error: {e}"))
         page.route("**/api/ask*", lambda r: (errors.append("paid /api/ask called"), r.abort()))
 
-        to_log = set(filter(None, args.log_shots.split(",")))
-
         def shot(name: str) -> None:
             page.screenshot(path=str(shots / f"{name}.png"))
             print(f"  screenshot {name}.png")
-            if name in to_log:
-                b64 = base64.b64encode(page.screenshot(type="jpeg", quality=40)).decode()
-                print(f"BEGIN SHOT {name}")
-                for i in range(0, len(b64), 2000):
-                    print(b64[i:i + 2000])
-                print("END SHOT", flush=True)
 
         def step(msg: str) -> None:
             print(f"ok   {msg}", flush=True)

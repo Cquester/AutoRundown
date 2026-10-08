@@ -816,8 +816,8 @@ start: opens the installed Start-menu shortcut (no index) and runs
 job to "Finished" (ingest.py as a child of the bundled Python), car box,
 keyword search, page view, phone width; free, `/api/ask` is blocked. Works
 locally too (`--executable` for a Chromium binary). Uploads the MSI and
-`ui-screenshots`; `--log-shots` also prints two as base64 JPEG in the log,
-since artifact downloads are blocked from cloud sessions. Not covered by CI
+`ui-screenshots` (a cloud session cannot download artifacts: the blob host
+is blocked; read the step's "ok" lines in the job log instead). Not covered by CI
 (needs a person): SmartScreen, the firewall prompt, Windows 11 desktop.
 macOS/Linux run from source (README), by the user's decision.
 
