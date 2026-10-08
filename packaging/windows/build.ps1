@@ -57,10 +57,13 @@ Copy-Item -Recurse (Join-Path $root "autorundown") $app
 foreach ($f in "serve.py", "ingest.py", "ask.py", "rebuild_wis.py", "LICENSE", "README.md") {
     Copy-Item (Join-Path $root $f) $app
 }
-Get-ChildItem $stage -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
-# Compile now so the bytecode is installed (and uninstalled) with the MSI,
-# rather than written next to the source later and left behind.
-& (Join-Path $py "python.exe") -m compileall -q $app
+Get-ChildItem $app -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+# Compile everything now so the bytecode is installed (and uninstalled) with
+# the MSI. Otherwise the first run writes .pyc files the MSI does not own, and
+# uninstall leaves them behind. unchecked-hash: Python never compares them to
+# the source's timestamp (which the install may change) or rewrites them.
+& (Join-Path $py "python.exe") -m compileall -q --invalidation-mode unchecked-hash `
+    $app (Join-Path $py "Lib\site-packages")
 if ($LASTEXITCODE) { throw "compileall failed" }
 
 # 4. smoke test the stage before packaging it
