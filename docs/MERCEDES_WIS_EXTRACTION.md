@@ -7,6 +7,13 @@ everything learned the hard way, in one place. The scripts are in
 [`extractor/IMPORT_SPEC.md`](../extractor/IMPORT_SPEC.md); the early database
 bring-up research is in [`extractor/bringup/`](../extractor/bringup).
 
+**Code in the repo, data outside it.** The site runs `extractor/` from this
+repo. What it reads (the EWA install) and writes (`autorundown_out/`) stays in
+a "Mercedes Documents" folder beside the repo — `extractor/wis_paths.py`
+finds it (`AR_OUT_ROOT` = the output folder, `AR_HOME` = the folder holding it
+and the EWA install) and refuses an output folder inside the repo.
+`python extractor/wis_paths.py` prints where it will read and write.
+
 > Use this only with an installation and data you are licensed to use. The
 > extractor reads the database (SELECT only) and never modifies the VM's disk
 > contents. Mercedes' own software (the EWA install, the Transbase JDBC driver
@@ -24,8 +31,8 @@ resumes where it stopped, so a re-run only does what is missing. By hand:
 
 ```bash
 python extractor/vm_pipeline.py --list-vms
-python extractor/vm_pipeline.py --vm "Mercedes_Ultimate_207" --out-root "<data dir>"
-python rebuild_wis.py --archive "<data dir>/wis_extract"
+python extractor/vm_pipeline.py --vm "Mercedes_Ultimate_207"     # --out-root <dir> to override
+python rebuild_wis.py --archive "<out root>/wis_extract"
 ```
 
 Steps: `docs` → `applic` → `vehicles` → `images` (VM on) → `build` (offline:
@@ -80,7 +87,12 @@ frames (`V,,,x,y,w,h`), lines and boxes (`G`, `GP`, `GA`), paragraphs (`P`,
 `PC,T,…` = a two-column step row), text runs in numbered fonts (`F95 SWISS 10`),
 and graphics inline as `".P.<graphik_nr>|<w cm>|<h cm>|TIFF"`. Units are
 1/567 cm. `parse_sids.py` extracts the text; `tools/sids_render.py` redraws the
-layout (prototype).
+layout (prototype). Printed figure numbers — "W15.18-1024-01" and the older
+"P01-5220-13" — are stripped as clutter (the figure itself is placed by its
+marker), except where the text refers to one ("see Fig. D27-0007-13", "wiring
+diagrams W54-2328-71, … and W54-2349-71"). After a `parse_sids.py` change,
+`reparse_bodies.py` updates `body_text` in place and refuses to write if more
+than 50 bodies lose or change a word.
 
 **Graphic formats** (by magic bytes): TIFF CCITT G4 → PNG, JPEG 2000 → PNG,
 JPEG/PNG/GIF as-is, gzip'd SVG (wiring diagrams), gzip'd or .Z DXF R12 →

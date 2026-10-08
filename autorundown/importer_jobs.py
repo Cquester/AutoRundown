@@ -30,13 +30,36 @@ def can_rebuild_wis() -> bool:
 
 
 def find_extractor() -> Path | None:
-    """The WIS extractor folder (holds vm_pipeline.py), or None."""
+    """The WIS extractor folder (holds vm_pipeline.py), or None.
+
+    The copy in this repo (`extractor/`) unless config.extractor_dir names
+    another. There is deliberately no fallback to the old standalone copy in
+    "Mercedes Documents/autorundown_extractor": two copies drift.
+    """
     from . import config
-    for c in (config.load().extractor_dir,
-              str(ROOT.parent / "Mercedes Documents" / "autorundown_extractor")):
+    for c in (config.load().extractor_dir, str(ROOT / "extractor")):
         if c and (Path(c) / "vm_pipeline.py").is_file():
             return Path(c)
     return None
+
+
+def extractor_out_root(ext: Path) -> Path:
+    """Where that extractor writes (autorundown_out) -- outside the repo.
+
+    Asks the extractor's own wis_paths.py, so the site and the scripts agree;
+    an older copy without it wrote beside itself.
+    """
+    import importlib.util
+    paths = ext / "wis_paths.py"
+    if not paths.is_file():
+        return ext.parent / "autorundown_out"
+    spec = importlib.util.spec_from_file_location("_ar_wis_paths", paths)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    try:
+        return mod.out_root()
+    except SystemExit as e:              # an AR_OUT_ROOT inside the repo
+        raise RuntimeError(str(e)) from None
 
 
 def list_vms() -> dict:
@@ -53,7 +76,11 @@ def list_vms() -> dict:
         return {"extractor": str(ext), "vms": [],
                 "error": (r.stdout + r.stderr).strip().splitlines()[-1:] or ["VirtualBox not found"]}
     vms = [dict(zip(("name", "state"), l.split("\t"))) for l in r.stdout.splitlines() if "\t" in l]
-    return {"extractor": str(ext), "vms": vms, "out_root": str(ext.parent / "autorundown_out")}
+    try:
+        out_root = extractor_out_root(ext)
+    except RuntimeError as e:
+        return {"extractor": str(ext), "vms": vms, "error": str(e)}
+    return {"extractor": str(ext), "vms": vms, "out_root": str(out_root)}
 
 
 def describe(path: Path) -> dict:

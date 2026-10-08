@@ -26,15 +26,18 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import parse  # noqa: E402
-from parse_sids import parse_doc, FIG_CAPTION_RE  # noqa: E402
+from parse_sids import parse_doc, strip_fig_captions  # noqa: E402
 
-OUT = HERE.parent / "autorundown_out"
-MARKER_RE = re.compile(r"\[figure: [^\]]+\]")
+from wis_paths import out_root  # noqa: E402  (data stays outside the repo)
+OUT = out_root()
+# [figure: ...] from parse_sids, [diagram: ...] once apply_images.py has run --
+# ignoring only the first made every illustrated body look like a loss
+MARKER_RE = re.compile(r"\[(?:figure|diagram): [^\]]+\]")
 
 
 def comparable(s: str) -> str:
     s = MARKER_RE.sub(" ", s or "")
-    s = FIG_CAPTION_RE.sub(" ", s)
+    s = strip_fig_captions(s, " ")
     return " ".join(s.split())
 
 

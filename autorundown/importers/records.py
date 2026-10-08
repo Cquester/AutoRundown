@@ -1,7 +1,7 @@
 """Importer for a normalized import corpus (`records.jsonl` + `manifest.json`).
 
 This is the AutoRundown side of the import spec that ships with the extractor
-tooling (`autorundown_extractor/IMPORT_SPEC.md`). The contract is deliberately
+tooling (`extractor/IMPORT_SPEC.md`). The contract is deliberately
 source-agnostic: an adapter -- today the Mercedes WIS VirtualBox extractor,
 tomorrow another OEM database or a folder of PDFs -- writes one JSON record per
 line plus a provenance manifest, and this importer is all AutoRundown needs to

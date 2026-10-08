@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTRACT = ROOT.parent / "Mercedes Documents" / "autorundown_out" / "wis_extract"
-EXTRACTOR = ROOT.parent / "Mercedes Documents" / "autorundown_extractor"
+EXTRACTOR = ROOT / "extractor"
 sys.path.insert(0, str(EXTRACTOR))
 from parse_sids import split_records, split_fields, decompress_body  # noqa: E402
 

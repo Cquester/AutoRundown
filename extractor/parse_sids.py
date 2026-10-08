@@ -16,10 +16,13 @@ cross-reference docnr, vehicle applicability note, icon glyph, or body text.
 """
 import gzip, io, json, os, re, sys
 
-BASE = os.environ.get("AR_PROOF") or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "autorundown_out", "phase4_proof")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wis_paths import out_root  # noqa: E402  (data stays outside the repo)
+
+# the phase-4 proof folder main() works in; importing this module (parse.py,
+# reparse_bodies.py) reads nothing from it and creates nothing
+BASE = os.environ.get("AR_PROOF") or os.path.join(str(out_root()), "phase4_proof")
 OUTP = os.path.join(BASE, "parsed")
-os.makedirs(OUTP, exist_ok=True)
 
 # WIS document number, e.g. SI05.00-P-0002A, AR20.00-P-0100-01, BT05.20-P-0002-01A
 DOCNR_CORE = r'[A-Z]{2}[0-9]{2}\.[0-9]{2}-[A-Z]{1,2}-[0-9]{3,4}[A-Z]?(?:-[0-9]{2}[A-Z]?)?'
@@ -33,8 +36,23 @@ FONTDEF_RE = re.compile(r'^(TIMES|MODERN|SWISS|COURIER|HELV\w*|LOGO\w*|SYMBOL)\b
 GFX_TOKEN_RE = re.compile(r'\S*\|\d[\d.]*\|\d[\d.]*\|[A-Za-z]{2,5}')
 # the same token with its graphic number captured: ".P.w1518102401|8.5|6.3|TIFF"
 GFX_PLACE_RE = re.compile(r'\.P\.([A-Za-z0-9]+)\|\d[\d.]*\|\d[\d.]*\|[A-Za-z]{2,5}')
-# a printed figure number: "W15.18-1024-01", "P01.30-0230-05"
-FIG_CAPTION_RE = re.compile(r'\b[A-Z][0-9]{2}\.[0-9]{2}-[0-9]{4}-[0-9]{2}\b ?')
+# a printed figure number: "W15.18-1024-01", "P01.30-0230-05", and the older
+# style with no dotted group, "P01-5220-13" (34,294 in the English corpus)
+FIG_NO = r'[A-Z][0-9]{2}(?:\.[0-9]{2})?-[0-9]{4}-[0-9]{2}'
+FIG_CAPTION_RE = re.compile(r'\b' + FIG_NO + r'\b ?')
+# ...unless the text refers to it: "(See Fig. D27-0007-13 page 8)", "wiring
+# diagrams W54-2328-71, W54-2329-71 and W54-2349-71", "see also tables
+# P15-0397-13 and P15-0398-13". Same line only; ~50 kept, the rest are captions.
+FIG_REF_BEFORE_RE = re.compile(
+    r'(?:\bfig(?:ure)?s?\.?|\bdiagrams?|\btables?|\bsee|\(|\b' + FIG_NO + r'(?:,| and| or))[ \t]*$',
+    re.I)
+
+
+def strip_fig_captions(s, repl=''):
+    """Remove printed figure numbers, keeping the ones the text refers to."""
+    return FIG_CAPTION_RE.sub(
+        lambda m: m.group(0) if FIG_REF_BEFORE_RE.search(s, max(0, m.start() - 24), m.start())
+        else repl, s)
 # a run that is only a step number: "1", "2.1", "12"
 STEP_NO_RE = re.compile(r'^\d{1,2}(\.\d{1,2})?$')
 # inline SIDS control token inside a quoted run, e.g. ".T.1;"
@@ -359,7 +377,7 @@ def parse_doc(dokid, blob_bytes, title=""):
     body = GFX_TOKEN_RE.sub('', body)                 # drop inline graphic tokens
     # figure captions ("W15.18-1011-01"): the figure itself is now placed by its
     # [figure: ...] marker, so its printed number is only clutter in the step
-    body = FIG_CAPTION_RE.sub('', body)
+    body = strip_fig_captions(body)
     body = re.sub(r'[ \t]{2,}', ' ', body).strip()
     return ('sids', header, body, xrefs, applic, [])
 
@@ -369,6 +387,7 @@ def bits_to_indices(bitstr):
 
 
 def main():
+    os.makedirs(OUTP, exist_ok=True)
     # load metadata
     meta = {}
     with open(os.path.join(BASE, "metadata.tsv"), encoding="utf-8") as f:

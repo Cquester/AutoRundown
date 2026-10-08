@@ -22,8 +22,8 @@ the series span: 124.030 (300E, 1985-1993) comes out 1990-1995, which would
 hide the car from a 1987 filter. Years stay at series level (models.jsonl).
 
 Config via environment:
-  AR_VEH   dir holding the pulled TSVs  (default ../autorundown_out/wis_vehicles)
-  AR_OUT   corpus dir to write into     (default ../autorundown_out/wis_extract)
+  AR_VEH   dir holding the pulled TSVs  (default <out root>/wis_vehicles)
+  AR_OUT   corpus dir to write into     (default <out root>/wis_extract)
 """
 import csv
 import json
@@ -33,8 +33,9 @@ import sys
 from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VEH = os.environ.get("AR_VEH") or os.path.join(HERE, "..", "autorundown_out", "wis_vehicles")
-OUT = os.environ.get("AR_OUT") or os.path.join(HERE, "..", "autorundown_out", "wis_extract")
+from wis_paths import out_root  # noqa: E402  (out root: see wis_paths.py)
+VEH = os.environ.get("AR_VEH") or os.path.join(out_root(), "wis_vehicles")
+OUT = os.environ.get("AR_OUT") or os.path.join(out_root(), "wis_extract")
 
 csv.field_size_limit(10_000_000)
 

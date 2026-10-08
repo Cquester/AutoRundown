@@ -46,8 +46,23 @@ $ErrorActionPreference = "Stop"
 # Windows PowerShell 5.1 leaves $PSScriptRoot empty while param() defaults are
 # evaluated, so a default of (Split-Path $PSScriptRoot) failed before the
 # script started. It is set by the time the body runs.
+# Data (the EWA install, autorundown_out) lives outside the repo -- the same
+# rule as wis_paths.py: AR_HOME, else this folder's parent when the extractor
+# is not in a git repo, else the nearest "Mercedes Documents" beside the repo.
+$extParent = Split-Path -Parent $PSScriptRoot
+if ($env:AR_HOME) { $DataHome = $env:AR_HOME }
+elseif (-not (Test-Path (Join-Path $extParent ".git"))) { $DataHome = $extParent }
+else {
+    $DataHome = $null; $p = Split-Path -Parent $extParent
+    while ($p -and -not $DataHome) {
+        if (Test-Path (Join-Path $p "Mercedes Documents")) { $DataHome = Join-Path $p "Mercedes Documents" }
+        $p = Split-Path -Parent $p
+    }
+    if (-not $DataHome) { $DataHome = Join-Path (Split-Path -Parent $extParent) "Mercedes Documents" }
+}
 if (-not $OutDir) {
-    $OutDir = Join-Path (Split-Path -Parent $PSScriptRoot) "autorundown_out\wis_extract"
+    $outRoot = if ($env:AR_OUT_ROOT) { $env:AR_OUT_ROOT } else { Join-Path $DataHome "autorundown_out" }
+    $OutDir = Join-Path $outRoot "wis_extract"
 }
 
 function Step($m){ Write-Host "`n==== $m ====" -ForegroundColor Cyan }
@@ -63,7 +78,7 @@ if (-not (Test-Path $vbox)) { Die "VBoxManage not found. Install VirtualBox or a
 Info "VBoxManage: $vbox"
 
 if (-not $JavaExe) {
-    $cand = Get-ChildItem -Path (Split-Path -Parent $PSScriptRoot) -Recurse -Filter "java.exe" `
+    $cand = Get-ChildItem -Path $DataHome -Recurse -Filter "java.exe" `
             -ErrorAction SilentlyContinue | Where-Object { $_.FullName -like "*sun_jre*bin*" } | Select-Object -First 1
     if ($cand) { $JavaExe = $cand.FullName }
 }
@@ -74,7 +89,7 @@ if (-not $JavaExe) { Die "Java not found. Pass -JavaExe <path to the bundled sun
 Info "Java: $JavaExe"
 
 if (-not $Jar) {
-    $cand = Get-ChildItem -Path (Split-Path -Parent $PSScriptRoot) -Recurse -Filter "tbjdbc.jar" `
+    $cand = Get-ChildItem -Path $DataHome -Recurse -Filter "tbjdbc.jar" `
             -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($cand) { $Jar = $cand.FullName }
 }

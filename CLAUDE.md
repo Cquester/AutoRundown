@@ -49,33 +49,40 @@ python eval_wis.py                                # FREE, WIS retrieval + wrong-
 python make_sample_corpus.py                      # FREE, stand-in WIS corpus
 ```
 
-Mercedes WIS, end to end from this one session (VM -> index):
+Mercedes WIS, end to end from this one session (VM -> index). The extractor
+is `extractor/` in this repo (the only copy since 2026-10-08); its data --
+the EWA install it reads, `autorundown_out/` it writes -- stays in
+`../Mercedes Documents/`, found by `extractor/wis_paths.py` (`AR_OUT_ROOT` /
+`AR_HOME` override; an output folder inside the repo is refused).
 
 ```bash
-# 1. pull (VM must be off or idle; boots headless, ~15 min, resumable)
-powershell -ExecutionPolicy Bypass -File "../Mercedes Documents/autorundown_extractor/extract.ps1" -VM "Mercedes_Ultimate_207"
-# 2. vehicle names + VIN tables (VM up; 9 s) then parse (offline) -- see
-#    the Vehicle selection section. pull_vehicles.js runs like pull.js: from a
-#    space-free staging dir with AR_HOST/AR_PORT/AR_DB/AR_OUT set
-#    (AR_OUT = autorundown_out/wis_vehicles).
-python "../Mercedes Documents/autorundown_extractor/parse_vehicles.py"
-# 2b. real applicability (schema 1.2): pull_applic2.js (VM up, ~5 min, same
-#     env vars, AR_OUT = autorundown_out/wis_applic2) then, offline:
-python "../Mercedes Documents/autorundown_extractor/apply_applic.py"
-#     until parse.py does this join itself, a fresh pull is schema 1.1 again
-#     and this step is NOT optional -- the importer would then file by text
-#     only (it prints "structured model links IGNORED").
-# 2c. images (schema 1.3): pull in 15k batches, VM off between (~2 h), then
-#     convert + attach (offline). Resumable; re-run after any stop.
-#     After a parse_sids.py change, `reparse_bodies.py` (offline, ~18 min)
-#     updates body_text only; then re-run apply_images.py.
-bash "../Mercedes Documents/autorundown_extractor/pull_images_batches.sh"
-python "../Mercedes Documents/autorundown_extractor/convert_images.py" --jobs 4
-python "../Mercedes Documents/autorundown_extractor/apply_images.py"
-# 3. rebuild the WIS part of the main index (~6 min): restores
+python extractor/wis_paths.py                     # where it reads + writes
+# 1. everything, resumable (~4 h from scratch, mostly images): docs ->
+#    applic -> vehicles -> images (VM on, headless, 15k-image batches with
+#    the VM off between) -> build (offline: parse.py, apply_applic.py
+#    --rebuild-join, parse_vehicles.py, convert_images.py, apply_images.py)
+python extractor/vm_pipeline.py --vm "Mercedes_Ultimate_207"
+#    a subset: --steps vehicles,build  (or images,build). The Import dialog
+#    runs exactly this, then rebuild_wis.py.
+# 1b. offline pieces on their own (defaults read <out root>/...):
+python extractor/apply_applic.py      # schema 1.2 join; NOT optional after a fresh parse.py
+python extractor/parse_vehicles.py    # vehicle names, variants, VIN tables
+python extractor/convert_images.py --jobs 4
+python extractor/apply_images.py
+#     After a parse_sids.py change: reparse_bodies.py (offline, ~18 min,
+#     --dry-run first) updates body_text only; then re-run apply_images.py.
+python extractor/reparse_bodies.py --dry-run
+# 2. rebuild the WIS part of the main index (~6 min): restores
 #    index.before-wis.db, carries the spend log across, re-ingests
 python rebuild_wis.py
 ```
+
+The old route (`extractor/extract.ps1`, which also snapshots the VM and
+changes its NIC and firewall, and the `pull_images_*.sh` batch scripts, not
+in the repo) is superseded by `vm_pipeline.py`. Without `parse.py` doing the
+WS/WC join itself, a fresh `parse.py` is schema 1.1 again until
+`apply_applic.py` runs -- the importer would then file by text only (it
+prints "structured model links IGNORED"); the `build` step does both.
 
 **Never rebuild by copying `index.before-wis.db` over `index.db` by hand.**
 The spend log (`usage_log`) lives inside the index, so that silently deletes
@@ -184,10 +191,11 @@ of a multi-part question. Each of these fixed an observed failure.
 
 ## The `records` importer (second source: Mercedes WIS)
 
-The WIS extractor lives outside this repo (`Desktop/Mercedes Documents/
-autorundown_extractor/`) and emits a source-agnostic corpus: `records.jsonl`
-(one normalized doc per line) + `manifest.json` (provenance, counts,
-`schema_version`). `IMPORT_SPEC.md` there is the contract.
+The WIS extractor is `extractor/` in this repo (its data stays outside, in
+`Desktop/Mercedes Documents/autorundown_out/`) and emits a source-agnostic
+corpus: `records.jsonl` (one normalized doc per line) + `manifest.json`
+(provenance, counts, `schema_version`). `extractor/IMPORT_SPEC.md` is the
+contract.
 
 **One importer for the whole spec, not one per source.** Future adapters
 (another OEM DB, a folder of PDFs) emit the same two files, so they need an
@@ -715,8 +723,9 @@ changes the NIC or the guest firewall (the old `extract.ps1` did) — if the DB
 isn't reachable it says what to set up by hand. A saved VM state is
 discarded for a cold boot (a 7.1 save state may not resume under 7.2). Finds
 VBoxManage, the EWA `sun_jre` Java and `tbjdbc.jar` itself; the extractor
-folder is `config.extractor_dir` or `../Mercedes Documents/
-autorundown_extractor`. Verified from the dialog with steps
+folder is `config.extractor_dir` or this repo's `extractor/`, and the output
+root comes from that extractor's `wis_paths.py` (`importer_jobs.
+extractor_out_root()`), so the site and the scripts agree. Verified from the dialog with steps
 vehicles,build: 25 min, rc 0, every corpus count identical to the hand-run
 build (223,968 vehicle-tied, 380,428 figures placed, 7,577 VIN prefixes).
 **From-scratch run, 2026-10-07** (old outputs moved to
@@ -858,18 +867,29 @@ pass, known-bad guards 33 -> 12.
    a `/api/original/<doc_id>/<page_no>` route + an "Original layout" button
    on WIS pages, an offset index for `bodies.pack` (don't load 468 MB per
    request), then check torque tables and wiring legends.
-2. **Extractor: two copies.** `extractor/` in this repo holds the source and docs (see `docs/MERCEDES_WIS_EXTRACTION.md`), copied 2026-10-08; the working copy the site runs is in
-   `../Mercedes Documents/autorundown_extractor` (vm_pipeline.py,
-   pull_*.js, parse*.py, apply_*.py, convert_images.py). The site finds it
-   via `config.extractor_dir` or that sibling path. Decide with the user
-   whether to move it into this repo.
+2. **Extractor: one copy now** (2026-10-08, the user's decision). The site
+   runs `extractor/` from this repo; the data stays in `../Mercedes
+   Documents/` (`extractor/wis_paths.py`). The old standalone copy,
+   `../Mercedes Documents/autorundown_extractor`, was left in place (we
+   never delete) -- nothing uses it; the user may remove it. Not yet re-run
+   end to end from the repo copy: the paths resolve and the evals pass, but
+   the next VM run is the real check.
 3. **LICENSE** still missing (public repo).
 4. **A UI-level test for variant indexes** (the sorted-index bug of
    2026-10-08) — the server-side evals can't see it.
 5. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
    and `index.v11.db` — the user may delete them; we never delete data.
-6. Cosmetic: printed figure numbers in the older "P01-5220-13" style are
-   not stripped (`FIG_CAPTION_RE` only knows "W15.18-1024-01").
+6. **Older figure numbers ("P01-5220-13"): fixed in `parse_sids.py`, not yet
+   in the corpus.** `strip_fig_captions()` strips both styles but keeps a
+   number the text refers to ("see Fig. D27-0007-13", "wiring diagrams
+   W54-2328-71, … and …"): of 34,294 in the corpus ~50 are kept. To land:
+   `python extractor/reparse_bodies.py --dry-run`, then without
+   `--dry-run`, then `apply_images.py`, then `rebuild_wis.py`. The
+   dry-run used to report every illustrated body (139,273) as losing text:
+   its check ignored `[figure:]` but not `[diagram:]` markers -- the old
+   parser failed it too (973 of 3,000 sampled). Fixed; on that sample both
+   parsers lose 0 words. The full 18-minute dry-run has not been re-run
+   since the fix.
 
 ## Working style the user prefers
 
