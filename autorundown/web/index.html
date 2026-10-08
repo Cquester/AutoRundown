@@ -118,6 +118,13 @@
   .warnbox{border-left:4px solid var(--warn); background:#2a2015; padding:12px; border-radius:10px; margin:10px 0}
   .errbox{border-left:4px solid var(--bad); background:#2a1717; padding:12px; border-radius:10px}
   .notfound{border-left:4px solid var(--muted); background:var(--panel-2); padding:14px; border-radius:10px}
+  /* WIS pages: reading view vs the document redrawn from its SIDS layout */
+  .viewtoggle{display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:12px}
+  .viewtoggle button{border-radius:0; background:var(--panel-2); color:var(--text); font-weight:600;
+    min-height:36px; padding:0 14px; font-size:14px}
+  .viewtoggle button.on{background:var(--accent); color:#20160a}
+  .fulllink{color:var(--accent); font-weight:600; white-space:nowrap}
+  .origframe{display:block; width:100%; height:70vh; border:0; border-radius:8px; background:#e9e9e9}
   .src{font-size:15px; line-height:1.6}
   .src p{margin:10px 0}
   /* pipe tables from the extractor are rebuilt as real tables here */
@@ -144,6 +151,8 @@
     display:inline-block; background:var(--accent-dim); color:#ffdca8;
     border-radius:6px; padding:2px 8px; font-weight:700;
   }
+  .safety{margin-top:14px; padding-top:10px; border-top:1px solid var(--line);
+    color:var(--muted); font-size:13px}
   details.caveat{margin:10px 0}
   details.caveat summary{cursor:pointer; color:var(--warn); font-size:14px;
     padding:8px 0; min-height:36px}
@@ -1058,6 +1067,11 @@ function renderAnswer(d) {
       h += `<div class="sechead">Sources</div>`
          + d.source_pages.map(srcBtn).join('');
     }
+    // shown on every answer: the model can be wrong, the manual page is the
+    // authority, and a wrong torque can hurt someone
+    h += `<div class="safety">AI-generated from the pages cited above. Check the
+      original page before you tighten, fill, wire or replace anything.
+      Use at your own risk.</div>`;
     h += `</div>`;
   }
   if (d.dropped_citations?.length) {
@@ -1118,6 +1132,45 @@ async function keywordSearch() {
   }
 }
 
+// "Original layout": the WIS document redrawn from its own page layout
+// (server: wis_original.py), in an iframe so its absolute positioning and
+// styles stay out of this page. The choice is remembered per viewer.
+const ORIGINAL_KEY = 'autorundown.wisOriginal';
+function wantOriginal() { try { return localStorage.getItem(ORIGINAL_KEY) === '1'; } catch (_) { return false; } }
+function viewToggle(doc, pageNo) {
+  const on = wantOriginal();
+  return `<div class="viewtoggle" role="group" aria-label="Page view">
+    <button class="${on ? '' : 'on'}" aria-pressed="${!on}" onclick="setPageView(false,'${esc(doc)}','${esc(pageNo)}')">Reading view</button>
+    <button class="${on ? 'on' : ''}" aria-pressed="${on}" onclick="setPageView(true,'${esc(doc)}','${esc(pageNo)}')">Original layout</button>
+  </div>`;
+}
+function originalFrame(doc, pageNo) {
+  const url = `/api/original/${encodeURIComponent(doc)}/${encodeURIComponent(pageNo)}`;
+  // most WIS pages are landscape: on a phone the fitted page is small, so
+  // offer it on its own, where pinch-zoom and turning the phone work best
+  return `<div id="origWrap"><div class="muted" style="margin-bottom:6px">Redrawn from the
+      WIS page layout; approximate. &nbsp;<a class="fulllink" href="${url}" target="_blank" rel="noopener">Open full screen &#8599;</a></div>
+    <iframe class="origframe" id="origFrame" title="Original layout" src="${url}"></iframe></div>`;
+}
+function setPageView(original, doc, pageNo) {
+  try { localStorage.setItem(ORIGINAL_KEY, original ? '1' : '0'); } catch (_) {}
+  const reading = $('#readingView');
+  if (reading) reading.hidden = original;
+  document.querySelectorAll('.viewtoggle button').forEach((b, i) => {
+    const on = (i === 1) === original;
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+  });
+  const wrap = $('#origWrap');
+  if (original && !wrap) reading.insertAdjacentHTML('afterend', originalFrame(doc, pageNo));
+  else if (wrap) wrap.hidden = !original;
+}
+// the drawn page reports its height so the iframe never scrolls inside the pane
+addEventListener('message', e => {
+  const fr = $('#origFrame');
+  if (fr && e.source === fr.contentWindow && e.data && e.data.wisOriginalHeight)
+    fr.style.height = (e.data.wisOriginalHeight + 4) + 'px';
+});
+
 async function showPage(pageNo) {
   srcout.innerHTML = `<span class="spinner"></span>`;
   openRight();
@@ -1149,7 +1202,9 @@ async function showPage(pageNo) {
        <div class="muted" style="margin-bottom:12px">page ${esc(p.page_no)}</div>
        ${p.applicability!=='this_vehicle'
          ? '<div class="warnbox">This page documents a different variant or trim.</div>' : ''}
-       <div class="src">${bodyHtml}</div>`
+       ${wis ? viewToggle(p.doc_id, p.page_no) : ''}
+       <div class="src" id="readingView"${wis && wantOriginal() ? ' hidden' : ''}>${bodyHtml}</div>
+       ${wis && wantOriginal() ? originalFrame(p.doc_id, p.page_no) : ''}`
       + (p.links?.length
           ? `<div class="sechead">Referenced pages</div>`
             + p.links.map(l =>

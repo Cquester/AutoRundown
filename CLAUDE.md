@@ -47,6 +47,7 @@ python eval.py --answers                          # PAID, prints estimate
 python test_records.py                            # FREE, `records` importer
 python eval_wis.py                                # FREE, WIS retrieval + wrong-vehicle guards
 python make_sample_corpus.py                      # FREE, stand-in WIS corpus
+python test_ui_picks.py                           # FREE, UI sends the car it shows (~45 s)
 ```
 
 Mercedes WIS, end to end from this one session (VM -> index). The extractor
@@ -184,6 +185,13 @@ Fig 15", which renders in 30px type as though it were a torque.
 units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part
 of a multi-part question. Each of these fixed an observed failure.
+
+**Licence: MIT, "Copyright (c) 2026 cquester"** (the user's choice,
+2026-10-08). It covers this repo's own code and docs only. Never commit
+Mercedes software (`tbjdbc.jar`, the EWA JRE) or anything extracted from
+WIS/EPC (records, images, VIN tables, raw TSVs) — no licence makes that
+redistributable. `importers/data/*.csv` is hand-made reference knowledge and
+NHTSA-derived years, which is why it is allowed.
 
 ---
 
@@ -388,6 +396,51 @@ hidden in the page view. Images open full size on click (wiring diagrams are
 ~6,800 px wide SVG). Cross-refs are WIS docnrs (`SI00.00-D-0026A`) with no
 docnr -> dok_id map, so they stay text, not links.
 
+**"Original layout": the document redrawn from WIS's own page layout.** The
+user found the reading view "bunched up" next to WIS. WIS pages get a
+Reading view / Original layout toggle (`viewToggle()` in `index.html`,
+choice remembered per viewer in `localStorage`); the original is an iframe on
+`/api/original/<doc_id>/<page_no>`, served by `autorundown/wis_original.py`
+(self-contained; `tools/sids_render.py <dok_id>` is a CLI over it). Free, no
+API calls. What it knows about SIDS, each measured on a corpus sample:
+- **Reads one body, not the pack.** A sidecar `bodies.pack.idx.sqlite` next
+  to `bodies.pack` holds DokID -> offset/length and graphic nr -> image file
+  (figures.tsv + images/catalog.tsv). Built on first request (~2.5 s), and
+  rebuilt by itself when any of the three inputs changes (size + mtime).
+- **SIDS bytes are UTF-8.** The prototype read Latin-1 and printed "â" for
+  every en dash in torque tables ("Nm – 30").
+- **`PC,T,x` starts a table row, `PC,,x` adds a column ending at x**, `PI`
+  is a new paragraph in the same cell, a plain `P` leaves the table. Fields
+  15-18 are the cell's top / bottom / right / left rule, field 4 the
+  alignment (C/R). That turned the torque summaries (10008414: Number |
+  Designation | M8 Nm | per-model values) and wiring legends (25016103: Code
+  | Designation | Coordinates) into real tables; the prototype's two-column
+  guess scattered them.
+- **Fonts come from the document's own table** (`F96,,"SWISS 10 BOLD"`),
+  sizes from the run's half-points. A run code not starting with 0 and with
+  no text (`11`, `2`, `12`) is a tab, as is `L<n>`.
+- **Icon and symbol fonts are not guessed.** Each `LOGO*` font is its own
+  glyph set (LOGO1C357 = test-equipment symbols); only glyphs whose meaning
+  is clear from the text after them in a sample are drawn (danger, note, see
+  document, tool), the rest are a neutral box. `GREEK` follows the Symbol
+  font (`4.5 W` = 4.5 Ω). `MATH`/`SYMBOLS` have no known mapping and show
+  the raw letter underlined in red with a tooltip -- a guessed `±` or `<` in
+  a spec is worse than an obvious unknown.
+- **RTF bodies** (40,238 -- wiring diagrams, scanned manual pages) are stubs
+  naming a graphic: the original layout is that graphic page-wide. Some
+  start with a UTF-8 BOM; `&H&` lines are hotspots (links to other DokIDs),
+  not graphics, and are ignored. The 103 XML bodies have no layout (404).
+- **Most WIS pages are landscape** (~15,600 units, ~1,330 px drawn). The
+  sheet is zoomed to fit the frame like a PDF (a minimum zoom with sideways
+  scroll was worse on a phone); "Open full screen" opens it alone for
+  pinch-zoom. The page reports its sheet height to the parent by
+  `postMessage` -- not `scrollHeight`, which never drops below the frame's
+  height and only let it grow.
+Checked by eye on 49013390, 49014567 (R107 exhaust, steps + tools),
+10008414 (torque table), 25016103 (legend), 25147935 (RTF wiring diagram),
+49009029 (scanned page), at desktop and 375 px. A sweep of 4,000 random
+DokIDs: 3,999 render (1 XML), 0 unresolved pictures, slowest 0.9 s.
+
 ---
 
 ## Vehicle selection: year / make / model, and VIN
@@ -529,8 +582,24 @@ rest of the install uses (`tbadmin` for WIS, `tbuser` from `epc_cfg.xml`,
 which does open `SPECIALFILES`). That is a deliberate lock on that data; do
 not try to get around it. The user was told the legitimate routes: look a VIN
 up in the EPC program inside the VM, or use credentials issued with their
-licence if they have any. Untried lead: `SPECIALFILES` (42 tables) may hold
-option-code descriptions.
+licence if they have any.
+
+**No option-code (SA code) descriptions are reachable either — checked
+2026-10-08, do not look again.** `SPECIALFILES` (1.2 MB; "42 tables" counted
+the system catalogue and views: 12 base tables) has no code text. With
+`tbuser`, 11 of its 12 base tables refuse SELECT; their `_V` views are
+granted and hold only data-card *routing* metadata: `DC_MODEL_DESC`
+(43,447 rows, WMI + Baumuster → short model description, mostly
+trucks/buses), `WHC_MASTER(_MODELS)` (WMI → market/plant names),
+`VIN_MDL` (74 rows, VIN prefix → model stub — a subset of what
+`AW_VIN2FIN` already gives), `DCDBINFO` (which data-card DB serves which
+region), `AGG_FILTERS*`, `DB_LANGS`, `VERSIONS` ("DW 01/2017"), `SAREC_INI`
+(6 config rows). `PWORD`/`PWORD_V` were deliberately not read. The
+catalogue databases where EPC keeps code texts — `ALLTEXT`, `COMM`, and
+`SA_IMAGES`/`BM_IMAGES` — refuse `tbuser` at login, like the data cards.
+So decoding a pasted data card needs a code list from elsewhere; nothing
+was added to the pipeline. Survey output:
+`autorundown_out/epc_survey/`; script `extractor/probe_epc_survey.js`.
 
 **Per-model US model years: built once from NHTSA, committed.**
 `importers/data/mercedes_us_years.csv` (11 KB: Baumuster, US years, NHTSA
@@ -563,8 +632,9 @@ sent the sorted position; the server indexes the stored order. Choosing "E
 500/550 4MATIC" (28th by name) searched the W211's 28th stored entry, the
 E 63 AMG — 29 of 29 W211 positions differed. Now nothing sorts `_variants`;
 display order is sorted inside `engineGroups`, and the remembered-pick key
-became `autorundown.vehicle.v2` so old positions are dropped. A UI-level
-check that the sent index names the shown car would catch a recurrence.
+became `autorundown.vehicle.v2` so old positions are dropped.
+`test_ui_picks.py` now checks that the sent index names the shown car, for
+every pick the UI can make (see Verifying changes).
 
 **There is no per-variant model year in this database — do not look again.**
 `ASRA_FahrzeugII.ErstesModeljahr/LetztesModeljahr` are filled on 317 of 92,787
@@ -768,6 +838,22 @@ predates the end-view format. Features here degrade quietly by design.
    fewer prints IMPROVED — lower the ceiling when it does.
 2. For UI work: start the server, drive it with the browser tools, and inject
    payloads into `renderAnswer()` rather than paying for answers.
+   After any change to the vehicle picker (`#carInput`, Browse, VIN, the
+   variant menu, `loadVehicles`): `python test_ui_picks.py` — free, ~45 s,
+   needs `pip install -r requirements-dev.txt` (Playwright; it drives the
+   installed Edge/Chrome, no browser download). It loads the real page against
+   the index (opened `mode=ro`; `--index` to point elsewhere), makes picks —
+   typed queries with arrow/Enter, a US VIN and a FIN in the box and the VIN
+   dialog, Browse + reload, then every one-line suggestion (~2,500), every
+   Variant option (~1,600) and one VIN prefix per variant (~430) — captures
+   each `/api/search` and checks `variant=` against the stored
+   `vehicles.variants` read in Python: same name (and Baumuster for Browse),
+   engine families the car has, its engine buckets in `scope_ids`.
+   `/api/search` is answered by the test; any non-GET or `/api/ask` request is
+   aborted and fails the run. Re-adding the old in-place sort fails it with
+   6,242 failures, the first being the reported one (E 500/550 4MATIC → E 63
+   AMG). Known quirk it works around: typing "190 e 2.3 16" finds nothing —
+   `carMatches` reads a bare "16" as the year 2016.
 3. For extraction changes: re-index (~40s) and re-run `eval.py`. Watch
    `unique_pages` — if it moves, dedup behaviour changed and that should be
    deliberate.
@@ -789,8 +875,6 @@ pass, known-bad guards 33 -> 12.
 
 ## Known gaps
 
-- No `LICENSE` file. Without one, default copyright applies and nobody can
-  reuse the code. The user is creating a public repo — flag this.
 - `eval.py` cases are archive-specific (2015 F-150 page numbers). They will
   fail against any other archive; that is documented in the file.
 - Sibling-engine pages exist in the main tree identified only by their title
@@ -859,14 +943,9 @@ pass, known-bad guards 33 -> 12.
 
 ## Where we left off (2026-10-08) — start here in a new session
 
-1. **"Original layout" view.** The user finds the reading view "bunched up"
-   next to WIS's own layout. `tools/sids_render.py <dok_id>` is a working
-   prototype that redraws a document from its SIDS layout (blocks, framed
-   boxes, pictures at their anchors, two-column step rows, notes, fonts);
-   verified on 49013390 (190E 2.3-16 head cover), sent to the user. Next:
-   a `/api/original/<doc_id>/<page_no>` route + an "Original layout" button
-   on WIS pages, an offset index for `bodies.pack` (don't load 468 MB per
-   request), then check torque tables and wiring legends.
+1. **"Original layout" is built** (see its section above). Not yet seen by
+   the user on their phone; ask how it reads. Open ends: the undecoded
+   MATH/SYMBOLS glyphs and most LOGO icons, RTF hotspots as links.
 2. **Extractor: one copy now** (2026-10-08, the user's decision). The site
    runs `extractor/` from this repo; the data stays in `../Mercedes
    Documents/` (`extractor/wis_paths.py`). The old standalone copy,
@@ -874,12 +953,12 @@ pass, known-bad guards 33 -> 12.
    never delete) -- nothing uses it; the user may remove it. Not yet re-run
    end to end from the repo copy: the paths resolve and the evals pass, but
    the next VM run is the real check.
-3. **LICENSE** still missing (public repo).
-4. **A UI-level test for variant indexes** (the sorted-index bug of
-   2026-10-08) — the server-side evals can't see it.
-5. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
+3. ~~A UI-level test for variant indexes~~ — done: `test_ui_picks.py`.
+   Open: a bare two-digit word in the car box is always a year ("190 e 2.3
+   16" → 2016, no match).
+4. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
    and `index.v11.db` — the user may delete them; we never delete data.
-6. **Older figure numbers ("P01-5220-13"): fixed in `parse_sids.py`, not yet
+5. **Older figure numbers ("P01-5220-13"): fixed in `parse_sids.py`, not yet
    in the corpus.** `strip_fig_captions()` strips both styles but keeps a
    number the text refers to ("see Fig. D27-0007-13", "wiring diagrams
    W54-2328-71, … and …"): of 34,294 in the corpus ~50 are kept. To land:

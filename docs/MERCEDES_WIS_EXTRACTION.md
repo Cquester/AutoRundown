@@ -139,7 +139,17 @@ the importer measures agreement on every corpus and ignores the links below 50%.
 - **EPC data cards** (`DAG_DCPC`, `MBNA_DCNA`, `MBOE_DCCAR`, … on port 2034)
   exist in the install but refuse both accounts the rest uses (`tbadmin`,
   `tbuser`). That is a deliberate lock — use the EPC program in the VM to look
-  a VIN up. `SPECIALFILES` opens with `tbuser` (unexplored).
+  a VIN up.
+- **EPC option-code (SA code) descriptions.** Surveyed 2026-10-08 with
+  `extractor/probe_epc_survey.js` (SELECT only, `tbuser`). `SPECIALFILES`
+  opens, but 11 of its 12 base tables refuse SELECT; the granted `_V` views
+  hold only data-card routing metadata — WMI → market/plant (`WHC_MASTER`),
+  WMI + Baumuster → short model description (`DC_MODEL_DESC`, 43,447 rows),
+  VIN prefix → model stub (`VIN_MDL`, 74 rows), which data-card DB serves
+  which region (`DCDBINFO`), aggregate filters, languages, version
+  ("DW 01/2017"). No code texts. `PWORD` was deliberately not read. The
+  catalogue databases that would hold code texts (`ALLTEXT`, `COMM`,
+  `SA_IMAGES`, `BM_IMAGES`) refuse `tbuser` at login, like the data cards.
 - **No per-variant model years** in WIS. `ASRA_FahrzeugII.ProduktionVon/Bis`
   are chassis-number ranges, `W_Baumusterzeile` dates are documentation
   validity. US model years come from NHTSA vPIC, queried once by

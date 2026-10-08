@@ -8,6 +8,7 @@ no native build.
 from __future__ import annotations
 
 import argparse
+import re
 import socket
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import config, index, query
-from . import importer_jobs, synonyms
+from . import importer_jobs, synonyms, wis_original
 from .search import get_page, scope_ids, search
 
 jobs = importer_jobs.ImportJobs()
@@ -178,6 +179,31 @@ def create_app(index_path: str) -> FastAPI:
             return page
         finally:
             conn.close()
+
+    @app.get("/api/original/{doc_id}/{page_no}", response_class=HTMLResponse)
+    def api_original(doc_id: str, page_no: str) -> HTMLResponse:
+        """A WIS document redrawn from its SIDS layout (wis_original.py).
+
+        Figures go through /api/image like everywhere else -- every WIS
+        vehicle's file_path is the corpus dir, so any WIS doc_id serves them.
+        """
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            page = get_page(conn, scope_ids(vehicle), page_no)
+        finally:
+            conn.close()
+        if not page or not page_no.isdigit() or not re.match(
+                r"mercedes-wis", vehicle.get("source_name") or ""):
+            raise HTTPException(404, "no original layout for this page")
+        from urllib.parse import quote
+        try:
+            body = wis_original.render(
+                Path(vehicle["file_path"]), int(page_no), page.get("title") or "",
+                lambda f: f"/api/image/{quote(doc_id)}/{quote(f)}")
+        except wis_original.NotAvailable as exc:
+            return HTMLResponse(f"<p style='font-family:sans-serif'>{exc}</p>", 404)
+        return HTMLResponse(body)
 
     # `:path` because diagrams may sit in nested directories, e.g.
     # images/IMP49Q313/euro210/551068321.png
