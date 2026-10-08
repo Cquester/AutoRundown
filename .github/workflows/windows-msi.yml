@@ -30,10 +30,41 @@ jobs:
           python-version: "3.13"
 
       - name: Install WiX
-        run: dotnet tool install --global wix --version 5.0.2
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
 
       - name: Build MSI
         run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+
+      - name: Installer dialogs
+        shell: pwsh
+        run: |
+          # no one clicks through the wizard here (installs below are /qn), so
+          # read the wiring from the MSI: Welcome -> Options -> Ready, the
+          # sign-in box, and Launch on Finish
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          $wi = New-Object -ComObject WindowsInstaller.Installer
+          $db = $wi.GetType().InvokeMember("OpenDatabase", "InvokeMethod", $null, $wi, @($msi, 0))
+          function Rows($sql) {
+            $v = $db.GetType().InvokeMember("OpenView", "InvokeMethod", $null, $db, @($sql))
+            $v.GetType().InvokeMember("Execute", "InvokeMethod", $null, $v, $null)
+            $out = @()
+            while ($r = $v.GetType().InvokeMember("Fetch", "InvokeMethod", $null, $v, $null)) {
+              $out += $r.GetType().InvokeProperty("StringData", $r, 1)
+            }
+            $out
+          }
+          function Need($what, $sql) {
+            $r = @(Rows $sql); "$what`: $($r -join ', ')"
+            if ($r.Count -lt 1) { throw "missing: $what" }
+          }
+          Need "Welcome -> Options" "SELECT Dialog_ FROM ``ControlEvent`` WHERE Dialog_='WelcomeDlg' AND Event='NewDialog' AND Argument='OptionsDlg'"
+          Need "Options -> Ready" "SELECT Dialog_ FROM ``ControlEvent`` WHERE Dialog_='OptionsDlg' AND Event='NewDialog' AND Argument='VerifyReadyDlg'"
+          Need "sign-in box" "SELECT Property FROM ``Control`` WHERE Dialog_='OptionsDlg' AND Property='AUTOSTART'"
+          Need "Launch on Finish" "SELECT Dialog_ FROM ``ControlEvent`` WHERE Dialog_='ExitDialog' AND Event='DoAction' AND Argument='LaunchApp'"
+          Need "Options page" "SELECT Dialog FROM ``Dialog`` WHERE Dialog='OptionsDlg'"
+          if (@(Rows "SELECT Dialog FROM ``Dialog`` WHERE Dialog='WelcomeEulaDlg'").Count) { throw "licence page is in the MSI" }
 
       - name: Upgrade over 0.1.1 (what a user already has)
         shell: pwsh
@@ -64,6 +95,9 @@ jobs:
           $v = @(Installed)   # @(): one result would come back as a bare string
           "after upgrade: $v"
           if ($v.Count -ne 1 -or $v[0] -ne $want) { throw "expected only $want in Apps, found '$v'" }
+          # 0.1.1 never asked about starting at sign-in, so the upgrade turns it on
+          $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk"
+          if (-not (Test-Path $startup)) { throw "upgrade did not add the Startup shortcut" }
           # and the upgraded app starts in the background
           $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
           Start-Process "$inst\python\pythonw.exe" -WorkingDirectory $inst `
@@ -223,6 +257,29 @@ jobs:
           }
           try { Invoke-RestMethod http://127.0.0.1:8756/api/stats | Out-Null; throw "still running after uninstall" }
           catch { if ($_.Exception.Message -eq "still running after uninstall") { throw } }
+
+      - name: Start at sign-in is the user's choice
+        shell: pwsh
+        run: |
+          # what the Options page sets: on by default, AUTOSTART=0 when unticked
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk"
+          foreach ($case in @(@{ arg = ""; want = $true }, @{ arg = "AUTOSTART=0"; want = $false })) {
+            $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$msi`" $($case.arg) /qn /l*v autostart.log"
+            if ($p.ExitCode) { Get-Content autostart.log -Tail 40; throw "install '$($case.arg)' failed: $($p.ExitCode)" }
+            $has = Test-Path $startup
+            "install '$($case.arg)': Startup shortcut $has"
+            if ($has -ne $case.want) { throw "install '$($case.arg)': expected Startup shortcut $($case.want)" }
+            if ($has) {
+              $t = (New-Object -ComObject WScript.Shell).CreateShortcut($startup)
+              if ($t.TargetPath -notlike "*\pythonw.exe" -or $t.Arguments -notmatch "--background") {
+                throw "Startup shortcut does not start the background mode: $($t.TargetPath) $($t.Arguments)"
+              }
+            }
+            $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn"
+            if ($p.ExitCode) { throw "uninstall failed: $($p.ExitCode)" }
+            if (Test-Path $startup) { throw "Startup shortcut left after uninstall" }
+          }
 
       - uses: actions/upload-artifact@v4
         with:

@@ -50,7 +50,11 @@ Download `AutoRundown-<version>.msi` (from the repo's Releases, or the
 `AutoRundown-msi` artifact of the "Windows installer" GitHub Actions run) and
 double-click it. It needs no admin rights and no Python. It installs for your
 user only, in `%LOCALAPPDATA%\Programs\AutoRundown`, and adds AutoRundown to
-the Start menu and desktop.
+the Start menu and desktop. The installer asks whether to **start AutoRundown
+when you sign in** (ticked by default) and, on the last page, offers to
+**launch it now** -- so after installing it is running, with no window to
+keep open. A silent install (`msiexec /i AutoRundown-<version>.msi /qn`)
+turns sign-in start on too; add `AUTOSTART=0` to leave it off.
 
 Starting AutoRundown opens your browser; the server runs in the background
 with an **AR icon in the tray** (bottom-right, maybe under the ^ arrow):

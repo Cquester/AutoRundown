@@ -843,6 +843,18 @@ macOS/Linux run from source (README), by the user's decision.
   is already running it only opens the browser; `--stop` POSTs
   `/api/shutdown` (localhost only). A failed start in the background shows a
   message box, since there is no console.
+- **The wizard asks** (`AutoRundownUI` in the .wxs, WiX UI extension):
+  Welcome -> Options ("Start AutoRundown when I sign in", property
+  `AUTOSTART`) -> Ready -> Finish with "Launch AutoRundown" ticked. No
+  licence page (WixUI_Minimal's was dropped). The Options box installs the
+  `Autostart` component: the same Startup-folder shortcut `autostart.py`
+  writes, so Settings can still turn it off. Default: on for a first install
+  and for upgrades from versions that never asked (0.1.x <= 0.1.2); after
+  that an upgrade keeps the current state (`autostart_asked` registry value +
+  a search for the shortcut). Silent installs: on, `AUTOSTART=0` for off. The
+  user expected the installer to leave it running -- 0.1.2 only added
+  shortcuts, so nothing ran until clicked. CI reads the dialog wiring from
+  the MSI tables (no one clicks the wizard there).
 - **Not a Windows service, deliberately** (the user asked for one): a service
   needs admin and runs as SYSTEM, which can't see the user's VirtualBox VMs
   or `~/.autorundown`. `autorundown/autostart.py` writes a Startup-folder

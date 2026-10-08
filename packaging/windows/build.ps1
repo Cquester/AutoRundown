@@ -4,8 +4,9 @@
 #
 # Needs: Windows, the Python version to bundle on PATH as `python` (its
 # version decides which embeddable Python is downloaded, so the packages pip
-# installs match it), and the WiX tool: `dotnet tool install --global wix
-# --version 5.0.2`. Output: dist\AutoRundown-<version>.msi.
+# installs match it), and the WiX tool plus its dialogs: `dotnet tool install
+# --global wix --version 5.0.2` and `wix extension add -g
+# WixToolset.UI.wixext/5.0.2`. Output: dist\AutoRundown-<version>.msi.
 #
 # The bundle is the official embeddable python.exe plus the app's source, not
 # a frozen exe: import jobs run ingest.py / rebuild_wis.py as child processes
@@ -76,7 +77,7 @@ if ($LASTEXITCODE) { throw "stage smoke test failed" }
 # 5. MSI
 New-Item -ItemType Directory -Force (Join-Path $root $Out) | Out-Null
 $msi = Join-Path $root "$Out\AutoRundown-$version.msi"
-& wix build (Join-Path $PSScriptRoot "AutoRundown.wxs") -arch x64 `
+& wix build (Join-Path $PSScriptRoot "AutoRundown.wxs") -arch x64 -ext WixToolset.UI.wixext `
     -d "Version=$version" -d "StageDir=$stage" -o $msi
 if ($LASTEXITCODE) { throw "wix build failed" }
 Write-Host "built $msi"

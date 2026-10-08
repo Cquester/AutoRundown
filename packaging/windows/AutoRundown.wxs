@@ -54,10 +54,100 @@
         <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\AutoRundown" Name="installed"
                        Type="integer" Value="1" KeyPath="yes" />
+        <!-- this version asked about starting at sign-in: an upgrade keeps
+             the answer instead of asking with the box ticked again -->
+        <RegistryValue Root="HKCU" Key="Software\AutoRundown" Name="autostart_asked"
+                       Type="integer" Value="1" />
       </Component>
     </StandardDirectory>
+
+    <!-- "Start AutoRundown when I sign in" (OptionsDlg, or AUTOSTART=1 on the
+         command line). The same shortcut the Settings toggle writes
+         (autostart.py), so either can turn it off. -->
+    <StandardDirectory Id="StartupFolder">
+      <Component Id="Autostart" Condition="AUTOSTART = 1">
+        <Shortcut Id="StartupShortcut" Name="AutoRundown"
+                  Description="AutoRundown (background)"
+                  Target="[INSTALLFOLDER]python\pythonw.exe"
+                  Arguments="-m autorundown.launcher --background --no-browser"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\AutoRundown" Name="autostart"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- AUTOSTART's default: on for a first install, and for an upgrade from
+         a version that never asked; otherwise whatever the user has now
+         (the Startup shortcut exists or not). Run once, before the dialogs,
+         so unticking the box sticks. -->
+    <Property Id="AUTOSTART" Secure="yes" />
+    <Property Id="AUTOSTART_ASKED">
+      <RegistrySearch Id="AskedSearch" Root="HKCU" Key="Software\AutoRundown"
+                      Name="autostart_asked" Type="raw" />
+    </Property>
+    <Property Id="STARTUP_LNK">
+      <DirectorySearch Id="StartupSearch" Path="[StartupFolder]" Depth="0">
+        <FileSearch Id="StartupLnkSearch" Name="AutoRundown.lnk" />
+      </DirectorySearch>
+    </Property>
+    <SetProperty Id="AUTOSTART" Value="1" After="AppSearch" Sequence="first"
+                 Condition="NOT AUTOSTART AND (NOT AUTOSTART_ASKED OR STARTUP_LNK)" />
+
+    <!-- Welcome, Options (start at sign-in), Ready, then "Launch AutoRundown"
+         ticked on the last page. Silent installs (/qn) skip all of it. -->
+    <UI Id="AutoRundownUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+      <DialogRef Id="WelcomeDlg" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="OptionsDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="OptionsDlg" Order="1" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="3" Condition="Installed AND PATCH" />
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApp" Order="1"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+      <Dialog Id="OptionsDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+        </Control>
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="WelcomeDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Options" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="How AutoRundown starts." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="AutostartBox" Type="CheckBox" X="20" Y="60" Width="330" Height="17" Property="AUTOSTART" CheckBoxValue="1" Text="&amp;Start AutoRundown when I sign in to Windows" />
+        <Control Id="AutostartText" Type="Text" X="37" Y="80" Width="310" Height="60" NoPrefix="yes" Text="It runs in the background with an icon by the clock, so your phone can always reach it at http://autorundown.local:8756. No window stays open. You can change this later in Settings or from the tray icon." />
+      </Dialog>
+    </UI>
+    <UIRef Id="WixUI_Common" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch AutoRundown" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <CustomAction Id="LaunchApp" Directory="INSTALLFOLDER" Execute="immediate" Return="asyncNoWait"
+                  ExeCommand="&quot;[INSTALLFOLDER]python\pythonw.exe&quot; -m autorundown.launcher --background" />
     <StandardDirectory Id="DesktopFolder" />
-    <StandardDirectory Id="StartupFolder" />
 
     <!-- Upgrading or removing while it runs in the background would hit
          "files in use": stop it first. Ignored if it fails (an old version
@@ -72,6 +162,7 @@
     <Feature Id="Main" Title="AutoRundown">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="Shortcuts" />
+      <ComponentRef Id="Autostart" />
     </Feature>
   </Package>
 </Wix>
