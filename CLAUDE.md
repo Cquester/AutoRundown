@@ -528,8 +528,24 @@ rest of the install uses (`tbadmin` for WIS, `tbuser` from `epc_cfg.xml`,
 which does open `SPECIALFILES`). That is a deliberate lock on that data; do
 not try to get around it. The user was told the legitimate routes: look a VIN
 up in the EPC program inside the VM, or use credentials issued with their
-licence if they have any. Untried lead: `SPECIALFILES` (42 tables) may hold
-option-code descriptions.
+licence if they have any.
+
+**No option-code (SA code) descriptions are reachable either — checked
+2026-10-08, do not look again.** `SPECIALFILES` (1.2 MB; "42 tables" counted
+the system catalogue and views: 12 base tables) has no code text. With
+`tbuser`, 11 of its 12 base tables refuse SELECT; their `_V` views are
+granted and hold only data-card *routing* metadata: `DC_MODEL_DESC`
+(43,447 rows, WMI + Baumuster → short model description, mostly
+trucks/buses), `WHC_MASTER(_MODELS)` (WMI → market/plant names),
+`VIN_MDL` (74 rows, VIN prefix → model stub — a subset of what
+`AW_VIN2FIN` already gives), `DCDBINFO` (which data-card DB serves which
+region), `AGG_FILTERS*`, `DB_LANGS`, `VERSIONS` ("DW 01/2017"), `SAREC_INI`
+(6 config rows). `PWORD`/`PWORD_V` were deliberately not read. The
+catalogue databases where EPC keeps code texts — `ALLTEXT`, `COMM`, and
+`SA_IMAGES`/`BM_IMAGES` — refuse `tbuser` at login, like the data cards.
+So decoding a pasted data card needs a code list from elsewhere; nothing
+was added to the pipeline. Survey output:
+`autorundown_out/epc_survey/`; script `extractor/probe_epc_survey.js`.
 
 **Per-model US model years: built once from NHTSA, committed.**
 `importers/data/mercedes_us_years.csv` (11 KB: Baumuster, US years, NHTSA
