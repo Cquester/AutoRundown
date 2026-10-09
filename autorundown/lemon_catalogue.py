@@ -1,5 +1,5 @@
-"""The LEMON catalogue: every vehicle in the LEMON torrent, to browse by
-make / year / model / engine and pick what to download later.
+"""The LEMON catalogue: every vehicle in the LEMON torrent, as a folder tree
+(make > year > model > variant) to pick what to download.
 
 Where it comes from, in order:
 1. the torrent's own `lemon/index.json`, when it is on this PC (under
@@ -11,6 +11,13 @@ Where it comes from, in order:
 The torrent cannot hand over one vehicle: pages.mtbl is sorted by content
 type and hash, so a car's pages are spread over the whole 31.5 GB file. This
 module only lists and remembers picks; downloading is a later step.
+
+A pick is a folder path, not a list of cars: ("Mercedes Benz",) picks every
+Mercedes, ("Mercedes Benz", "1987", "190E", "2.3, 102.985, Automatic") one
+variant. Picks never overlap: picking a folder drops the picks inside it, and
+unpicking something inside a picked folder splits that folder into its other
+children, level by level. So the file stays a handful of paths, and "picked"
+for any folder is all / some / none without a list of 280,000 doc_ids.
 
 "imported" is exact for vehicles named the LEMON way: the `lemon` importer
 files a car as slug(year-make-variant) and the variant is "model engine".
@@ -30,6 +37,7 @@ from .importers.lemon import _slug
 
 SNAPSHOT = Path(__file__).resolve().parent / "importers" / "data" / "lemon_catalogue.json.gz"
 PICKS = config.APP_DIR / "lemon_picks.json"
+LEVELS = ("make", "year", "model", "variant")
 
 _lock = threading.Lock()
 _cache: dict = {}
@@ -61,8 +69,18 @@ def _from_index_json(path: Path) -> dict:
             "makes": makes}
 
 
+def vehicle_name(model: str, engine: str) -> str:
+    return f"{model} {engine}" if engine else model
+
+
+def doc_id(make: str, year: str, model: str, engine: str) -> str:
+    """The doc_id the `lemon` importer gives this car (importers/lemon.py)."""
+    return _slug(f"{year}-{make}-{vehicle_name(model, engine)}")
+
+
 def load() -> dict:
-    """The catalogue, cached until its source file changes."""
+    """The catalogue, cached until its source file changes. Adds `where`:
+    doc_id -> its 4-part path, for marking imported cars."""
     live = torrent_index()
     src = live or SNAPSHOT
     key = (str(src), src.stat().st_mtime if src.is_file() else 0)
@@ -73,17 +91,89 @@ def load() -> dict:
             else:
                 cat = json.loads(gzip.decompress(SNAPSHOT.read_bytes()).decode("utf-8"))
                 cat["source"] = f"snapshot of the torrent's index.json, {cat.get('built', '?')}"
-            _cache.update(key=key, cat=cat)
+            cat["where"] = {doc_id(m, y, mo, e): (m, y, mo, e)
+                            for m, ys in cat["makes"].items() for y, mos in ys.items()
+                            for mo, es in mos.items() for e in es}
+            _cache.update(key=key, cat=cat, counts={})
         return _cache["cat"]
 
 
-def vehicle_name(model: str, engine: str) -> str:
-    return f"{model} {engine}" if engine else model
+def _node(cat: dict, path: tuple):
+    """The subtree at `path`: a dict for make/year, a list of engines for a
+    model, a variant name for a leaf; None if it doesn't exist."""
+    node = cat["makes"]
+    for i, part in enumerate(path):
+        if i < 3:
+            if not isinstance(node, dict) or part not in node:
+                return None
+            node = node[part]
+        else:
+            return part if part in node else None
+    return node
 
 
-def doc_id(make: str, year: str, model: str, engine: str) -> str:
-    """The doc_id the `lemon` importer gives this car (importers/lemon.py)."""
-    return _slug(f"{year}-{make}-{vehicle_name(model, engine)}")
+def children(cat: dict, path: tuple) -> list[str]:
+    node = _node(cat, path)
+    if isinstance(node, dict):
+        return list(node)
+    if isinstance(node, list):
+        return list(dict.fromkeys(node))   # an engine listed twice is one variant
+    return []
+
+
+def count(cat: dict, path: tuple) -> int:
+    """Vehicles (one per year) under `path`."""
+    counts = _cache.setdefault("counts", {})
+    if path not in counts:
+        node = _node(cat, path)
+        if node is None:
+            n = 0
+        elif len(path) == 4:
+            n = 1
+        elif len(path) == 3:
+            n = len(set(node))
+        else:
+            n = sum(count(cat, path + (c,)) for c in node)
+        counts[path] = n
+    return counts[path]
+
+
+def picks() -> set[tuple]:
+    try:
+        raw = json.loads(PICKS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return {tuple(p) for p in raw if isinstance(p, list) and 1 <= len(p) <= 4}
+
+
+def _save(ps: set[tuple]) -> None:
+    PICKS.parent.mkdir(parents=True, exist_ok=True)
+    PICKS.write_text(json.dumps(sorted(list(p) for p in ps), ensure_ascii=False, indent=0),
+                     encoding="utf-8")
+
+
+def set_pick(path: tuple, picked: bool) -> set[tuple]:
+    """Pick or unpick a folder or a variant; returns the new picks."""
+    cat = load()
+    if not path or _node(cat, path) is None:
+        raise KeyError(f"not in the catalogue: {' / '.join(path) or '(root)'}")
+    with _lock:
+        ps = picks()
+        inside = {p for p in ps if p[:len(path)] == path}       # path itself and below
+        above = next((p for p in ps if len(p) < len(path) and path[:len(p)] == p), None)
+        ps -= inside
+        if picked:
+            if above is None:
+                ps.add(path)
+        elif above is not None:
+            # split the picked folder: keep every sibling on the way down
+            ps.discard(above)
+            for depth in range(len(above), len(path)):
+                for c in children(cat, path[:depth]):
+                    if c != path[depth]:
+                        ps.add(path[:depth] + (c,))
+        _save(ps)
+        return ps
 
 
 def _indexed(index_path: str | Path) -> dict[str, bool]:
@@ -101,52 +191,60 @@ def _indexed(index_path: str | Path) -> dict[str, bool]:
         return {}
 
 
-def picks() -> set[str]:
-    try:
-        return set(json.loads(PICKS.read_text(encoding="utf-8")))
-    except (OSError, ValueError):
-        return set()
-
-
-def set_picks(ids: list[str], picked: bool) -> int:
-    cur = picks()
-    cur = cur | set(ids) if picked else cur - set(ids)
-    PICKS.parent.mkdir(parents=True, exist_ok=True)
-    PICKS.write_text(json.dumps(sorted(cur), indent=0), encoding="utf-8")
-    return len(cur)
-
-
-def browse(index_path: str | Path, make: str = "", year: str = "", model: str = "") -> dict:
-    """Drop-down options for the choices so far, plus the vehicle rows once a
-    make and year are chosen (all of a make's years at once would be up to
-    ~46,000 rows)."""
+def browse(index_path: str | Path, path: tuple = ()) -> dict:
+    """One folder of the tree: its children with how many vehicles each holds,
+    how many are imported, and whether they are picked (all / some / none)."""
     cat = load()
-    makes = cat["makes"]
-    out: dict = {
-        "source": cat["source"], "total": cat["vehicles"],
-        "makes": [{"name": m, "count": sum(len(e) for ys in makes[m].values() for e in ys.values())}
-                  for m in sorted(makes, key=str.lower)],
-        "years": [], "models": [], "rows": [], "picked": len(picks()),
-    }
-    if make not in makes:
-        return out
-    years = makes[make]
-    out["years"] = sorted(years, reverse=True)
-    if year not in years:
-        return out
-    models = years[year]
-    out["models"] = [{"name": m, "count": len(e)} for m, e in models.items()]
+    if path and _node(cat, path) is None:
+        raise KeyError(f"not in the catalogue: {' / '.join(path)}")
+    ps = picks()
     have = _indexed(index_path)
-    chosen = picks()
+    imported: dict[tuple, int] = {}
+    for d, complete in have.items():
+        where = cat["where"].get(d)
+        if where and complete:
+            for i in range(1, 5):
+                imported[where[:i]] = imported.get(where[:i], 0) + 1
+
+    def picked_n(p: tuple) -> int:
+        if any(p[:len(q)] == q for q in ps if len(q) <= len(p)):
+            return count(cat, p)
+        return sum(count(cat, q) for q in ps if len(q) > len(p) and q[:len(p)] == p)
+
     rows = []
-    for m, engines in models.items():
-        if model and m != model:
-            continue
-        for e in engines:
-            d = doc_id(make, year, m, e)
-            state = ("imported" if have.get(d) else "partial" if d in have else
-                     "picked" if d in chosen else "new")
-            rows.append({"make": make, "year": year, "model": m, "engine": e,
-                         "name": vehicle_name(m, e), "doc_id": d, "state": state})
-    out["rows"] = rows
+    for c in children(cat, path):
+        p = path + (c,)
+        n, k = count(cat, p), picked_n(p)
+        row = {"name": c, "path": list(p), "level": LEVELS[len(p) - 1], "count": n,
+               "imported": imported.get(p, 0),
+               "picked": "all" if k and k == n else "some" if k else "none"}
+        if len(p) == 4:
+            m, y, mo, e = p
+            d = doc_id(m, y, mo, e)
+            row.update(name=e or mo, doc_id=d,
+                       state="imported" if have.get(d) else "partial" if d in have else "new")
+        rows.append(row)
+    if len(path) == 1:
+        rows.sort(key=lambda r: r["name"], reverse=True)       # newest year first
+    total_picked = sum(count(cat, q) for q in ps)
+    return {"source": cat["source"], "total": cat["vehicles"], "path": list(path),
+            "rows": rows, "picked_total": total_picked, "picks": len(ps)}
+
+
+def picked_vehicles() -> list[dict]:
+    """Every picked vehicle, for the download step."""
+    cat = load()
+    out = []
+
+    def walk(p: tuple) -> None:
+        if len(p) == 4:
+            out.append({"make": p[0], "year": p[1], "model": p[2], "engine": p[3],
+                        "doc_id": doc_id(*p)})
+            return
+        for c in children(cat, p):
+            walk(p + (c,))
+
+    for q in sorted(picks()):
+        if _node(cat, q) is not None:
+            walk(q)
     return out

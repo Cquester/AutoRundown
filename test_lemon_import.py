@@ -1,4 +1,4 @@
-"""The "LEMON manuals" import source -- FREE, no API calls, ~3 s.
+"""The LEMON tab's folder import -- FREE, no API calls, ~3 s.
 
     python test_lemon_import.py
 

@@ -54,7 +54,7 @@ python test_access.py                             # FREE, admin/sign-in/limits/H
 python serve.py --https                           # TLS from a local CA (tls.py)
 python dev.py                                     # FREE, throwaway instance, :8757
 python test_lemon_import.py                       # FREE, LEMON import source (~3 s)
-python test_lemon_catalogue.py                    # FREE, LEMON catalogue source (~3 s)
+python test_lemon_catalogue.py                    # FREE, LEMON tab's catalogue tree (~3 s)
 python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogue snapshot
 ```
 
@@ -880,24 +880,38 @@ a phone on the LAN, measured) since they list folders and run long jobs;
 search stays open to the LAN. Verified end to end: a WIS rebuild started
 from the dialog finished in 3 min 13 s, rc 0, evals unchanged.
 
-**LEMON manuals** (its own source in the dialog, 2026-10-09, the user's
-decision): open the archive folder, get one row per vehicle folder with
+**The Import dialog's sources are folder tabs** (Folder · LEMON · Mercedes
+VM, 2026-10-09, the user's choice over radio buttons). **LEMON is one tab**:
+the catalogue tree on top, and "Already have LEMON manuals in a folder on
+this PC?" below it -- the user asked to keep one LEMON source, not two. The
+folder browser (`#impFolder`) is moved between the Folder tab and that
+section; `impSource()` still answers `lemon` (folder import) / `catalogue`
+(tree) / `folder` / `vm`, so the import code paths are unchanged.
+
+**LEMON folder import** (inside the LEMON tab): open the archive folder, get one row per vehicle folder with
 "imported" / "partly imported" read from the index (opened `mode=ro`), tick
 which to import. `/api/import/lemon?path=` lists them
 (`importer_jobs.lemon_vehicles()`, admin-only under `/api/import`); the job is
 `ingest.py --importer lemon --only <folder> …` (`--only` matches a vehicle by
 its folder; an unknown one fails the run). The server only accepts folders
-its own listing returned. "From a folder" still auto-detects LEMON and points
-at this tab. A torrent source exists on the unmerged branch
+its own listing returned. The Folder tab still auto-detects LEMON and points
+at the LEMON tab. A torrent source exists on the unmerged branch
 `claude/confident-wozniak-t9iphf`; the user chose to leave it out until it is
 tested on its own. Test: `test_lemon_import.py`.
 
-**LEMON catalogue** (fourth source, 2026-10-09): every vehicle in the LEMON
-torrent, picked by Make -> Year -> Model drop-downs plus a variant filter;
-rows say imported / partly imported / picked / new, and ticks are saved to
-`APP_DIR/lemon_picks.json` as they happen. Nothing downloads yet -- that is
-the next step. `autorundown/lemon_catalogue.py`; `/api/import/lemon-catalogue`
-(+ `/picks`), admin-only. Test: `test_lemon_catalogue.py`.
+**LEMON catalogue tree** (the LEMON tab, 2026-10-09): every vehicle in the
+LEMON torrent as folders, make > year (newest first) > model > variant, each
+with a tick box -- the user wants to tick "Mercedes Benz" for all of it, or
+open it and tick a year, a model or one variant (drop-downs were tried first
+and replaced). Folders load as they are opened and show how many vehicles
+and how many are imported; ticks are all / some (indeterminate) / none.
+A pick is stored as a folder path in `APP_DIR/lemon_picks.json`, never as a
+list of cars: picking a folder drops picks inside it, unpicking inside a
+picked folder splits it into its other children (`set_pick`), so picks
+never overlap and counts are sums. `picked_vehicles()` expands them for the
+download step. Nothing downloads yet. `autorundown/lemon_catalogue.py`;
+`GET /api/import/lemon-catalogue?path=<JSON list>`, `POST …/picks {path,
+picked}`, admin-only. Test: `test_lemon_catalogue.py`.
 
 What the torrent actually is (read 2026-10-09 from `lemon-manuals.torrent`
 and the `lemon-website-source-code.tar.gz` inside it; **not** the vehicle
@@ -919,12 +933,18 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   write if any vehicle's name isn't "model engine").
 - "imported" is exact: a LEMON car's name (last part of `uriPath`, and the
   breadcrumb our `lemon` importer reads) is always "model engine", so its
-  doc_id is `_slug(year-make-model engine)`. Manuals downloaded under older
+  doc_id is `_slug(year-make-model engine)`; `load()` maps every doc_id to
+  its tree path once (~0.7 s) so imported counts reach every folder. Manuals downloaded under older
   names ("190E 2.3-16 (201.034) L4-2.3L (102.983)") match no row; the 1987
   catalogue has no 2.3-16 at all, only "190E 2.3, 102.983/102.985".
 - The "engine" field also carries trim and body for many makes ("Lariat, 4D
-  Pickup Extra Cab, 3.5L Eng VIN G, 4WD"), so the UI calls it a variant and
-  filters it with a text box rather than a fourth drop-down.
+  Pickup Extra Cab, 3.5L Eng VIN G, 4WD"), so the tree calls that level the
+  variant; a filter box narrows the open folders' variants (and the makes).
+- Per-car image download measured on the real index (2026-10-09): the
+  F-150 Lariat's 8,689 images (593 MB in its LEMON zip) sit in 154 of the
+  64 MB pieces of `images.mtbl` = 9.6 GB, in 101 runs; image ids
+  (`G000161176`, `GFD41139`, `VA467679`) are the file names in a LEMON zip.
+  A car's image list is only known from its pages, so text comes first.
 - **Never fetch from lemon-manuals.la over HTTP** -- the user's rule (the
   site asks not to be scraped). The `.torrent` itself is its download link;
   anything else comes from the swarm.

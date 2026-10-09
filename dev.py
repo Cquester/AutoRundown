@@ -8,7 +8,7 @@ nothing it does touches your real index, settings, accounts or spend log.
 Everything lives in `.dev/` in this repo (gitignored): its own
 AUTORUNDOWN_HOME (config, sign-in accounts, TLS), its own index. The samples
 are invented text (make_sample_lemon.py, make_sample_corpus.py): two of the
-three LEMON sample vehicles are left unimported, so the "LEMON manuals" import
+three LEMON sample vehicles are left unimported, so the LEMON tab's folder import
 source has something to pick. Port 8757, localhost only by default, so it can
 run next to the real one (8756) and isn't on the shop network.
 

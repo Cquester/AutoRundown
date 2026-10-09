@@ -14,6 +14,7 @@ no native build.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import socket
 from pathlib import Path
@@ -73,9 +74,9 @@ class UserUpdateBody(BaseModel):
     clear_cap: bool = False
 
 
-class LemonPicksBody(BaseModel):
-    # doc_ids from /api/import/lemon-catalogue rows
-    doc_ids: list[str]
+class LemonPickBody(BaseModel):
+    # a folder of the catalogue tree: [make], [make, year], ... or a variant
+    path: list[str]
     picked: bool = True
 
 
@@ -463,14 +464,27 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         return importer_jobs.lemon_vehicles(p, app.state.index_path)
 
     @app.get("/api/import/lemon-catalogue")
-    def api_lemon_catalogue(make: str = "", year: str = "", model: str = "") -> dict:
-        return lemon_catalogue.browse(app.state.index_path, make, year, model)
+    def api_lemon_catalogue(path: str = "[]") -> dict:
+        try:
+            parts = json.loads(path)
+            if not isinstance(parts, list) or len(parts) > 4 or not all(isinstance(x, str) for x in parts):
+                raise ValueError
+        except ValueError:
+            raise HTTPException(400, "path must be a JSON list of up to 4 names")
+        try:
+            return lemon_catalogue.browse(app.state.index_path, tuple(parts))
+        except KeyError as exc:
+            raise HTTPException(404, str(exc.args[0]))
 
     @app.post("/api/import/lemon-catalogue/picks")
-    def api_lemon_picks(body: LemonPicksBody) -> dict:
-        if len(body.doc_ids) > 5000:
-            raise HTTPException(400, "Too many vehicles in one request.")
-        return {"picked": lemon_catalogue.set_picks(body.doc_ids, body.picked)}
+    def api_lemon_pick(body: LemonPickBody) -> dict:
+        if not 1 <= len(body.path) <= 4:
+            raise HTTPException(400, "path must name a make, year, model or variant")
+        try:
+            lemon_catalogue.set_pick(tuple(body.path), body.picked)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc.args[0]))
+        return lemon_catalogue.browse(app.state.index_path, tuple(body.path[:-1]))
 
     @app.get("/api/vms")
     def api_vms() -> dict:

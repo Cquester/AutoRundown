@@ -144,7 +144,7 @@ def describe(path: Path, index_path: str | Path) -> dict:
 
 def lemon_vehicles(path: Path, index_path: str | Path) -> dict:
     """The LEMON manuals in `path`, one row per vehicle folder, and whether
-    each is already in the index -- what the "LEMON manuals" source lists.
+    each is already in the index -- what the LEMON tab's folder section lists.
 
     Reads each vehicle's pages/1.html for its name (the same breadcrumb the
     importer files it under), so the doc_id here is the one ingest.py uses.

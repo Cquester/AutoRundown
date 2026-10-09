@@ -463,8 +463,8 @@ ingest.py          build the index
 ask.py             command-line queries
 eval.py            known-answer validation
 test_access.py     who may do what on the network (free)
-test_lemon_import.py  the "LEMON manuals" import source (free)
-test_lemon_catalogue.py  the "LEMON catalogue" import source (free)
+test_lemon_import.py  the LEMON tab's folder import (free)
+test_lemon_catalogue.py  the LEMON tab's catalogue tree (free)
 serve.py           start the server
 dev.py             throwaway local instance with sample data
 ```
