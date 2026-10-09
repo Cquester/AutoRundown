@@ -129,12 +129,18 @@ ADDED_COLUMNS = {
         "codes_only": "TEXT",    # ",102.942," -- see PageRecord.codes_only
         "codes_except": "TEXT",  # ",102.983," -- see PageRecord.codes_except
     },
+    "usage_log": {
+        "user_id": "INTEGER",    # auth.db users.id; NULL = this PC, or no sign-in
+        "user_name": "TEXT",     # the name at the time, so a report survives
+    },                           # a renamed or removed account
 }
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
     for table, columns in ADDED_COLUMNS.items():
         have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if not have:  # no such table (a bare backup); the schema makes it whole
+            continue
         for name, decl in columns.items():
             if name not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
@@ -324,16 +330,18 @@ def connector_pages(conn: sqlite3.Connection, doc_id: str,
 
 
 def log_usage(conn: sqlite3.Connection, source: str, doc_id: str,
-              question: str, usage) -> None:
+              question: str, usage, user_id: int | None = None,
+              user_name: str | None = None) -> None:
     """Record one question's spend. Never let logging break a good answer."""
     try:
         conn.execute(
             """INSERT INTO usage_log
                (ts, source, model, doc_id, question, calls,
-                input_tokens, output_tokens, cost_usd)
-               VALUES (datetime('now'),?,?,?,?,?,?,?,?)""",
+                input_tokens, output_tokens, cost_usd, user_id, user_name)
+               VALUES (datetime('now'),?,?,?,?,?,?,?,?,?,?)""",
             (source, usage.model, doc_id, question[:500], usage.calls,
-             usage.input_tokens, usage.output_tokens, usage.cost_usd),
+             usage.input_tokens, usage.output_tokens, usage.cost_usd,
+             user_id, user_name),
         )
         conn.commit()
     except sqlite3.Error:
@@ -349,9 +357,32 @@ def usage_summary(conn: sqlite3.Connection) -> dict:
         """SELECT date(ts) AS day, COUNT(*) AS questions,
                   ROUND(SUM(cost_usd), 4) AS cost_usd
            FROM usage_log GROUP BY day ORDER BY day DESC LIMIT 14""")]
+    by_user = [dict(r) for r in conn.execute(
+        """SELECT COALESCE(user_name, CASE source WHEN 'web' THEN 'this PC / no sign-in'
+                                      ELSE source END) AS user,
+                  COUNT(*) AS questions, ROUND(SUM(cost_usd), 4) AS cost_usd
+           FROM usage_log GROUP BY user ORDER BY cost_usd DESC""")]
     total = conn.execute(
         "SELECT ROUND(COALESCE(SUM(cost_usd),0), 4) FROM usage_log").fetchone()[0]
-    return {"total_usd": total, "by_source": by_source, "by_day": by_day}
+    return {"total_usd": total, "by_source": by_source, "by_day": by_day,
+            "by_user": by_user}
+
+
+# usage_log.ts is UTC (datetime('now')); a month is a UTC calendar month
+MONTH_START = "strftime('%Y-%m-01 00:00:00','now')"
+
+
+def month_spend(conn: sqlite3.Connection, user_id: int) -> float:
+    return conn.execute(
+        f"""SELECT COALESCE(SUM(cost_usd),0) FROM usage_log
+            WHERE user_id=? AND ts >= {MONTH_START}""", (user_id,)).fetchone()[0]
+
+
+def month_spend_by_user(conn: sqlite3.Connection) -> dict:
+    """{user_id: (questions, cost)} this month; key None = this PC / no sign-in."""
+    return {r[0]: (r[1], r[2]) for r in conn.execute(
+        f"""SELECT user_id, COUNT(*), COALESCE(SUM(cost_usd),0) FROM usage_log
+            WHERE source='web' AND ts >= {MONTH_START} GROUP BY user_id""")}
 
 
 def recent_usage(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:

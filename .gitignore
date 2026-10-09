@@ -24,3 +24,6 @@ ewa_extract/
 extractor/bringup/schema/
 extractor/bringup/*_log.txt
 extractor/parse_sids.before-*.py
+
+# demo screenshots taken in a session; sent to the user, not source
+screenshots/

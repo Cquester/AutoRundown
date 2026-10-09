@@ -50,6 +50,8 @@ python eval_wis.py                                # FREE, WIS retrieval + wrong-
 python make_sample_corpus.py                      # FREE, stand-in WIS corpus
 python test_ui_picks.py                           # FREE, UI sends the car it shows (~45 s)
 python -m autorundown.launcher                    # what the Windows shortcut runs
+python test_access.py                             # FREE, admin/sign-in/limits/HTTPS (~2 s)
+python serve.py --https                           # TLS from a local CA (tls.py)
 ```
 
 Mercedes WIS, end to end from this one session (VM -> index). The extractor
@@ -799,6 +801,52 @@ disagree** rather than guessing — `sample_names()` covers that case.
 
 ---
 
+## Shop network: who may do what (2026-10-09, the user's decisions)
+
+**The PC running the server is the admin, and the only one.** `auth.py`:
+a request is admin when its socket peer is loopback *and* its Host header is
+loopback (`localhost`, `127.0.0.1`, `[::1]`) -- the second check stops DNS
+rebinding, where a web page's own name resolves to 127.0.0.1. Admin needs no
+sign-in. `server.ADMIN_PREFIXES` (`/api/settings`, `/api/browse`,
+`/api/vms`, `/api/import`, `/api/admin/`) answer 403 to anything else; the
+middleware `who_is_asking` enforces it in one place. Before this,
+`POST /api/settings` was open to the LAN: a phone could replace the API key.
+uvicorn runs with `proxy_headers=False` so `X-Forwarded-For` can never make a
+request look local -- **do not put a reverse proxy on the same PC** in front
+of it; every request would then come from loopback.
+
+**Mechanic accounts are optional** (`Config.require_signin`, default off =
+open LAN as before). No passwords: the admin issues an 8-character code
+(15 min, single use, no 0/O/1/I/L), a phone swaps it for a 32-byte token in
+an HttpOnly cookie (365 days). Only SHA-256 hashes of codes and tokens are
+stored. Disabling a user deletes their tokens at once. 10 wrong codes from
+one address = 429 for 15 min. Cross-site POSTs are refused by `Origin` check
+(`_origin_ok`), for the admin too. Accounts are in `~/.autorundown/auth.db`,
+**not in the index**, so a rebuild cannot lose them.
+
+**Spend per mechanic.** `usage_log` gained `user_id`, `user_name` (nullable,
+`ADDED_COLUMNS`); the name is a snapshot so reports survive account changes.
+A monthly cap (`users.monthly_cap_usd`, UTC calendar month) is checked
+before the API is called (402); keyword search stays free. `rebuild_wis.py`
+compares log rows on the backup's columns and migrates the restored index
+before carrying rows over -- without that, the wider rows never matched and
+the insert would have failed.
+
+Phones keep their model choice in `localStorage` and send it per question;
+only the PC changes the default. `/api/stats` hides this PC's paths from
+others. The UI asks `/api/me` first and shows the gear (admin), an account
+button (mechanic) or the sign-in box. `#code=XXXX` in the URL pre-fills it.
+
+**HTTPS (`serve.py --https`, `tls.py`).** Own CA (EC P-256, 10 years,
+`~/.autorundown/tls/`), Name Constraints (critical): DNS `localhost`,
+`.local`; private IPv4/IPv6 ranges only -- a leaked CA key cannot sign for a
+real site. Server cert 397 days, SANs = localhost, `<host>.local`, loopback
+and every private address of the PC; re-issued at start when an address is
+missing or <30 days remain. `/ca.crt` is public. Verified with Python's ssl
+(OpenSSL) for `localhost` and `127.0.0.1` in `test_access.py`. **Not yet
+tried on a real iPhone or Android phone** -- in particular whether iOS
+accepts the critical Name Constraints.
+
 ## Importing from the site
 
 Gear icon → Settings → **Import data…**, and automatically on first start
@@ -1090,6 +1138,12 @@ pass, known-bad guards 33 -> 12.
    the real data** (see their sections). Next: `parse_vehicles.py` (read
    its "body styles" lines), `rebuild_wis.py`, `test_ui_picks.py`,
    `eval_wis.py`; then one scoped paid answer for a W210 wagon.
+
+7. **Shop access + HTTPS are built (2026-10-09), not yet tried on the
+   user's phones.** Next: `serve.py --https`, install `/ca.crt` on an iPhone
+   and an Android phone, sign one in with a code. Run `test_ui_picks.py`
+   against the real index too (the header/layout CSS changed; not run here,
+   no real index in that session).
 
 ## Working style the user prefers
 
