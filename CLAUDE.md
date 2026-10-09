@@ -967,6 +967,21 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   64 MB pieces of `images.mtbl` = 9.6 GB, in 101 runs; image ids
   (`G000161176`, `GFD41139`, `VA467679`) are the file names in a LEMON zip.
   A car's image list is only known from its pages, so text comes first.
+- **The download (not built) must follow what the user agreed, 2026-10-09**,
+  and the LEMON tab's "How LEMON downloads will work" already tells users so
+  -- keep the two in step: one download for all picks; size, free space
+  needed and what stays afterwards shown before starting, refused without
+  the space; afterwards the torrent files (pages.mtbl, partial images.mtbl,
+  `.parts`, resume data, index.json) are deleted and only the index plus
+  each picked car's own images (`APP_DIR/manuals/<doc_id>/images`) stay --
+  removing a car deletes its folder; setting "keep the LEMON text database"
+  off by default; never seeds, upload capped while running, session and port
+  closed when done. Ideas not yet measured: a two-pass fetch (the
+  `uri_table_*`/`link_table_*` keys sort together near the end of
+  pages.mtbl, so pass 1 could fetch only the tables and the index, pass 2
+  only the pieces holding the picks' pages) and batch-and-delete to cap peak
+  disk. Sizing it needs piece 16308 (the first 12 MB of the 60 MB pages
+  index); the user has not yet OK'd that fetch.
 - **Never fetch from lemon-manuals.la over HTTP** -- the user's rule (the
   site asks not to be scraped). The `.torrent` itself is its download link;
   anything else comes from the swarm.
