@@ -236,6 +236,7 @@ class ImportJobs:
             j["log"] = list(self._log)[-120:]
             end = j.get("finished") or time.time()
             j["elapsed"] = round(end - j["started"])
+            j["ago"] = round(time.time() - j["finished"]) if j.get("finished") else 0
             return j
 
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
@@ -299,7 +300,8 @@ class ImportJobs:
             self._job["state"] = "done" if rc == 0 else "failed"
 
     def _run(self, cmd: list[str]) -> int:
-        self._log.append("$ " + " ".join(f'"{c}"' if " " in c else c for c in cmd[1:]))
+        shown = [Path(cmd[2]).name, *cmd[3:]] if cmd[1:2] == ["-u"] and len(cmd) > 2 else cmd
+        self._log.append("$ " + " ".join(f'"{c}"' if " " in c else c for c in shown))
         try:
             # a piped child on Windows prints in the ANSI code page and dies on
             # "Coupé"; force UTF-8 both ways

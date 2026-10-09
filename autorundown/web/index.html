@@ -272,6 +272,7 @@
   details.lemhow ul{margin:6px 0 0; padding-left:20px; font-size:14px; color:var(--text)}
   details.lemhow li{margin:0 0 6px}
   details.lemfolder > summary{cursor:pointer; color:var(--muted); font-size:14px; padding:4px 0}
+  #impStatus a{color:var(--accent)}
   .implog{max-height:260px; overflow:auto; background:#0008; border-radius:10px; padding:10px;
     font:12px/1.4 ui-monospace,Consolas,monospace; white-space:pre-wrap; margin-top:10px}
   .detected{margin-top:10px; padding:10px; border-radius:10px; background:#ffffff0c; font-size:14px}
@@ -1910,16 +1911,33 @@ async function manRemove(mode, ids, compact) {
     impWatch();
   } catch (e) { $('#impStatus').textContent = e.message; }
 }
+// A job that ended before this dialog was opened is shown as one quiet line
+// ("Last job: … · Show log"), not as its whole log -- it read as if something
+// had just happened. A job seen running in this opening keeps its log.
+let impSawRunning = false;
+const impDur = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`
+  : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
+const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'remove_wis'
+  ? 'removing Mercedes WIS' : s.mode === 'vm' ? 'Mercedes VM extract' : 'import';
 function impShow(s) {
   const log = $('#impLog');
   if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; return; }
-  log.hidden = false;
+  if (s.state === 'running') impSawRunning = true;
   log.textContent = (s.log || []).join('\n');
-  log.scrollTop = log.scrollHeight;
-  const t = s.elapsed >= 60 ? `${Math.floor(s.elapsed/60)} min ${s.elapsed%60} s` : `${s.elapsed} s`;
+  const t = impDur(s.elapsed);
   const verb = (s.mode || '').startsWith('remove') ? 'Removing' : 'Importing';
-  $('#impStatus').textContent = s.state === 'running' ? `${verb}… ${t}`
-    : s.state === 'done' ? `Finished in ${t}.` : `Failed (exit ${s.returncode}) after ${t} — see the log.`;
+  if (s.state !== 'running' && !impSawRunning) {
+    log.hidden = true;
+    $('#impStatus').innerHTML = `Last job: ${esc(impJobName(s))} ${s.state === 'done' ? 'finished' : 'failed'}`
+      + ` ${impDur(s.ago || 0)} ago · <a href="#" id="impShowLog">Show log</a>`;
+    $('#impShowLog').onclick = e => { e.preventDefault(); log.hidden = !log.hidden;
+      e.target.textContent = log.hidden ? 'Show log' : 'Hide log'; log.scrollTop = log.scrollHeight; };
+  } else {
+    log.hidden = false;
+    log.scrollTop = log.scrollHeight;
+    $('#impStatus').textContent = s.state === 'running' ? `${verb}… ${t}`
+      : s.state === 'done' ? `Finished in ${t}.` : `Failed (exit ${s.returncode}) after ${t} — see the log.`;
+  }
   $('#impStart').disabled = s.state === 'running' || (impSource() === 'lemon' && !lemPicked().length);
 }
 async function impWatch() {
@@ -1944,6 +1962,7 @@ async function openImport(first) {
   $('#impIntro').firstChild.textContent = first
     ? 'No manuals are indexed yet. Import them from a folder on this PC, pick LEMON manuals, or extract them from a Mercedes virtual machine. '
     : 'Import manuals from a folder on this PC, pick LEMON manuals, or extract them from a Mercedes virtual machine. ';
+  impSawRunning = false;
   $('#importDlg').showModal();
   impShowSource();
   manLoad();
