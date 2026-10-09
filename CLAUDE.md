@@ -54,6 +54,8 @@ python test_access.py                             # FREE, admin/sign-in/limits/H
 python serve.py --https                           # TLS from a local CA (tls.py)
 python dev.py                                     # FREE, throwaway instance, :8757
 python test_lemon_import.py                       # FREE, LEMON import source (~3 s)
+python test_lemon_catalogue.py                    # FREE, LEMON catalogue source (~3 s)
+python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogue snapshot
 ```
 
 **Try UI and import changes with `python dev.py`, on the user's PC.** It
@@ -889,6 +891,43 @@ its own listing returned. "From a folder" still auto-detects LEMON and points
 at this tab. A torrent source exists on the unmerged branch
 `claude/confident-wozniak-t9iphf`; the user chose to leave it out until it is
 tested on its own. Test: `test_lemon_import.py`.
+
+**LEMON catalogue** (fourth source, 2026-10-09): every vehicle in the LEMON
+torrent, picked by Make -> Year -> Model drop-downs plus a variant filter;
+rows say imported / partly imported / picked / new, and ticks are saved to
+`APP_DIR/lemon_picks.json` as they happen. Nothing downloads yet -- that is
+the next step. `autorundown/lemon_catalogue.py`; `/api/import/lemon-catalogue`
+(+ `/picks`), admin-only. Test: `test_lemon_catalogue.py`.
+
+What the torrent actually is (read 2026-10-09 from `lemon-manuals.torrent`
+and the `lemon-website-source-code.tar.gz` inside it; **not** the vehicle
+folders the torrent branch assumed, so that branch can't work on it):
+`lemon/index.json` (143 MB), `lemon/pages.mtbl` (31.5 GB), `lemon/images.mtbl`
+(481 GB), the same three under `charm/`, and LEMON's own server binaries.
+`index.json` = 279,988 vehicles `{make, years, model, engine, uriPath,
+rootUriTable, rootLinkTable}`, 65 makes, 1960-2025. The `.mtbl` files are
+sorted key-value tables (zstd blocks of 128 KB, index block at the end);
+page keys are `<content type>_<sha256>` (`html_labor_detail_…`,
+`uri_table_act_…`), so **one car's pages are spread across the whole 31.5 GB**
+and a 64 MB-piece torrent can't hand over one vehicle. Images are
+`image_<id>`; whether one car's ids cluster in `images.mtbl` is untested.
+
+- The catalogue comes from the torrent's `index.json` when
+  `config.lemon_torrent_dir` holds one, else from the committed snapshot
+  `importers/data/lemon_catalogue.json.gz` (0.6 MB, `{make: {year: {model:
+  [engine]}}}`, built by `tools/build_lemon_catalogue.py`, which refuses to
+  write if any vehicle's name isn't "model engine").
+- "imported" is exact: a LEMON car's name (last part of `uriPath`, and the
+  breadcrumb our `lemon` importer reads) is always "model engine", so its
+  doc_id is `_slug(year-make-model engine)`. Manuals downloaded under older
+  names ("190E 2.3-16 (201.034) L4-2.3L (102.983)") match no row; the 1987
+  catalogue has no 2.3-16 at all, only "190E 2.3, 102.983/102.985".
+- The "engine" field also carries trim and body for many makes ("Lariat, 4D
+  Pickup Extra Cab, 3.5L Eng VIN G, 4WD"), so the UI calls it a variant and
+  filters it with a text box rather than a fourth drop-down.
+- **Never fetch from lemon-manuals.la over HTTP** -- the user's rule (the
+  site asks not to be scraped). The `.torrent` itself is its download link;
+  anything else comes from the swarm.
 
 **From a Mercedes virtual machine** (third source in the same dialog):
 `/api/vms` lists VirtualBox VMs; the job runs the extractor's

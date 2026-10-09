@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from . import auth, config, index, query, tls
-from . import autostart, importer_jobs, synonyms, wis_original
+from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_original
 from .search import get_page, scope_ids, search
 
 jobs = importer_jobs.ImportJobs()
@@ -71,6 +71,12 @@ class UserUpdateBody(BaseModel):
     disabled: bool | None = None
     monthly_cap_usd: float | None = None
     clear_cap: bool = False
+
+
+class LemonPicksBody(BaseModel):
+    # doc_ids from /api/import/lemon-catalogue rows
+    doc_ids: list[str]
+    picked: bool = True
 
 
 class ImportBody(BaseModel):
@@ -455,6 +461,16 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def api_import_lemon(path: str = "") -> dict:
         p = Path(path).expanduser() if path else Path(config.load().archive_dir or Path.home())
         return importer_jobs.lemon_vehicles(p, app.state.index_path)
+
+    @app.get("/api/import/lemon-catalogue")
+    def api_lemon_catalogue(make: str = "", year: str = "", model: str = "") -> dict:
+        return lemon_catalogue.browse(app.state.index_path, make, year, model)
+
+    @app.post("/api/import/lemon-catalogue/picks")
+    def api_lemon_picks(body: LemonPicksBody) -> dict:
+        if len(body.doc_ids) > 5000:
+            raise HTTPException(400, "Too many vehicles in one request.")
+        return {"picked": lemon_catalogue.set_picks(body.doc_ids, body.picked)}
 
     @app.get("/api/vms")
     def api_vms() -> dict:

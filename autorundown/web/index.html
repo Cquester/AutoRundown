@@ -239,6 +239,8 @@
   .lemrow > .nm{flex:1; min-width:0; padding:7px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .lemrow > .sz{flex:none; color:var(--muted); font-size:13px}
   .lemrow > .tag{flex:none; font-size:12px; color:var(--accent)}
+  /* catalogue variants differ at the end ("…VIN G, 4WD"), so wrap, don't cut */
+  #impCatList .lemrow > .nm{white-space:normal; overflow-wrap:anywhere}
   .implog{max-height:260px; overflow:auto; background:#0008; border-radius:10px; padding:10px;
     font:12px/1.4 ui-monospace,Consolas,monospace; white-space:pre-wrap; margin-top:10px}
   .detected{margin-top:10px; padding:10px; border-radius:10px; background:#ffffff0c; font-size:14px}
@@ -316,6 +318,7 @@
   <div class="row" style="margin-top:12px; gap:6px 18px">
     <label style="margin:0"><input type="radio" name="impSrc" value="folder" checked> From a folder</label>
     <label style="margin:0"><input type="radio" name="impSrc" value="lemon"> LEMON manuals</label>
+    <label style="margin:0"><input type="radio" name="impSrc" value="catalogue"> LEMON catalogue</label>
     <label style="margin:0"><input type="radio" name="impSrc" value="vm"> From a Mercedes virtual machine</label>
   </div>
   <div id="impFolder">
@@ -332,6 +335,22 @@
         <button class="ghost" type="button" id="impLemNone">None</button></div>
       <div class="dirlist" id="impLemList"></div>
     </div>
+  </div>
+  <div id="impCatPanel" hidden>
+    <div class="detected" id="impCatNote"></div>
+    <div class="row" style="margin-top:10px; gap:8px">
+      <select id="impCatMake" aria-label="Make" style="flex:1 1 140px"></select>
+      <select id="impCatYear" aria-label="Year" style="flex:0 1 110px"></select>
+      <select id="impCatModel" aria-label="Model" style="flex:1 1 140px"></select>
+    </div>
+    <input id="impCatFilter" type="search" placeholder="Filter variants (engine, trim, body…)" style="margin-top:8px; width:100%">
+    <div class="row" style="margin-top:10px; align-items:center">
+      <span class="muted" id="impCatCount" style="margin-right:auto"></span>
+      <button class="ghost" type="button" id="impCatAll">Pick shown</button>
+      <button class="ghost" type="button" id="impCatNone">Unpick shown</button></div>
+    <div class="dirlist" id="impCatList"></div>
+    <p class="muted" style="margin:8px 0 0">Picks are saved as you tick them. Downloading them from the
+      LEMON torrent is the next step and isn't built yet.</p>
   </div>
   <div id="impVmPanel" hidden>
     <label for="impVm">VirtualBox VM</label>
@@ -1640,6 +1659,90 @@ async function impBrowse(path) {
     $('#impStart').disabled = true;
   }
 }
+// -- LEMON catalogue: every vehicle in the LEMON torrent, picked by make / year /
+// model; picks are saved on the server (lemon_catalogue.py) for the download step
+let catRows = [], catSeq = 0;
+const catPrefKey = 'autorundown.lemonCatalogue';
+function catPref(v) {
+  try {
+    if (v === undefined) return JSON.parse(localStorage.getItem(catPrefKey) || '{}');
+    localStorage.setItem(catPrefKey, JSON.stringify(v));
+  } catch (e) { return {}; }
+}
+const catOpt = (v, label) => `<option value="${esc(v)}">${esc(label)}</option>`;
+async function impCatalogue() {
+  const seq = ++catSeq;
+  const make = $('#impCatMake').value || '', year = $('#impCatYear').value || '',
+        model = $('#impCatModel').value || '';
+  catPref({make, year, model});
+  $('#impCatList').innerHTML = '<div class="muted" style="padding:8px 10px">Reading the catalogue…</div>';
+  let r;
+  try {
+    r = await api('/api/import/lemon-catalogue?' + new URLSearchParams({make, year, model}));
+  } catch (e) {
+    if (seq === catSeq) $('#impCatList').innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  if (seq !== catSeq) return;
+  $('#impCatNote').innerHTML = `<b>${r.total.toLocaleString()}</b> vehicles in ${r.makes.length} makes`
+    + ` <span class="muted">— from the ${esc(r.source)}</span>`;
+  $('#impCatMake').innerHTML = catOpt('', 'Make…')
+    + r.makes.map(m => catOpt(m.name, `${m.name} (${m.count.toLocaleString()})`)).join('');
+  $('#impCatMake').value = make;
+  $('#impCatYear').innerHTML = catOpt('', 'Year…') + r.years.map(y => catOpt(y, y)).join('');
+  $('#impCatYear').value = r.years.includes(year) ? year : '';
+  $('#impCatYear').disabled = !r.years.length;
+  $('#impCatModel').innerHTML = catOpt('', r.models.length ? 'All models' : 'Model…')
+    + r.models.map(m => catOpt(m.name, `${m.name} (${m.count})`)).join('');
+  $('#impCatModel').value = r.models.some(m => m.name === model) ? model : '';
+  $('#impCatModel').disabled = !r.models.length;
+  catRows = r.rows;
+  catRender(r.picked);
+}
+function catRender(picked) {
+  const q = ($('#impCatFilter').value || '').toLowerCase().trim();
+  const shown = catRows.filter(v => !q || v.name.toLowerCase().includes(q));
+  const tag = v => v.state === 'imported' ? 'imported' : v.state === 'partial' ? 'partly imported'
+    : v.state === 'picked' ? 'picked' : '';
+  $('#impCatList').innerHTML = shown.map(v =>
+    `<label class="lemrow"><input type="checkbox" value="${esc(v.doc_id)}"`
+    + `${v.state === 'picked' ? ' checked' : ''}${v.state === 'imported' ? ' disabled' : ''}>`
+    + `<span class="nm" title="${esc(v.make + ' ' + v.year + ' ' + v.name)}">`
+    + `${esc($('#impCatModel').value ? (v.engine || v.name) : v.name)}</span>`
+    + (tag(v) ? `<span class="tag">${tag(v)}</span>` : '') + '</label>').join('')
+    || `<div class="muted" style="padding:8px 10px">${catRows.length ? 'No variant matches the filter.'
+         : 'Choose a make and a year.'}</div>`;
+  $('#impCatList').querySelectorAll('input').forEach(c => c.onchange = () => catPick([c.value], c.checked));
+  if (picked !== undefined) $('#impCatCount').dataset.picked = picked;
+  $('#impCatCount').textContent = (catRows.length ? `${shown.length} of ${catRows.length} shown · ` : '')
+    + `${Number($('#impCatCount').dataset.picked || 0).toLocaleString()} picked in all`;
+}
+async function catPick(ids, picked) {
+  if (!ids.length) return;
+  try {
+    const r = await api('/api/import/lemon-catalogue/picks', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({doc_ids: ids, picked})});
+    const set = new Set(ids);
+    catRows.forEach(v => { if (set.has(v.doc_id) && v.state !== 'imported' && v.state !== 'partial')
+      v.state = picked ? 'picked' : 'new'; });
+    catRender(r.picked);
+  } catch (e) { $('#impCatCount').textContent = e.message; }
+}
+const catShownIds = () => [...document.querySelectorAll('#impCatList input:not(:disabled)')].map(c => c.value);
+$('#impCatAll').onclick = () => catPick(catShownIds(), true);
+$('#impCatNone').onclick = () => catPick(catShownIds(), false);
+$('#impCatMake').onchange = () => { $('#impCatYear').value = ''; $('#impCatModel').value = ''; impCatalogue(); };
+$('#impCatYear').onchange = () => { $('#impCatModel').value = ''; impCatalogue(); };
+$('#impCatModel').onchange = () => impCatalogue();
+$('#impCatFilter').oninput = () => catRender();
+function impCatalogueOpen() {
+  const p = catPref();
+  // the selects are filled by the reply; seed them so the request carries the remembered pick
+  $('#impCatMake').innerHTML = catOpt(p.make || '', p.make || 'Make…');
+  $('#impCatYear').innerHTML = catOpt(p.year || '', p.year || 'Year…');
+  $('#impCatModel').innerHTML = catOpt(p.model || '', p.model || '');
+  impCatalogue();
+}
 // -- LEMON source: the vehicles in the folder, tick which to import -----------
 let lemRows = [];
 const lemPicked = () => [...document.querySelectorAll('#impLemList input:checked')].map(c => c.value);
@@ -1726,11 +1829,12 @@ async function impVms() {
   } catch (e) { $('#impVmNote').innerHTML = `<div class="errbox">${esc(e.message)}</div>`; }
 }
 document.querySelectorAll('input[name=impSrc]').forEach(r => r.onchange = () => {
-  const src = impSource(), vm = src === 'vm';
-  $('#impFolder').hidden = vm; $('#impVmPanel').hidden = !vm;
+  const src = impSource(), vm = src === 'vm', cat = src === 'catalogue';
+  $('#impFolder').hidden = vm || cat; $('#impVmPanel').hidden = !vm; $('#impCatPanel').hidden = !cat;
   $('#impLemon').hidden = src !== 'lemon'; $('#impModes').innerHTML = '';
+  $('#impStart').hidden = cat;
   $('#impStart').textContent = vm ? 'Extract & import' : 'Import';
-  if (vm) impVms(); else impBrowse($('#impPath').value);
+  if (vm) impVms(); else if (cat) impCatalogueOpen(); else impBrowse($('#impPath').value);
 });
 $('#impStart').onclick = async () => {
   if (impSource() === 'vm') {
