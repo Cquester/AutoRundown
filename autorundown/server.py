@@ -480,7 +480,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         cfg = config.load()
         return {
             "archive_dir": cfg.archive_dir,
-            "index_path": cfg.index_path,
+            "index_path": app.state.index_path,  # the one in use, not the saved one
             "importer": cfg.importer,
             "model": cfg.model,
             "has_api_key": bool(cfg.resolved_key),
@@ -498,7 +498,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             if value is not None:
                 setattr(cfg, field_name, value)
         cfg.save()
-        app.state.index_path = cfg.index_path
+        # only a new index path moves the server: saving anything else (the
+        # model, sign-in) used to swap a `serve.py --index X` server onto the
+        # config's index
+        if body.index_path is not None:
+            app.state.index_path = cfg.index_path
         return {"ok": True}
 
     # -- mechanics' accounts (admin only, see ADMIN_PREFIXES) ---------------

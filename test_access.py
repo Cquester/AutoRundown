@@ -76,6 +76,7 @@ check(post(pc, "/api/settings", {"model": "claude-haiku-4-5"},
       "a cross-site page cannot POST as the admin")
 check(post(pc, "/api/settings", {"model": "claude-haiku-4-5"}).status_code == 200,
       "this PC can change settings")
+check(APP.state.index_path == str(idx), "  ... without moving the server off its --index")
 
 print("accounts")
 r = post(pc, "/api/admin/users", {"name": "Sam", "monthly_cap_usd": 0.05})
