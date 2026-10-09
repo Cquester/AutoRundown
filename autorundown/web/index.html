@@ -233,6 +233,12 @@
   .dirlist button{display:block; width:100%; text-align:left; background:none; border:0;
     border-bottom:1px solid var(--line); color:var(--text); padding:7px 10px; font:inherit; cursor:pointer}
   .dirlist button:hover{background:#ffffff10}
+  .lemrow{display:flex; width:100%; box-sizing:border-box; align-items:center; gap:8px; border-bottom:1px solid var(--line);
+    padding:0 10px; margin:0; cursor:pointer; color:var(--text); font-size:15px}
+  .lemrow > input{flex:none}
+  .lemrow > .nm{flex:1; min-width:0; padding:7px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .lemrow > .sz{flex:none; color:var(--muted); font-size:13px}
+  .lemrow > .tag{flex:none; font-size:12px; color:var(--accent)}
   .implog{max-height:260px; overflow:auto; background:#0008; border-radius:10px; padding:10px;
     font:12px/1.4 ui-monospace,Consolas,monospace; white-space:pre-wrap; margin-top:10px}
   .detected{margin-top:10px; padding:10px; border-radius:10px; background:#ffffff0c; font-size:14px}
@@ -307,9 +313,10 @@
   <p class="muted" id="impIntro" style="margin:0">Pick a folder on this PC that holds manuals:
     an HTML manual archive, a Mercedes WIS corpus from the extractor (records.jsonl + manifest.json),
     or a folder of HTML / text / PDF files. The format is detected for you.</p>
-  <div class="row" style="margin-top:12px">
+  <div class="row" style="margin-top:12px; gap:6px 18px">
     <label style="margin:0"><input type="radio" name="impSrc" value="folder" checked> From a folder</label>
-    <label style="margin:0 0 0 14px"><input type="radio" name="impSrc" value="vm"> From a Mercedes virtual machine</label>
+    <label style="margin:0"><input type="radio" name="impSrc" value="lemon"> LEMON manuals</label>
+    <label style="margin:0"><input type="radio" name="impSrc" value="vm"> From a Mercedes virtual machine</label>
   </div>
   <div id="impFolder">
     <label for="impPath">Folder</label>
@@ -318,6 +325,13 @@
     <div class="dirlist" id="impDirs"></div>
     <div class="detected" id="impDetected"></div>
     <div id="impModes" style="margin-top:10px"></div>
+    <div id="impLemon" hidden>
+      <div class="row" style="margin-top:10px; align-items:center">
+        <span class="muted" style="margin-right:auto">Vehicles in this folder</span>
+        <button class="ghost" type="button" id="impLemAll">All new</button>
+        <button class="ghost" type="button" id="impLemNone">None</button></div>
+      <div class="dirlist" id="impLemList"></div>
+    </div>
   </div>
   <div id="impVmPanel" hidden>
     <label for="impVm">VirtualBox VM</label>
@@ -1609,10 +1623,13 @@ async function impBrowse(path) {
       : '<div class="muted" style="padding:8px 10px">No subfolders.</div>';
     $('#impDirs').querySelectorAll('button').forEach(b => b.onclick = () =>
       impBrowse(r.path.replace(/[\\/]$/, '') + (r.path.includes('\\') ? '\\' : '/') + b.dataset.d));
+    if (impSource() === 'lemon') return await impLemon(r.path, seq);
     const det = r.detected || {};
     $('#impDetected').innerHTML = det.importer
       ? `<b>Detected:</b> ${esc(det.summary)}` : `<span class="muted">${esc(det.summary || '')}</span>`;
     $('#impStart').disabled = !det.importer;
+    if (det.importer === 'lemon')
+      $('#impDetected').innerHTML += ' <span class="muted">— to pick which vehicles, use <b>LEMON manuals</b> above.</span>';
     $('#impModes').innerHTML = det.importer === 'records' && det.rebuildable
       ? `<label style="margin:0"><input type="radio" name="impMode" value="add" checked> Add / update (keeps what is there, skips pages already imported)</label>
          <label style="margin:4px 0 0"><input type="radio" name="impMode" value="rebuild_wis"> Rebuild the Mercedes WIS data from this folder (keeps your other manuals and the spend log; ~6 min)</label>`
@@ -1623,6 +1640,36 @@ async function impBrowse(path) {
     $('#impStart').disabled = true;
   }
 }
+// -- LEMON source: the vehicles in the folder, tick which to import -----------
+let lemRows = [];
+const lemPicked = () => [...document.querySelectorAll('#impLemList input:checked')].map(c => c.value);
+function lemSummary() {
+  const n = lemPicked().length;
+  $('#impStart').disabled = !n;
+  $('#impStart').textContent = n ? `Import ${n} vehicle${n > 1 ? 's' : ''}` : 'Import';
+}
+async function impLemon(path, seq) {
+  $('#impLemon').hidden = false;
+  $('#impLemList').innerHTML = '<div class="muted" style="padding:8px 10px">Reading the vehicles…</div>';
+  const r = await api('/api/import/lemon?path=' + encodeURIComponent(path));
+  if (seq !== impSeq) return;
+  lemRows = r.vehicles;
+  $('#impDetected').innerHTML = lemRows.length ? `<b>LEMON:</b> ${esc(r.summary)}`
+    : `<span class="muted">${esc(r.summary)}</span>`;
+  const tag = v => v.state === 'imported' ? 'imported'
+    : v.state === 'partial' ? `partly imported (${v.indexed_pages.toLocaleString()} pages)` : '';
+  $('#impLemList').innerHTML = lemRows.map(v =>
+    `<label class="lemrow"><input type="checkbox" value="${esc(v.folder)}" ${v.state === 'imported' ? '' : 'checked'}>`
+    + `<span class="nm" title="${esc(v.folder)}">${esc(v.label)}</span>`
+    + (tag(v) ? `<span class="tag">${tag(v)}</span>` : '')
+    + `<span class="sz">${v.pages.toLocaleString()} pages</span></label>`).join('')
+    || '<div class="muted" style="padding:8px 10px">Open the folder that holds your LEMON manuals (one folder per vehicle, each with index.html and pages/).</div>';
+  $('#impLemList').querySelectorAll('input').forEach(c => c.onchange = lemSummary);
+  lemSummary();
+}
+$('#impLemAll').onclick = () => { document.querySelectorAll('#impLemList input').forEach((c, i) =>
+  c.checked = lemRows[i].state !== 'imported'); lemSummary(); };
+$('#impLemNone').onclick = () => { document.querySelectorAll('#impLemList input').forEach(c => c.checked = false); lemSummary(); };
 function impShow(s) {
   const log = $('#impLog');
   if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; return; }
@@ -1632,7 +1679,7 @@ function impShow(s) {
   const t = s.elapsed >= 60 ? `${Math.floor(s.elapsed/60)} min ${s.elapsed%60} s` : `${s.elapsed} s`;
   $('#impStatus').textContent = s.state === 'running' ? `Importing… ${t}`
     : s.state === 'done' ? `Finished in ${t}.` : `Failed (exit ${s.returncode}) after ${t} — see the log.`;
-  $('#impStart').disabled = s.state === 'running';
+  $('#impStart').disabled = s.state === 'running' || (impSource() === 'lemon' && !lemPicked().length);
 }
 async function impWatch() {
   clearInterval(impPoll);
@@ -1641,7 +1688,10 @@ async function impWatch() {
     impShow(s);
     if (s.state !== 'running') {
       clearInterval(impPoll); impPoll = null;
-      if (s.state === 'done') loadVehicles();
+      if (s.state === 'done') {
+        loadVehicles();
+        if (impSource() === 'lemon') impBrowse($('#impPath').value);  // refresh "imported" tags
+      }
     }
   };
   await tick();
@@ -1649,8 +1699,8 @@ async function impWatch() {
 }
 async function openImport(first) {
   $('#impIntro').firstChild.textContent = first
-    ? 'No manuals are indexed yet. Import them from a folder on this PC, or extract them from a Mercedes virtual machine. '
-    : 'Import manuals from a folder on this PC, or extract them from a Mercedes virtual machine. ';
+    ? 'No manuals are indexed yet. Import them from a folder on this PC, pick LEMON manuals, or extract them from a Mercedes virtual machine. '
+    : 'Import manuals from a folder on this PC, pick LEMON manuals, or extract them from a Mercedes virtual machine. ';
   $('#importDlg').showModal();
   await impBrowse($('#impPath').value);
   impWatch().catch(() => {});
@@ -1676,8 +1726,9 @@ async function impVms() {
   } catch (e) { $('#impVmNote').innerHTML = `<div class="errbox">${esc(e.message)}</div>`; }
 }
 document.querySelectorAll('input[name=impSrc]').forEach(r => r.onchange = () => {
-  const vm = impSource() === 'vm';
+  const src = impSource(), vm = src === 'vm';
   $('#impFolder').hidden = vm; $('#impVmPanel').hidden = !vm;
+  $('#impLemon').hidden = src !== 'lemon'; $('#impModes').innerHTML = '';
   $('#impStart').textContent = vm ? 'Extract & import' : 'Import';
   if (vm) impVms(); else impBrowse($('#impPath').value);
 });
@@ -1690,6 +1741,16 @@ $('#impStart').onclick = async () => {
     try {
       impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: '', mode: 'vm', vm: $('#impVm').value, steps: steps.join(',')})}));
+      impWatch();
+    } catch (e) { $('#impStatus').textContent = e.message; }
+    return;
+  }
+  if (impSource() === 'lemon') {
+    const picked = lemPicked();
+    if (!picked.length) { $('#impStatus').textContent = 'Tick at least one vehicle.'; return; }
+    try {
+      impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: $('#impPath').value, mode: 'lemon', vehicles: picked})}));
       impWatch();
     } catch (e) { $('#impStatus').textContent = e.message; }
     return;

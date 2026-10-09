@@ -142,6 +142,50 @@ def describe(path: Path, index_path: str | Path) -> dict:
                        f"HTML / text / PDF files"}
 
 
+def lemon_vehicles(path: Path, index_path: str | Path) -> dict:
+    """The LEMON manuals in `path`, one row per vehicle folder, and whether
+    each is already in the index -- what the "LEMON manuals" source lists.
+
+    Reads each vehicle's pages/1.html for its name (the same breadcrumb the
+    importer files it under), so the doc_id here is the one ingest.py uses.
+    The index is opened read-only: listing must never write to it.
+    """
+    from .importers.lemon import LemonImporter
+    if not path.is_dir():
+        return {"path": str(path), "vehicles": [], "summary": "Not a folder."}
+    try:
+        found = list(LemonImporter().discover(path))
+    except Exception as exc:  # a broken folder must not break browsing
+        return {"path": str(path), "vehicles": [], "summary": f"Could not read this folder: {exc}"}
+    have: dict[str, tuple[int, int]] = {}
+    if found and Path(index_path).is_file():
+        import sqlite3
+        try:
+            con = sqlite3.connect(f"file:{Path(index_path).as_posix()}?mode=ro", uri=True)
+            try:
+                have = {d: (n or 0, c or 0) for d, n, c in con.execute(
+                    "SELECT doc_id, indexed_pages, complete FROM vehicles")}
+            finally:
+                con.close()
+        except sqlite3.Error:
+            have = {}
+    rows = []
+    for v in found:
+        n, complete = have.get(v.doc_id, (0, 0))
+        try:
+            rel = Path(v.file_path).relative_to(path).as_posix()
+        except ValueError:
+            rel = v.file_path
+        rows.append({"folder": rel, "doc_id": v.doc_id, "label": v.label,
+                     "pages": v.page_count, "indexed_pages": n,
+                     "state": "imported" if complete else "partial" if v.doc_id in have else "new"})
+    rows.sort(key=lambda r: r["label"].lower())
+    new = sum(r["state"] != "imported" for r in rows)
+    summary = (f"{len(rows)} LEMON vehicle(s), {len(rows) - new} already imported"
+               if rows else "No LEMON manuals here (a vehicle folder holds index.html and pages/1.html).")
+    return {"path": str(path), "vehicles": rows, "summary": summary}
+
+
 class ImportJobs:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -159,7 +203,7 @@ class ImportJobs:
             return j
 
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
-              steps: str = "") -> dict:
+              steps: str = "", only: list[str] | None = None) -> dict:
         with self._lock:
             if self._job and self._job["state"] == "running":
                 raise RuntimeError("An import is already running.")
@@ -177,6 +221,14 @@ class ImportJobs:
                 if steps:
                     pipe += ["--steps", steps]
                 cmds = [pipe, rebuild if can_rebuild_wis(index_path) else add]
+            elif mode == "lemon":
+                # the picked vehicle folders only, read as LEMON whatever else
+                # the folder holds
+                cmd = [*py, str(ROOT / "ingest.py"), "--archive", str(path),
+                       "--index", str(index_path), "--importer", "lemon"]
+                for o in only or []:
+                    cmd += ["--only", o]
+                cmds = [cmd]
             elif mode == "rebuild_wis":
                 # restores index.before-wis.db over the live index, carries the
                 # spend log across, re-ingests -- see rebuild_wis.py

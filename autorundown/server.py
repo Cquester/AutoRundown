@@ -81,6 +81,8 @@ class ImportBody(BaseModel):
     # mode "vm": extract from this VirtualBox VM first (vm_pipeline.py)
     vm: str = ""
     steps: str = ""
+    # mode "lemon": the vehicle folders to import, relative to path
+    vehicles: list[str] = []
 
 
 def _vehicle_or_404(conn, doc_id: str) -> dict:
@@ -449,6 +451,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         return {"path": str(p), "parent": str(p.parent) if p.parent != p else "",
                 "dirs": dirs[:500], "detected": importer_jobs.describe(p, app.state.index_path)}
 
+    @app.get("/api/import/lemon")
+    def api_import_lemon(path: str = "") -> dict:
+        p = Path(path).expanduser() if path else Path(config.load().archive_dir or Path.home())
+        return importer_jobs.lemon_vehicles(p, app.state.index_path)
+
     @app.get("/api/vms")
     def api_vms() -> dict:
         return importer_jobs.list_vms()
@@ -476,6 +483,18 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         p = Path(body.path).expanduser()
         if not p.is_dir():
             raise HTTPException(400, f"Folder not found: {p}")
+        if body.mode == "lemon":
+            listed = {v["folder"] for v in importer_jobs.lemon_vehicles(
+                p, app.state.index_path)["vehicles"]}
+            if not body.vehicles:
+                raise HTTPException(400, "Pick at least one vehicle.")
+            unknown = [v for v in body.vehicles if v not in listed]
+            if unknown:
+                raise HTTPException(400, f"Not a LEMON vehicle in {p}: {unknown[0]}")
+            try:
+                return jobs.start(p, app.state.index_path, "lemon", only=body.vehicles)
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
         if body.mode not in ("add", "rebuild_wis"):
             raise HTTPException(400, f"unknown mode {body.mode!r}")
         if body.mode == "rebuild_wis" and not importer_jobs.can_rebuild_wis(app.state.index_path):

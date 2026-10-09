@@ -52,7 +52,22 @@ python test_ui_picks.py                           # FREE, UI sends the car it sh
 python -m autorundown.launcher                    # what the Windows shortcut runs
 python test_access.py                             # FREE, admin/sign-in/limits/HTTPS (~2 s)
 python serve.py --https                           # TLS from a local CA (tls.py)
+python dev.py                                     # FREE, throwaway instance, :8757
+python test_lemon_import.py                       # FREE, LEMON import source (~3 s)
 ```
+
+**Try UI and import changes with `python dev.py`, on the user's PC.** It
+builds sample data (`make_sample_lemon.py`, `make_sample_corpus.py`; invented
+text) into `.dev/`, runs with its own `AUTORUNDOWN_HOME` there (config,
+accounts, TLS) and serves on localhost:8757, so the real index, spend log and
+the real server on 8756 are never touched. It drops `ANTHROPIC_API_KEY`, so
+Ask costs nothing unless someone types a key into the dev Settings. One of
+the three sample LEMON vehicles is imported, two are left for the import
+dialog; `--empty` gives the first-start dialog, `--reset` rebuilds.
+**The user prefers local sessions to cloud sessions (2026-10-09): never start
+a cloud session or remote agent without asking.** In a cloud container,
+`dev.py --no-browser` + Playwright (`executable_path="/opt/pw-browsers/chromium"`)
+gives screenshots, but the user cannot open that server.
 
 Mercedes WIS, end to end from this one session (VM -> index). The extractor
 is `extractor/` in this repo (the only copy since 2026-10-08); its data --
@@ -863,7 +878,19 @@ a phone on the LAN, measured) since they list folders and run long jobs;
 search stays open to the LAN. Verified end to end: a WIS rebuild started
 from the dialog finished in 3 min 13 s, rc 0, evals unchanged.
 
-**From a Mercedes virtual machine** (second source in the same dialog):
+**LEMON manuals** (its own source in the dialog, 2026-10-09, the user's
+decision): open the archive folder, get one row per vehicle folder with
+"imported" / "partly imported" read from the index (opened `mode=ro`), tick
+which to import. `/api/import/lemon?path=` lists them
+(`importer_jobs.lemon_vehicles()`, admin-only under `/api/import`); the job is
+`ingest.py --importer lemon --only <folder> …` (`--only` matches a vehicle by
+its folder; an unknown one fails the run). The server only accepts folders
+its own listing returned. "From a folder" still auto-detects LEMON and points
+at this tab. A torrent source exists on the unmerged branch
+`claude/confident-wozniak-t9iphf`; the user chose to leave it out until it is
+tested on its own. Test: `test_lemon_import.py`.
+
+**From a Mercedes virtual machine** (third source in the same dialog):
 `/api/vms` lists VirtualBox VMs; the job runs the extractor's
 `vm_pipeline.py --vm <name> --out-root <autorundown_out> --steps …` and then
 `rebuild_wis.py` on `<out_root>/wis_extract`. The pipeline is the manual
