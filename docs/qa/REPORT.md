@@ -30,6 +30,35 @@ Each agent report has the full evidence (commands, measurements, screenshot name
 
 ---
 
+## Fix status (2026-10-09)
+
+All findings below are fixed on `claude/qa-agents`, in four commits.
+
+| Commit | Findings |
+|---|---|
+| `3e884b5` Critical and High | C1, C2, C3, H1, H2, H3, S1 (= H4), M1, M9 (page and search sequence guards) |
+| `283d357` Settings | S2-S9, plus `color-scheme: dark` (part of L10) |
+| `1ff88b8` Medium | M2-M8, M10-M12, M14-M17, L1, Original-layout error state |
+| `a8caa1f` Low and search speed | M13, L2-L14, `HEAD /` |
+
+**How they were checked:**
+- **Free suites:** `test_access` (new checks for every security fix), `test_records`, `test_lemon_import`, `test_lemon_catalogue` and `test_remove_manuals` all pass.
+- **Browser checks:** Playwright scripts against `dev.py` cover each UI fix at 1280 px and 375 px, in light and dark. They live in `.dev/qa/fix/` (not committed).
+- **Search change (M13):** compared old against new on a 530k-page synthetic index. 42 searches returned identical rows; median 1.37 s → 0.80 s, worst 9.8 s → 1.3 s.
+
+**Differences from the suggested fixes:**
+- **M13:** only the one-statement-per-scope change is done. The FTS `doc_id` column was not added, because it rebuilds the FTS table (see CLAUDE.md).
+- **L3:** the CA gained EKU serverAuth, and keys are now created 0600. Email and URI names were not excluded from the CA, because that needs testing on real phones first.
+- **L4:** the embeddable Python is checked by its Sigstore signature rather than a pinned hash, because the bundled Python version floats with the runner. Package versions are recorded in `installed-packages.txt` inside each MSI rather than pinned. Exact pins taken from Linux would break the Windows wheels-only install (PyYAML 6.0.1 has no Windows wheel for Python 3.13).
+- **L9:** a tick now sends 4 requests instead of 7, and the filter is debounced. Rows are still rebuilt rather than toggled.
+
+**Not verified yet:**
+- `test_ui_picks.py`, `eval_wis.py` and `eval.py` need the real index.
+- The fixes have not been looked at on a real phone.
+- iOS behaviour of the new CA extension is untested.
+
+---
+
 ## Critical
 
 ### C1. A page file name in an imported manual can run code on the PC

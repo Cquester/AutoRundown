@@ -200,6 +200,18 @@ wrong torque is worse than no answer. Do not weaken it.
 half of a two-part question crowd out the other ("how much oil AND drain plug
 torque" returned only the oil). Regression test: `multipart-oil-and-torque`.
 
+**A scope is searched in one statement, ranked per bucket** (2026-10-09,
+QA finding M13). FTS5 finds and scores every match in the whole index
+before the `doc_id` filter applies, so one query per bucket did that
+whole-index work 12-14 times for a generation (7-20 s per keyword search on
+a full-size synthetic index). `search._run_scope` runs AND once over
+`doc_id IN (…)` with `ROW_NUMBER() OVER (PARTITION BY doc_id …)`, then OR
+only for the buckets that came up short -- the same filters, still in SQL
+before ranking, and only the general bucket type-narrowed. Checked against
+the old per-bucket code on that index: 42 searches, identical rows; median
+1.37 s -> 0.80 s, worst 9.8 s -> 1.3 s. Not done: a `doc_id` column inside
+the FTS table (narrows inside FTS5; ~10x more, but rebuilds the FTS table).
+
 **Answer schema is split by shape**: `specs` (values only), `figures`
 (diagrams that *are* the answer, e.g. tightening sequences), `steps` (ordered
 procedure). Without `figures`, the model writes a spec whose value is "see
@@ -609,7 +621,12 @@ picks the variant — and position 10 gives the model year (letters repeat
 every 30 years; the candidate inside the series span is used). Stored per
 vehicle as `vin_codes` (",WDB:D,"). `USMotKar2TypBM4` maps another position to
 the Baumuster's 4th digit, but which VIN position is not established, so it
-is pulled and unused. A non-Mercedes VIN fails with a clear message.
+is pulled and unused. A non-Mercedes VIN fails with a clear message: the
+first three characters must be a Mercedes-Benz maker code (`MB_WMI` in
+`index.html`, plus any the index's VIN tables name) -- before 2026-10-09 a
+Fiat VIN with digits at 4-6 was read as a FIN and picked a W201. Typed text
+is a VIN only when it is one 10-17 character token and matches no car
+("mercedes 190" was decoded as one).
 
 **US VINs pin the exact variant via Mercedes' own decoder table.**
 `AW_VIN2FIN` (WIS, 7,870 rows, pulled by `pull_vehicles.js`; `AR_TABLES=`
@@ -865,7 +882,35 @@ and every private address of the PC; re-issued at start when an address is
 missing or <30 days remain. `/ca.crt` is public. Verified with Python's ssl
 (OpenSSL) for `localhost` and `127.0.0.1` in `test_access.py`. **Not yet
 tried on a real iPhone or Android phone** -- in particular whether iOS
-accepts the critical Name Constraints.
+accepts the critical Name Constraints. A CA made since 2026-10-09 also
+carries EKU serverAuth (a leaked key can't sign code or mail); keys are
+created 0600, never written then chmod'ed.
+
+**Hardening from the QA review (2026-10-09; `docs/qa/REPORT.md`).** All in
+`server.py` unless named; `test_access.py` covers each.
+- **Every request must name this PC** (`auth.host_allowed`): an IP address,
+  localhost, the PC's name, `<name>.local`, `autorundown.local`, else 421.
+  The admin check alone let a DNS-rebinding page search and *ask on this
+  PC's key* as an ordinary LAN user.
+- **Admin routes refuse cross-site browser requests** (`Sec-Fetch-Site`
+  other than same-origin/none) -- an `<img src=…/api/vms>` on any site ran
+  the extractor. Clients without the header (curl, `launcher --stop`) pass.
+- **No handler is built from manual text.** Page/connector/view links are
+  buttons with `data-page`/`data-doc` and one delegated listener in
+  `index.html`; `esc()` escapes `'`. A LEMON page file named `9');…('.html`
+  ran script as the admin, and through `extractor_dir` + `/api/vms` ran code
+  on the PC. The `lemon` importer skips pages not `[A-Za-z0-9._-]+`;
+  `extractor_dir` must be a local absolute folder holding `vm_pipeline.py`.
+- `/api/image` serves picture types only, with a sandboxing CSP + nosniff
+  (an SVG in `images/` ran as the admin). Every response: X-Frame-Options
+  SAMEORIGIN, frame-ancestors 'self', nosniff, no-referrer.
+- Bodies over 256 KB are refused unread (`BodyLimit`); search `limit` 1-50,
+  `q` 500 chars; a question 2,000 chars (paid input); monthly caps 0-100,000
+  and finite (-5 blocked a mechanic for good, Infinity meant no limit).
+- Phones get no `file_path` (vehicles, page, image/original errors); Settings
+  refuses an empty or missing index, a non-index file, an unknown model and
+  a network-share extractor; `config.json` is written atomically (a
+  half-written file made other requests 500).
 
 ## Importing from the site
 
@@ -883,10 +928,13 @@ a phone on the LAN, measured) since they list folders and run long jobs;
 search stays open to the LAN. Verified end to end: a WIS rebuild started
 from the dialog finished in 3 min 13 s, rc 0, evals unchanged.
 
-**The Import dialog's sources are folder tabs** (Folder · LEMON · Mercedes
-VM, 2026-10-09, the user's choice over radio buttons). **LEMON is one tab**:
-the catalogue tree on top, and "Already have LEMON manuals in a folder on
-this PC?" below it -- the user asked to keep one LEMON source, not two. The
+**The Import dialog's sources are folder tabs** (LEMON · Mercedes VM ·
+Folder, opening on LEMON; tabs were the user's choice over radio buttons,
+2026-10-09). **LEMON is one tab** -- the user asked to keep one LEMON source,
+not two: "Import LEMON manuals from a folder on this PC" first and open (it
+is the part that works), then the catalogue tree, marked "picking only"
+until downloading is built (QA finding L14 -- users ticked cars and nothing
+imported). The
 folder browser (`#impFolder`) is moved between the Folder tab and that
 section; `impSource()` still answers `lemon` (folder import) / `catalogue`
 (tree) / `folder` / `vm`, so the import code paths are unchanged.
@@ -1267,6 +1315,18 @@ pass, known-bad guards 33 -> 12.
    and an Android phone, sign one in with a code. Run `test_ui_picks.py`
    against the real index too (the header/layout CSS changed; not run here,
    no real index in that session).
+
+8. **The QA review's findings are fixed (2026-10-09), on branch
+   `claude/qa-agents`, not merged.** `docs/qa/REPORT.md` has every finding
+   and its status; the four agents are `.claude/agents/qa-*.md`. Checked in
+   a cloud container on `dev.py` sample data (invented text, no variants)
+   with the free suites and browser checks. **Not run there, run them on
+   the real index before merging:** `test_ui_picks.py` (car box, VIN and
+   Browse changed), `eval_wis.py`, `eval.py`; and look at Settings, the
+   Import dialog and the light theme (new; follows the device) on the PC
+   and a phone. The MSI build now checks python.org's Sigstore signature on
+   the embeddable Python (identity steve.dower@python.org); if python.org
+   changes signer, the build fails loudly -- `build.ps1 -NoVerify` skips it.
 
 ## Working style the user prefers
 
