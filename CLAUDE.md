@@ -1325,8 +1325,10 @@ pass, known-bad guards 33 -> 12.
    Browse changed), `eval_wis.py`, `eval.py`; and look at Settings, the
    Import dialog and the light theme (new; follows the device) on the PC
    and a phone. The MSI build now checks python.org's Sigstore signature on
-   the embeddable Python (identity steve.dower@python.org); if python.org
-   changes signer, the build fails loudly -- `build.ps1 -NoVerify` skips it.
+   the embeddable Python against python.org's release signers (`$signers`
+   in `build.ps1`; 3.13 is thomas@python.org via Google -- the first CI
+   run assumed the Windows signer and failed). A new signer fails the build
+   with sigstore naming who signed: add that line. `-NoVerify` skips it.
 
 ## Working style the user prefers
 
