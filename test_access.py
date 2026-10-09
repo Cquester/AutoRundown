@@ -98,6 +98,22 @@ check(post(pc, "/api/settings", {"model": "claude-haiku-4-5"}).status_code == 20
       "this PC can change settings")
 check(APP.state.index_path == str(idx), "  ... without moving the server off its --index")
 
+print("the index is brought up to date before the server answers")
+import sqlite3  # noqa: E402
+old = TMP / "old-index.db"
+c = index.connect(old)
+c.execute("DROP INDEX pages_doc_page")       # an index from before that index existed
+c.commit()
+c.close()
+server.create_app(str(old), TMP / "auth.db")
+c = sqlite3.connect(old)
+check(c.execute("SELECT 1 FROM sqlite_master WHERE name='pages_doc_page'").fetchone() is not None,
+      "create_app adds new indexes up front (on first requests they raced and 500'd)")
+c.close()
+c = index.connect(old, setup=False)
+check(c.execute("SELECT COUNT(*) FROM vehicles").fetchone()[0] == 0, "  ... and request connections skip the schema")
+c.close()
+
 print("headers, sizes and cross-site requests")
 r = pc.get("/")
 check(r.headers.get("x-frame-options") == "SAMEORIGIN" and "frame-ancestors" in r.headers.get(

@@ -287,9 +287,13 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app.state.mdns_name = ""          # serve() sets it once announced
     app.state.shutdown = lambda: None   # make_server() wires the real one
 
+    # tables, indexes and new columns are brought up to date here, before the
+    # server answers anything (see index.connect)
+    index.connect(index_path).close()
+
     def db():
         # SQLite connections are per-thread; make a fresh one per request.
-        return index.connect(app.state.index_path)
+        return index.connect(app.state.index_path, setup=False)
 
     def adb():
         return auth.connect(app.state.auth_path)
@@ -803,6 +807,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         # model, sign-in) used to swap a `serve.py --index X` server onto the
         # config's index
         if body.index_path is not None:
+            index.connect(cfg.index_path).close()   # bring it up to date first
             app.state.index_path = cfg.index_path
         return {"ok": True}
 

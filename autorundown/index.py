@@ -149,13 +149,22 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
-def connect(path: str | Path) -> sqlite3.Connection:
+def connect(path: str | Path, setup: bool = True) -> sqlite3.Connection:
+    """Open the index. `setup` creates missing tables and indexes and adds
+    new columns -- once, when a process starts (the server does it before it
+    listens). Per-request connections pass setup=False: on a 3.5 GB index
+    the first CREATE INDEX takes seconds, and requests that each tried it
+    queued on the write lock and failed with "database is locked" (500s on
+    the first page load after an upgrade)."""
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    if setup:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    # an import job writes in another process; wait for it rather than fail
+    conn = sqlite3.connect(str(path), timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
-    _migrate(conn)
+    if setup:
+        conn.executescript(SCHEMA)
+        _migrate(conn)
     return conn
 
 

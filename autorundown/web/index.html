@@ -1742,10 +1742,9 @@ let setLoaded = {}, setDirty = false;
 const SET_FIELDS = {archive_dir: '#sArchive', index_path: '#sIndex', extractor_dir: '#sExtractor',
                     model: '#sModel'};
 async function openSettings() {
-  let s, models, st;
+  let s, models;
   try {
-    [s, models, st] = await Promise.all([api('/api/settings'), api('/api/models'),
-                                         api('/api/stats').catch(() => null)]);
+    [s, models] = await Promise.all([api('/api/settings'), api('/api/models')]);
   } catch (e) {
     out.innerHTML = `<div class="card"><div class="errbox">Couldn't open Settings: ${esc(e.message)}</div></div>`;
     return;
@@ -1776,9 +1775,13 @@ async function openSettings() {
         `<div class="phonerow"><b>${esc(u)}</b><button type="button" class="ghost" data-copy="${esc(u)}">Copy</button></div>`).join('')
       + 'then use “Add to Home Screen”.'
     : 'No network address found, so phones can’t reach this PC right now.';
-  $('#sManuals').textContent = st
-    ? `${st.vehicles.toLocaleString()} manual${st.vehicles === 1 ? '' : 's'}, `
-      + `${st.unique_pages.toLocaleString()} pages in the index.` : '';
+  // counted over the whole index: ~15 s on a cold 3.5 GB one, so Settings
+  // opens without waiting and the line fills in when it arrives
+  $('#sManuals').textContent = 'Counting the manuals…';
+  api('/api/stats', {}, 120000).then(st => {
+    $('#sManuals').textContent = `${st.vehicles.toLocaleString()} manual${st.vehicles === 1 ? '' : 's'}, `
+      + `${st.unique_pages.toLocaleString()} pages in the index.`;
+  }, () => { $('#sManuals').textContent = ''; });
   $('#sConfigPath').textContent = s.config_path ? `Settings are stored in ${s.config_path}.` : '';
   $('#sErr').hidden = true; $('#sSaved').textContent = '';
   $('#saveBtn').disabled = false;
