@@ -38,16 +38,35 @@ if (-not (Test-Path $zip)) {
     Invoke-WebRequest $url -OutFile $zip
     Invoke-WebRequest "$url.sigstore" -OutFile "$zip.sigstore"
 }
-# Only an interpreter python.org signed goes into the installer. Its Windows
-# files are signed with Sigstore by the Windows release manager
-# (https://www.python.org/downloads/metadata/sigstore/). -NoVerify skips this
-# for an offline rebuild from a zip checked before.
+# Only an interpreter python.org signed goes into the installer: the zip
+# must carry a Sigstore signature from one of python.org's release signers
+# (https://www.python.org/downloads/metadata/sigstore/ -- which one depends on
+# the version; 3.13.15 was signed by thomas@python.org via Google). -NoVerify
+# skips this for an offline rebuild from a zip checked before.
+$signers = @(
+    @("thomas@python.org",      "https://accounts.google.com"),     # 3.12, 3.13
+    @("hugo@python.org",        "https://github.com/login/oauth"),  # 3.14, 3.15
+    @("steve.dower@python.org", "https://github.com/login/oauth"),  # Windows builds
+    @("pablogsal@python.org",   "https://accounts.google.com"),     # 3.10, 3.11
+    @("lukasz@langa.pl",        "https://github.com/login/oauth")   # 3.8, 3.9
+)
 if (-not $NoVerify) {
     & python -m pip install --disable-pip-version-check -q "sigstore>=3.6"
     if ($LASTEXITCODE) { throw "could not install sigstore to check the Python download" }
-    & python -m sigstore verify identity --bundle "$zip.sigstore" `
-        --cert-identity "steve.dower@python.org" --cert-oidc-issuer "https://github.com/login/oauth" $zip
-    if ($LASTEXITCODE) { Remove-Item $zip, "$zip.sigstore"; throw "the Python download failed its signature check" }
+    $signedBy = $null
+    foreach ($s in $signers) {
+        & python -m sigstore verify identity --bundle "$zip.sigstore" `
+            --cert-identity $s[0] --cert-oidc-issuer $s[1] $zip 2>$null | Out-Null
+        if (-not $LASTEXITCODE) { $signedBy = $s[0]; break }
+    }
+    if (-not $signedBy) {
+        # say who did sign it, so a new release manager is one line to add
+        & python -m sigstore --verbose verify identity --bundle "$zip.sigstore" `
+            --cert-identity $signers[0][0] --cert-oidc-issuer $signers[0][1] $zip
+        Remove-Item $zip, "$zip.sigstore"
+        throw "the Python download is not signed by a known python.org release signer"
+    }
+    Write-Host "Python $pyver: Sigstore signature by $signedBy verified"
 }
 Expand-Archive $zip -DestinationPath $py
 
