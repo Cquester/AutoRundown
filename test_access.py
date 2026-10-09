@@ -67,8 +67,28 @@ check(config.load().api_key == "", "  ... and the key is unchanged")
 check(post(phone, "/api/import", {"path": "/"}).status_code == 403, "a phone cannot import")
 check(phone.get("/api/browse").status_code == 403, "a phone cannot browse folders")
 check(phone.get("/api/admin/users").status_code == 403, "a phone cannot list accounts")
-check(rebind.get("/api/settings").status_code == 403,
+check(rebind.get("/api/settings").status_code == 421,
       "loopback with a foreign Host (DNS rebinding) is not admin")
+check(rebind.get("/api/search", params={"doc_id": "v1", "q": "oil"}).status_code == 421,
+      "  ... and can't search either")
+check(post(rebind, "/api/ask", {"doc_id": "v1", "question": "x"}).status_code == 421,
+      "  ... or ask on this PC's key")
+check(client("127.0.0.1", "LOCALHOST.:8756").get("/api/me").status_code == 200,
+      "localhost in any case, with a trailing dot, is served")
+check(phone.get("/api/me").status_code == 200, "a phone using the PC's IP address is served")
+check(client("192.168.1.50", "autorundown.local:8756").get("/api/me").status_code == 200,
+      "  ... and one using autorundown.local")
+
+print("settings are checked before they are saved")
+for bad, what in (({"index_path": ""}, "an empty index path"),
+                  ({"index_path": str(TMP / "typo" / "indx.db")}, "an index path that doesn't exist"),
+                  ({"extractor_dir": "\\\\evil\\share"}, "an extractor on a network share"),
+                  ({"extractor_dir": "relative/dir"}, "a relative extractor folder"),
+                  ({"extractor_dir": str(TMP)}, "a folder without vm_pipeline.py"),
+                  ({"model": "gpt-4"}, "an unknown model")):
+    check(post(pc, "/api/settings", bad).status_code == 400, f"refused: {what}")
+check(not (TMP / "typo").exists(), "  ... and no empty database was created for the typo")
+check(pc.get("/api/vehicles").status_code == 200, "  ... and the site still works")
 check("index_path" not in phone.get("/api/stats").json(), "a phone does not see this PC's paths")
 check("index_path" in pc.get("/api/stats").json(), "this PC does")
 check(post(pc, "/api/settings", {"model": "claude-haiku-4-5"},

@@ -86,7 +86,11 @@ m = pc.get("/api/import/manuals").json()
 lem = {r["label"]: r for r in m["lemon"]}
 check(len(m["lemon"]) == 2, f"two LEMON cars: {sorted(lem)}")
 check(len(m["folder"]) == 1, f"one folder import: {[r['label'] for r in m['folder']]}")
-check(m["wis"]["entries"] > 100 and m["wis"]["pages"] > 0, f"WIS grouped: {m['wis']['entries']} entries")
+# every WIS bucket, however many the sample has (the invented fallback
+# catalogue gives 17, the real one 400+)
+n_wis = q(db, "SELECT COUNT(*) FROM vehicles WHERE source_name LIKE 'mercedes-wis%'")[0][0]
+check(m["wis"]["entries"] == n_wis > 0 and m["wis"]["pages"] > 0,
+      f"WIS grouped: {m['wis']['entries']} entries of {n_wis}")
 check(phone.get("/api/import/manuals").status_code == 403, "a phone can't list")
 
 ford = next(r for r in m["lemon"] if "Ford" in r["label"])

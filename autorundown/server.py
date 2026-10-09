@@ -17,6 +17,7 @@ import argparse
 import json
 import re
 import socket
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -128,6 +129,56 @@ def _origin_ok(request: Request) -> bool:
     return origin.split("://", 1)[-1].rstrip("/").lower() == host.lower()
 
 
+# what /api/image will serve: pictures only. An .svg or .html in a manual's
+# images/ folder was served as a page of this site, script and all
+IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tif", ".tiff"}
+# a diagram opened full size is a document of this origin: no script, ever
+IMAGE_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; "
+                               "style-src 'unsafe-inline'; sandbox",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+def _index_error(raw: str) -> str | None:
+    """Why `raw` can't be the index, or None. Saving "" pointed the server at
+    the current folder (every request 500, and it stuck after a restart); a typo
+    created a new empty database, so every manual seemed to vanish."""
+    if not (raw or "").strip():
+        return "The index path can't be empty."
+    path = Path(raw.strip()).expanduser()
+    if not path.is_file():
+        return (f"There is no index file at {path}. Pick an existing index.db "
+                "(to build a new one, use Import).")
+    try:
+        con = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            con.execute("SELECT 1 FROM vehicles LIMIT 1")
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return f"{path} is not an AutoRundown index."
+    return None
+
+
+def _extractor_error(raw: str) -> str | None:
+    """Why `raw` can't be the extractor folder, or None. Its Python is run
+    (/api/vms, imports), so it must be a real local folder holding the
+    extractor -- never a network share (\\\\server\\x), which would run
+    someone else's code and, on Windows, send this PC's credentials there."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None                      # "" = the repo's own extractor/
+    if raw.startswith(("\\\\", "//")):
+        return "The extractor folder must be on this PC, not a network share."
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        return "Give the extractor folder's full path (e.g. C:\\Users\\you\\…\\extractor)."
+    if not (path / "vm_pipeline.py").is_file():
+        return f"{path} doesn't hold the Mercedes extractor (vm_pipeline.py)."
+    return None
+
+
 def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app = FastAPI(title="AutoRundown")
     app.state.index_path = index_path
@@ -145,10 +196,18 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def adb():
         return auth.connect(app.state.auth_path)
 
+    short = socket.gethostname().split(".")[0].lower()
+    host_names = {short, f"{short}.local", socket.gethostname().lower(), "autorundown.local"}
+
     @app.middleware("http")
     async def who_is_asking(request: Request, call_next):
         path = request.url.path
         addr = request.client.host if request.client else ""
+        # a name that isn't this PC's means DNS rebinding: a web page whose own
+        # name now resolves here, able to search and ask on this PC's key
+        names = host_names | ({app.state.mdns_name.lower()} if app.state.mdns_name else set())
+        if not auth.host_allowed(request.headers.get("host", ""), names):
+            return JSONResponse({"detail": "Unknown host name."}, 421)
         admin = auth.is_admin_request(addr, request.headers.get("host", ""))
         if request.method not in ("GET", "HEAD", "OPTIONS") and not _origin_ok(request):
             return JSONResponse({"detail": "Cross-site request refused."}, 403)
@@ -393,9 +452,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             target.relative_to(images_dir)
         except ValueError:
             raise HTTPException(404, "image not found")
-        if not target.is_file():
+        if not target.is_file() or target.suffix.lower() not in IMAGE_TYPES:
             raise HTTPException(404, "image not found")
-        return FileResponse(target)
+        return FileResponse(target, headers=IMAGE_HEADERS)
 
     @app.get("/api/connectors/{doc_id}")
     def api_connector_ids(doc_id: str) -> list[str]:
@@ -579,6 +638,19 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/settings")
     def post_settings(body: SettingsBody) -> dict:
+        # check everything before changing anything
+        if body.index_path is not None and body.index_path != app.state.index_path:
+            err = _index_error(body.index_path)
+            if err:
+                raise HTTPException(400, err)
+            body.index_path = str(Path(body.index_path.strip()).expanduser())
+        if body.extractor_dir is not None:
+            err = _extractor_error(body.extractor_dir)
+            if err:
+                raise HTTPException(400, err)
+            body.extractor_dir = body.extractor_dir.strip()
+        if body.model is not None and body.model not in query.MODELS:
+            raise HTTPException(400, f"Unknown model {body.model!r}.")
         if body.autostart is not None and body.autostart != autostart.is_enabled():
             try:
                 autostart.set_enabled(body.autostart)

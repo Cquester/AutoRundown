@@ -21,6 +21,7 @@ from .base import Importer, PageRecord, VehicleRecord, register
 ENGINE_RE = re.compile(r"((?:[LVIHW]\d+-)?\d+\.\d+\s*L\b[^,]*)", re.I)
 DRIVE_RE = re.compile(r"\b(4WD|2WD|AWD|FWD|RWD|4X4|4X2)\b", re.I)
 SINGLE_PAGE = "Repair and Diagnosis (Single Page)"
+SAFE_PAGE_NO = re.compile(r"[A-Za-z0-9._-]+")
 
 WIRING_HINTS = ("wiring diagram", "connector view", "component location", "harness")
 TSB_HINTS = ("technical service bulletin", "service bulletin", "recall", "campaign")
@@ -164,6 +165,12 @@ class LemonImporter(Importer):
                 section_path[-1] if section_path else path.stem
             )
 
+            # the page number ends up in URLs and the page; an archive is
+            # third-party content, so a file name like  9');<script>.html  is
+            # refused rather than trusted (LEMON names pages by number)
+            if not SAFE_PAGE_NO.fullmatch(path.stem):
+                print(f"  ! skipped a page with an unexpected file name: {path.name!r}")
+                continue
             yield PageRecord(
                 doc_id=vehicle.doc_id,
                 page_no=path.stem,

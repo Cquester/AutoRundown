@@ -114,6 +114,33 @@ def is_admin_request(client_addr: str, host_header: str) -> bool:
     return is_loopback(client_addr) and host_is_loopback(host_header)
 
 
+def host_name(host_header: str) -> str:
+    """The name or address in a Host header, without port or brackets."""
+    host = (host_header or "").strip().lower()
+    if host.startswith("["):
+        return host[1:host.find("]")] if "]" in host else host[1:]
+    if host.count(":") == 1:
+        host = host.rsplit(":", 1)[0]
+    return host.rstrip(".")
+
+
+def host_allowed(host_header: str, names: set[str]) -> bool:
+    """Is this request addressed to us? DNS rebinding reaches the server under
+    the attacker's own name (attacker.example -> 127.0.0.1), so every request,
+    not only admin ones, must name this PC: an IP address (no DNS involved,
+    so it can't be rebound), localhost, or one of `names` (this PC's host name,
+    <host>.local, autorundown.local)."""
+    host = host_name(host_header)
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    return host == "localhost" or host in names
+
+
 # -- accounts ---------------------------------------------------------------
 
 def _now_iso() -> str:
