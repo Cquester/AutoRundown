@@ -110,8 +110,10 @@ def run_background(srv, url: str, open_browser: bool) -> int:
         import pystray
 
         def phone_text(_item) -> str:
-            urls = srv.config.app.state.phone_urls
-            return f"Phone: {urls[0]}" if urls else "Phone: (no network)"
+            st = srv.config.app.state
+            host = st.mdns_name or server.lan_ip()     # autorundown.local once announced
+            scheme = "https" if st.https else "http"
+            return f"Phone: {scheme}://{host}:{srv.config.port}"
 
         def toggle_autostart(_icon, _item) -> None:
             try:
@@ -142,9 +144,9 @@ def run_background(srv, url: str, open_browser: bool) -> int:
     if tray:
         try:
             tray.run()                 # until Stop, or the server ends
+            srv.should_exit = True     # tray closed: the server goes with it
         except Exception as exc:
             print(f"tray icon failed ({exc}); serving without it")
-        srv.should_exit = True         # tray closed: the server goes with it
     t.join()
     err = result.get("error")
     if err is not None and not (isinstance(err, SystemExit) and not err.code):
