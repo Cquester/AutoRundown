@@ -56,6 +56,7 @@ def main() -> int:
         step("first start: import dialog opened by itself")
         shot("01-first-run")
 
+        page.click(".srctabs [data-src=folder]")   # the dialog opens on the LEMON tab
         page.fill("#impPath", corpus)
         page.press("#impPath", "Enter")
         expect(page.locator("#impDetected")).to_contain_text("Detected:", timeout=30_000)

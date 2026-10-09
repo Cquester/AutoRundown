@@ -348,9 +348,9 @@
     an HTML manual archive, a Mercedes WIS corpus from the extractor (records.jsonl + manifest.json),
     or a folder of HTML / text / PDF files. The format is detected for you.</p>
   <div class="srctabs" role="tablist" aria-label="Import from">
-    <button type="button" role="tab" data-src="folder" aria-selected="true">Folder</button>
-    <button type="button" role="tab" data-src="lemon" aria-selected="false">LEMON</button>
+    <button type="button" role="tab" data-src="lemon" aria-selected="true">LEMON</button>
     <button type="button" role="tab" data-src="vm" aria-selected="false">Mercedes VM</button>
+    <button type="button" role="tab" data-src="folder" aria-selected="false">Folder</button>
   </div>
   <div id="impFolderHome"></div>
   <div id="impFolder">
@@ -1960,8 +1960,8 @@ async function impWatch() {
 }
 async function openImport(first) {
   $('#impIntro').firstChild.textContent = first
-    ? 'No manuals are indexed yet. Import them from a folder on this PC, pick LEMON manuals, or extract them from a Mercedes virtual machine. '
-    : 'Import manuals from a folder on this PC, pick LEMON manuals, or extract them from a Mercedes virtual machine. ';
+    ? 'No manuals are indexed yet. Pick LEMON manuals, extract them from a Mercedes virtual machine, or import them from a folder on this PC. '
+    : 'Pick LEMON manuals, extract them from a Mercedes virtual machine, or import manuals from a folder on this PC. ';
   impSawRunning = false;
   $('#importDlg').showModal();
   impShowSource();
