@@ -1131,6 +1131,13 @@ macOS/Linux run from source (README), by the user's decision.
   running it would contend for the name.
 - Version: `autorundown/__init__.py` `__version__`; bump it per release (MSI
   MajorUpgrade needs a higher version to replace an install).
+- **Releases: a push to `main` publishes one** (the workflow's `release`
+  job, 2026-10-09, the user's request). When the MSI job passes on `main`,
+  the MSI and its `.sha256` go to a GitHub release `v<__version__>` with
+  generated notes. A version that already has a release is skipped with a
+  notice, never overwritten -- so **bump `__version__` in the PR** to ship
+  it. Branch pushes only upload the MSI as a workflow artifact (90 days).
+  Only that job gets `contents: write`; the build itself stays read-only.
 - The WIS extractor is **not bundled**, deliberately: it reads the EWA
   Java and `tbjdbc.jar` from the "Mercedes Documents" folder
   (`extractor/wis_paths.py`; Mercedes software, never shipped).
