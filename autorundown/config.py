@@ -25,6 +25,9 @@ class Config:
     # the Mercedes WIS extractor (vm_pipeline.py lives there); "" = this
     # repo's extractor/. Its data goes outside the repo: see extractor/wis_paths.py
     extractor_dir: str = ""
+    # other devices must sign in with a mechanic account (auth.py); off =
+    # anyone on the network can search and ask. The PC itself never signs in.
+    require_signin: bool = False
 
     @property
     def resolved_key(self) -> str:

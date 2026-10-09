@@ -1,6 +1,12 @@
 """Local web server. Binds to the LAN so phones in the shop can reach it.
 
     python serve.py --index index.db
+    python serve.py --https          # TLS with a local CA (tls.py)
+
+Who may do what (auth.py): the PC running the server is the admin, with no
+sign-in; settings, imports and accounts answer to it alone. Other devices may
+search and ask -- freely, or, with `require_signin`, only after signing in
+with a mechanic account.
 
 One responsive UI serves desktop and phone; there is no second codebase and
 no native build.
@@ -13,10 +19,10 @@ import socket
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from . import config, index, query
+from . import auth, config, index, query, tls
 from . import importer_jobs, synonyms, wis_original
 from .search import get_page, scope_ids, search
 
@@ -46,6 +52,22 @@ class SettingsBody(BaseModel):
     importer: str | None = None
     api_key: str | None = None
     model: str | None = None
+    require_signin: bool | None = None
+
+
+class SigninBody(BaseModel):
+    code: str
+
+
+class NewUserBody(BaseModel):
+    name: str
+    monthly_cap_usd: float | None = None
+
+
+class UserUpdateBody(BaseModel):
+    disabled: bool | None = None
+    monthly_cap_usd: float | None = None
+    clear_cap: bool = False
 
 
 class ImportBody(BaseModel):
@@ -65,13 +87,128 @@ def _vehicle_or_404(conn, doc_id: str) -> dict:
     raise HTTPException(404, f"unknown vehicle {doc_id}")
 
 
-def create_app(index_path: str) -> FastAPI:
+# answer to any device, signed in or not: the page itself, so it can show
+# the sign-in screen, and the CA a phone must install before trusting HTTPS
+PUBLIC_PATHS = {"/", "/manifest.webmanifest", "/ca.crt", "/api/me",
+                "/api/auth/signin", "/api/auth/signout"}
+# answer to the PC running the server only -- they read and change this PC's
+# files, settings and API key, and manage accounts
+ADMIN_PREFIXES = ("/api/settings", "/api/browse", "/api/vms", "/api/import",
+                  "/api/admin/")
+
+
+def _is_admin_path(path: str) -> bool:
+    return any(path == p or path.startswith(p + ("" if p.endswith("/") else "/"))
+               for p in ADMIN_PREFIXES)
+
+
+def _origin_ok(request: Request) -> bool:
+    """A cross-site page must not be able to POST here with our cookie (or as
+    the admin, from a browser on this PC). Browsers send Origin on every
+    cross-origin POST; it must name the host the request went to."""
+    origin = request.headers.get("origin")
+    if not origin or origin == "null":
+        return origin is None
+    host = request.headers.get("host", "")
+    return origin.split("://", 1)[-1].rstrip("/").lower() == host.lower()
+
+
+def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app = FastAPI(title="AutoRundown")
     app.state.index_path = index_path
+    app.state.auth_path = auth_path or auth.AUTH_PATH
+    app.state.https = False
+    app.state.port = 8756
+    throttle = auth.Throttle()
 
     def db():
         # SQLite connections are per-thread; make a fresh one per request.
         return index.connect(app.state.index_path)
+
+    def adb():
+        return auth.connect(app.state.auth_path)
+
+    @app.middleware("http")
+    async def who_is_asking(request: Request, call_next):
+        path = request.url.path
+        addr = request.client.host if request.client else ""
+        admin = auth.is_admin_request(addr, request.headers.get("host", ""))
+        if request.method not in ("GET", "HEAD", "OPTIONS") and not _origin_ok(request):
+            return JSONResponse({"detail": "Cross-site request refused."}, 403)
+        who = auth.Who(admin=True) if admin else None
+        if who is None:
+            conn = adb()
+            try:
+                who = auth.user_for_token(conn, request.cookies.get(auth.COOKIE))
+            finally:
+                conn.close()
+        request.state.who = who or auth.Who()
+        if _is_admin_path(path) and not admin:
+            return JSONResponse(
+                {"detail": "Only available on the PC running AutoRundown."}, 403)
+        if (path not in PUBLIC_PATHS and who is None
+                and config.load().require_signin):
+            return JSONResponse({"detail": "Sign in to use AutoRundown.",
+                                 "signin": True}, 401)
+        return await call_next(request)
+
+    @app.get("/api/me")
+    def api_me(request: Request) -> dict:
+        who: auth.Who = request.state.who
+        cfg = config.load()
+        out = {
+            "admin": who.admin,
+            "signed_in": who.user_id is not None,
+            "name": who.label,
+            "require_signin": cfg.require_signin,
+            "default_model": cfg.model or query.DEFAULT_MODEL,
+            "https": request.url.scheme == "https",
+        }
+        if who.user_id is not None:
+            conn, aconn = db(), adb()
+            try:
+                out["month_spend_usd"] = round(index.month_spend(conn, who.user_id), 4)
+                out["monthly_cap_usd"] = auth.monthly_cap(aconn, who.user_id)
+            finally:
+                conn.close()
+                aconn.close()
+        return out
+
+    @app.post("/api/auth/signin")
+    def api_signin(request: Request, body: SigninBody, response: Response) -> dict:
+        addr = request.client.host if request.client else ""
+        if throttle.blocked(addr):
+            raise HTTPException(429, "Too many wrong codes. Wait 15 minutes, or ask for a new code.")
+        conn = adb()
+        try:
+            token = auth.redeem_code(conn, body.code, request.headers.get("user-agent", ""))
+        finally:
+            conn.close()
+        if token is None:
+            throttle.fail(addr)
+            raise HTTPException(400, "That code is wrong or has expired. Ask for a new one.")
+        throttle.ok(addr)
+        response.set_cookie(auth.COOKIE, token, max_age=auth.TOKEN_DAYS * 86400,
+                            httponly=True, samesite="lax",
+                            secure=request.url.scheme == "https")
+        return {"ok": True}
+
+    @app.post("/api/auth/signout")
+    def api_signout(request: Request, response: Response) -> dict:
+        conn = adb()
+        try:
+            auth.revoke_token(conn, request.cookies.get(auth.COOKIE))
+        finally:
+            conn.close()
+        response.delete_cookie(auth.COOKIE)
+        return {"ok": True}
+
+    @app.get("/ca.crt")
+    def ca_cert() -> Response:
+        if not tls.CA_CRT.exists():
+            raise HTTPException(404, "HTTPS is not set up (start with --https).")
+        return Response(tls.CA_CRT.read_bytes(), media_type="application/x-x509-ca-cert",
+                        headers={"Content-Disposition": 'attachment; filename="autorundown-ca.crt"'})
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
@@ -90,16 +227,14 @@ def create_app(index_path: str) -> FastAPI:
         })
 
     @app.get("/api/stats")
-    def stats() -> dict:
+    def stats(request: Request) -> dict:
         conn = db()
         try:
             cfg = config.load()
-            return {
-                **index.stats(conn),
-                "index_path": app.state.index_path,
-                "archive_dir": cfg.archive_dir,
-                "has_api_key": bool(cfg.resolved_key),
-            }
+            out = {**index.stats(conn), "has_api_key": bool(cfg.resolved_key)}
+            if request.state.who.admin:  # this PC's paths are its own business
+                out.update(index_path=app.state.index_path, archive_dir=cfg.archive_dir)
+            return out
         finally:
             conn.close()
 
@@ -141,11 +276,23 @@ def create_app(index_path: str) -> FastAPI:
             conn.close()
 
     @app.post("/api/ask")
-    def api_ask(body: AskBody) -> dict:
+    def api_ask(request: Request, body: AskBody) -> dict:
+        who: auth.Who = request.state.who
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, body.doc_id)
             cfg = config.load()
+            if who.user_id is not None:
+                aconn = adb()
+                try:
+                    cap = auth.monthly_cap(aconn, who.user_id)
+                finally:
+                    aconn.close()
+                spent = index.month_spend(conn, who.user_id)
+                if cap is not None and spent >= cap:
+                    raise HTTPException(
+                        402, f"Monthly limit reached (${spent:.2f} of ${cap:.2f}). "
+                             "Keyword search still works; ask the shop to raise the limit.")
             try:
                 chosen = body.model or cfg.model or query.DEFAULT_MODEL
                 if chosen not in query.MODELS:
@@ -154,7 +301,8 @@ def create_app(index_path: str) -> FastAPI:
                     conn, vehicle, body.question, cfg.resolved_key,
                     include_other_variants=body.include_other_variants,
                     model=chosen, source="web", variant=body.variant,
-                    engine=body.engine, year=body.year)
+                    engine=body.engine, year=body.year,
+                    user_id=who.user_id, user_name=who.name or None)
             except (query.NoApiKey, query.ApiUnavailable) as exc:
                 raise HTTPException(400, str(exc))
             return result.as_dict()
@@ -274,16 +422,12 @@ def create_app(index_path: str) -> FastAPI:
 
     # -- import ------------------------------------------------------------
     # Browsing folders and starting an import reach into this PC's files and
-    # run a long job, so they answer only to the machine the server runs on --
-    # never to a phone on the LAN, which the server otherwise welcomes.
-    def _local_only(request: Request) -> None:
-        host = (request.client.host if request.client else "") or ""
-        if host not in ("127.0.0.1", "::1", "localhost"):
-            raise HTTPException(403, "Importing is only available on the PC running AutoRundown.")
+    # run a long job, so they answer only to the machine the server runs on
+    # (ADMIN_PREFIXES, enforced in who_is_asking) -- never to a phone on the
+    # LAN, which the server otherwise welcomes.
 
     @app.get("/api/browse")
-    def api_browse(request: Request, path: str = "") -> dict:
-        _local_only(request)
+    def api_browse(path: str = "") -> dict:
         p = Path(path).expanduser() if path else Path(config.load().archive_dir or Path.home())
         if not p.is_dir():
             p = Path.home()
@@ -296,18 +440,15 @@ def create_app(index_path: str) -> FastAPI:
                 "dirs": dirs[:500], "detected": importer_jobs.describe(p)}
 
     @app.get("/api/vms")
-    def api_vms(request: Request) -> dict:
-        _local_only(request)
+    def api_vms() -> dict:
         return importer_jobs.list_vms()
 
     @app.get("/api/import")
-    def api_import_status(request: Request) -> dict:
-        _local_only(request)
+    def api_import_status() -> dict:
         return jobs.status()
 
     @app.post("/api/import")
-    def api_import_start(request: Request, body: ImportBody) -> dict:
-        _local_only(request)
+    def api_import_start(body: ImportBody) -> dict:
         if body.mode == "vm":
             info = importer_jobs.list_vms()
             if info.get("error"):
@@ -345,19 +486,90 @@ def create_app(index_path: str) -> FastAPI:
             "has_api_key": bool(cfg.resolved_key),
             "key_source": ("config" if cfg.api_key
                            else "environment" if cfg.resolved_key else "none"),
+            "require_signin": cfg.require_signin,
         }
 
     @app.post("/api/settings")
     def post_settings(body: SettingsBody) -> dict:
         cfg = config.load()
         for field_name in ("archive_dir", "index_path", "importer", "api_key",
-                           "model"):
+                           "model", "require_signin"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)
         cfg.save()
         app.state.index_path = cfg.index_path
         return {"ok": True}
+
+    # -- mechanics' accounts (admin only, see ADMIN_PREFIXES) ---------------
+    @app.get("/api/admin/users")
+    def admin_users() -> dict:
+        conn, aconn = db(), adb()
+        try:
+            spend = index.month_spend_by_user(conn)
+            users = auth.users(aconn)
+        finally:
+            conn.close()
+            aconn.close()
+        for u in users:
+            q, c = spend.get(u["id"], (0, 0.0))
+            u.update(month_questions=q, month_spend_usd=round(c, 4))
+        q, c = spend.get(None, (0, 0.0))
+        return {"users": users, "unattributed": {"month_questions": q,
+                                                 "month_spend_usd": round(c, 4)},
+                "require_signin": config.load().require_signin,
+                "phone_urls": _phone_urls()}
+
+    @app.post("/api/admin/users")
+    def admin_add_user(body: NewUserBody) -> dict:
+        aconn = adb()
+        try:
+            uid = auth.add_user(aconn, body.name, body.monthly_cap_usd)
+            return {"id": uid, "code": auth.new_code(aconn, uid),
+                    "minutes": auth.CODE_MINUTES}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        finally:
+            aconn.close()
+
+    @app.post("/api/admin/users/{user_id}")
+    def admin_update_user(user_id: int, body: UserUpdateBody) -> dict:
+        aconn = adb()
+        try:
+            auth.update_user(aconn, user_id, disabled=body.disabled,
+                             cap=body.monthly_cap_usd, clear_cap=body.clear_cap)
+        except KeyError:
+            raise HTTPException(404, "No such user.")
+        finally:
+            aconn.close()
+        return {"ok": True}
+
+    @app.post("/api/admin/users/{user_id}/code")
+    def admin_new_code(user_id: int) -> dict:
+        aconn = adb()
+        try:
+            return {"code": auth.new_code(aconn, user_id), "minutes": auth.CODE_MINUTES}
+        except KeyError:
+            raise HTTPException(404, "No such user.")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        finally:
+            aconn.close()
+
+    @app.post("/api/admin/users/{user_id}/signout")
+    def admin_sign_out(user_id: int) -> dict:
+        aconn = adb()
+        try:
+            auth.sign_out_all(aconn, user_id)
+        finally:
+            aconn.close()
+        return {"ok": True}
+
+    def _phone_urls() -> list[str]:
+        scheme = "https" if app.state.https else "http"
+        _, ips = tls.local_names()
+        return [f"{scheme}://{ip}:{app.state.port}" for ip in ips
+                if ":" not in ip and not ip.startswith("127.")]
 
     return app
 
@@ -382,12 +594,32 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--index", default=cfg.index_path)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8756)
+    ap.add_argument("--https", action="store_true",
+                    help="serve HTTPS with a certificate from a local CA (tls.py); "
+                         "phones install /ca.crt once to trust it")
     args = ap.parse_args(argv)
 
+    app = create_app(args.index)
+    app.state.port = args.port
+    ssl = {}
+    scheme = "http"
+    if args.https:
+        crt, key, names, ips = tls.ensure_server_cert()
+        ssl = {"ssl_certfile": str(crt), "ssl_keyfile": str(key)}
+        app.state.https = True
+        scheme = "https"
     print(f"index: {args.index}")
-    print(f"  local : http://localhost:{args.port}")
+    print(f"  admin : {scheme}://localhost:{args.port}   (this PC: settings, imports, accounts)")
     if args.host == "0.0.0.0":
-        print(f"  LAN   : http://{lan_ip()}:{args.port}   (phones on same wifi)")
-    uvicorn.run(create_app(args.index), host=args.host, port=args.port,
-                log_level="warning")
+        print(f"  LAN   : {scheme}://{lan_ip()}:{args.port}   (phones on same wifi)")
+    if args.https:
+        print(f"  cert  : {', '.join(names + ips)}")
+        print(f"  phones: install {scheme}://{lan_ip()}:{args.port}/ca.crt once "
+              "to remove the warning")
+    print(f"  sign-in for other devices: "
+          f"{'REQUIRED' if config.load().require_signin else 'off (anyone on the network)'}")
+    # proxy_headers off: the client address decides who is admin, and must be
+    # the socket's own peer, never an X-Forwarded-For header
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning",
+                proxy_headers=False, **ssl)
     return 0

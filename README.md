@@ -93,6 +93,56 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 Keys are stored in `~/.autorundown/config.json` (override the location with
 `AUTORUNDOWN_HOME`) and are sent only to Anthropic.
 
+### In a shop: who can use it
+
+**The PC running AutoRundown is the admin.** Settings, the API key, imports
+and mechanics' accounts are only available in a browser *on that PC*
+(`http://localhost:8756`). Phones and other computers can search and ask,
+nothing else -- they never see the gear icon, and the server refuses those
+requests from them.
+
+**Mechanic accounts are optional.** Settings → *require each mechanic to sign
+in*. Then:
+
+- Settings → **Mechanics & spend…** → add a name (and, if you like, a monthly
+  dollar limit). You get an 8-character code, valid 15 minutes, used once.
+- The mechanic opens AutoRundown on their phone and types the code. That
+  phone stays signed in (a year, or until you sign it out).
+- Lost phone or someone leaves: **Sign out devices** or **Disable**. It takes
+  effect immediately. A new phone just needs a new code.
+- Every paid question is logged against the mechanic who asked;
+  the same dialog shows each one's spend this month, and `python ask.py
+  --usage` lists it by user. Over the limit, asking is refused; keyword
+  search keeps working.
+
+With sign-in off, anyone who can reach the PC on the network can search and
+ask (on your API key), as before. Either way, also keep customers off that
+network: put the PC on the staff network, not the guest wifi (most routers
+isolate guest-wifi devices from everything else).
+
+### HTTPS on the shop network
+
+```bash
+python serve.py --https
+```
+
+No public certificate authority will sign for an address like
+`192.168.1.20`, so AutoRundown makes its own small one, once, in
+`~/.autorundown/tls/`, and issues a certificate for this PC's addresses
+(re-issued by itself when the PC's address changes). Each phone installs the
+authority once from `https://<PC address>:8756/ca.crt`:
+
+- **iPhone/iPad:** open that link in Safari → Allow → Settings → *Profile
+  Downloaded* → Install; then Settings → General → About → *Certificate Trust
+  Settings* → turn it on.
+- **Android:** download it, then Settings → Security → *Encryption &
+  credentials* → *Install a certificate* → *CA certificate*.
+
+Until a phone has it, the browser shows a warning that can be clicked
+through; the connection is still encrypted. The authority is restricted to
+private addresses and `.local` names, so it cannot be used to impersonate
+any real website, even if its key were copied off the PC.
+
 ### Command line
 
 ```bash
@@ -328,10 +378,13 @@ autorundown/
   search.py        BM25 retrieval with mandatory vehicle filter
   query.py         Claude planner + answerer + citation verification
   server.py        local web server
+  auth.py          the PC is admin; optional mechanic accounts
+  tls.py           local certificate authority for --https
   web/             the UI (one responsive page)
 ingest.py          build the index
 ask.py             command-line queries
 eval.py            known-answer validation
+test_access.py     who may do what on the network (free)
 serve.py           start the server
 ```
 

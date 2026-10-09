@@ -53,6 +53,12 @@ def main(argv: list[str] | None = None) -> int:
             for r in s["by_source"]:
                 print(f"  {r['source'] or '?':<8} {r['questions']:>4} questions "
                       f"{r['calls']:>5} calls   ${r['cost_usd']:.4f}")
+        if any(r["user"] not in ("cli", "eval", "this PC / no sign-in")
+               for r in s["by_user"]):
+            print("\nby user:")
+            for r in s["by_user"]:
+                print(f"  {r['user'] or '?':<22} {r['questions']:>4} questions   "
+                      f"${r['cost_usd']:.4f}")
         if s["by_day"]:
             print("\nby day:")
             for r in s["by_day"]:

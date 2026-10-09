@@ -15,6 +15,8 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
+  /* the header is one row on a desktop and two on a phone; main takes the rest */
+  body{display:flex; flex-direction:column}
   body{
     background:var(--bg); color:var(--text);
     font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
@@ -58,13 +60,15 @@
   @media (max-width:700px){
     header{flex-wrap:wrap}
     .brand{order:1}
-    #settingsBtn{order:2; margin-left:auto}
-    .picker{order:3; flex:1 0 100%}
+    #settingsBtn,#acctBtn{order:2; margin-left:auto}
+    .carbox{order:3; flex:1 0 100%}
+    .picker{order:4; flex:1 0 100%}
     .picker #year,.picker #make{flex:1 1 calc(50% - 4px)}
     .picker #vehicle{flex:1 1 100%}
     .picker #variant{flex:1 1 calc(100% - 74px)}
     .picker #vinBtn{flex:0 0 auto}
   }
+  #acctBtn{max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 12px}
   .vinrow{display:flex; gap:8px; align-items:flex-start}
   .vinrow input{font-variant-numeric:tabular-nums; letter-spacing:.5px}
   .vinnote{margin-top:10px; font-size:14px; color:var(--muted)}
@@ -76,13 +80,13 @@
   button.ghost{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
   button:disabled{opacity:.5; cursor:default}
 
-  main{display:grid; grid-template-columns:1fr 1fr; height:calc(100% - 62px)}
+  main{display:grid; grid-template-columns:1fr 1fr; flex:1; min-height:0}
   @media (max-width:900px){ main{grid-template-columns:1fr} }
   .pane{overflow-y:auto; padding:16px; -webkit-overflow-scrolling:touch}
   #right{border-left:1px solid var(--line); background:#141821}
   @media (max-width:900px){
     #right{
-      position:fixed; inset:62px 0 0 0; z-index:15; border-left:0;
+      position:fixed; inset:var(--hdr, 62px) 0 0 0; z-index:15; border-left:0;
       transform:translateX(100%); transition:transform .22s ease;
     }
     #right.open{transform:translateX(0)}
@@ -253,7 +257,8 @@
     <select id="variant" aria-label="Variant (optional)" hidden></select>
     <button class="ghost" id="vinBtn" title="Find the vehicle from a VIN">VIN</button>
   </div>
-  <button class="ghost" id="settingsBtn" title="Settings">&#9881;</button>
+  <button class="ghost" id="acctBtn" title="Your account" hidden></button>
+  <button class="ghost" id="settingsBtn" title="Settings" hidden>&#9881;</button>
 </header>
 
 <main>
@@ -354,9 +359,55 @@
   <label>Data</label>
   <button class="ghost" id="openImport" type="button">Import data…</button>
   <span class="muted" style="margin-left:8px">add manuals, or rebuild the Mercedes WIS data</span>
+  <label>Phones and other computers</label>
+  <label class="chip" style="cursor:pointer; margin-top:0">
+    <input type="checkbox" id="sSignin"> require each mechanic to sign in
+  </label>
+  <div><button class="ghost" id="openUsers" type="button" style="margin-top:8px">Mechanics &amp; spend…</button></div>
   <div class="row" style="margin-top:18px; justify-content:flex-end">
     <button class="ghost" onclick="document.getElementById('settings').close()">Cancel</button>
     <button id="saveBtn">Save</button>
+  </div>
+</dialog>
+
+<dialog id="signinDlg">
+  <h3 style="margin:0 0 4px">Sign in</h3>
+  <div class="muted">Ask whoever runs AutoRundown in the shop for a sign-in code.
+    You only do this once on each phone.</div>
+  <label for="signinCode">Sign-in code</label>
+  <input id="signinCode" type="text" maxlength="12" autocapitalize="characters"
+         autocomplete="one-time-code" spellcheck="false" placeholder="ABCD 2345"
+         style="font-size:22px; letter-spacing:3px; text-transform:uppercase">
+  <div class="vinnote" id="signinNote"></div>
+  <div class="row" style="margin-top:16px; justify-content:flex-end">
+    <button id="signinGo">Sign in</button>
+  </div>
+</dialog>
+
+<dialog id="acctDlg">
+  <h3 style="margin:0 0 4px" id="acctName"></h3>
+  <div class="muted" id="acctSpend"></div>
+  <div class="row" style="margin-top:16px; justify-content:flex-end">
+    <button class="ghost" id="acctSignout">Sign out on this phone</button>
+    <button class="ghost" onclick="document.getElementById('acctDlg').close()">Close</button>
+  </div>
+</dialog>
+
+<dialog id="usersDlg">
+  <h3 style="margin:0 0 4px">Mechanics &amp; spend</h3>
+  <div class="muted" id="usersIntro"></div>
+  <div id="usersList" style="margin-top:12px"></div>
+  <div id="usersCode"></div>
+  <label for="uName">Add a mechanic</label>
+  <div class="vinrow">
+    <input id="uName" type="text" maxlength="60" placeholder="Name">
+    <input id="uCap" type="number" min="0" step="1" placeholder="$ limit / month (optional)"
+           style="max-width:220px">
+    <button id="uAdd">Add</button>
+  </div>
+  <div class="vinnote" id="usersNote"></div>
+  <div class="row" style="margin-top:16px; justify-content:flex-end">
+    <button class="ghost" onclick="document.getElementById('usersDlg').close()">Close</button>
   </div>
 </dialog>
 
@@ -370,9 +421,55 @@ const esc = s => (s ?? '').replace(/[&<>"]/g, c =>
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
-  if (!r.ok) throw new Error((await r.json().catch(()=>({detail:r.statusText}))).detail);
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({detail: r.statusText}));
+    if (r.status === 401 && body.signin) showSignin();
+    throw new Error(body.detail);
+  }
   return r.json();
 }
+
+// the phone's sources panel opens below the header, whatever its height
+new ResizeObserver(([e]) => document.documentElement.style.setProperty(
+  '--hdr', e.target.getBoundingClientRect().height + 'px')).observe($('header'));
+
+// -- who is using this page: the PC itself (admin), a mechanic, or anyone --
+// The server decides (auth.py); this only shows the matching controls.
+let me = {admin: false};
+async function loadMe() {
+  me = await api('/api/me');
+  $('#settingsBtn').hidden = !me.admin;
+  $('#acctBtn').hidden = !me.signed_in;
+  if (me.signed_in) $('#acctBtn').textContent = me.name;
+  return me;
+}
+function showSignin() {
+  if ($('#signinDlg').open) return;
+  const m = /[#&]code=([A-Za-z0-9-]+)/.exec(location.hash);
+  if (m) $('#signinCode').value = m[1];
+  $('#signinNote').textContent = '';
+  $('#signinDlg').showModal();
+}
+$('#signinDlg').addEventListener('cancel', e => e.preventDefault());  // no way past it
+$('#signinGo').onclick = async () => {
+  try {
+    await api('/api/auth/signin', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code: $('#signinCode').value})});
+    history.replaceState(null, '', location.pathname);
+    location.reload();
+  } catch (e) { $('#signinNote').textContent = e.message; }
+};
+$('#signinCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('#signinGo').click(); });
+$('#acctBtn').onclick = () => {
+  $('#acctName').textContent = me.name;
+  $('#acctSpend').textContent = `Spent this month: $${(me.month_spend_usd || 0).toFixed(2)}`
+    + (me.monthly_cap_usd != null ? ` of your $${me.monthly_cap_usd.toFixed(2)} limit` : '');
+  $('#acctDlg').showModal();
+};
+$('#acctSignout').onclick = async () => {
+  await api('/api/auth/signout', {method: 'POST'}).catch(() => {});
+  location.reload();
+};
 
 // "2007-2014" | "2016+" | "2015" | "" -> the years that vehicle covers.
 // A vehicle with no year (the unscoped bucket) matches "Any year" only.
@@ -778,15 +875,23 @@ const model = () => $('#model').value || undefined;
 
 // The toolbar picker is the live one; changing it also saves the default so
 // the choice survives a reload, and keeps the Settings copy in step.
+// On another device (only the PC may change settings) the choice is
+// remembered in that browser and sent with each question instead.
+const MODEL_KEY = 'autorundown.model';
 async function loadModels() {
   modelList = await api('/api/models');
-  const current = (await api('/api/settings')).model;
+  let current = me.default_model;
+  if (!me.admin) try { current = localStorage.getItem(MODEL_KEY) || current; } catch (_) {}
   $('#model').innerHTML = modelList.map(m =>
     `<option value="${esc(m.id)}">${esc(m.label.split(' — ')[0])}</option>`).join('');
-  if (current) $('#model').value = current;
+  if (current && modelList.some(m => m.id === current)) $('#model').value = current;
 }
 
 $('#model').onchange = async () => {
+  if (!me.admin) {
+    try { localStorage.setItem(MODEL_KEY, $('#model').value); } catch (_) {}
+    return;
+  }
   await api('/api/settings', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({model: $('#model').value})
@@ -1263,6 +1368,7 @@ $('#settingsBtn').onclick = async () => {
   showModelPrice();
   $('#sArchive').value = s.archive_dir || '';
   $('#sIndex').value = s.index_path || '';
+  $('#sSignin').checked = !!s.require_signin;
   $('#sKey').placeholder = s.has_api_key
     ? `key configured (${s.key_source}) — leave blank to keep`
     : 'sk-ant-...';
@@ -1274,6 +1380,7 @@ $('#saveBtn').onclick = async () => {
     archive_dir: $('#sArchive').value,
     index_path: $('#sIndex').value,
     model: $('#sModel').value,
+    require_signin: $('#sSignin').checked,
   };
   if ($('#sKey').value.trim()) body.api_key = $('#sKey').value.trim();
   await api('/api/settings', {
@@ -1286,7 +1393,83 @@ $('#saveBtn').onclick = async () => {
   loadVehicles();
 };
 
-loadModels().catch(()=>{});
+// -- mechanics (this PC only) ------------------------------------------
+const money = v => '$' + (v || 0).toFixed(2);
+async function loadUsers() {
+  const d = await api('/api/admin/users');
+  const urls = d.phone_urls.map(u => `<b>${esc(u)}</b>`).join(' or ') || '<i>no network address found</i>';
+  const ca = d.phone_urls.length && d.phone_urls[0].startsWith('https')
+    ? ` To remove the security warning, install <b>${esc(d.phone_urls[0])}/ca.crt</b> on each phone once.` : '';
+  $('#usersIntro').innerHTML = (d.require_signin
+      ? 'Sign-in is <b>required</b>: other devices need a code from here.'
+      : 'Sign-in is <b>off</b>: anyone on the network can search and ask. Turn it on in Settings.')
+    + ` Phones open ${urls}.${ca}`;
+  const row = u => `<div class="card" style="padding:10px 12px; margin:0 0 8px">
+      <div class="row" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
+        <div><b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
+          <div class="muted">${u.month_questions} questions, ${money(u.month_spend_usd)} this month`
+          + (u.monthly_cap_usd != null ? ` of ${money(u.monthly_cap_usd)} limit` : ', no limit')
+          + ` · ${u.devices} signed-in device${u.devices === 1 ? '' : 's'}</div></div>
+        <div class="row" style="gap:6px; flex-wrap:wrap">
+          ${u.disabled ? '' : `<button class="ghost" data-act="code" data-id="${u.id}">Sign-in code</button>`}
+          <button class="ghost" data-act="cap" data-id="${u.id}">Limit</button>
+          ${u.devices ? `<button class="ghost" data-act="signout" data-id="${u.id}">Sign out devices</button>` : ''}
+          <button class="ghost" data-act="${u.disabled ? 'enable' : 'disable'}" data-id="${u.id}">
+            ${u.disabled ? 'Enable' : 'Disable'}</button>
+        </div></div></div>`;
+  $('#usersList').innerHTML = d.users.map(row).join('')
+    + `<div class="muted" style="margin:4px 0 8px">This PC and devices that did not sign in: `
+    + `${d.unattributed.month_questions} questions, ${money(d.unattributed.month_spend_usd)} this month.</div>`;
+}
+function showCode(name, r) {
+  $('#usersCode').innerHTML = `<div class="card" style="margin:8px 0">Sign-in code for <b>${esc(name)}</b>
+    (one use, valid ${r.minutes} minutes):
+    <div style="font-size:32px; font-weight:700; letter-spacing:4px; color:var(--accent); margin:6px 0">
+      ${esc(r.code.slice(0, 4))} ${esc(r.code.slice(4))}</div>
+    <div class="muted">Open AutoRundown on their phone and type it in.</div></div>`;
+}
+$('#usersList').onclick = async e => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const id = b.dataset.id, act = b.dataset.act;
+  const name = b.closest('.card').querySelector('b').textContent;
+  try {
+    if (act === 'code') showCode(name, await api(`/api/admin/users/${id}/code`, {method: 'POST'}));
+    else if (act === 'signout') await api(`/api/admin/users/${id}/signout`, {method: 'POST'});
+    else if (act === 'cap') {
+      const v = prompt(`Monthly limit in dollars for ${name} (blank = no limit):`);
+      if (v === null) return;
+      const body = v.trim() === '' ? {clear_cap: true} : {monthly_cap_usd: Number(v)};
+      if (!body.clear_cap && !(body.monthly_cap_usd >= 0)) throw new Error('Not a number: ' + v);
+      await api(`/api/admin/users/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)});
+    } else {
+      if (act === 'disable' && !confirm(`Disable ${name}? Their phones are signed out at once.`)) return;
+      await api(`/api/admin/users/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({disabled: act === 'disable'})});
+    }
+    $('#usersNote').textContent = '';
+    await loadUsers();
+  } catch (err) { $('#usersNote').textContent = err.message; }
+};
+$('#uAdd').onclick = async () => {
+  const name = $('#uName').value.trim();
+  const cap = $('#uCap').value.trim();
+  try {
+    const r = await api('/api/admin/users', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, monthly_cap_usd: cap === '' ? null : Number(cap)})});
+    $('#uName').value = ''; $('#uCap').value = '';
+    $('#usersNote').textContent = '';
+    showCode(name, r);
+    await loadUsers();
+  } catch (err) { $('#usersNote').textContent = err.message; }
+};
+$('#openUsers').onclick = async () => {
+  $('#settings').close();
+  $('#usersCode').innerHTML = ''; $('#usersNote').textContent = '';
+  $('#usersDlg').showModal();
+  try { await loadUsers(); } catch (err) { $('#usersNote').textContent = err.message; }
+};
 $('#year').addEventListener('change', () => { clearCarPick(); refreshPicker(); loadConnectors(); });
 $('#make').addEventListener('change', () => { clearCarPick(); refreshPicker(); loadConnectors(); });
 $('#vehicle').addEventListener('change', () => {
@@ -1500,8 +1683,11 @@ $('#impStart').onclick = async () => {
   } catch (e) { $('#impStatus').textContent = e.message; }
 };
 
-loadVehicles().then(() => { if (!vehicles.length) openImport(true); })
-  .catch(e => out.innerHTML =
+loadMe().then(m => {
+  if (m.require_signin && !m.admin && !m.signed_in) { showSignin(); return; }
+  loadModels().catch(() => {});
+  return loadVehicles().then(() => { if (!vehicles.length && me.admin) openImport(true); });
+}).catch(e => out.innerHTML =
   `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`);
 </script>
 </body>
