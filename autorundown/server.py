@@ -397,7 +397,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             return Response(status_code=304, headers=headers)
         return Response(body, media_type=media_type, headers=headers)
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
     def home(request: Request) -> Response:
         return _etagged(request, (WEB_DIR / "index.html").read_bytes(), "text/html; charset=utf-8")
 

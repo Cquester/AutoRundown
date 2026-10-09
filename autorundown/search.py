@@ -17,7 +17,9 @@ import re
 import sqlite3
 from typing import Iterable, Sequence
 
-TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9./_-]*")
+# letters of any language: "Ölwanne" was searched as "lwanne". The FTS
+# tokenizer (unicode61) folds the accents on both sides.
+TOKEN_RE = re.compile(r"[^\W_][\w./-]*")
 STOPWORDS = {
     "a", "an", "the", "of", "for", "on", "in", "to", "is", "are", "what",
     "whats", "how", "do", "i", "my", "me", "and", "or", "it", "its", "be",
@@ -48,22 +50,24 @@ def build_match(query: str, mode: str = "and") -> str:
     return joiner.join(quoted)
 
 
-def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
-         include_other_variants: bool, types: str = "",
-         engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> list[dict]:
-    if not match:
-        return []
+def _types_clause(types: str) -> tuple[str, list]:
+    """`types` (",0,2,") keeps only pages flagged for at least one of those
+    vehicle types. Unflagged pages carry no restriction and always pass."""
+    bits = [b for b in types.split(",") if b]
+    if not bits:
+        return "", []
+    return ("(COALESCE(p.vehicle_types, '') = '' OR "
+            + " OR ".join("instr(p.vehicle_types, ?) > 0" for _ in bits) + ")",
+            [f",{b}," for b in bits])
+
+
+def _filters(include_other_variants: bool, engines: tuple[str, ...] = (),
+             codes: tuple = ((), ())) -> tuple[str, list, str, list]:
+    """The page filters every search applies, in SQL before ranking:
+    (where-clause, its args, score-boost expression, its args)."""
     variant_clause = "" if include_other_variants else \
         " AND p.applicability = 'this_vehicle'"
-    # `types` (",0,2,") keeps only pages flagged for at least one of those
-    # vehicle types. Unflagged pages carry no restriction and always pass.
-    bits = [b for b in types.split(",") if b]
     type_clause, type_args = "", []
-    if bits:
-        type_clause = (" AND (COALESCE(p.vehicle_types, '') = '' OR "
-                       + " OR ".join("instr(p.vehicle_types, ?) > 0" for _ in bits)
-                       + ")")
-        type_args = [f",{b}," for b in bits]
     # `engines` ("272",): drop pages limited to *other* engines -- in SQL,
     # before ranking, like the vehicle filter. Pages naming no engine pass.
     if engines:
@@ -98,6 +102,19 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
         boost_sql = (" * (CASE WHEN " + " OR ".join("instr(p.text, ?) > 0" for _ in mine)
                      + f" THEN {CODE_BOOST} ELSE 1 END)")
         boost_args = list(mine)
+    return variant_clause + type_clause, type_args, boost_sql, boost_args
+
+
+def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
+         include_other_variants: bool, types: str = "",
+         engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> list[dict]:
+    if not match:
+        return []
+    where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
+    tclause, targs = _types_clause(types)
+    if tclause:
+        where += " AND " + tclause          # appended last, so its args go last
+        args = args + targs
     sql = f"""
         SELECT c.page_uid, c.doc_id, c.ord, c.title, c.section_path, c.body,
                p.page_no, p.system, p.doc_type, p.images, p.applicability,
@@ -105,16 +122,88 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
         FROM chunks_fts
         JOIN chunks c ON c.id = chunks_fts.rowid
         JOIN pages  p ON p.page_uid = c.page_uid
-        WHERE chunks_fts MATCH ? AND c.doc_id = ?{variant_clause}{type_clause}
+        WHERE chunks_fts MATCH ? AND c.doc_id = ?{where}
         ORDER BY score
         LIMIT ?
     """
     try:
         rows = conn.execute(
-            sql, (*WEIGHTS, *boost_args, match, doc_id, *type_args, limit)).fetchall()
+            sql, (*WEIGHTS, *boost_args, match, doc_id, *args, limit)).fetchall()
     except sqlite3.OperationalError:
         return []  # malformed MATCH expression
     return [dict(r) for r in rows]
+
+
+def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: int,
+               include_other_variants: bool, types: str = "", general: str = "",
+               engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> dict[str, list[dict]]:
+    """`_run` for several doc_ids at once: the best `limit` rows of each.
+
+    FTS5 finds and scores every match in the whole index before the doc_id
+    filter drops other vehicles' rows, so running `_run` once per bucket did
+    that whole-index work 12-14 times for one generation (7-20 s per keyword
+    search on a full-size synthetic index). One statement does it once and
+    ranks within each doc_id with a window function. The filters are the
+    same, still in SQL before ranking; only `general` is type-narrowed.
+    """
+    if not match or not doc_ids:
+        return {}
+    where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
+    tclause, targs = _types_clause(types)
+    if tclause and general in doc_ids:
+        where += f" AND (c.doc_id != ? OR {tclause})"
+        args = [*args, general, *targs]
+    marks = ",".join("?" for _ in doc_ids)
+    sql = f"""
+        SELECT * FROM (
+            SELECT x.*, ROW_NUMBER() OVER (PARTITION BY x.doc_id ORDER BY x.score) AS rn
+            FROM (
+                SELECT c.page_uid, c.doc_id, c.ord, c.title, c.section_path, c.body,
+                       p.page_no, p.system, p.doc_type, p.images, p.applicability,
+                       bm25(chunks_fts, ?, ?, ?){boost_sql} AS score
+                FROM chunks_fts
+                JOIN chunks c ON c.id = chunks_fts.rowid
+                JOIN pages  p ON p.page_uid = c.page_uid
+                WHERE chunks_fts MATCH ? AND c.doc_id IN ({marks}){where}
+            ) x
+        ) WHERE rn <= ?
+        ORDER BY doc_id, score
+    """
+    try:
+        rows = conn.execute(sql, (*WEIGHTS, *boost_args, match, *doc_ids, *args, limit)).fetchall()
+    except sqlite3.OperationalError:
+        return {}  # malformed MATCH expression
+    out: dict[str, list[dict]] = {}
+    for r in rows:
+        d = dict(r)
+        d.pop("rn", None)
+        out.setdefault(d["doc_id"], []).append(d)
+    return out
+
+
+def _search_scope(conn: sqlite3.Connection, doc_ids: list[str], query: str, limit: int,
+                  include_other_variants: bool, types: str = "", general: str = "",
+                  engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> list[list[dict]]:
+    """`_search_one` for every doc_id of a scope, in two statements: AND
+    first, then OR only for the doc_ids that came up short. Returns the lists
+    in `doc_ids` order, exactly as one `_search_one` per doc_id would."""
+    lists = _run_scope(conn, doc_ids, build_match(query, "and"), limit,
+                       include_other_variants, types, general, engines, codes)
+    short = [d for d in doc_ids if len(lists.get(d, [])) < limit]
+    if short:
+        more = _run_scope(conn, short, build_match(query, "or"), limit * 2,
+                          include_other_variants, types, general, engines, codes)
+        for d in short:
+            results = lists.setdefault(d, [])
+            seen = {r["page_uid"] + str(r["ord"]) for r in results}
+            for row in more.get(d, []):
+                key = row["page_uid"] + str(row["ord"])
+                if key not in seen:
+                    seen.add(key)
+                    results.append(row)
+                if len(results) >= limit:
+                    break
+    return [lists.get(d, []) for d in doc_ids]
 
 
 def as_ids(doc_ids: str | Iterable[str]) -> list[str]:
@@ -293,9 +382,8 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
     # only the general pool is type-narrowed; the vehicle and its engines are
     # not. The engine filter applies everywhere.
     return _interleave(
-        [_search_one(conn, d, query, limit, include_other_variants,
-                     types if d == general else "", engines, codes)
-         for d in ids], limit, by_score=True)
+        _search_scope(conn, ids, query, limit, include_other_variants,
+                      types, general, engines, codes), limit, by_score=True)
 
 
 def multi_search(conn: sqlite3.Connection, doc_ids: str | Iterable[str],

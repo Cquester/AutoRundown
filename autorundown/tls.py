@@ -84,13 +84,16 @@ def _private(addr: str) -> bool:
 
 
 def _write_key(path: Path, key, serialization) -> None:
-    path.write_bytes(key.private_bytes(
-        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption()))
+    """Created private (0600) from the start, not written and then chmod'ed:
+    for that moment the key was readable by others."""
+    data = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                             serialization.NoEncryption())
+    path.unlink(missing_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass  # best effort on Windows; the folder is in the user's profile
+        os.write(fd, data)
+    finally:
+        os.close(fd)
 
 
 def _now() -> dt.datetime:
@@ -98,7 +101,7 @@ def _now() -> dt.datetime:
 
 
 def ensure_ca():
-    x509, hashes, serialization, ec, _, NameOID = _imports()
+    x509, hashes, serialization, ec, ExtendedKeyUsageOID, NameOID = _imports()
     if CA_CRT.exists() and CA_KEY.exists():
         return (x509.load_pem_x509_certificate(CA_CRT.read_bytes()),
                 serialization.load_pem_private_key(CA_KEY.read_bytes(), None))
@@ -123,6 +126,10 @@ def ensure_ca():
                 crl_sign=True, encipher_only=False, decipher_only=False), critical=True)
             .add_extension(x509.NameConstraints(permitted_subtrees=permitted,
                                                 excluded_subtrees=None), critical=True)
+            # web servers only: a leaked key can't sign code or e-mail that a
+            # phone with this CA installed would trust
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+                           critical=False)
             .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
                            critical=False)
             .sign(key, hashes.SHA256()))

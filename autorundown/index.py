@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS pages(
 );
 CREATE INDEX IF NOT EXISTS pages_doc ON pages(doc_id);
 CREATE INDEX IF NOT EXISTS pages_hash ON pages(doc_id, text_hash);
+-- opening a page (get_page) by its number; without it a general-pool page
+-- walked ~29k rows (~60 ms). Built once on an existing index (~1 s).
+CREATE INDEX IF NOT EXISTS pages_doc_page ON pages(doc_id, page_no);
 
 -- Every paid call is recorded so spend can be attributed after the fact,
 -- rather than reconstructed from memory or read off the console days later.
