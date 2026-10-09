@@ -66,7 +66,7 @@ if (-not $NoVerify) {
         Remove-Item $zip, "$zip.sigstore"
         throw "the Python download is not signed by a known python.org release signer"
     }
-    Write-Host "Python $pyver: Sigstore signature by $signedBy verified"
+    Write-Host "Python ${pyver} - Sigstore signature by ${signedBy} verified"
 }
 Expand-Archive $zip -DestinationPath $py
 
