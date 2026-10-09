@@ -93,7 +93,10 @@ def list_vms() -> dict:
                        timeout=60)
     if r.returncode != 0:
         return {"extractor": str(ext), "vms": [],
-                "error": (r.stdout + r.stderr).strip().splitlines()[-1:] or ["VirtualBox not found"]}
+                # a string: the UI showed "(s ?? "").replace is not a function"
+                # for the list this used to be
+                "error": "\n".join((r.stdout + r.stderr).strip().splitlines()[-3:])
+                         or "VirtualBox was not found on this PC."}
     vms = [dict(zip(("name", "state"), l.split("\t"))) for l in r.stdout.splitlines() if "\t" in l]
     try:
         out_root = extractor_out_root(ext)

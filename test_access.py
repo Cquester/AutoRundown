@@ -98,6 +98,34 @@ check(post(pc, "/api/settings", {"model": "claude-haiku-4-5"}).status_code == 20
       "this PC can change settings")
 check(APP.state.index_path == str(idx), "  ... without moving the server off its --index")
 
+print("headers, sizes and cross-site requests")
+r = pc.get("/")
+check(r.headers.get("x-frame-options") == "SAMEORIGIN" and "frame-ancestors" in r.headers.get(
+      "content-security-policy", ""), "pages can't be framed by another site")
+check(r.headers.get("x-content-type-options") == "nosniff", "  ... and are never content-sniffed")
+check(pc.get("/", headers={"If-None-Match": r.headers["etag"]}).status_code == 304,
+      "the page is not sent again when the browser has it")
+check(pc.get("/api/vehicles", headers={"Accept-Encoding": "gzip"}).status_code == 200, "vehicles answer")
+check(pc.get("/api/vms", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403,
+      "an <img> on another site can't reach an admin route as this PC")
+check(pc.get("/api/browse", headers={"Sec-Fetch-Site": "same-site"}).status_code == 403,
+      "  ... nor can another port of localhost")
+check(pc.get("/api/import", headers={"Sec-Fetch-Site": "same-origin"}).status_code == 200,
+      "  ... this page itself still can")
+check(pc.get("/api/browse", params={"path": str(TMP / "no-such-folder")}).status_code == 404,
+      "a folder that doesn't exist is an error, not the home folder")
+check(pc.get("/api/browse", params={"path": "\\\\server\\share"}).status_code == 400,
+      "network shares are not browsed")
+check(post(phone, "/api/auth/signin", {"code": "x" * 300_000}).status_code == 413,
+      "a 300 KB request body is refused before it is read")
+check(phone.get("/api/search", params={"doc_id": "v1", "q": "oil", "limit": 100000}).status_code == 422,
+      "a search can't ask for 100,000 results")
+check(post(phone, "/api/ask", {"doc_id": "v1", "question": "x" * 5000}).status_code == 422,
+      "a 5,000-character question is refused (paid input)")
+check(all("file_path" not in v for v in phone.get("/api/vehicles").json()),
+      "a phone doesn't see this PC's folders in the vehicle list")
+check(all("file_path" in v for v in pc.get("/api/vehicles").json()), "  ... this PC does")
+
 print("accounts")
 r = post(pc, "/api/admin/users", {"name": "Sam", "monthly_cap_usd": 0.05})
 check(r.status_code == 200 and len(r.json()["code"]) == 8, "this PC adds a mechanic and gets a code")

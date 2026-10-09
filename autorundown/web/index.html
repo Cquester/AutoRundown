@@ -189,8 +189,7 @@
   .safety{margin-top:14px; padding-top:10px; border-top:1px solid var(--line);
     color:var(--muted); font-size:13px}
   details.caveat{margin:10px 0}
-  details.caveat summary{cursor:pointer; color:var(--warn); font-size:14px;
-    padding:8px 0; min-height:36px}
+  details.caveat summary{cursor:pointer; color:var(--warn); font-size:14px; padding:8px 0}
   .sechead{
     font-size:12px; letter-spacing:.8px; text-transform:uppercase;
     color:var(--muted); margin:18px 0 8px; font-weight:700;
@@ -305,14 +304,25 @@
   details.lemfolder{margin-top:12px}
   details.lemhow ul{margin:6px 0 0; padding-left:20px; font-size:14px; color:var(--text)}
   details.lemhow li{margin:0 0 6px}
-  details.lemfolder > summary{cursor:pointer; color:var(--muted); font-size:14px; padding:4px 0}
+  details.lemfolder > summary{cursor:pointer; color:var(--muted); font-size:14px}
   #impStatus a{color:var(--accent)}
   .implog{max-height:260px; overflow:auto; background:#0008; border-radius:10px; padding:10px;
     font:12px/1.4 ui-monospace,Consolas,monospace; white-space:pre-wrap; margin-top:10px}
   .detected{margin-top:10px; padding:10px; border-radius:10px; background:#ffffff0c; font-size:14px}
   label{display:block; margin:12px 0 6px; font-size:14px; color:var(--muted)}
-  .closebtn{position:absolute; right:14px; top:70px; z-index:16}
-  @media (min-width:901px){ .closebtn{display:none} }
+  /* touch targets: 44 px at least (several were 29-40) */
+  .pagelink{min-height:44px}
+  .viewtoggle button{min-height:44px}
+  details > summary{min-height:44px; display:flex; align-items:center}
+  label.chip{min-height:44px; cursor:pointer}
+  select.inline{min-height:44px}
+  .trow{min-height:48px}
+  .trow > .tw{min-height:44px; width:44px}
+  .lemrow{min-height:48px}
+  /* the phone panel's way back stays in view however far it is scrolled */
+  .panelbar{position:sticky; top:-16px; z-index:2; margin:-16px -16px 10px; padding:8px 16px;
+    background:#141821; border-bottom:1px solid var(--line)}
+  @media (min-width:901px){ .panelbar{display:none} }
 </style>
 </head>
 <body>
@@ -355,7 +365,7 @@
   </section>
 
   <section class="pane" id="right">
-    <button class="ghost closebtn" onclick="document.getElementById('right').classList.remove('open')">Close</button>
+    <div class="panelbar"><button class="ghost" type="button" id="closeRight">&larr; Back</button></div>
     <div id="srcout"><p class="muted">Cited pages and diagrams appear here.</p></div>
   </section>
 </main>
@@ -576,8 +586,21 @@ let vehicles = [], sessionCost = 0, modelList = [];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-async function api(path, opts) {
-  const r = await fetch(path, opts);
+// A request that never answers used to leave a blank page or a dead button;
+// now it fails after `timeout` ms with a message that says what to check.
+async function api(path, opts = {}, timeout = 30000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeout);
+  let r;
+  try {
+    r = await fetch(path, {...opts, signal: ctl.signal});
+  } catch (e) {
+    throw new Error(e.name === 'AbortError'
+      ? 'AutoRundown took too long to answer. Try again in a moment.'
+      : 'Can’t reach AutoRundown. Is the PC running it switched on, and are you on the same network?');
+  } finally {
+    clearTimeout(timer);
+  }
   if (!r.ok) {
     const body = await r.json().catch(() => ({detail: r.statusText}));
     if (r.status === 401 && body.signin) showSignin();
@@ -909,6 +932,7 @@ const nameAliases = n => {
   const m = String(n).match(/^(.*?)(\d{3})\/(\d{3})(.*)$/);
   return m ? [n, `${m[1]}${m[2]}${m[4]}`, `${m[1]}${m[3]}${m[4]}`] : [n];
 };
+const wordsOf = s => new Set(String(s).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
 function buildCarIndex() {
   carIndex = [];
   for (const v of vehicles) {
@@ -916,17 +940,19 @@ function buildCarIndex() {
     if (!v._variants.length) {
       carIndex.push({label: `${v.year_range || ''} ${make} ${v.model}`.trim(), sub: '',
                      doc: v.doc_id, variant: null, engine: null, year: null,
-                     years: v._years, hay: compact(`${make} ${v.model} ${v.doc_id}`)});
+                     years: v._years, hay: compact(`${make} ${v.model} ${v.doc_id}`),
+                     words: wordsOf(`${make} ${v.model}`)});
       continue;
     }
     const engines = engineGroups(v).filter(([f]) => f).length;
     carIndex.push({label: `${v.year_range} ${make} ${v.model}`, generation: true,
                    sub: engines > 1 ? `whole generation — all ${engines} engines` : 'whole generation',
                    doc: v.doc_id, variant: null, engine: null, year: null, years: v._years,
-                   hay: compact(`${make} ${v.model}`)});
+                   hay: compact(`${make} ${v.model}`), words: wordsOf(`${make} ${v.model}`)});
     v._variants.forEach((x, i) => {
-      const hayBase = compact(`${make} ${v.model} ${nameAliases(x.name).join(' ')} `
-                              + `${(x.us_trims || []).join(' ')} ${BODY_WORDS[x.body] || ''}`);
+      const text = `${make} ${v.model} ${nameAliases(x.name).join(' ')} `
+                   + `${(x.us_trims || []).join(' ')} ${BODY_WORDS[x.body] || ''}`;
+      const hayBase = compact(text), words = wordsOf(text);
       const famLabel = fams => fams.map(f => (x.engine_families || {})[f] || `Engine ${f}`).join(' or ');
       const usYears = new Set(Object.values(x.us_years || {}).flatMap(yearsIn));
       if (usYears.size) {
@@ -935,14 +961,14 @@ function buildCarIndex() {
           const fams = famsOf(x, bms);
           carIndex.push({label: `${y} ${make} ${x.name}`, sub: `${v.model} · ${famLabel(fams)}`,
                          doc: v.doc_id, variant: i, engine: fams.join(',') || null, year: y,
-                         years: [y], hay: hayBase});
+                         years: [y], hay: hayBase, words});
         }
       } else {
         const fams = Object.keys(x.engine_families || {});
         carIndex.push({label: `${make} ${x.name}`,
                        sub: `${v.year_range} ${v.model} · ${famLabel(fams)} · not a US model`,
                        doc: v.doc_id, variant: i, engine: null, year: null,
-                       years: v._years, hay: hayBase});
+                       years: v._years, hay: hayBase, words});
       }
     });
   }
@@ -956,8 +982,11 @@ function carMatches(q) {
     else if (/^'?\d\d$/.test(w)) { const n = +w.replace("'", ''); year = n <= 30 ? 2000 + n : 1900 + n; }
     else if (!/^(mercedes|benz|mercedes-benz|mb)$/.test(w)) terms.push(compact(w));
   }
+  // one letter matches a whole word only: "c class" found every *-Class,
+  // because "c" is inside "mercedes"
+  const has = (e, t) => !t || (t.length === 1 ? e.words.has(t) : e.hay.includes(t));
   const hits = carIndex.filter(e => (!year || (e.years || []).includes(year))
-                                    && terms.every(t => !t || e.hay.includes(t)));
+                                    && terms.every(t => has(e, t)));
   // exact-year models first, then generations, then the rest; shorter names first
   const rank = e => (e.year === year && year ? 0 : e.generation ? 1 : 2) * 1000 + e.label.length;
   return {year, hits: hits.sort((a, b) => rank(a) - rank(b)).slice(0, 12)};
@@ -996,12 +1025,17 @@ function carFromVin(raw) {
                ? ` · ${fams.map(f => (x.engine_families || {})[f] || 'Engine ' + f).join(' or ')}` : ''),
           doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year};
 }
-const looksLikeVin = s => /^[A-HJ-NPR-Z0-9]{9,17}$/i.test(s.replace(/\s/g, '')) && /\d/.test(s) && /[A-Z]/i.test(s)
-                          && s.replace(/\s/g, '').length >= 11;
+// A VIN is one token of 10-17 VIN characters with several digits. Spaces
+// used to be removed first, so "mercedes 190" (11 letters and digits) was
+// decoded as a VIN; a car name that matches a car is never treated as one.
+const looksLikeVin = s => {
+  const t = s.trim();
+  return /^[A-HJ-NPR-Z0-9]{10,17}$/i.test(t) && (t.match(/\d/g) || []).length >= 4 && /[A-Z]/i.test(t);
+};
 $('#carInput').addEventListener('input', () => {
   const q = $('#carInput').value.trim();
   if (!q) { $('#carList').hidden = true; return; }
-  if (looksLikeVin(q)) {
+  if (looksLikeVin(q) && !carMatches(q).hits.length) {
     const e = carFromVin(q);
     if (e.error) { $('#carList').innerHTML = `<div class="opt"><div class="sub">${esc(e.error)}</div></div>`;
                    $('#carList').hidden = false; $('#carList')._items = []; carSel = -1; return; }
@@ -1099,9 +1133,21 @@ $('#model').onchange = async () => {
   if ($('#sModel').options.length) $('#sModel').value = $('#model').value;
 };
 
+// On a phone the source panel covers the screen. It opens only when asked
+// for (a page, a diagram button), and the phone's Back gesture closes it
+// instead of leaving the app.
+const narrow = () => window.innerWidth <= 900;
 function openRight() {
-  if (window.innerWidth <= 900) $('#right').classList.add('open');
+  if (!narrow() || $('#right').classList.contains('open')) return;
+  $('#right').classList.add('open');
+  history.pushState({panel: 1}, '');
 }
+function closeRight() {
+  if (!$('#right').classList.contains('open')) return;
+  if (history.state && history.state.panel) history.back();   // popstate closes it
+  else $('#right').classList.remove('open');
+}
+addEventListener('popstate', () => $('#right').classList.remove('open'));
 
 // diagram refs may contain slashes (nested archives), so encode each
 // segment rather than the whole ref
@@ -1421,10 +1467,15 @@ function drawAnswer(d, label) {
   h += `<div class="muted">searched: ${d.queries.map(esc).join(' &middot; ')}</div>`;
   out.innerHTML = h;
 
-  if (d.diagrams?.length) {
+  // a diagram already shown as a Figure isn't repeated
+  const figs = new Set((d.figures || []).map(f => f.image));
+  const diagrams = (d.diagrams || []).filter(n => !figs.has(n));
+  if (diagrams.length) {
     srcout.innerHTML = `<div class="sechead">Diagrams from cited pages</div>`
-      + d.diagrams.map(imgTag).join('');
-    openRight();
+      + diagrams.map(imgTag).join('');
+    // on a phone the panel would cover the answer: offer it instead
+    if (narrow()) out.insertAdjacentHTML('beforeend', `<button type="button" class="ghost" id="showDiagrams" `
+      + `style="width:100%; margin-top:6px">Diagrams from cited pages (${diagrams.length})</button>`);
   }
 }
 
@@ -1444,7 +1495,7 @@ async function ask() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({doc_id:doc, question:q, include_other_variants:variants(),
                             model:model(), variant:variantIdx(), engine:engineSel(), year:yearSel()})
-    }), doc, label);
+    }, 240000), doc, label);
   } catch (e) {
     out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   } finally {
@@ -1456,7 +1507,7 @@ async function ask() {
 let searchSeq = 0;
 async function keywordSearch() {
   const q = $('#q').value.trim();
-  if (!q) return;
+  if (!q) { $('#q').focus(); $('#q').placeholder = 'Type what to search for, e.g. oil drain plug torque'; return; }
   if (!carBoxMatches()) return;
   // a slow reply for an earlier search must not replace a later one
   const seq = ++searchSeq, doc = docId(), label = carBoxLabel;
@@ -1506,6 +1557,14 @@ function originalFrame(doc, pageNo) {
       WIS page layout; approximate. &nbsp;<a class="fulllink" href="${url}" target="_blank" rel="noopener">Open full screen &#8599;</a></div>
     <iframe class="origframe" id="origFrame" title="Original layout" src="${url}"></iframe></div>`;
 }
+// the server marks a page it can't draw; show that here, not in a grey frame
+function origLoaded(fr) {
+  let msg = null;
+  try { msg = fr.contentDocument.querySelector('[data-unavailable]'); } catch (_) {}
+  if (!msg) return;
+  $('#origWrap').innerHTML = `<div class="notfound">${esc(msg.textContent)}
+    <div style="margin-top:10px"><button type="button" class="ghost" data-view="reading">Back to reading view</button></div></div>`;
+}
 function setPageView(original, doc, pageNo) {
   try { localStorage.setItem(ORIGINAL_KEY, original ? '1' : '0'); } catch (_) {}
   const reading = $('#readingView');
@@ -1519,6 +1578,8 @@ function setPageView(original, doc, pageNo) {
   else if (wrap) wrap.hidden = !original;
 }
 // the drawn page reports its height so the iframe never scrolls inside the pane
+// iframe load events don't bubble; capture them on the panel
+srcout.addEventListener('load', e => { if (e.target.id === 'origFrame') origLoaded(e.target); }, true);
 addEventListener('message', e => {
   const fr = $('#origFrame');
   if (fr && e.source === fr.contentWindow && e.data && e.data.wisOriginalHeight)
@@ -1586,9 +1647,15 @@ document.addEventListener('click', e => {
   const cn = e.target.closest('[data-conn]');
   if (cn) { e.preventDefault(); showConnector(cn.dataset.conn); return; }
   const vw = e.target.closest('[data-view]');
-  if (vw) setPageView(vw.dataset.view === 'original', vw.dataset.doc, vw.dataset.pno);
+  if (vw) {
+    // "Back to reading view" under an unavailable page: drop that frame
+    if (!vw.dataset.doc) $('#origWrap')?.remove();
+    setPageView(vw.dataset.view === 'original', vw.dataset.doc, vw.dataset.pno);
+  }
 });
 
+$('#closeRight').onclick = closeRight;
+out.addEventListener('click', e => { if (e.target.closest('#showDiagrams')) openRight(); });
 $('#askBtn').onclick = ask;
 $('#searchBtn').onclick = keywordSearch;
 $('#q').addEventListener('keydown', e => {
@@ -1848,11 +1915,27 @@ function vinYear(vin, v) {
 //    a series (WDB + D = 201); the vehicle stores those as vin_codes. A US VIN
 //    names the series, not the variant.
 // A VIN from another make matches nothing and says so.
+// Mercedes-Benz world manufacturer identifiers: Germany (WDB, WDD, WDC, W1K …),
+// the US plants (4JG, 55S), smart (WME), vans (WD3/WD4, VSA, NMB …), plus any
+// the index's own VIN tables name
+const MB_WMI = new Set(['WDB', 'WDC', 'WDD', 'WDF', 'WD0', 'WD1', 'WD2', 'WD3', 'WD4', 'WD5', 'WD6', 'WD7',
+  'WD8', 'WDX', 'WDY', 'WDZ', 'W1K', 'W1N', 'W1V', 'W1W', 'W1X', 'W1Y', 'W1Z', 'W1T', '4JG', '55S',
+  'WME', 'WMX', 'VSA', 'NMB', 'NM9', '8AB', '9BM', 'LE4', 'MHL', 'ADB', 'RLM', '3MB']);
+function isMercedesWmi(wmi) {
+  if (MB_WMI.has(wmi)) return true;
+  return vehicles.some(v => (v.vin_codes || '').includes(`,${wmi}:`)
+    || (v._variants || []).some(x => (x.vin9 || []).some(p => p.startsWith(wmi))));
+}
 function vinLookup(raw) {
   const vin = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (vin.length < 4)
     return {error: 'Enter the VIN — at least the first 4 characters.'};
   const wmi = vin.slice(0, 3);
+  // the maker comes first: a Fiat (ZFA…) with digits at 4-6 was read as a
+  // Mercedes FIN and picked a W201
+  if (!isMercedesWmi(wmi))
+    return {error: `That VIN starts with ${wmi}, which is not a Mercedes-Benz maker code. `
+                   + `This lookup decodes Mercedes VINs only.`};
 
   if (/^\d{3}/.test(vin.slice(3, 6))) {                     // European FIN
     const series = vin.slice(3, 6);
@@ -2089,7 +2172,11 @@ $('#impLemNone').onclick = () => { document.querySelectorAll('#impLemList input'
 // its models share engine and general pages (remove_manuals.py)
 let manData = null;
 async function manLoad() {
-  try { manData = await api('/api/import/manuals'); } catch (e) { manData = null; }
+  try { manData = await api('/api/import/manuals'); }
+  catch (e) {
+    manData = null;
+    $('#impLemonManuals').innerHTML = `<div class="errbox">Couldn’t list the imported manuals: ${esc(e.message)}</div>`;
+  }
   manRender();
 }
 function manRender() {
@@ -2291,7 +2378,10 @@ $('#impStart').onclick = async () => {
 
 loadMe().then(m => {
   if (m.require_signin && !m.admin && !m.signed_in) { showSignin(); return; }
-  loadModels().catch(() => {});
+  loadModels().catch(e => {
+    $('#model').innerHTML = '<option value="">AI models unavailable</option>';
+    $('#model').title = e.message;
+  });
   return loadVehicles().then(() => { if (!vehicles.length && me.admin) openImport(true); });
 }).catch(e => out.innerHTML =
   `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`);
