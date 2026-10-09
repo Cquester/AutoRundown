@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import ingest
+from autorundown import index
 
 HERE = Path(__file__).resolve().parent
 INDEX = HERE / "index.db"
@@ -45,8 +46,12 @@ def main(argv: list[str] | None = None) -> int:
     cols, now = usage_rows(cur)
     cur.close()
     bak = sqlite3.connect(BACKUP)
-    _, before = usage_rows(bak)
-    new = [r for r in now if r not in set(before)]
+    bak_cols, before = usage_rows(bak)
+    # compare on the backup's columns: the live log may have gained columns
+    # since (user_id, user_name), and a wider row never equals a narrower one
+    pick = [cols.index(c) for c in bak_cols if c in cols]
+    seen = {tuple(r[i] for i in range(len(bak_cols)) if bak_cols[i] in cols) for r in before}
+    new = [r for r in now if tuple(r[i] for i in pick) not in seen]
     print(f"usage log: {len(now)} rows now, {len(before)} in the backup, "
           f"{len(new)} to carry over")
 
@@ -58,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     bak.close()
 
     # 3. put the carried-over spend back before anything else can fail
+    index._migrate(dst)  # the backup predates columns the live log has
     if new:
         dst.executemany(
             f"INSERT INTO usage_log ({', '.join(cols)}) VALUES "
