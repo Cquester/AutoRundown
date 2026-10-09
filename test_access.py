@@ -103,6 +103,11 @@ r = post(pc, "/api/admin/users", {"name": "Sam", "monthly_cap_usd": 0.05})
 check(r.status_code == 200 and len(r.json()["code"]) == 8, "this PC adds a mechanic and gets a code")
 sam_id, code = r.json()["id"], r.json()["code"]
 check(post(pc, "/api/admin/users", {"name": "sam"}).status_code == 400, "names are unique, any case")
+for cap in (-5, "Infinity", "NaN", 1e9):
+    check(post(pc, "/api/admin/users", {"name": f"Cap {cap}", "monthly_cap_usd": cap}).status_code == 422,
+          f"a monthly limit of {cap} is refused")
+check(post(pc, f"/api/admin/users/{sam_id}", {"monthly_cap_usd": -1}).status_code == 422,
+      "  ... when changing a limit too")
 
 print("sign-in required")
 check(post(pc, "/api/settings", {"require_signin": True}).status_code == 200, "this PC turns it on")

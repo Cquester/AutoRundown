@@ -22,7 +22,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
-from pydantic import BaseModel
+from typing import Annotated
+
+from pydantic import BaseModel, Field
 
 from . import auth, config, index, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_original
@@ -64,14 +66,19 @@ class SigninBody(BaseModel):
     code: str
 
 
+# dollars a month: -5 used to be stored (the mechanic was refused for good)
+# and Infinity / NaN silently meant no limit
+Cap = Annotated[float, Field(ge=0, le=100000, allow_inf_nan=False)]
+
+
 class NewUserBody(BaseModel):
     name: str
-    monthly_cap_usd: float | None = None
+    monthly_cap_usd: Cap | None = None
 
 
 class UserUpdateBody(BaseModel):
     disabled: bool | None = None
-    monthly_cap_usd: float | None = None
+    monthly_cap_usd: Cap | None = None
     clear_cap: bool = False
 
 
@@ -634,6 +641,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "autostart": autostart.is_enabled() if autostart.supported() else None,
             "phone_urls": _phone_urls(),
             "require_signin": cfg.require_signin,
+            "config_path": str(config.CONFIG_PATH),
         }
 
     @app.post("/api/settings")

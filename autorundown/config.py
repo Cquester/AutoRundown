@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
 APP_DIR = Path(os.environ.get("AUTORUNDOWN_HOME", Path.home() / ".autorundown"))
 CONFIG_PATH = APP_DIR / "config.json"
 DEFAULT_INDEX = APP_DIR / "index.db"
+_SAVE_LOCK = threading.Lock()
 
 
 @dataclass
@@ -38,12 +41,29 @@ class Config:
         return self.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
 
     def save(self) -> None:
+        """Atomically: every request reads this file, and one read while it
+        was half-written failed with a JSON error (111 of 400 requests made
+        during repeated saves). Written whole to a private temp file, then
+        swapped in."""
         APP_DIR.mkdir(parents=True, exist_ok=True)
-        CONFIG_PATH.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
-        try:
-            os.chmod(CONFIG_PATH, 0o600)
-        except OSError:
-            pass  # best effort on Windows
+        data = json.dumps(asdict(self), indent=2).encode("utf-8")
+        with _SAVE_LOCK:
+            tmp = CONFIG_PATH.with_name(f".config.{os.getpid()}.{threading.get_ident()}.tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, data)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            for attempt in range(20):
+                try:
+                    os.replace(tmp, CONFIG_PATH)
+                    break
+                except PermissionError:   # Windows: a reader has it open for a moment
+                    if attempt == 19:
+                        tmp.unlink(missing_ok=True)
+                        raise
+                    time.sleep(0.02)
 
 
 def load() -> Config:

@@ -12,6 +12,8 @@
     --text:#e8ecf4; --muted:#9aa4b8; --accent:#ffb02e; --accent-dim:#7a5410;
     --good:#4ade80; --warn:#fb923c; --bad:#f87171;
     --tap:48px;
+    /* native checkboxes, selects and scrollbars drawn dark too */
+    color-scheme:dark;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -34,6 +36,35 @@
     background:var(--panel-2); border:1px solid var(--line);
     border-radius:10px; padding:12px; min-height:var(--tap); width:100%;
   }
+  /* the rule above is for text fields; a checkbox under it drew as a 113x48
+     white block (Settings' sign-in box) */
+  input[type=checkbox], input[type=radio]{width:20px; height:20px; min-height:0; padding:0;
+    margin:0; flex:none; accent-color:var(--accent); vertical-align:middle}
+  label.check{display:flex; gap:10px; align-items:center; min-height:44px; margin:10px 0 0;
+    color:var(--text); font-size:15px; cursor:pointer}
+  ::placeholder{color:#8a93a6; opacity:1}
+  .help{font-size:13px; color:var(--muted); margin-top:4px; line-height:1.4}
+  /* a dialog taller than the window keeps its buttons in view */
+  dialog.framed[open]{display:flex; flex-direction:column; max-height:min(90vh, 900px); padding:0}
+  .dlghead{margin:0; padding:18px 20px 4px}
+  .dlgbody{overflow:auto; padding:0 20px 12px; min-height:0}
+  .dlgfoot{display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;
+    padding:12px 20px 16px; border-top:1px solid var(--line); background:var(--panel)}
+  fieldset.setgroup{border:0; border-top:1px solid var(--line); margin:16px 0 0; padding:6px 0 0; min-width:0}
+  fieldset.setgroup legend{font-size:12px; letter-spacing:.8px; text-transform:uppercase;
+    color:var(--muted); font-weight:700; padding:0 8px 0 0}
+  details.setadv{border-top:1px solid var(--line); margin-top:16px; padding-top:6px}
+  details.setadv summary{cursor:pointer; font-size:12px; letter-spacing:.8px; text-transform:uppercase;
+    color:var(--muted); font-weight:700; min-height:44px; display:flex; align-items:center}
+  .adduser{display:grid; grid-template-columns:1fr 190px auto; gap:8px; align-items:end}
+  .adduser label{margin-top:8px}
+  @media (max-width:560px){ .adduser{grid-template-columns:1fr} }
+  .errnote:not(:empty){color:var(--bad)}
+  .codecard{margin-top:10px; padding-top:10px; border-top:1px solid var(--line)}
+  .capedit{margin-top:6px}
+  .phonerow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0}
+  .phonerow b{color:var(--text); font-size:15px; overflow-wrap:anywhere}
+  .phonerow button{min-height:36px; padding:0 12px; font-size:13px}
   select{min-width:0}
   /* compact enough to sit inline with the toolbar chips */
   select.inline{width:auto; min-height:40px; padding:6px 10px; font-size:14px}
@@ -228,8 +259,7 @@
   dialog::backdrop{background:#000a}
   #scopeNote.pickhint{color:var(--accent); font-weight:600}
   #importDlg{width:min(720px,94vw)}
-  #importDlg input[type=radio], #importDlg input[type=checkbox]{
-    width:auto; height:auto; padding:0; margin:0 6px 0 0; vertical-align:middle; accent-color:var(--accent)}
+  #importDlg input[type=radio], #importDlg input[type=checkbox]{margin:0 8px 0 0}
   #importDlg label:has(> input[type=radio]), #importDlg label:has(> input[type=checkbox]){
     display:inline-flex; align-items:center; color:var(--text)}
   #impSteps{gap:6px 16px}
@@ -313,9 +343,9 @@
     </div>
     <div class="row" style="margin-bottom:14px">
       <button class="ghost" id="searchBtn" style="padding:0 14px">Keyword search</button>
-      <select id="model" class="inline" aria-label="Model"></select>
+      <select id="model" class="inline" aria-label="AI model"></select>
       <label class="chip" style="cursor:pointer">
-        <input type="checkbox" id="variants" style="width:auto;min-height:auto;padding:0">
+        <input type="checkbox" id="variants">
         include other trims/engines
       </label>
       <span class="chip" id="cost">$0.0000 this session</span>
@@ -437,38 +467,57 @@
   </div>
 </dialog>
 
-<dialog id="settings">
-  <h3 style="margin:0 0 4px">Settings</h3>
-  <p class="muted" style="margin:0">Stored locally in ~/.autorundown/config.json. The key is sent only to Anthropic.</p>
-  <label for="sKey">Anthropic API key</label>
-  <input id="sKey" type="password" placeholder="sk-ant-...">
-  <label for="sModel">Model</label>
-  <select id="sModel"></select>
-  <div class="muted" id="modelPrice" style="margin-top:6px"></div>
-  <label for="sArchive">Archive directory</label>
-  <input id="sArchive" type="text">
-  <label for="sIndex">Index path</label>
-  <input id="sIndex" type="text">
-  <div id="sStartRow" hidden>
-    <label class="chip" style="cursor:pointer; margin-top:14px">
-      <input type="checkbox" id="sAutostart" style="width:auto;min-height:auto;padding:0">
-      Start AutoRundown when I sign in (runs in the background; tray icon to open or stop it)
-    </label>
+<dialog id="settings" class="framed" aria-labelledby="setTitle">
+  <h3 id="setTitle" class="dlghead">Settings</h3>
+  <div class="dlgbody">
+    <fieldset class="setgroup">
+      <legend>AI answers</legend>
+      <label for="sKey">Anthropic API key</label>
+      <input id="sKey" type="password" autocomplete="off" spellcheck="false">
+      <div class="help" id="keyStatus"></div>
+      <label for="sModel">AI model for answers</label>
+      <select id="sModel"></select>
+      <div class="help" id="modelPrice"></div>
+    </fieldset>
+    <fieldset class="setgroup">
+      <legend>Shop phones</legend>
+      <div id="sPhone" class="help"></div>
+      <label class="check"><input type="checkbox" id="sSignin"> Require each mechanic to sign in</label>
+      <div class="help">Off: anyone on your wifi can search and ask on your API key.
+        On: each phone needs a one-time code from this PC, and you can set a monthly limit per mechanic.</div>
+      <button class="ghost" id="openUsers" type="button" style="margin-top:10px">Mechanics &amp; spend…</button>
+    </fieldset>
+    <fieldset class="setgroup">
+      <legend>Manuals</legend>
+      <div class="help" id="sManuals" style="margin-bottom:8px"></div>
+      <button class="ghost" id="openImport" type="button">Import or remove manuals…</button>
+    </fieldset>
+    <fieldset class="setgroup" id="sStartRow" hidden>
+      <legend>This PC</legend>
+      <label class="check"><input type="checkbox" id="sAutostart"> Start AutoRundown when I sign in</label>
+      <div class="help">Runs in the background; its tray icon opens or stops it.</div>
+    </fieldset>
+    <details class="setgroup setadv">
+      <summary>Advanced: folders</summary>
+      <label for="sArchive">Archive folder</label>
+      <input id="sArchive" type="text" spellcheck="false">
+      <div class="help">Where the Import dialog's folder browser starts. Changing it doesn't move or import anything.</div>
+      <label for="sIndex">Index file</label>
+      <input id="sIndex" type="text" spellcheck="false">
+      <div class="help">The database AutoRundown searches. Change it only if you moved the file; it must be an
+        existing index (to build a new one, use Import).</div>
+      <label for="sExtractor">Mercedes extractor folder</label>
+      <input id="sExtractor" type="text" spellcheck="false">
+      <div class="help">The folder that holds vm_pipeline.py, on this PC. Leave it empty to use the one
+        AutoRundown finds by itself.</div>
+      <div class="help" id="sConfigPath" style="margin-top:12px"></div>
+    </details>
   </div>
-  <div id="sPhone" class="muted" style="margin-top:10px" hidden></div>
-  <label for="sExtractor">Mercedes extractor folder</label>
-  <input id="sExtractor" type="text" placeholder="found automatically on the Desktop — or paste the autorundown_extractor folder">
-  <label>Data</label>
-  <button class="ghost" id="openImport" type="button">Import data…</button>
-  <span class="muted" style="margin-left:8px">add manuals, or rebuild the Mercedes WIS data</span>
-  <label>Phones and other computers</label>
-  <label class="chip" style="cursor:pointer; margin-top:0">
-    <input type="checkbox" id="sSignin"> require each mechanic to sign in
-  </label>
-  <div><button class="ghost" id="openUsers" type="button" style="margin-top:8px">Mechanics &amp; spend…</button></div>
-  <div class="row" style="margin-top:18px; justify-content:flex-end">
-    <button class="ghost" onclick="document.getElementById('settings').close()">Cancel</button>
-    <button id="saveBtn">Save</button>
+  <div class="errbox" id="sErr" role="alert" hidden style="margin:0 20px"></div>
+  <div class="dlgfoot">
+    <span class="muted" id="sSaved" role="status" style="margin-right:auto"></span>
+    <button class="ghost" id="sCancel" type="button">Cancel</button>
+    <button id="saveBtn" type="button">Save</button>
   </div>
 </dialog>
 
@@ -480,7 +529,7 @@
   <input id="signinCode" type="text" maxlength="12" autocapitalize="characters"
          autocomplete="one-time-code" spellcheck="false" placeholder="ABCD 2345"
          style="font-size:22px; letter-spacing:3px; text-transform:uppercase">
-  <div class="vinnote" id="signinNote"></div>
+  <div class="vinnote errnote" id="signinNote" role="alert"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
     <button id="signinGo">Sign in</button>
   </div>
@@ -495,21 +544,26 @@
   </div>
 </dialog>
 
-<dialog id="usersDlg">
-  <h3 style="margin:0 0 4px">Mechanics &amp; spend</h3>
-  <div class="muted" id="usersIntro"></div>
-  <div id="usersList" style="margin-top:12px"></div>
-  <div id="usersCode"></div>
-  <label for="uName">Add a mechanic</label>
-  <div class="vinrow">
-    <input id="uName" type="text" maxlength="60" placeholder="Name">
-    <input id="uCap" type="number" min="0" step="1" placeholder="$ limit / month (optional)"
-           style="max-width:220px">
-    <button id="uAdd">Add</button>
+<dialog id="usersDlg" class="framed" aria-labelledby="usersTitle">
+  <h3 class="dlghead" id="usersTitle">Mechanics &amp; spend</h3>
+  <div class="dlgbody">
+    <div class="help" id="usersIntro"></div>
+    <div id="usersList" style="margin-top:12px"></div>
+    <fieldset class="setgroup">
+      <legend>Add a mechanic</legend>
+      <div class="adduser">
+        <div><label for="uName">Name</label>
+          <input id="uName" type="text" maxlength="60" autocomplete="off"></div>
+        <div><label for="uCap">Monthly limit in $ (optional)</label>
+          <input id="uCap" type="number" min="0" step="1" inputmode="decimal"></div>
+        <button id="uAdd" type="button">Add</button>
+      </div>
+      <div class="help">They get a one-time sign-in code to type on their phone. Leave the limit empty for no limit.</div>
+    </fieldset>
+    <div class="vinnote errnote" id="usersNote" role="alert"></div>
   </div>
-  <div class="vinnote" id="usersNote"></div>
-  <div class="row" style="margin-top:16px; justify-content:flex-end">
-    <button class="ghost" onclick="document.getElementById('usersDlg').close()">Close</button>
+  <div class="dlgfoot">
+    <button class="ghost" type="button" onclick="document.getElementById('usersDlg').close()">Close</button>
   </div>
 </dialog>
 
@@ -1549,54 +1603,121 @@ function showModelPrice() {
     : '';
 }
 
-$('#settingsBtn').onclick = async () => {
-  const [s, models] = await Promise.all([api('/api/settings'), api('/api/models')]);
+// -- Settings (this PC only) -------------------------------------------------
+// Only fields that were changed are sent: Save used to send the index path
+// shown (the one in use) and so overwrote the saved one whenever anything else
+// was changed. Unsaved edits are never dropped silently, and Import and
+// Mechanics open on top of Settings instead of closing it.
+let setLoaded = {}, setDirty = false;
+const SET_FIELDS = {archive_dir: '#sArchive', index_path: '#sIndex', extractor_dir: '#sExtractor',
+                    model: '#sModel'};
+async function openSettings() {
+  let s, models, st;
+  try {
+    [s, models, st] = await Promise.all([api('/api/settings'), api('/api/models'),
+                                         api('/api/stats').catch(() => null)]);
+  } catch (e) {
+    out.innerHTML = `<div class="card"><div class="errbox">Couldn't open Settings: ${esc(e.message)}</div></div>`;
+    return;
+  }
   modelList = models;
   $('#sModel').innerHTML = models.map(m =>
     `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('');
-  $('#sModel').value = s.model || models[0].id;
+  $('#sModel').value = models.some(m => m.id === s.model) ? s.model : models[0].id;
   showModelPrice();
-  $('#sArchive').value = s.archive_dir || '';
-  $('#sIndex').value = s.index_path || '';
-  $('#sExtractor').value = s.extractor_dir || '';
+  setLoaded = {archive_dir: s.archive_dir || '', index_path: s.index_path || '',
+               extractor_dir: s.extractor_dir || '', model: $('#sModel').value,
+               require_signin: !!s.require_signin, autostart: s.autostart};
+  for (const [k, sel] of Object.entries(SET_FIELDS)) if (k !== 'model') $(sel).value = setLoaded[k];
   $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
   $('#sAutostart').checked = !!s.autostart;
-  const phone = s.phone_urls || [];
-  $('#sPhone').hidden = !phone.length;
-  $('#sPhone').innerHTML = phone.length
-    ? 'On your phone (same wifi): ' + phone.map(u => `<b>${esc(u)}</b>`).join(' or ')
-      + ' — open it, then "Add to Home Screen".' : '';
   $('#sSignin').checked = !!s.require_signin;
-  $('#sKey').placeholder = s.has_api_key
-    ? `key configured (${s.key_source}) — leave blank to keep`
-    : 'sk-ant-...';
+  $('#sKey').value = '';
+  $('#sKey').placeholder = s.has_api_key ? 'leave blank to keep the saved key' : 'sk-ant-…';
+  $('#keyStatus').innerHTML = s.has_api_key
+    ? `<span style="color:var(--good)">&#10003; Key saved</span>`
+      + (s.key_source === 'environment' ? ' (from the ANTHROPIC_API_KEY environment variable)' : '')
+      + '. Type a new one only to replace it.'
+    : `<span style="color:var(--warn)">No key yet.</span> Ask is off until you add one; keyword search works `
+      + `without it. Get a key at console.anthropic.com.`;
+  const phone = s.phone_urls || [];
+  $('#sPhone').innerHTML = phone.length
+    ? 'On a phone on the same wifi, open:' + phone.map(u =>
+        `<div class="phonerow"><b>${esc(u)}</b><button type="button" class="ghost" data-copy="${esc(u)}">Copy</button></div>`).join('')
+      + 'then use “Add to Home Screen”.'
+    : 'No network address found, so phones can’t reach this PC right now.';
+  $('#sManuals').textContent = st
+    ? `${st.vehicles.toLocaleString()} manual${st.vehicles === 1 ? '' : 's'}, `
+      + `${st.unique_pages.toLocaleString()} pages in the index.` : '';
+  $('#sConfigPath').textContent = s.config_path ? `Settings are stored in ${s.config_path}.` : '';
+  $('#sErr').hidden = true; $('#sSaved').textContent = '';
+  $('#saveBtn').disabled = false;
+  setDirty = false;
   $('#settings').showModal();
-};
+}
+$('#settingsBtn').onclick = openSettings;
 $('#sModel').onchange = showModelPrice;
-$('#saveBtn').onclick = async () => {
-  const body = {
-    archive_dir: $('#sArchive').value,
-    index_path: $('#sIndex').value,
-    extractor_dir: $('#sExtractor').value.trim(),
-    ...($('#sStartRow').hidden ? {} : {autostart: $('#sAutostart').checked}),
-    model: $('#sModel').value,
-    require_signin: $('#sSignin').checked,
-  };
+$('#settings').addEventListener('input', () => { setDirty = true; });
+$('#settings').addEventListener('change', () => { setDirty = true; });
+$('#sPhone').addEventListener('click', e => {
+  const b = e.target.closest('[data-copy]');
+  if (!b) return;
+  navigator.clipboard?.writeText(b.dataset.copy).then(() => { b.textContent = 'Copied'; },
+                                                      () => { b.textContent = 'Select and copy'; });
+});
+const discardOk = () => !setDirty || confirm('Discard your changes to Settings?');
+$('#sCancel').onclick = () => { if (discardOk()) $('#settings').close(); };
+$('#settings').addEventListener('cancel', e => { if (!discardOk()) e.preventDefault(); });
+function settingsChanges() {
+  const body = {};
+  for (const [k, sel] of Object.entries(SET_FIELDS)) {
+    const v = k === 'model' ? $(sel).value : $(sel).value.trim();
+    if (v !== setLoaded[k]) body[k] = v;
+  }
+  if ($('#sSignin').checked !== setLoaded.require_signin) body.require_signin = $('#sSignin').checked;
+  if (!$('#sStartRow').hidden && $('#sAutostart').checked !== !!setLoaded.autostart)
+    body.autostart = $('#sAutostart').checked;
   if ($('#sKey').value.trim()) body.api_key = $('#sKey').value.trim();
+  return body;
+}
+$('#saveBtn').onclick = async () => {
+  const body = settingsChanges();
+  if (!Object.keys(body).length) { $('#settings').close(); return; }
+  $('#saveBtn').disabled = true;
+  $('#sErr').hidden = true;
   try {
     await api('/api/settings', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body)
     });
-  } catch (e) { alert('Settings not saved: ' + e.message); return; }
+  } catch (e) {
+    $('#sErr').textContent = 'Not saved: ' + e.message;
+    $('#sErr').hidden = false;
+    $('#saveBtn').disabled = false;
+    return;
+  }
+  setDirty = false;
   $('#sKey').value = '';
-  $('#settings').close();
-  $('#model').value = $('#sModel').value;
-  loadVehicles();
+  $('#sSaved').textContent = 'Saved';
+  if (body.model) { me.default_model = body.model; $('#model').value = body.model; }
+  if ('require_signin' in body) me.require_signin = body.require_signin;
+  if ('index_path' in body) loadVehicles();     // another index: other cars
+  setTimeout(() => { $('#settings').close(); $('#saveBtn').disabled = false; }, 700);
 };
 
 // -- mechanics (this PC only) ------------------------------------------
 const money = v => '$' + (v || 0).toFixed(2);
+// "" = no limit; otherwise dollars, 0 or more. -5 used to be stored (and
+// blocked the mechanic for good) and 1e999 silently meant no limit.
+function parseCap(raw) {
+  const v = String(raw ?? '').trim();
+  if (v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 100000)
+    throw new Error('The limit must be an amount in dollars, 0 or more (leave it empty for no limit).');
+  return n;
+}
+let lastCode = null;          // {id, name, code, minutes}: shown in that mechanic's card
 async function loadUsers() {
   const d = await api('/api/admin/users');
   const urls = d.phone_urls.map(u => `<b>${esc(u)}</b>`).join(' or ') || '<i>no network address found</i>';
@@ -1604,72 +1725,94 @@ async function loadUsers() {
     ? ` To remove the security warning, install <b>${esc(d.phone_urls[0])}/ca.crt</b> on each phone once.` : '';
   $('#usersIntro').innerHTML = (d.require_signin
       ? 'Sign-in is <b>required</b>: other devices need a code from here.'
-      : 'Sign-in is <b>off</b>: anyone on the network can search and ask. Turn it on in Settings.')
+      : 'Sign-in is <b>off</b>: anyone on the network can search and ask. Turn it on under '
+        + '<i>Shop phones</i> in Settings.')
     + ` Phones open ${urls}.${ca}`;
-  const row = u => `<div class="card" style="padding:10px 12px; margin:0 0 8px">
+  const row = u => `<div class="card usercard" data-id="${u.id}" data-name="${esc(u.name)}" style="padding:10px 12px; margin:0 0 8px">
       <div class="row" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
         <div><b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
           <div class="muted">${u.month_questions} questions, ${money(u.month_spend_usd)} this month`
           + (u.monthly_cap_usd != null ? ` of ${money(u.monthly_cap_usd)} limit` : ', no limit')
           + ` · ${u.devices} signed-in device${u.devices === 1 ? '' : 's'}</div></div>
         <div class="row" style="gap:6px; flex-wrap:wrap">
-          ${u.disabled ? '' : `<button class="ghost" data-act="code" data-id="${u.id}">Sign-in code</button>`}
-          <button class="ghost" data-act="cap" data-id="${u.id}">Limit</button>
-          ${u.devices ? `<button class="ghost" data-act="signout" data-id="${u.id}">Sign out devices</button>` : ''}
-          <button class="ghost" data-act="${u.disabled ? 'enable' : 'disable'}" data-id="${u.id}">
+          ${u.disabled ? '' : `<button type="button" class="ghost" data-act="code">Sign-in code</button>`}
+          <button type="button" class="ghost" data-act="cap">Limit</button>
+          ${u.devices ? `<button type="button" class="ghost" data-act="signout">Sign out devices</button>` : ''}
+          <button type="button" class="${u.disabled ? 'ghost' : 'danger'}" data-act="${u.disabled ? 'enable' : 'disable'}">
             ${u.disabled ? 'Enable' : 'Disable'}</button>
-        </div></div></div>`;
-  $('#usersList').innerHTML = d.users.map(row).join('')
-    + `<div class="muted" style="margin:4px 0 8px">This PC and devices that did not sign in: `
+        </div></div>
+      <div class="capedit" hidden>
+        <label for="cap${u.id}">Monthly limit in $ (empty = no limit)</label>
+        <div class="row"><input id="cap${u.id}" class="capin" type="number" min="0" step="1" inputmode="decimal"
+          value="${u.monthly_cap_usd ?? ''}" style="max-width:160px">
+          <button type="button" data-act="capsave">Save limit</button></div>
+      </div>
+      <div class="codeslot"></div></div>`;
+  $('#usersList').innerHTML = (d.users.length ? d.users.map(row).join('')
+      : `<div class="notfound">No mechanics yet. Add one below to give their phone a sign-in code.</div>`)
+    + `<div class="muted" style="margin:8px 0">This PC and devices that did not sign in: `
     + `${d.unattributed.month_questions} questions, ${money(d.unattributed.month_spend_usd)} this month.</div>`;
+  if (lastCode) {
+    const slot = $(`#usersList .usercard[data-id="${lastCode.id}"] .codeslot`);
+    if (slot) slot.innerHTML = codeCard(lastCode);
+  }
 }
-function showCode(name, r) {
-  $('#usersCode').innerHTML = `<div class="card" style="margin:8px 0">Sign-in code for <b>${esc(name)}</b>
-    (one use, valid ${r.minutes} minutes):
+const codeCard = c => `<div class="codecard">Sign-in code for <b>${esc(c.name)}</b>
+    (one use, valid ${c.minutes} minutes):
     <div style="font-size:32px; font-weight:700; letter-spacing:4px; color:var(--accent); margin:6px 0">
-      ${esc(r.code.slice(0, 4))} ${esc(r.code.slice(4))}</div>
+      ${esc(c.code.slice(0, 4))} ${esc(c.code.slice(4))}</div>
     <div class="muted">Open AutoRundown on their phone and type it in.</div></div>`;
-}
 $('#usersList').onclick = async e => {
   const b = e.target.closest('button[data-act]');
-  if (!b) return;
-  const id = b.dataset.id, act = b.dataset.act;
-  const name = b.closest('.card').querySelector('b').textContent;
+  if (!b || b.disabled) return;
+  const card = b.closest('.usercard'), id = card.dataset.id, name = card.dataset.name, act = b.dataset.act;
+  if (act === 'cap') {                       // just opens the editor
+    const ed = card.querySelector('.capedit');
+    ed.hidden = !ed.hidden;
+    if (!ed.hidden) ed.querySelector('input').focus();
+    return;
+  }
+  if (act === 'disable' && !confirm(`Disable ${name}? Their phones are signed out at once.`)) return;
+  b.disabled = true;                         // a double click issued two codes
   try {
-    if (act === 'code') showCode(name, await api(`/api/admin/users/${id}/code`, {method: 'POST'}));
-    else if (act === 'signout') await api(`/api/admin/users/${id}/signout`, {method: 'POST'});
-    else if (act === 'cap') {
-      const v = prompt(`Monthly limit in dollars for ${name} (blank = no limit):`);
-      if (v === null) return;
-      const body = v.trim() === '' ? {clear_cap: true} : {monthly_cap_usd: Number(v)};
-      if (!body.clear_cap && !(body.monthly_cap_usd >= 0)) throw new Error('Not a number: ' + v);
+    if (act === 'code') {
+      const r = await api(`/api/admin/users/${id}/code`, {method: 'POST'});
+      lastCode = {id, name, ...r};
+    } else if (act === 'signout') {
+      await api(`/api/admin/users/${id}/signout`, {method: 'POST'});
+    } else if (act === 'capsave') {
+      const cap = parseCap(card.querySelector('.capin').value);
       await api(`/api/admin/users/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)});
+        body: JSON.stringify(cap === null ? {clear_cap: true} : {monthly_cap_usd: cap})});
     } else {
-      if (act === 'disable' && !confirm(`Disable ${name}? Their phones are signed out at once.`)) return;
       await api(`/api/admin/users/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({disabled: act === 'disable'})});
+      if (act === 'disable' && lastCode && lastCode.id === id) lastCode = null;
     }
     $('#usersNote').textContent = '';
     await loadUsers();
-  } catch (err) { $('#usersNote').textContent = err.message; }
+  } catch (err) { $('#usersNote').textContent = err.message; b.disabled = false; }
 };
 $('#uAdd').onclick = async () => {
   const name = $('#uName').value.trim();
-  const cap = $('#uCap').value.trim();
+  if (!name) { $('#usersNote').textContent = 'Type the mechanic’s name first.'; $('#uName').focus(); return; }
+  $('#uAdd').disabled = true;
   try {
+    const cap = parseCap($('#uCap').value);
     const r = await api('/api/admin/users', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name, monthly_cap_usd: cap === '' ? null : Number(cap)})});
+      body: JSON.stringify({name, monthly_cap_usd: cap})});
     $('#uName').value = ''; $('#uCap').value = '';
     $('#usersNote').textContent = '';
-    showCode(name, r);
+    lastCode = {id: String(r.id), name, code: r.code, minutes: r.minutes};
     await loadUsers();
   } catch (err) { $('#usersNote').textContent = err.message; }
+  finally { $('#uAdd').disabled = false; }
 };
+$('#uName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#uAdd').click(); });
 $('#openUsers').onclick = async () => {
-  $('#settings').close();
-  $('#usersCode').innerHTML = ''; $('#usersNote').textContent = '';
-  $('#usersDlg').showModal();
+  lastCode = null; $('#usersNote').textContent = '';
+  $('#usersList').innerHTML = '<div class="muted">Loading…</div>';
+  $('#usersDlg').showModal();                  // on top of Settings, which keeps its edits
   try { await loadUsers(); } catch (err) { $('#usersNote').textContent = err.message; }
 };
 $('#year').addEventListener('change', () => { refreshPicker(); clearCarPick(); loadConnectors(); });
@@ -2062,7 +2205,7 @@ async function openImport(first) {
   manLoad();
   impWatch().catch(() => {});
 }
-$('#openImport').onclick = () => { $('#settings').close(); openImport(false); };
+$('#openImport').onclick = () => openImport(false);   // on top of Settings
 $('#impGo').onclick = () => impBrowse($('#impPath').value);
 $('#impPath').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); impBrowse($('#impPath').value); } });
 $('#impUp').onclick = () => $('#impUp').dataset.parent && impBrowse($('#impUp').dataset.parent);
