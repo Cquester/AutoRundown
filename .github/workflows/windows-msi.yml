@@ -1,0 +1,293 @@
+# Build the Windows MSI, install it on a clean runner, check the installed
+# app actually works (index a sample corpus, serve it, search it), then
+# uninstall and check nothing is left. Free: no Anthropic API calls.
+name: Windows installer
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    tags: ["v*"]
+    paths:
+      - "autorundown/**"
+      - "*.py"
+      - "requirements*.txt"
+      - "extractor/**"
+      - "packaging/windows/**"
+      - ".github/workflows/windows-msi.yml"
+  workflow_dispatch:
+
+jobs:
+  msi:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # the upgrade test builds an older version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+
+      - name: Build MSI
+        run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+
+      - name: Installer dialogs
+        shell: pwsh
+        run: |
+          # no one clicks through the wizard here (installs below are /qn), so
+          # read the wiring from the MSI: Welcome -> Options -> Ready, the
+          # sign-in box, and Launch on Finish
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          $wi = New-Object -ComObject WindowsInstaller.Installer
+          $db = $wi.GetType().InvokeMember("OpenDatabase", "InvokeMethod", $null, $wi, @($msi, 0))
+          function Rows($sql) {
+            $v = $db.GetType().InvokeMember("OpenView", "InvokeMethod", $null, $db, @($sql))
+            [void]$v.GetType().InvokeMember("Execute", "InvokeMethod", $null, $v, $null)
+            $out = @()
+            while ($r = $v.GetType().InvokeMember("Fetch", "InvokeMethod", $null, $v, $null)) {
+              $out += $r.GetType().InvokeMember("StringData", "GetProperty", $null, $r, @(1))
+            }
+            $out
+          }
+          function Need($what, $sql) {
+            $r = @(Rows $sql); "$what`: $($r -join ', ')"
+            if ($r.Count -lt 1) { throw "missing: $what" }
+          }
+          Need "Welcome -> Options" "SELECT Dialog_ FROM ``ControlEvent`` WHERE Dialog_='WelcomeDlg' AND Event='NewDialog' AND Argument='OptionsDlg'"
+          Need "Options -> Ready" "SELECT Dialog_ FROM ``ControlEvent`` WHERE Dialog_='OptionsDlg' AND Event='NewDialog' AND Argument='VerifyReadyDlg'"
+          Need "sign-in box" "SELECT Property FROM ``Control`` WHERE Dialog_='OptionsDlg' AND Property='AUTOSTART'"
+          Need "Launch on Finish" "SELECT Dialog_ FROM ``ControlEvent`` WHERE Dialog_='ExitDialog' AND Event='DoAction' AND Argument='LaunchApp'"
+          Need "Options page" "SELECT Dialog FROM ``Dialog`` WHERE Dialog='OptionsDlg'"
+          if (@(Rows "SELECT Dialog FROM ``Dialog`` WHERE Dialog='WelcomeEulaDlg'").Count) { throw "licence page is in the MSI" }
+
+      - name: Upgrade over 0.1.1 (what a user already has)
+        shell: pwsh
+        run: |
+          # build the 0.1.1 installer from its own commit, install it, then
+          # install this build over it -- the path a real user takes
+          git worktree add ..\old 1373ebc
+          Push-Location ..\old
+          powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -Out dist-old
+          Pop-Location
+          $old = (Get-ChildItem ..\old\dist-old\*.msi).FullName
+          # Windows Installer keeps a per-user product's Apps entry under
+          # HKLM\...\Installer\UserData\<SID>, never HKCU\...\Uninstall
+          $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          function Installed {
+            @(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\$sid\Products\*\InstallProperties" -ErrorAction SilentlyContinue |
+              Where-Object DisplayName -eq "AutoRundown" | ForEach-Object DisplayVersion)
+          }
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$old`" /qn /l*v old-install.log"
+          if ($p.ExitCode) { throw "0.1.1 install failed: $($p.ExitCode)" }
+          $v = @(Installed)   # @(): one result would come back as a bare string
+          "before upgrade: $v"
+          if ($v.Count -ne 1 -or $v[0] -ne "0.1.1") { throw "expected 0.1.1 in Apps, found '$v'" }
+          $new = (Get-ChildItem dist\*.msi).FullName
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$new`" /qn /l*v upgrade.log"
+          if ($p.ExitCode) { Get-Content upgrade.log -Tail 80; throw "upgrade failed: $($p.ExitCode)" }
+          $want = (python -c "import autorundown; print(autorundown.__version__)").Trim()
+          $v = @(Installed)   # @(): one result would come back as a bare string
+          "after upgrade: $v"
+          if ($v.Count -ne 1 -or $v[0] -ne $want) { throw "expected only $want in Apps, found '$v'" }
+          # 0.1.1 never asked about starting at sign-in, so the upgrade turns it on
+          $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk"
+          if (-not (Test-Path $startup)) { throw "upgrade did not add the Startup shortcut" }
+          # and the upgraded app starts in the background
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          Start-Process "$inst\python\pythonw.exe" -WorkingDirectory $inst `
+            -ArgumentList "-m autorundown.launcher --background --no-browser"
+          $ok = $false
+          foreach ($i in 1..60) {
+            try { Invoke-RestMethod http://127.0.0.1:8756/api/stats | Out-Null; $ok = $true; break }
+            catch { Start-Sleep -Milliseconds 500 }
+          }
+          Get-Content "$env:USERPROFILE\.autorundown\autorundown.log" -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "upgraded app did not start" }
+          & "$inst\python\python.exe" -m autorundown.launcher --stop
+          Remove-Item -Recurse -Force "$env:USERPROFILE\.autorundown"   # next step is a first start
+
+      - name: Install MSI again (same version, silent, per-user)
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$msi`" /qn /l*v install.log"
+          if ($p.ExitCode) { Get-Content install.log -Tail 40; throw "install failed: $($p.ExitCode)" }
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          foreach ($f in "python\python.exe", "app\ingest.py", "app\autorundown\web\index.html") {
+            if (-not (Test-Path "$inst\$f")) { throw "missing after install: $f" }
+          }
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
+          if (-not (Test-Path $lnk)) { throw "no Start menu shortcut" }
+
+      - name: First start from the Start-menu shortcut, driven in Edge
+        shell: pwsh
+        run: |
+          # a new user: no AUTORUNDOWN_HOME, no index, started from the shortcut
+          python make_sample_corpus.py
+          python -m pip install --disable-pip-version-check -q -r requirements-dev.txt
+          $py = "$env:LOCALAPPDATA\Programs\AutoRundown\python\python.exe"
+          Start-Process "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
+          $ok = $false
+          foreach ($i in 1..60) {
+            try { Invoke-RestMethod http://127.0.0.1:8756/api/stats | Out-Null; $ok = $true; break }
+            catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $ok) { throw "the shortcut did not start the server" }
+          # the shortcut starts it in the background: pythonw, no console
+          $bg = @(Get-Process pythonw -ErrorAction SilentlyContinue)
+          "background processes: $($bg.Count)"
+          python packaging\windows\ui_check.py --channel msedge --corpus sample_corpus --shots ui-shots
+          $rc = $LASTEXITCODE
+          & $py -m autorundown.launcher --stop
+          $stop = $LASTEXITCODE
+          "--- background log:"; Get-Content "$env:USERPROFILE\.autorundown\autorundown.log"
+          if ($rc) { throw "UI check failed" }
+          if ($bg.Count -lt 1) { throw "the shortcut did not start pythonw" }
+          if ($stop) { throw "launcher --stop failed" }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: ui-shots/
+
+      - name: Smoke test the installed app
+        shell: pwsh
+        run: |
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          $py = "$inst\python\python.exe"
+          $env:AUTORUNDOWN_HOME = "$env:RUNNER_TEMP\ar-home"
+          # the sample corpus (made in the step above from the checkout) is
+          # indexed and served by the installed Python
+          & $py "$inst\app\ingest.py" --archive sample_corpus --index "$env:AUTORUNDOWN_HOME\index.db"
+          if ($LASTEXITCODE) { throw "ingest failed" }
+          # what the shortcut runs, from the install folder like the shortcut
+          $srv = Start-Process $py -WorkingDirectory $inst -PassThru -NoNewWindow `
+                   -ArgumentList "-m autorundown.launcher --no-browser --port 8756"
+          $ok = $false
+          foreach ($i in 1..60) {
+            try { $stats = Invoke-RestMethod http://127.0.0.1:8756/api/stats; $ok = $true; break }
+            catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $ok) { throw "server did not start" }
+          $stats | Format-List
+          if ($stats.vehicles -lt 1 -or $stats.pages -lt 1) { throw "empty index served" }
+          $v = (Invoke-RestMethod http://127.0.0.1:8756/api/vehicles)[0]
+          $hits = @(Invoke-RestMethod "http://127.0.0.1:8756/api/search?doc_id=$($v.doc_id)&q=torque")
+          "search 'torque' on $($v.doc_id): $($hits.Count) result(s)"
+          if ($hits.Count -lt 1) { throw "search found nothing" }
+          $page = Invoke-WebRequest http://127.0.0.1:8756/ -UseBasicParsing
+          if ($page.Content -notmatch "<html") { throw "UI not served" }
+          # the user's WIS extractor is found on the Desktop and run by the
+          # bundled Python (no VirtualBox here, so it stops at --list-vms)
+          $ext = "$env:USERPROFILE\Desktop\Mercedes Documents\autorundown_extractor"
+          New-Item -ItemType Directory -Force (Split-Path $ext) | Out-Null
+          Copy-Item -Recurse extractor $ext
+          $vms = Invoke-RestMethod http://127.0.0.1:8756/api/vms
+          "extractor: $($vms.extractor) | $($vms.error)"
+          Remove-Item -Recurse -Force (Split-Path $ext)
+          if ($vms.extractor -ne $ext) { throw "extractor on the Desktop not found" }
+          # the phone name: announced, and resolvable from another process
+          $s = Invoke-RestMethod http://127.0.0.1:8756/api/settings
+          "phone: $($s.phone_urls -join ' | ')  autostart: $($s.autostart)"
+          if (-not ($s.phone_urls -match 'autorundown\.local')) { throw "autorundown.local not announced" }
+          python -m pip install --disable-pip-version-check -q zeroconf
+          @'
+          from zeroconf import AddressResolver, IPVersion, Zeroconf
+          z = Zeroconf(ip_version=IPVersion.V4Only)
+          r = AddressResolver("autorundown.local.")
+          ok = r.request(z, 5000)
+          print("autorundown.local ->", r.parsed_addresses() if ok else "NOT RESOLVED")
+          z.close()
+          raise SystemExit(0 if ok else 1)
+          '@ | Set-Content resolve.py
+          python resolve.py
+          if ($LASTEXITCODE) { throw "autorundown.local did not resolve" }
+          # start at sign-in: the Settings toggle writes the Startup shortcut
+          Invoke-RestMethod -Method Post http://127.0.0.1:8756/api/settings `
+            -ContentType application/json -Body '{"autostart": true}' | Out-Null
+          $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk"
+          if (-not (Test-Path $startup)) { throw "no Startup shortcut after turning it on" }
+          $t = (New-Object -ComObject WScript.Shell).CreateShortcut($startup)
+          "startup shortcut -> $($t.TargetPath) $($t.Arguments)"
+          if ($t.TargetPath -notlike "*\pythonw.exe" -or $t.Arguments -notmatch "--background") {
+            throw "Startup shortcut does not start the background mode"
+          }
+          if (-not (Invoke-RestMethod http://127.0.0.1:8756/api/settings).autostart) { throw "autostart not reported" }
+          # left on: uninstall must remove it
+          # a second start must find the running server and exit at once
+          & $py -m autorundown.launcher --no-browser --port 8756
+          if ($LASTEXITCODE) { throw "second launch failed" }
+          Stop-Process -Id $srv.Id -Force
+          $srv.WaitForExit(15000) | Out-Null
+
+      - name: Uninstall (while running in the background)
+        shell: pwsh
+        run: |
+          # the installer must stop a running copy itself (StopRunning), or
+          # files stay in use
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          Start-Process "$inst\python\pythonw.exe" -WorkingDirectory $inst `
+            -ArgumentList "-m autorundown.launcher --background --no-browser"
+          $ok = $false
+          foreach ($i in 1..60) {
+            try { Invoke-RestMethod http://127.0.0.1:8756/api/stats | Out-Null; $ok = $true; break }
+            catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $ok) { throw "background start failed" }
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn /l*v uninstall.log"
+          if ($p.ExitCode) { Get-Content uninstall.log -Tail 40; throw "uninstall failed: $($p.ExitCode)" }
+          $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
+          if (Test-Path $inst) {
+            $left = @(Get-ChildItem $inst -Recurse -Force)
+            Write-Host "$($left.Count) item(s) left in $inst"
+            $left | Select-Object -First 40 | ForEach-Object { Write-Host "  $($_.FullName)" }
+            throw "files left behind after uninstall"
+          }
+          if (-not (Test-Path "$env:RUNNER_TEMP\ar-home\index.db")) { throw "uninstall touched user data" }
+          if (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk") {
+            throw "Startup shortcut left after uninstall"
+          }
+          try { Invoke-RestMethod http://127.0.0.1:8756/api/stats | Out-Null; throw "still running after uninstall" }
+          catch { if ($_.Exception.Message -eq "still running after uninstall") { throw } }
+
+      - name: Start at sign-in is the user's choice
+        shell: pwsh
+        run: |
+          # what the Options page sets: on by default, AUTOSTART=0 when unticked
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk"
+          foreach ($case in @(@{ arg = ""; want = $true }, @{ arg = "AUTOSTART=0"; want = $false })) {
+            $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$msi`" $($case.arg) /qn /l*v autostart.log"
+            if ($p.ExitCode) { Get-Content autostart.log -Tail 40; throw "install '$($case.arg)' failed: $($p.ExitCode)" }
+            $has = Test-Path $startup
+            "install '$($case.arg)': Startup shortcut $has"
+            if ($has -ne $case.want) { throw "install '$($case.arg)': expected Startup shortcut $($case.want)" }
+            if ($has) {
+              $t = (New-Object -ComObject WScript.Shell).CreateShortcut($startup)
+              if ($t.TargetPath -notlike "*\pythonw.exe" -or $t.Arguments -notmatch "--background") {
+                throw "Startup shortcut does not start the background mode: $($t.TargetPath) $($t.Arguments)"
+              }
+            }
+            $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn"
+            if ($p.ExitCode) { throw "uninstall failed: $($p.ExitCode)" }
+            if (Test-Path $startup) { throw "Startup shortcut left after uninstall" }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoRundown-msi
+          path: dist/*.msi
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: msi-logs
+          path: "*.log"

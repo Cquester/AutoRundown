@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from . import auth, config, index, query, tls
-from . import importer_jobs, synonyms, wis_original
+from . import autostart, importer_jobs, synonyms, wis_original
 from .search import get_page, scope_ids, search
 
 jobs = importer_jobs.ImportJobs()
@@ -52,6 +52,9 @@ class SettingsBody(BaseModel):
     importer: str | None = None
     api_key: str | None = None
     model: str | None = None
+    extractor_dir: str | None = None
+    # Windows: start in the background at sign-in (autostart.py)
+    autostart: bool | None = None
     require_signin: bool | None = None
 
 
@@ -94,7 +97,7 @@ PUBLIC_PATHS = {"/", "/manifest.webmanifest", "/ca.crt", "/api/me",
 # answer to the PC running the server only -- they read and change this PC's
 # files, settings and API key, and manage accounts
 ADMIN_PREFIXES = ("/api/settings", "/api/browse", "/api/vms", "/api/import",
-                  "/api/admin/")
+                  "/api/admin/", "/api/shutdown")
 
 
 def _is_admin_path(path: str) -> bool:
@@ -120,6 +123,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app.state.https = False
     app.state.port = 8756
     throttle = auth.Throttle()
+    app.state.mdns_name = ""          # serve() sets it once announced
+    app.state.shutdown = lambda: None   # make_server() wires the real one
 
     def db():
         # SQLite connections are per-thread; make a fresh one per request.
@@ -426,6 +431,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # (ADMIN_PREFIXES, enforced in who_is_asking) -- never to a phone on the
     # LAN, which the server otherwise welcomes.
 
+    @app.post("/api/shutdown")
+    def api_shutdown() -> dict:
+        app.state.shutdown()
+        return {"ok": True}
+
     @app.get("/api/browse")
     def api_browse(path: str = "") -> dict:
         p = Path(path).expanduser() if path else Path(config.load().archive_dir or Path.home())
@@ -437,7 +447,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         except OSError:
             dirs = []
         return {"path": str(p), "parent": str(p.parent) if p.parent != p else "",
-                "dirs": dirs[:500], "detected": importer_jobs.describe(p)}
+                "dirs": dirs[:500], "detected": importer_jobs.describe(p, app.state.index_path)}
 
     @app.get("/api/vms")
     def api_vms() -> dict:
@@ -468,7 +478,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(400, f"Folder not found: {p}")
         if body.mode not in ("add", "rebuild_wis"):
             raise HTTPException(400, f"unknown mode {body.mode!r}")
-        if body.mode == "rebuild_wis" and not importer_jobs.can_rebuild_wis():
+        if body.mode == "rebuild_wis" and not importer_jobs.can_rebuild_wis(app.state.index_path):
             raise HTTPException(400, "No pre-WIS backup (index.before-wis.db) to rebuild from.")
         try:
             return jobs.start(p, app.state.index_path, body.mode)
@@ -483,17 +493,26 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "index_path": app.state.index_path,  # the one in use, not the saved one
             "importer": cfg.importer,
             "model": cfg.model,
+            "extractor_dir": cfg.extractor_dir,
             "has_api_key": bool(cfg.resolved_key),
             "key_source": ("config" if cfg.api_key
                            else "environment" if cfg.resolved_key else "none"),
+            # None: not offered on this OS
+            "autostart": autostart.is_enabled() if autostart.supported() else None,
+            "phone_urls": _phone_urls(),
             "require_signin": cfg.require_signin,
         }
 
     @app.post("/api/settings")
     def post_settings(body: SettingsBody) -> dict:
+        if body.autostart is not None and body.autostart != autostart.is_enabled():
+            try:
+                autostart.set_enabled(body.autostart)
+            except RuntimeError as exc:
+                raise HTTPException(400, str(exc))
         cfg = config.load()
         for field_name in ("archive_dir", "index_path", "importer", "api_key",
-                           "model", "require_signin"):
+                           "model", "extractor_dir", "require_signin"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)
@@ -570,10 +589,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         return {"ok": True}
 
     def _phone_urls() -> list[str]:
+        """autorundown.local first (mdns.py, when announced), then the IPs."""
         scheme = "https" if app.state.https else "http"
         _, ips = tls.local_names()
-        return [f"{scheme}://{ip}:{app.state.port}" for ip in ips
-                if ":" not in ip and not ip.startswith("127.")]
+        hosts = [app.state.mdns_name] if app.state.mdns_name else []
+        hosts += [ip for ip in ips if ":" not in ip and not ip.startswith("127.")]
+        return [f"{scheme}://{h}:{app.state.port}" for h in hosts]
 
     return app
 
@@ -590,9 +611,59 @@ def lan_ip() -> str:
         s.close()
 
 
-def main(argv: list[str] | None = None) -> int:
+def make_server(index_path: str, host: str = "0.0.0.0", port: int = 8756,
+                https: bool = False):
+    """The uvicorn server, stoppable from outside (tray, /api/shutdown)."""
     import uvicorn
 
+    app = create_app(index_path)
+    app.state.port = port
+    ssl = {}
+    if https:
+        crt, key, names, ips = tls.ensure_server_cert()
+        ssl = {"ssl_certfile": str(crt), "ssl_keyfile": str(key)}
+        app.state.https = True
+        app.state.cert_names = names + ips
+    # proxy_headers off: the client address decides who is admin, and must be
+    # the socket's own peer, never an X-Forwarded-For header
+    srv = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning",
+                                        proxy_headers=False, **ssl))
+    app.state.shutdown = lambda: setattr(srv, "should_exit", True)
+    return srv
+
+
+def serve(srv) -> int:
+    """Run a make_server() server, announced on the LAN as autorundown.local."""
+    from . import mdns
+
+    app, host, port = srv.config.app, srv.config.host, srv.config.port
+    scheme = "https" if app.state.https else "http"
+    print(f"index: {app.state.index_path}")
+    print(f"  admin : {scheme}://localhost:{port}   (this PC: settings, imports, accounts)")
+    ann = None
+    if host == "0.0.0.0":
+        ip = lan_ip()
+        ann = mdns.Announcer(port, ip).start()
+        if ann.url:
+            app.state.mdns_name = f"{ann.name}.local"
+        print(f"  LAN   : {scheme}://{ip}:{port}   (phones on same wifi)")
+        print(f"  name  : {scheme}://{app.state.mdns_name}:{port}" if ann.url
+              else f"  name  : not announced ({ann.error})")
+    if app.state.https:
+        print(f"  cert  : {', '.join(app.state.cert_names)}")
+        print(f"  phones: install {scheme}://{lan_ip()}:{port}/ca.crt once "
+              "to remove the warning")
+    print(f"  sign-in for other devices: "
+          f"{'REQUIRED' if config.load().require_signin else 'off (anyone on the network)'}")
+    try:
+        srv.run()
+    finally:
+        if ann:
+            ann.close()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     cfg = config.load()
     ap = argparse.ArgumentParser(description="Serve the repair assistant UI.")
     ap.add_argument("--index", default=cfg.index_path)
@@ -602,28 +673,4 @@ def main(argv: list[str] | None = None) -> int:
                     help="serve HTTPS with a certificate from a local CA (tls.py); "
                          "phones install /ca.crt once to trust it")
     args = ap.parse_args(argv)
-
-    app = create_app(args.index)
-    app.state.port = args.port
-    ssl = {}
-    scheme = "http"
-    if args.https:
-        crt, key, names, ips = tls.ensure_server_cert()
-        ssl = {"ssl_certfile": str(crt), "ssl_keyfile": str(key)}
-        app.state.https = True
-        scheme = "https"
-    print(f"index: {args.index}")
-    print(f"  admin : {scheme}://localhost:{args.port}   (this PC: settings, imports, accounts)")
-    if args.host == "0.0.0.0":
-        print(f"  LAN   : {scheme}://{lan_ip()}:{args.port}   (phones on same wifi)")
-    if args.https:
-        print(f"  cert  : {', '.join(names + ips)}")
-        print(f"  phones: install {scheme}://{lan_ip()}:{args.port}/ca.crt once "
-              "to remove the warning")
-    print(f"  sign-in for other devices: "
-          f"{'REQUIRED' if config.load().require_signin else 'off (anyone on the network)'}")
-    # proxy_headers off: the client address decides who is admin, and must be
-    # the socket's own peer, never an X-Forwarded-For header
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning",
-                proxy_headers=False, **ssl)
-    return 0
+    return serve(make_server(args.index, args.host, args.port, https=args.https))

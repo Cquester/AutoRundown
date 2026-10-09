@@ -3,4 +3,9 @@ lxml>=5.0
 fastapi>=0.110
 uvicorn[standard]>=0.27
 pydantic>=2.6
+# announces http://autorundown.local:<port> on the LAN (mdns.py; optional)
+zeroconf>=0.130
+# the tray icon of the background mode (launcher.py), Windows only
+pystray>=0.19; sys_platform == "win32"
+Pillow>=10.1; sys_platform == "win32"
 cryptography>=42     # serve.py --https: the local CA (autorundown/tls.py)

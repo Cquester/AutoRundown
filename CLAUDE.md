@@ -6,7 +6,8 @@ API. Read `README.md` for the product description — this file is the working
 context: what is already decided, what is already tried, and what will break.
 
 **Status: working end to end.** Importer, index, retrieval, Claude query
-layer, web UI. Not built: installer, packaging, tests beyond `eval.py`.
+layer, web UI, Windows MSI (see "Windows installer"). Not built: macOS/Linux
+packages (they run from source, by the user's decision), code signing.
 
 ---
 
@@ -48,6 +49,7 @@ python test_records.py                            # FREE, `records` importer
 python eval_wis.py                                # FREE, WIS retrieval + wrong-vehicle guards
 python make_sample_corpus.py                      # FREE, stand-in WIS corpus
 python test_ui_picks.py                           # FREE, UI sends the car it shows (~45 s)
+python -m autorundown.launcher                    # what the Windows shortcut runs
 python test_access.py                             # FREE, admin/sign-in/limits/HTTPS (~2 s)
 python serve.py --https                           # TLS from a local CA (tls.py)
 ```
@@ -892,6 +894,87 @@ second cold boot before giving up — one boot after 12 clean batches never
 brought the DB up in 10 min. Conversion sorts largest-first, so its ETA
 reads ~3 h while on the DXF/SVG diagrams and then drops; ~40 min in total.
 
+## Windows installer
+
+`packaging/windows/build.ps1` + `AutoRundown.wxs` (WiX 5) build a **per-user
+MSI** to `%LOCALAPPDATA%\Programs\AutoRundown`: no UAC prompt, and Python
+can write there. `.github/workflows/windows-msi.yml` builds it on
+`windows-latest`, installs it silently, indexes the sample corpus with the
+*installed* Python, serves and searches it, launches a second time, then
+uninstalls and checks nothing is left. Before that it does a real first
+start: opens the installed Start-menu shortcut (no index) and runs
+`packaging/windows/ui_check.py` in Edge -- first-run import dialog, import
+job to "Finished" (ingest.py as a child of the bundled Python), car box,
+keyword search, page view, phone width; free, `/api/ask` is blocked. Works
+locally too (`--executable` for a Chromium binary). Uploads the MSI and
+`ui-screenshots` (a cloud session cannot download artifacts: the blob host
+is blocked; read the step's "ok" lines in the job log instead). Not covered by CI
+(needs a person): SmartScreen, the firewall prompt, Windows 11 desktop.
+macOS/Linux run from source (README), by the user's decision.
+
+- **Embeddable Python, not PyInstaller/Briefcase.** Import jobs re-run
+  `ingest.py` / `rebuild_wis.py` / `vm_pipeline.py` with `sys.executable`,
+  and a frozen exe would launch itself. The bundle is the official
+  `python-<ver>-embed-amd64.zip` (same version as the build's Python, so pip
+  wheels match) + `pip install --target Lib/site-packages` + the source.
+- **`python3XY._pth` replaces sys.path** and stops Python adding a script's
+  own folder. Its `..\app` line is what lets `python ingest.py` import
+  `autorundown`. Anything the installed app imports must live in `app\`.
+- **User data is outside the install** (`~/.autorundown`, `config.py`), so
+  upgrade and uninstall never touch the index or the spend log. The WIS
+  backup `index.before-wis.db` sits *next to the index it belongs to*:
+  `rebuild_wis.py --index` (default: the configured index) and
+  `importer_jobs.wis_backup()`. Before 2026-10-08 both used the repo folder,
+  so a dialog rebuild ignored the served index.
+- `autorundown/launcher.py` is the shortcut target. The MSI shortcuts run
+  `pythonw -m autorundown.launcher --background`: no console, output to
+  `~/.autorundown/autorundown.log`, a pystray tray icon (Open / phone
+  address / Start when I sign in / Open log / Stop); without a tray it serves
+  headless. Console mode (default from source) is the old behaviour. If one
+  is already running it only opens the browser; `--stop` POSTs
+  `/api/shutdown` (localhost only). A failed start in the background shows a
+  message box, since there is no console.
+- **The wizard asks** (`AutoRundownUI` in the .wxs, WiX UI extension):
+  Welcome -> Options ("Start AutoRundown when I sign in", property
+  `AUTOSTART`) -> Ready -> Finish with "Launch AutoRundown" ticked. No
+  licence page (WixUI_Minimal's was dropped). The Options box installs the
+  `Autostart` component: the same Startup-folder shortcut `autostart.py`
+  writes, so Settings can still turn it off. Default: on for a first install
+  and for upgrades from versions that never asked (0.1.x <= 0.1.2); after
+  that an upgrade keeps the current state (`autostart_asked` registry value +
+  a search for the shortcut). Silent installs: on, `AUTOSTART=0` for off. The
+  user expected the installer to leave it running -- 0.1.2 only added
+  shortcuts, so nothing ran until clicked. CI reads the dialog wiring from
+  the MSI tables (no one clicks the wizard there).
+- **Not a Windows service, deliberately** (the user asked for one): a service
+  needs admin and runs as SYSTEM, which can't see the user's VirtualBox VMs
+  or `~/.autorundown`. `autorundown/autostart.py` writes a Startup-folder
+  shortcut instead (Settings checkbox and tray item; Windows only, localhost
+  only); the MSI removes it on uninstall, and its `StopRunning` custom action
+  runs `--stop` before upgrade/uninstall so files aren't in use.
+- **`autorundown.local`**: `autorundown/mdns.py` (zeroconf) registers an
+  `_http._tcp` service whose host is `autorundown.local.`, so the PC answers
+  that name itself -- the user wanted a phone bookmark that survives IP
+  changes without router setup. Best effort: any failure is logged and the
+  server runs on; Settings shows `phone_urls` (name + numeric). Two PCs
+  running it would contend for the name.
+- Version: `autorundown/__init__.py` `__version__`; bump it per release (MSI
+  MajorUpgrade needs a higher version to replace an install).
+- The WIS extractor is **not bundled**, deliberately: it reads the EWA
+  Java and `tbjdbc.jar` from the "Mercedes Documents" folder
+  (`extractor/wis_paths.py`; Mercedes software, never shipped).
+  `importer_jobs.extractor_candidates()`: config `extractor_dir` (Settings
+  -> "Mercedes extractor folder"), then the repo's `extractor/` -- from
+  source that is all, no fallback to a second copy (they drift). Only the
+  installed app, which has no `extractor/`, also tries
+  `~/Desktop/Mercedes Documents/autorundown_extractor` and the OneDrive
+  Desktop one (the user's copy). The bundle includes `requirements-extractor.txt`
+  (Pillow, ezdxf) because the extractor runs under the bundled Python and its
+  build step converts images. CI copies `extractor/` to the runner's Desktop
+  and checks `/api/vms` finds it.
+- Unsigned: SmartScreen warns (README says what to click). Signing needs a
+  certificate; nothing in the build does it yet.
+
 ## Archive-specific traps
 
 These are properties of the archive, discovered the hard way. A flat or
@@ -962,7 +1045,6 @@ pass, known-bad guards 33 -> 12.
 - Sibling-engine pages exist in the main tree identified only by their title
   (e.g. "Generator - 2.7L EcoBoost"). The prompt requires flagging
   applicability, but this is prompt-level, not structural.
-- No installer or packaging.
 - The spend log lives inside the index. `rebuild_wis.py` carries it across a
   WIS rebuild; any *other* way of rebuilding (deleting `index.db`, copying a
   backup over it) still loses it.

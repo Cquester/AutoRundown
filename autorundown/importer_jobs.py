@@ -20,26 +20,40 @@ from pathlib import Path
 from . import importers
 
 ROOT = Path(__file__).resolve().parents[1]
-BACKUP = ROOT / "index.before-wis.db"
 FOLDER_SCAN_CAP = 5000   # stop counting files here: a folder import of a whole
                          # drive must not make the preview hang
 
 
-def can_rebuild_wis() -> bool:
-    return BACKUP.is_file()
+def wis_backup(index_path: str | Path) -> Path:
+    """The pre-WIS backup sits next to the index it belongs to (rebuild_wis.py)."""
+    return Path(index_path).with_name("index.before-wis.db")
+
+
+def can_rebuild_wis(index_path: str | Path) -> bool:
+    return wis_backup(index_path).is_file()
+
+
+def extractor_candidates() -> list[Path]:
+    """Where the WIS extractor is looked for, in order: config.extractor_dir,
+    then the copy in this repo (`extractor/`). There is deliberately no
+    fallback to the old standalone copy beside a source checkout: two copies
+    drift. The installed app (Windows MSI) has no `extractor/` -- it never
+    ships, see packaging/windows -- so only there it looks for the user's
+    copy on the Desktop."""
+    from . import config
+    found = [Path(c) for c in (config.load().extractor_dir,) if c] + [ROOT / "extractor"]
+    if not (ROOT / "extractor").is_dir():
+        sub = Path("Mercedes Documents") / "autorundown_extractor"
+        home = Path.home()
+        found += [home / "Desktop" / sub, home / "OneDrive" / "Desktop" / sub]
+    return found
 
 
 def find_extractor() -> Path | None:
-    """The WIS extractor folder (holds vm_pipeline.py), or None.
-
-    The copy in this repo (`extractor/`) unless config.extractor_dir names
-    another. There is deliberately no fallback to the old standalone copy in
-    "Mercedes Documents/autorundown_extractor": two copies drift.
-    """
-    from . import config
-    for c in (config.load().extractor_dir, str(ROOT / "extractor")):
-        if c and (Path(c) / "vm_pipeline.py").is_file():
-            return Path(c)
+    """The WIS extractor folder (holds vm_pipeline.py), or None."""
+    for c in extractor_candidates():
+        if (c / "vm_pipeline.py").is_file():
+            return c
     return None
 
 
@@ -67,8 +81,9 @@ def list_vms() -> dict:
     ext = find_extractor()
     if not ext:
         return {"extractor": "", "vms": [],
-                "error": "The Mercedes extractor (vm_pipeline.py) was not found. Set its folder "
-                         "as extractor_dir in ~/.autorundown/config.json."}
+                "error": "The Mercedes extractor (vm_pipeline.py) was not found. Looked in: "
+                         + "; ".join(str(c) for c in extractor_candidates())
+                         + ". Set its folder under Settings (the gear) -> Mercedes extractor folder."}
     r = subprocess.run([sys.executable, str(ext / "vm_pipeline.py"), "--list-vms"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
                        timeout=60)
@@ -83,7 +98,7 @@ def list_vms() -> dict:
     return {"extractor": str(ext), "vms": vms, "out_root": str(out_root)}
 
 
-def describe(path: Path) -> dict:
+def describe(path: Path, index_path: str | Path) -> dict:
     """What an import of `path` would do, cheaply -- no full scan."""
     try:
         if not path.is_dir():
@@ -109,7 +124,7 @@ def describe(path: Path) -> dict:
                 f"{m.get('source_type', 'records')} ({(m.get('language') or {}).get('iso', '?')}), "
                 f"{m.get('record_count', '?'):,} documents, schema {m.get('schema_version', '?')}"
                 + (f", {img.get('converted', 0):,} images" if img else ""))
-        return {"importer": name, "rebuildable": can_rebuild_wis(),
+        return {"importer": name, "rebuildable": can_rebuild_wis(index_path),
                 "summary": "Normalized corpus: " + ("; ".join(bits) or "found")}
     if name == "lemon":
         n = len(imp._vehicle_dirs(path))
@@ -149,7 +164,8 @@ class ImportJobs:
             if self._job and self._job["state"] == "running":
                 raise RuntimeError("An import is already running.")
             py = [sys.executable, "-u"]
-            rebuild = [*py, str(ROOT / "rebuild_wis.py"), "--archive", str(path)]
+            rebuild = [*py, str(ROOT / "rebuild_wis.py"), "--archive", str(path),
+                       "--index", str(index_path)]
             add = [*py, str(ROOT / "ingest.py"), "--archive", str(path),
                    "--index", str(index_path), "--importer", "auto"]
             if mode == "vm":
@@ -160,7 +176,7 @@ class ImportJobs:
                         "--out-root", str(path.parent)]
                 if steps:
                     pipe += ["--steps", steps]
-                cmds = [pipe, rebuild if can_rebuild_wis() else add]
+                cmds = [pipe, rebuild if can_rebuild_wis(index_path) else add]
             elif mode == "rebuild_wis":
                 # restores index.before-wis.db over the live index, carries the
                 # spend log across, re-ingests -- see rebuild_wis.py

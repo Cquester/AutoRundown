@@ -13,6 +13,8 @@ index.v1*.db*
 tools/out/
 tools/.us_years_cache.json
 *.log
+build/
+dist/
 
 # Mercedes WIS: data and Mercedes software stay outside the repo
 # (extractor/wis_paths.py refuses to write here; this is the second guard)
