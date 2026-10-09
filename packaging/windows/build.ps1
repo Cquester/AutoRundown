@@ -54,6 +54,11 @@ if (-not $NoVerify) {
     & python -m pip install --disable-pip-version-check -q "sigstore>=3.6"
     if ($LASTEXITCODE) { throw "could not install sigstore to check the Python download" }
     $signedBy = $null
+    # sigstore reports on stderr ("OK: ..."), and Windows PowerShell with
+    # ErrorActionPreference=Stop turns any native stderr line into a fatal
+    # error -- even a success. Judge by the exit code only.
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     foreach ($s in $signers) {
         & python -m sigstore verify identity --bundle "$zip.sigstore" `
             --cert-identity $s[0] --cert-oidc-issuer $s[1] $zip 2>$null | Out-Null
@@ -63,9 +68,11 @@ if (-not $NoVerify) {
         # say who did sign it, so a new release manager is one line to add
         & python -m sigstore --verbose verify identity --bundle "$zip.sigstore" `
             --cert-identity $signers[0][0] --cert-oidc-issuer $signers[0][1] $zip
+        $ErrorActionPreference = $eap
         Remove-Item $zip, "$zip.sigstore"
         throw "the Python download is not signed by a known python.org release signer"
     }
+    $ErrorActionPreference = $eap
     Write-Host "Python ${pyver} - Sigstore signature by ${signedBy} verified"
 }
 Expand-Archive $zip -DestinationPath $py
