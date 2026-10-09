@@ -56,6 +56,9 @@ python dev.py                                     # FREE, throwaway instance, :8
 python test_lemon_import.py                       # FREE, LEMON import source (~3 s)
 python test_lemon_catalogue.py                    # FREE, LEMON tab's catalogue tree (~3 s)
 python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogue snapshot
+python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual
+python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
+python test_remove_manuals.py                     # FREE, removing manuals (~20 s)
 ```
 
 **Try UI and import changes with `python dev.py`, on the user's PC.** It
@@ -887,6 +890,25 @@ this PC?" below it -- the user asked to keep one LEMON source, not two. The
 folder browser (`#impFolder`) is moved between the Folder tab and that
 section; `impSource()` still answers `lemon` (folder import) / `catalogue`
 (tree) / `folder` / `vm`, so the import code paths are unchanged.
+
+**Removing manuals: in the tab that imported them** (2026-10-09, the
+user's design over a separate cleanup section). The LEMON tab lists
+"Imported LEMON manuals" (every `lemon` source car, including ones named the
+old way that the tree can't show) with tick boxes and "Remove selected"; the
+Folder tab lists folder imports the same way; the Mercedes VM tab has one
+"Remove all Mercedes WIS data". **WIS is never removed per model**: its
+models share engine buckets and the general pool, so a single entry would
+leave the rest half-working -- the server and `remove_manuals.py` refuse a
+WIS doc_id. Removal runs `remove_manuals.py` as an import job (log, one job
+at a time): deletes the car's chunks (the FTS trigger follows), pages,
+connectors and vehicle row, one commit per car. Safe per car because
+duplicate pages are only matched within a doc_id (`index.add_page`). It
+checks the spend log row count is unchanged and never touches files on disk.
+"Shrink the index file" = VACUUM + `wal_checkpoint(TRUNCATE)` (in WAL mode
+VACUUM lands in the -wal file; without the checkpoint the file doesn't
+shrink -- the test caught it); off by default for single cars, on for WIS.
+`/api/import/manuals` lists, `POST /api/import` modes `remove` /
+`remove_wis`, both admin-only. Test: `test_remove_manuals.py`.
 
 **LEMON folder import** (inside the LEMON tab): open the archive folder, get one row per vehicle folder with
 "imported" / "partly imported" read from the index (opened `mode=ro`), tick

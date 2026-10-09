@@ -89,7 +89,10 @@ class ImportBody(BaseModel):
     vm: str = ""
     steps: str = ""
     # mode "lemon": the vehicle folders to import, relative to path
+    # mode "remove": the doc_ids to remove (LEMON / folder manuals only)
     vehicles: list[str] = []
+    # modes "remove" / "remove_wis": VACUUM afterwards to shrink the file
+    compact: bool = False
 
 
 def _vehicle_or_404(conn, doc_id: str) -> dict:
@@ -486,6 +489,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(404, str(exc.args[0]))
         return lemon_catalogue.browse(app.state.index_path, tuple(body.path[:-1]))
 
+    @app.get("/api/import/manuals")
+    def api_import_manuals() -> dict:
+        return importer_jobs.manuals(app.state.index_path)
+
     @app.get("/api/vms")
     def api_vms() -> dict:
         return importer_jobs.list_vms()
@@ -508,6 +515,24 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             try:
                 return jobs.start(Path(info["out_root"]) / "wis_extract", app.state.index_path,
                                   "vm", vm=body.vm, steps=",".join(steps))
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
+        if body.mode in ("remove", "remove_wis"):
+            have = importer_jobs.manuals(app.state.index_path)
+            if body.mode == "remove":
+                removable = {r["doc_id"] for g in ("lemon", "folder") for r in have[g]}
+                if not body.vehicles:
+                    raise HTTPException(400, "Pick at least one manual to remove.")
+                unknown = [v for v in body.vehicles if v not in removable]
+                if unknown:
+                    raise HTTPException(400, f"Not a removable manual: {unknown[0]} "
+                                             "(Mercedes WIS is removed as a whole)")
+            elif not have["wis"]["entries"]:
+                raise HTTPException(400, "There is no Mercedes WIS data in the index.")
+            try:
+                return jobs.start(Path("."), app.state.index_path, body.mode,
+                                  only=body.vehicles if body.mode == "remove" else None,
+                                  compact=body.compact)
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
         p = Path(body.path).expanduser()

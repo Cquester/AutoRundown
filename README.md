@@ -465,6 +465,8 @@ eval.py            known-answer validation
 test_access.py     who may do what on the network (free)
 test_lemon_import.py  the LEMON tab's folder import (free)
 test_lemon_catalogue.py  the LEMON tab's catalogue tree (free)
+test_remove_manuals.py  removing manuals from the index (free)
+remove_manuals.py  remove a manual (or all Mercedes WIS) from the index
 serve.py           start the server
 dev.py             throwaway local instance with sample data
 ```

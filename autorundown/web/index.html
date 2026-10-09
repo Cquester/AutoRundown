@@ -260,6 +260,14 @@
   .trow > .sz{flex:none; color:var(--muted); font-size:13px}
   .trow > .tag{flex:none; font-size:12px; color:var(--accent)}
   .trow.lvl-variant > .nm{cursor:default}
+  /* what each tab has imported, with Remove */
+  .manuals{margin-top:14px; border-top:1px solid var(--line); padding-top:10px}
+  .manuals h4{margin:0 0 6px; font-size:14px; color:var(--muted); font-weight:600}
+  .manuals .lemrow > .nm{white-space:normal; overflow-wrap:anywhere}
+  .manuals .rmbar{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:8px}
+  .manuals .rmbar label{margin:0; font-size:13px; color:var(--muted)}
+  button.danger{background:var(--panel-2); color:#ff8a80; border:1px solid #7a2e2e; font-weight:600}
+  button.danger:disabled{opacity:.45; cursor:default}
   details.lemfolder{margin-top:12px}
   details.lemfolder > summary{cursor:pointer; color:var(--muted); font-size:14px; padding:4px 0}
   .implog{max-height:260px; overflow:auto; background:#0008; border-radius:10px; padding:10px;
@@ -349,6 +357,7 @@
     <div class="dirlist" id="impDirs"></div>
     <div class="detected" id="impDetected"></div>
     <div id="impModes" style="margin-top:10px"></div>
+    <div class="manuals" id="impFolderManuals" data-group="folder" hidden></div>
     <div id="impLemon" hidden>
       <div class="row" style="margin-top:10px; align-items:center">
         <span class="muted" style="margin-right:auto">Vehicles in this folder</span>
@@ -367,6 +376,7 @@
     <p class="muted" style="margin:6px 0 0">Tick a make for all of it, or open it and tick a year, a model or
       one variant. Picks are saved as you tick. Downloading them from the LEMON torrent is the next step
       and isn't built yet.</p>
+    <div class="manuals" id="impLemonManuals" data-group="lemon"></div>
     <details class="lemfolder" id="impLemFolderBox">
       <summary>Already have LEMON manuals in a folder on this PC?</summary>
       <div id="impLemFolderSlot"></div>
@@ -388,6 +398,7 @@
       then shuts it down and rebuilds the Mercedes part of the index. It never takes snapshots or changes
       the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
       off in between); a re-run skips what is already pulled.</p>
+    <div class="manuals" id="impWisManuals"></div>
   </div>
   <div class="implog" id="impLog" hidden></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
@@ -1811,6 +1822,70 @@ async function impLemon(path, seq) {
 $('#impLemAll').onclick = () => { document.querySelectorAll('#impLemList input').forEach((c, i) =>
   c.checked = lemRows[i].state !== 'imported'); lemSummary(); };
 $('#impLemNone').onclick = () => { document.querySelectorAll('#impLemList input').forEach(c => c.checked = false); lemSummary(); };
+// -- what is imported, per tab, and removing it ------------------------------
+// LEMON and folder manuals go one by one; Mercedes WIS only as a whole, since
+// its models share engine and general pages (remove_manuals.py)
+let manData = null;
+async function manLoad() {
+  try { manData = await api('/api/import/manuals'); } catch (e) { manData = null; }
+  manRender();
+}
+function manRender() {
+  if (!manData) return;
+  for (const [id, group, title] of [['#impLemonManuals', 'lemon', 'Imported LEMON manuals'],
+                                    ['#impFolderManuals', 'folder', 'Imported from folders']]) {
+    const box = $(id), rows = manData[group];
+    if (group === 'folder') box.hidden = !rows.length || impTab() !== 'folder';
+    if (!rows.length) { box.innerHTML = group === 'lemon'
+      ? '<h4>Imported LEMON manuals</h4><div class="muted" style="font-size:14px">None yet.</div>' : ''; continue; }
+    box.innerHTML = `<h4>${title} (${rows.length})</h4>`
+      + (rows.length > 8 ? `<input type="search" class="manfilter" placeholder="Filter" style="width:100%; margin-bottom:6px">` : '')
+      + `<div class="dirlist">` + rows.map(r =>
+        `<label class="lemrow" data-label="${esc(r.label.toLowerCase())}"><input type="checkbox" value="${esc(r.doc_id)}">`
+        + `<span class="nm" title="${esc(r.file_path)}">${esc(r.label)}</span>`
+        + (r.complete ? '' : '<span class="tag">partly imported</span>')
+        + `<span class="sz">${r.pages.toLocaleString()} pages</span></label>`).join('') + '</div>'
+      + `<div class="rmbar"><button type="button" class="danger" data-rm="${group}" disabled>Remove selected</button>`
+      + `<label><input type="checkbox" class="mancompact"> shrink the index file afterwards (slower)</label></div>`;
+    const sel = () => [...box.querySelectorAll('.dirlist input:checked')].map(c => c.value);
+    const btn = box.querySelector('[data-rm]');
+    box.querySelectorAll('.dirlist input').forEach(c => c.onchange = () => {
+      const n = sel().length;
+      btn.disabled = !n; btn.textContent = n ? `Remove ${n} selected` : 'Remove selected';
+    });
+    const f = box.querySelector('.manfilter');
+    if (f) f.oninput = () => box.querySelectorAll('.dirlist .lemrow').forEach(l =>
+      l.hidden = !l.dataset.label.includes(f.value.toLowerCase().trim()));
+    btn.onclick = () => {
+      const ids = sel(), byId = Object.fromEntries(rows.map(r => [r.doc_id, r]));
+      const pages = ids.reduce((n, d) => n + byId[d].pages, 0);
+      const names = ids.slice(0, 5).map(d => '  • ' + byId[d].label).join('\n') + (ids.length > 5 ? `\n  … and ${ids.length - 5} more` : '');
+      if (!confirm(`Remove ${ids.length} manual${ids.length > 1 ? 's' : ''} (${pages.toLocaleString()} pages) from the index?\n\n`
+          + names + '\n\nYour manual files on disk and the spend log are not touched. You can import them again later.')) return;
+      manRemove('remove', ids, box.querySelector('.mancompact').checked);
+    };
+  }
+  const w = manData.wis, wb = $('#impWisManuals');
+  wb.innerHTML = '<h4>Mercedes WIS in the index</h4>' + (w.entries
+    ? `<div style="font-size:14px">${w.pages.toLocaleString()} pages in ${w.entries} models, engines and shared sections.`
+      + ' It is removed as a whole: the models share engine and general pages.</div>'
+      + '<div class="rmbar"><button type="button" class="danger" id="impWisRemove">Remove all Mercedes WIS data</button>'
+      + '<label><input type="checkbox" id="impWisCompact" checked> shrink the index file afterwards (slower)</label></div>'
+    : '<div class="muted" style="font-size:14px">None.</div>');
+  if (w.entries) $('#impWisRemove').onclick = () => {
+    if (!confirm(`Remove ALL Mercedes WIS data (${w.pages.toLocaleString()} pages) from the index?\n\n`
+        + 'Your LEMON and other manuals, the extracted files on disk and the spend log are not touched. '
+        + 'Getting it back means importing the WIS corpus again (about 6 minutes).')) return;
+    manRemove('remove_wis', [], $('#impWisCompact').checked);
+  };
+}
+async function manRemove(mode, ids, compact) {
+  try {
+    impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: '', mode, vehicles: ids, compact})}));
+    impWatch();
+  } catch (e) { $('#impStatus').textContent = e.message; }
+}
 function impShow(s) {
   const log = $('#impLog');
   if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; return; }
@@ -1818,7 +1893,8 @@ function impShow(s) {
   log.textContent = (s.log || []).join('\n');
   log.scrollTop = log.scrollHeight;
   const t = s.elapsed >= 60 ? `${Math.floor(s.elapsed/60)} min ${s.elapsed%60} s` : `${s.elapsed} s`;
-  $('#impStatus').textContent = s.state === 'running' ? `Importing… ${t}`
+  const verb = (s.mode || '').startsWith('remove') ? 'Removing' : 'Importing';
+  $('#impStatus').textContent = s.state === 'running' ? `${verb}… ${t}`
     : s.state === 'done' ? `Finished in ${t}.` : `Failed (exit ${s.returncode}) after ${t} — see the log.`;
   $('#impStart').disabled = s.state === 'running' || (impSource() === 'lemon' && !lemPicked().length);
 }
@@ -1829,6 +1905,8 @@ async function impWatch() {
     impShow(s);
     if (s.state !== 'running') {
       clearInterval(impPoll); impPoll = null;
+      manLoad();
+      if (catRoot) catRefresh();
       if (s.state === 'done') {
         loadVehicles();
         if (impSource() === 'lemon') impBrowse($('#impPath').value);  // refresh "imported" tags
@@ -1836,7 +1914,7 @@ async function impWatch() {
     }
   };
   await tick();
-  if ($('#impStatus').textContent.startsWith('Importing')) impPoll = setInterval(tick, 1500);
+  if (/^(Importing|Removing)/.test($('#impStatus').textContent)) impPoll = setInterval(tick, 1500);
 }
 async function openImport(first) {
   $('#impIntro').firstChild.textContent = first
@@ -1844,6 +1922,7 @@ async function openImport(first) {
     : 'Import manuals from a folder on this PC, pick LEMON manuals, or extract them from a Mercedes virtual machine. ';
   $('#importDlg').showModal();
   impShowSource();
+  manLoad();
   impWatch().catch(() => {});
 }
 $('#openImport').onclick = () => { $('#settings').close(); openImport(false); };
@@ -1875,6 +1954,7 @@ function impShowSource() {
   if ($('#impFolder').parentElement !== slot) slot.appendChild($('#impFolder'));
   $('#impFolder').hidden = !(tab === 'folder' || src === 'lemon');
   $('#impCatPanel').hidden = tab !== 'lemon';
+  $('#impFolderManuals').hidden = tab !== 'folder' || !(manData && manData.folder.length);
   $('#impVmPanel').hidden = tab !== 'vm';
   $('#impLemon').hidden = src !== 'lemon'; $('#impModes').innerHTML = '';
   $('#impStart').hidden = src === 'catalogue';

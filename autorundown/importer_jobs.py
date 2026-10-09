@@ -186,6 +186,42 @@ def lemon_vehicles(path: Path, index_path: str | Path) -> dict:
     return {"path": str(path), "vehicles": rows, "summary": summary}
 
 
+def manuals(index_path: str | Path) -> dict:
+    """What is in the index, grouped the way the Import dialog's tabs remove
+    it: LEMON and folder manuals one by one, Mercedes WIS as a whole
+    (remove_manuals.py says why). Read-only."""
+    out: dict = {"lemon": [], "folder": [], "wis": {"entries": 0, "pages": 0, "sources": []}}
+    p = Path(index_path)
+    if not p.is_file():
+        return out
+    import sqlite3
+    try:
+        con = sqlite3.connect(f"file:{p.as_posix()}?mode=ro", uri=True)
+        try:
+            rows = con.execute("SELECT doc_id, source_name, year_range, make, model, file_path, "
+                               "indexed_pages, complete FROM vehicles").fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return out
+    wis_sources = set()
+    for d, src, year, make, model, fp, n, complete in rows:
+        src = src or ""
+        if src.startswith("mercedes-wis"):
+            out["wis"]["entries"] += 1
+            out["wis"]["pages"] += n or 0
+            wis_sources.add(src)
+            continue
+        group = "lemon" if src == "lemon" else "folder"
+        label = " ".join(x for x in (year, make, model) if x) or d
+        out[group].append({"doc_id": d, "label": label, "source": src, "pages": n or 0,
+                           "file_path": fp or "", "complete": bool(complete)})
+    for g in ("lemon", "folder"):
+        out[g].sort(key=lambda r: r["label"].lower())
+    out["wis"]["sources"] = sorted(wis_sources)
+    return out
+
+
 class ImportJobs:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -203,7 +239,7 @@ class ImportJobs:
             return j
 
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
-              steps: str = "", only: list[str] | None = None) -> dict:
+              steps: str = "", only: list[str] | None = None, compact: bool = False) -> dict:
         with self._lock:
             if self._job and self._job["state"] == "running":
                 raise RuntimeError("An import is already running.")
@@ -228,6 +264,16 @@ class ImportJobs:
                        "--index", str(index_path), "--importer", "lemon"]
                 for o in only or []:
                     cmd += ["--only", o]
+                cmds = [cmd]
+            elif mode in ("remove", "remove_wis"):
+                # remove_manuals.py: LEMON / folder manuals by doc_id, WIS whole
+                cmd = [*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path)]
+                if mode == "remove_wis":
+                    cmd += ["--source", "mercedes-wis"]
+                for o in only or []:
+                    cmd += ["--doc-id", o]
+                if compact:
+                    cmd += ["--compact"]
                 cmds = [cmd]
             elif mode == "rebuild_wis":
                 # restores index.before-wis.db over the live index, carries the
