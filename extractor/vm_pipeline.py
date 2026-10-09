@@ -37,7 +37,8 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_OUT = HERE.parent / "autorundown_out"
+from wis_paths import home, out_root, check_outside_repo  # noqa: E402
+DEFAULT_OUT = out_root()
 STEPS = ("docs", "applic", "vehicles", "images", "build")
 BATCH = 15000
 
@@ -64,7 +65,7 @@ def find_java(explicit: str = "") -> str:
     if explicit and Path(explicit).is_file():
         return explicit
     # the 32-bit JRE bundled with the EWA install: its Nashorn runs the .js pulls
-    for base in (HERE.parent / "ewa_extract", HERE.parent):
+    for base in (home() / "ewa_extract", home()):
         for p in base.glob("**/sun_jre/bin/java.exe"):
             return str(p)
     j = shutil.which("java")
@@ -74,7 +75,7 @@ def find_java(explicit: str = "") -> str:
 
 
 def find_jar(explicit: str = "") -> str:
-    for c in ([explicit] if explicit else []) + [str(p) for p in HERE.parent.glob("**/tbjdbc.jar")]:
+    for c in ([explicit] if explicit else []) + [str(p) for p in home().glob("**/tbjdbc.jar")]:
         if c and Path(c).is_file():
             return c
     die("tbjdbc.jar (Transbase JDBC driver) not found; pass --jar.")
@@ -274,6 +275,7 @@ def main(argv=None) -> int:
         ap.error(f"unknown step(s) {bad}")
 
     out = Path(args.out_root)
+    check_outside_repo(out)
     extract, vehicles, applic2, images = (out / "wis_extract", out / "wis_vehicles",
                                           out / "wis_applic2", out / "wis_images")
     for d in (extract, vehicles, applic2, images):
@@ -337,7 +339,7 @@ def main(argv=None) -> int:
         log("== offline build")
         py = sys.executable
         env = {"AR_OUT": str(extract), "AR_LANG": args.lang, "AR_VEH": str(vehicles),
-               "AR_HOST": "", "AR_DB": args.db}
+               "AR_HOST": "", "AR_DB": args.db, "AR_OUT_ROOT": str(out)}
         for cmd in (
             [py, "parse.py"],
             [py, "apply_applic.py", "--extract", str(extract), "--applic", str(applic2),

@@ -45,7 +45,8 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE.parent / "autorundown_out"
+from wis_paths import out_root  # noqa: E402  (data stays outside the repo)
+OUT = out_root()
 
 _MOJIBAKE = re.compile(
     "[Â-ô]"

@@ -22,8 +22,8 @@ class Config:
     importer: str = "auto"
     api_key: str = ""
     model: str = "claude-opus-5"
-    # the Mercedes WIS extractor (vm_pipeline.py lives there); "" = look next
-    # to this repo in "Mercedes Documents/autorundown_extractor"
+    # the Mercedes WIS extractor (vm_pipeline.py lives there); "" = this
+    # repo's extractor/. Its data goes outside the repo: see extractor/wis_paths.py
     extractor_dir: str = ""
 
     @property

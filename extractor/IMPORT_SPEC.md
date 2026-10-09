@@ -144,6 +144,10 @@ them still works.
 ```
 
 - `name` is `Verkaufsbezeichnung` as stored (char(18), so some are clipped).
+- `body_by_bm` (optional): Baumuster → body style (`Sedan`, `Wagon`, `Coupe`,
+  `Convertible`, `Roadster`, `Shooting Brake`), from `ASRA_Typkennzahl`'s
+  names. One sales name can span bodies ("E 320 4MATIC" = sedan 210.082 and
+  wagon 210.282); AutoRundown splits such a line into one model per body.
 - `engines` are engine Baumuster. **Engine and vehicle series share one number
   space** (906 = OM906 engine *and* Sprinter), so a consumer must not treat
   every engine number as a separate document bucket — AutoRundown only links

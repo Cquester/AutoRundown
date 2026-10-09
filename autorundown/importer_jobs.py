@@ -34,16 +34,19 @@ def can_rebuild_wis(index_path: str | Path) -> bool:
 
 
 def extractor_candidates() -> list[Path]:
-    """Where the WIS extractor is looked for, in order. Its own folder matters:
-    vm_pipeline.py finds tbjdbc.jar and the EWA Java in the folder above it,
-    so it is never bundled with the app -- the installed app has to find the
-    user's working copy, which sits on the Desktop (next to the repo, when
-    running from source)."""
+    """Where the WIS extractor is looked for, in order: config.extractor_dir,
+    then the copy in this repo (`extractor/`). There is deliberately no
+    fallback to the old standalone copy beside a source checkout: two copies
+    drift. The installed app (Windows MSI) has no `extractor/` -- it never
+    ships, see packaging/windows -- so only there it looks for the user's
+    copy on the Desktop."""
     from . import config
-    sub = Path("Mercedes Documents") / "autorundown_extractor"
-    home = Path.home()
-    return [Path(c) for c in (config.load().extractor_dir,) if c] + [
-        ROOT.parent / sub, home / "Desktop" / sub, home / "OneDrive" / "Desktop" / sub]
+    found = [Path(c) for c in (config.load().extractor_dir,) if c] + [ROOT / "extractor"]
+    if not (ROOT / "extractor").is_dir():
+        sub = Path("Mercedes Documents") / "autorundown_extractor"
+        home = Path.home()
+        found += [home / "Desktop" / sub, home / "OneDrive" / "Desktop" / sub]
+    return found
 
 
 def find_extractor() -> Path | None:
@@ -52,6 +55,25 @@ def find_extractor() -> Path | None:
         if (c / "vm_pipeline.py").is_file():
             return c
     return None
+
+
+def extractor_out_root(ext: Path) -> Path:
+    """Where that extractor writes (autorundown_out) -- outside the repo.
+
+    Asks the extractor's own wis_paths.py, so the site and the scripts agree;
+    an older copy without it wrote beside itself.
+    """
+    import importlib.util
+    paths = ext / "wis_paths.py"
+    if not paths.is_file():
+        return ext.parent / "autorundown_out"
+    spec = importlib.util.spec_from_file_location("_ar_wis_paths", paths)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    try:
+        return mod.out_root()
+    except SystemExit as e:              # an AR_OUT_ROOT inside the repo
+        raise RuntimeError(str(e)) from None
 
 
 def list_vms() -> dict:
@@ -69,7 +91,11 @@ def list_vms() -> dict:
         return {"extractor": str(ext), "vms": [],
                 "error": (r.stdout + r.stderr).strip().splitlines()[-1:] or ["VirtualBox not found"]}
     vms = [dict(zip(("name", "state"), l.split("\t"))) for l in r.stdout.splitlines() if "\t" in l]
-    return {"extractor": str(ext), "vms": vms, "out_root": str(ext.parent / "autorundown_out")}
+    try:
+        out_root = extractor_out_root(ext)
+    except RuntimeError as e:
+        return {"extractor": str(ext), "vms": vms, "error": str(e)}
+    return {"extractor": str(ext), "vms": vms, "out_root": str(out_root)}
 
 
 def describe(path: Path, index_path: str | Path) -> dict:

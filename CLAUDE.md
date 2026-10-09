@@ -52,33 +52,40 @@ python test_ui_picks.py                           # FREE, UI sends the car it sh
 python -m autorundown.launcher                    # what the Windows shortcut runs
 ```
 
-Mercedes WIS, end to end from this one session (VM -> index):
+Mercedes WIS, end to end from this one session (VM -> index). The extractor
+is `extractor/` in this repo (the only copy since 2026-10-08); its data --
+the EWA install it reads, `autorundown_out/` it writes -- stays in
+`../Mercedes Documents/`, found by `extractor/wis_paths.py` (`AR_OUT_ROOT` /
+`AR_HOME` override; an output folder inside the repo is refused).
 
 ```bash
-# 1. pull (VM must be off or idle; boots headless, ~15 min, resumable)
-powershell -ExecutionPolicy Bypass -File "../Mercedes Documents/autorundown_extractor/extract.ps1" -VM "Mercedes_Ultimate_207"
-# 2. vehicle names + VIN tables (VM up; 9 s) then parse (offline) -- see
-#    the Vehicle selection section. pull_vehicles.js runs like pull.js: from a
-#    space-free staging dir with AR_HOST/AR_PORT/AR_DB/AR_OUT set
-#    (AR_OUT = autorundown_out/wis_vehicles).
-python "../Mercedes Documents/autorundown_extractor/parse_vehicles.py"
-# 2b. real applicability (schema 1.2): pull_applic2.js (VM up, ~5 min, same
-#     env vars, AR_OUT = autorundown_out/wis_applic2) then, offline:
-python "../Mercedes Documents/autorundown_extractor/apply_applic.py"
-#     until parse.py does this join itself, a fresh pull is schema 1.1 again
-#     and this step is NOT optional -- the importer would then file by text
-#     only (it prints "structured model links IGNORED").
-# 2c. images (schema 1.3): pull in 15k batches, VM off between (~2 h), then
-#     convert + attach (offline). Resumable; re-run after any stop.
-#     After a parse_sids.py change, `reparse_bodies.py` (offline, ~18 min)
-#     updates body_text only; then re-run apply_images.py.
-bash "../Mercedes Documents/autorundown_extractor/pull_images_batches.sh"
-python "../Mercedes Documents/autorundown_extractor/convert_images.py" --jobs 4
-python "../Mercedes Documents/autorundown_extractor/apply_images.py"
-# 3. rebuild the WIS part of the main index (~6 min): restores
+python extractor/wis_paths.py                     # where it reads + writes
+# 1. everything, resumable (~4 h from scratch, mostly images): docs ->
+#    applic -> vehicles -> images (VM on, headless, 15k-image batches with
+#    the VM off between) -> build (offline: parse.py, apply_applic.py
+#    --rebuild-join, parse_vehicles.py, convert_images.py, apply_images.py)
+python extractor/vm_pipeline.py --vm "Mercedes_Ultimate_207"
+#    a subset: --steps vehicles,build  (or images,build). The Import dialog
+#    runs exactly this, then rebuild_wis.py.
+# 1b. offline pieces on their own (defaults read <out root>/...):
+python extractor/apply_applic.py      # schema 1.2 join; NOT optional after a fresh parse.py
+python extractor/parse_vehicles.py    # vehicle names, variants, VIN tables
+python extractor/convert_images.py --jobs 4
+python extractor/apply_images.py
+#     After a parse_sids.py change: reparse_bodies.py (offline, ~18 min,
+#     --dry-run first) updates body_text only; then re-run apply_images.py.
+python extractor/reparse_bodies.py --dry-run
+# 2. rebuild the WIS part of the main index (~6 min): restores
 #    index.before-wis.db, carries the spend log across, re-ingests
 python rebuild_wis.py
 ```
+
+The old route (`extractor/extract.ps1`, which also snapshots the VM and
+changes its NIC and firewall, and the `pull_images_*.sh` batch scripts, not
+in the repo) is superseded by `vm_pipeline.py`. Without `parse.py` doing the
+WS/WC join itself, a fresh `parse.py` is schema 1.1 again until
+`apply_applic.py` runs -- the importer would then file by text only (it
+prints "structured model links IGNORED"); the `build` step does both.
 
 **Never rebuild by copying `index.before-wis.db` over `index.db` by hand.**
 The spend log (`usage_log`) lives inside the index, so that silently deletes
@@ -176,6 +183,26 @@ torque" returned only the oil). Regression test: `multipart-oil-and-torque`.
 procedure). Without `figures`, the model writes a spec whose value is "see
 Fig 15", which renders in 30px type as though it were a torque.
 
+**The answer reads top-down the way the job is done** (the user's request,
+2026-10-08): Answer, Procedure, Figures, then Specifications, caveats,
+sources. It used to lead with specs.
+
+**Only the chosen car's values, checked after the model.** The user typed
+"2001 E 320 4MATIC" (W210, M112) and got torque values for every W210
+engine: a page listing M112, M113 and OM613 rows passes the SQL engine
+filter because it names the M112 too, and the model copied every row.
+`ANSWER_SYSTEM` now says to give only this vehicle's rows, and
+`query._drop_other_vehicles()` enforces it like the citation check: a spec
+whose `applicability` (+ name) names engines (`M113`, `OM 613`, `engines
+112, 113`, `113.940`) or model codes of this series (`210.082`) and none of
+the car's is removed. Unnamed, "all engines" and anything with "except" stay.
+Only when a car or engine is chosen (`vehicle_codes()` is None for the whole
+generation). Removed specs come back as `other_vehicle_specs` and render
+collapsed ("2 values for other engines or models — not your car, hidden");
+if nothing else is left the answer becomes not-found. Tests in
+`test_records.py` ("answers keep only the chosen car's values"). **Not yet
+tried on a paid answer.**
+
 **Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert
 units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part
@@ -194,10 +221,11 @@ NHTSA-derived years, which is why it is allowed.
 
 ## The `records` importer (second source: Mercedes WIS)
 
-The WIS extractor lives outside this repo (`Desktop/Mercedes Documents/
-autorundown_extractor/`) and emits a source-agnostic corpus: `records.jsonl`
-(one normalized doc per line) + `manifest.json` (provenance, counts,
-`schema_version`). `IMPORT_SPEC.md` there is the contract.
+The WIS extractor is `extractor/` in this repo (its data stays outside, in
+`Desktop/Mercedes Documents/autorundown_out/`) and emits a source-agnostic
+corpus: `records.jsonl` (one normalized doc per line) + `manifest.json`
+(provenance, counts, `schema_version`). `extractor/IMPORT_SPEC.md` is the
+contract.
 
 **One importer for the whole spec, not one per source.** Future adapters
 (another OEM DB, a folder of PDFs) emit the same two files, so they need an
@@ -620,6 +648,20 @@ M276" for a 2012-13 E 350) + `year`; the answer model is told all three. A
 VIN in the same box resolves the same way. Non-US variants are listed by
 name ("not a US model") under their generation's years.
 
+**Body style: one model per body (2026-10-08).** WIS sells the W210 sedan
+(210.082) and wagon (210.282) under one name, "E 320 4MATIC", so the user
+could not pick their wagon. `parse_vehicles.py` now writes `body_by_bm` from
+`ASRA_Typkennzahl` (already pulled; joined on the type-number key columns
+both tables share, language chosen by which names most bodies; it prints
+what it used and the W210 example -- **check that line**, the join was
+written without the real TSVs at hand). The importer's `split_by_body()`
+turns a name spanning bodies into "E 320 4MATIC Sedan" / "... Wagon", each
+with only its own Baumuster, so codes, US years, VIN prefixes and the answer
+label follow. The car box matches "wagon", "estate", "sedan", "cabriolet".
+Variant positions shift, so the remembered-pick keys are now `.v3`. To land
+on the real index (no VM needed): `python extractor/parse_vehicles.py`, then
+`python rebuild_wis.py`.
+
 **Fixed 2026-10-08: variant indexes were wrong since the variant picker
 shipped.** The UI sorted each generation's variants by name *in place* and
 sent the sorted position; the server indexes the stored order. Choosing "E
@@ -787,8 +829,9 @@ changes the NIC or the guest firewall (the old `extract.ps1` did) — if the DB
 isn't reachable it says what to set up by hand. A saved VM state is
 discarded for a cold boot (a 7.1 save state may not resume under 7.2). Finds
 VBoxManage, the EWA `sun_jre` Java and `tbjdbc.jar` itself; the extractor
-folder is `config.extractor_dir` or `../Mercedes Documents/
-autorundown_extractor`. Verified from the dialog with steps
+folder is `config.extractor_dir` or this repo's `extractor/`, and the output
+root comes from that extractor's `wis_paths.py` (`importer_jobs.
+extractor_out_root()`), so the site and the scripts agree. Verified from the dialog with steps
 vehicles,build: 25 min, rc 0, every corpus count identical to the hand-run
 build (223,968 vehicle-tied, 380,428 figures placed, 7,577 VIN prefixes).
 **From-scratch run, 2026-10-07** (old outputs moved to
@@ -869,13 +912,15 @@ macOS/Linux run from source (README), by the user's decision.
   running it would contend for the name.
 - Version: `autorundown/__init__.py` `__version__`; bump it per release (MSI
   MajorUpgrade needs a higher version to replace an install).
-- The WIS extractor is **not bundled**, deliberately: `vm_pipeline.py` finds
-  `tbjdbc.jar` and the EWA Java in the folder *above itself* (Mercedes
-  software, never shipped). `importer_jobs.extractor_candidates()`: config
-  `extractor_dir` (Settings -> "Mercedes extractor folder"), then
-  `../Mercedes Documents/autorundown_extractor` (source layout), then
-  `~/Desktop/...` and `~/OneDrive/Desktop/...` (the installed app; the user's
-  copy is on the Desktop). The bundle includes `requirements-extractor.txt`
+- The WIS extractor is **not bundled**, deliberately: it reads the EWA
+  Java and `tbjdbc.jar` from the "Mercedes Documents" folder
+  (`extractor/wis_paths.py`; Mercedes software, never shipped).
+  `importer_jobs.extractor_candidates()`: config `extractor_dir` (Settings
+  -> "Mercedes extractor folder"), then the repo's `extractor/` -- from
+  source that is all, no fallback to a second copy (they drift). Only the
+  installed app, which has no `extractor/`, also tries
+  `~/Desktop/Mercedes Documents/autorundown_extractor` and the OneDrive
+  Desktop one (the user's copy). The bundle includes `requirements-extractor.txt`
   (Pillow, ezdxf) because the extractor runs under the bundled Python and its
   build step converts images. CI copies `extractor/` to the runner's Desktop
   and checks `/api/vms` finds it.
@@ -1017,18 +1062,34 @@ pass, known-bad guards 33 -> 12.
 1. **"Original layout" is built** (see its section above). Not yet seen by
    the user on their phone; ask how it reads. Open ends: the undecoded
    MATH/SYMBOLS glyphs and most LOGO icons, RTF hotspots as links.
-2. **Extractor: two copies.** `extractor/` in this repo holds the source and docs (see `docs/MERCEDES_WIS_EXTRACTION.md`), copied 2026-10-08; the working copy the site runs is in
-   `../Mercedes Documents/autorundown_extractor` (vm_pipeline.py,
-   pull_*.js, parse*.py, apply_*.py, convert_images.py). The site finds it
-   via `config.extractor_dir` or that sibling path. Decide with the user
-   whether to move it into this repo.
+2. **Extractor: one copy now** (2026-10-08, the user's decision). The site
+   runs `extractor/` from this repo; the data stays in `../Mercedes
+   Documents/` (`extractor/wis_paths.py`). The old standalone copy,
+   `../Mercedes Documents/autorundown_extractor`, was left in place (we
+   never delete) -- nothing uses it; the user may remove it. Not yet re-run
+   end to end from the repo copy: the paths resolve and the evals pass, but
+   the next VM run is the real check.
 3. ~~A UI-level test for variant indexes~~ — done: `test_ui_picks.py`.
    Open: a bare two-digit word in the car box is always a year ("190 e 2.3
    16" → 2016, no match).
 4. Old data moved aside in `autorundown_out/_previous_2026-10-07` (~15 GB)
    and `index.v11.db` — the user may delete them; we never delete data.
-5. Cosmetic: printed figure numbers in the older "P01-5220-13" style are
-   not stripped (`FIG_CAPTION_RE` only knows "W15.18-1024-01").
+5. **Older figure numbers ("P01-5220-13"): fixed in `parse_sids.py`, not yet
+   in the corpus.** `strip_fig_captions()` strips both styles but keeps a
+   number the text refers to ("see Fig. D27-0007-13", "wiring diagrams
+   W54-2328-71, … and …"): of 34,294 in the corpus ~50 are kept. To land:
+   `python extractor/reparse_bodies.py --dry-run`, then without
+   `--dry-run`, then `apply_images.py`, then `rebuild_wis.py`. The
+   dry-run used to report every illustrated body (139,273) as losing text:
+   its check ignored `[figure:]` but not `[diagram:]` markers -- the old
+   parser failed it too (973 of 3,000 sampled). Fixed; on that sample both
+   parsers lose 0 words. The full 18-minute dry-run has not been re-run
+   since the fix.
+
+6. **Sedan/wagon split and the other-engine filter are built but not run on
+   the real data** (see their sections). Next: `parse_vehicles.py` (read
+   its "body styles" lines), `rebuild_wis.py`, `test_ui_picks.py`,
+   `eval_wis.py`; then one scoped paid answer for a W210 wagon.
 
 ## Working style the user prefers
 

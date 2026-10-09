@@ -15,3 +15,12 @@ tools/.us_years_cache.json
 *.log
 build/
 dist/
+
+# Mercedes WIS: data and Mercedes software stay outside the repo
+# (extractor/wis_paths.py refuses to write here; this is the second guard)
+autorundown_out/
+ewa_extract/
+*.jar
+extractor/bringup/schema/
+extractor/bringup/*_log.txt
+extractor/parse_sids.before-*.py

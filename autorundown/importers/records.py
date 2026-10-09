@@ -1,7 +1,7 @@
 """Importer for a normalized import corpus (`records.jsonl` + `manifest.json`).
 
 This is the AutoRundown side of the import spec that ships with the extractor
-tooling (`autorundown_extractor/IMPORT_SPEC.md`). The contract is deliberately
+tooling (`extractor/IMPORT_SPEC.md`). The contract is deliberately
 source-agnostic: an adapter -- today the Mercedes WIS VirtualBox extractor,
 tomorrow another OEM database or a folder of PDFs -- writes one JSON record per
 line plus a provenance manifest, and this importer is all AutoRundown needs to
@@ -159,6 +159,44 @@ def with_engine_labels(variant: dict, labels: dict[str, str]) -> dict:
         if f.isdigit():
             fams[f] = labels.get(f, f"Engine {f}")
     return {**variant, "engine_families": fams} if fams else variant
+
+
+# display order when one sales name is split by body
+BODY_ORDER = ["Sedan", "Wagon", "Coupe", "Convertible", "Roadster", "Shooting Brake"]
+
+
+def split_by_body(variant: dict) -> list[dict]:
+    """One variant per body style, when its Baumuster span several.
+
+    WIS sells the W210 sedan (210.082) and wagon (210.282) under the one
+    name "E 320 4MATIC", so the picker could not tell a wagon from a sedan;
+    the user has a wagon. Split, the wagon is "E 320 4MATIC Wagon" with only
+    its own Baumuster -- its exact codes (Scope.codes), US years and VIN
+    prefixes follow, and the answer model is told the body. A Baumuster of
+    unknown body goes with every split (a wider code list only filters less).
+    `body_by_bm` comes from parse_vehicles.py (ASRA_Typkennzahl); without it
+    nothing changes.
+    """
+    bodies = variant.get("body_by_bm") or {}
+    bms = variant.get("baumuster") or []
+    known = sorted({bodies[b] for b in bms if bodies.get(b)},
+                   key=lambda b: (BODY_ORDER.index(b) if b in BODY_ORDER else 99, b))
+    if len(known) < 2:
+        whole = bool(bms) and all(bodies.get(b) for b in bms)
+        return [{**variant, "body": known[0]} if whole and known else variant]
+    unknown = [b for b in bms if not bodies.get(b)]
+    ebm = variant.get("engine_by_bm") or {}
+    out = []
+    for body in known:
+        mine = sorted([b for b in bms if bodies.get(b) == body] + unknown)
+        mine_ebm = {b: e for b, e in ebm.items() if b in mine}
+        # engines from the Baumuster that have them; all of them if any lacks
+        engines = (sorted({e for b in mine for e in mine_ebm.get(b, [])})
+                   if all(mine_ebm.get(b) for b in mine) else variant.get("engines", []))
+        out.append({**variant, "name": f"{variant['name']} {body}", "body": body,
+                    "baumuster": mine, "engine_by_bm": mine_ebm, "engines": engines,
+                    "body_by_bm": {b: bodies[b] for b in mine if bodies.get(b)}})
+    return out
 
 
 PASSENGER_TYPES = {"CAR", "4xWD", "smart"}
@@ -974,13 +1012,14 @@ class RecordsImporter(Importer):
                     v = json.loads(line)
                     series, name = str(v.get("model_series") or ""), (v.get("name") or "").strip()
                     if series and name:
-                        out.setdefault(series, []).append(
+                        out.setdefault(series, []).extend(split_by_body(
                             {"name": fix_mojibake(name),
                              "baumuster": v.get("baumuster") or [],
                              "engines": v.get("engines") or [],
                              "engine_by_bm": v.get("engine_by_bm") or {},
+                             "body_by_bm": v.get("body_by_bm") or {},
                              "vehicle_type": v.get("vehicle_type") or "",
-                             "division": v.get("division") or ""})
+                             "division": v.get("division") or ""}))
         except (OSError, ValueError) as exc:
             print(f"  ! {path.name} could not be read ({exc}); "
                   f"the picker will list series only")
