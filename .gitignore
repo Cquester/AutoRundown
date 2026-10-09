@@ -27,3 +27,5 @@ extractor/parse_sids.before-*.py
 
 # demo screenshots taken in a session; sent to the user, not source
 screenshots/
+.dev/
+sample_lemon/

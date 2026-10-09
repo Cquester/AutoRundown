@@ -31,6 +31,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repath", action="store_true",
                     help="only update where the archive lives, keeping the "
                          "existing index (use after moving machines)")
+    ap.add_argument("--only", action="append", default=[], metavar="FOLDER",
+                    help="import only the vehicle in this folder (relative to "
+                         "--archive, or absolute); repeat for several. The "
+                         "LEMON source of the import dialog uses it")
     args = ap.parse_args(argv)
 
     if not args.archive:
@@ -50,6 +54,17 @@ def main(argv: list[str] | None = None) -> int:
     if not vehicles:
         print("no vehicles found in archive", file=sys.stderr)
         return 1
+
+    if args.only:
+        # a vehicle is its folder: match on that, not on a label two
+        # vehicles could share
+        want = {(root / o).resolve() for o in args.only}
+        vehicles = [v for v in vehicles if Path(v.file_path).resolve() in want]
+        missing = want - {Path(v.file_path).resolve() for v in vehicles}
+        for m in sorted(missing):
+            print(f"  ! --only {m}: no vehicle in that folder", file=sys.stderr)
+        if missing:
+            return 1
 
     print(f"\nfound {len(vehicles)} vehicle(s):")
     for v in vehicles:

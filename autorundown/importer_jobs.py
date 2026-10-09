@@ -142,6 +142,86 @@ def describe(path: Path, index_path: str | Path) -> dict:
                        f"HTML / text / PDF files"}
 
 
+def lemon_vehicles(path: Path, index_path: str | Path) -> dict:
+    """The LEMON manuals in `path`, one row per vehicle folder, and whether
+    each is already in the index -- what the LEMON tab's folder section lists.
+
+    Reads each vehicle's pages/1.html for its name (the same breadcrumb the
+    importer files it under), so the doc_id here is the one ingest.py uses.
+    The index is opened read-only: listing must never write to it.
+    """
+    from .importers.lemon import LemonImporter
+    if not path.is_dir():
+        return {"path": str(path), "vehicles": [], "summary": "Not a folder."}
+    try:
+        found = list(LemonImporter().discover(path))
+    except Exception as exc:  # a broken folder must not break browsing
+        return {"path": str(path), "vehicles": [], "summary": f"Could not read this folder: {exc}"}
+    have: dict[str, tuple[int, int]] = {}
+    if found and Path(index_path).is_file():
+        import sqlite3
+        try:
+            con = sqlite3.connect(f"file:{Path(index_path).as_posix()}?mode=ro", uri=True)
+            try:
+                have = {d: (n or 0, c or 0) for d, n, c in con.execute(
+                    "SELECT doc_id, indexed_pages, complete FROM vehicles")}
+            finally:
+                con.close()
+        except sqlite3.Error:
+            have = {}
+    rows = []
+    for v in found:
+        n, complete = have.get(v.doc_id, (0, 0))
+        try:
+            rel = Path(v.file_path).relative_to(path).as_posix()
+        except ValueError:
+            rel = v.file_path
+        rows.append({"folder": rel, "doc_id": v.doc_id, "label": v.label,
+                     "pages": v.page_count, "indexed_pages": n,
+                     "state": "imported" if complete else "partial" if v.doc_id in have else "new"})
+    rows.sort(key=lambda r: r["label"].lower())
+    new = sum(r["state"] != "imported" for r in rows)
+    summary = (f"{len(rows)} LEMON vehicle(s), {len(rows) - new} already imported"
+               if rows else "No LEMON manuals here (a vehicle folder holds index.html and pages/1.html).")
+    return {"path": str(path), "vehicles": rows, "summary": summary}
+
+
+def manuals(index_path: str | Path) -> dict:
+    """What is in the index, grouped the way the Import dialog's tabs remove
+    it: LEMON and folder manuals one by one, Mercedes WIS as a whole
+    (remove_manuals.py says why). Read-only."""
+    out: dict = {"lemon": [], "folder": [], "wis": {"entries": 0, "pages": 0, "sources": []}}
+    p = Path(index_path)
+    if not p.is_file():
+        return out
+    import sqlite3
+    try:
+        con = sqlite3.connect(f"file:{p.as_posix()}?mode=ro", uri=True)
+        try:
+            rows = con.execute("SELECT doc_id, source_name, year_range, make, model, file_path, "
+                               "indexed_pages, complete FROM vehicles").fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return out
+    wis_sources = set()
+    for d, src, year, make, model, fp, n, complete in rows:
+        src = src or ""
+        if src.startswith("mercedes-wis"):
+            out["wis"]["entries"] += 1
+            out["wis"]["pages"] += n or 0
+            wis_sources.add(src)
+            continue
+        group = "lemon" if src == "lemon" else "folder"
+        label = " ".join(x for x in (year, make, model) if x) or d
+        out[group].append({"doc_id": d, "label": label, "source": src, "pages": n or 0,
+                           "file_path": fp or "", "complete": bool(complete)})
+    for g in ("lemon", "folder"):
+        out[g].sort(key=lambda r: r["label"].lower())
+    out["wis"]["sources"] = sorted(wis_sources)
+    return out
+
+
 class ImportJobs:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -156,10 +236,11 @@ class ImportJobs:
             j["log"] = list(self._log)[-120:]
             end = j.get("finished") or time.time()
             j["elapsed"] = round(end - j["started"])
+            j["ago"] = round(time.time() - j["finished"]) if j.get("finished") else 0
             return j
 
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
-              steps: str = "") -> dict:
+              steps: str = "", only: list[str] | None = None, compact: bool = False) -> dict:
         with self._lock:
             if self._job and self._job["state"] == "running":
                 raise RuntimeError("An import is already running.")
@@ -177,6 +258,24 @@ class ImportJobs:
                 if steps:
                     pipe += ["--steps", steps]
                 cmds = [pipe, rebuild if can_rebuild_wis(index_path) else add]
+            elif mode == "lemon":
+                # the picked vehicle folders only, read as LEMON whatever else
+                # the folder holds
+                cmd = [*py, str(ROOT / "ingest.py"), "--archive", str(path),
+                       "--index", str(index_path), "--importer", "lemon"]
+                for o in only or []:
+                    cmd += ["--only", o]
+                cmds = [cmd]
+            elif mode in ("remove", "remove_wis"):
+                # remove_manuals.py: LEMON / folder manuals by doc_id, WIS whole
+                cmd = [*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path)]
+                if mode == "remove_wis":
+                    cmd += ["--source", "mercedes-wis"]
+                for o in only or []:
+                    cmd += ["--doc-id", o]
+                if compact:
+                    cmd += ["--compact"]
+                cmds = [cmd]
             elif mode == "rebuild_wis":
                 # restores index.before-wis.db over the live index, carries the
                 # spend log across, re-ingests -- see rebuild_wis.py
@@ -201,7 +300,8 @@ class ImportJobs:
             self._job["state"] = "done" if rc == 0 else "failed"
 
     def _run(self, cmd: list[str]) -> int:
-        self._log.append("$ " + " ".join(f'"{c}"' if " " in c else c for c in cmd[1:]))
+        shown = [Path(cmd[2]).name, *cmd[3:]] if cmd[1:2] == ["-u"] and len(cmd) > 2 else cmd
+        self._log.append("$ " + " ".join(f'"{c}"' if " " in c else c for c in shown))
         try:
             # a piped child on Windows prints in the ANSI code page and dies on
             # "Coupé"; force UTF-8 both ways

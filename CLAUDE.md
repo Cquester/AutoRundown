@@ -52,7 +52,27 @@ python test_ui_picks.py                           # FREE, UI sends the car it sh
 python -m autorundown.launcher                    # what the Windows shortcut runs
 python test_access.py                             # FREE, admin/sign-in/limits/HTTPS (~2 s)
 python serve.py --https                           # TLS from a local CA (tls.py)
+python dev.py                                     # FREE, throwaway instance, :8757
+python test_lemon_import.py                       # FREE, LEMON import source (~3 s)
+python test_lemon_catalogue.py                    # FREE, LEMON tab's catalogue tree (~3 s)
+python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogue snapshot
+python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual
+python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
+python test_remove_manuals.py                     # FREE, removing manuals (~20 s)
 ```
+
+**Try UI and import changes with `python dev.py`, on the user's PC.** It
+builds sample data (`make_sample_lemon.py`, `make_sample_corpus.py`; invented
+text) into `.dev/`, runs with its own `AUTORUNDOWN_HOME` there (config,
+accounts, TLS) and serves on localhost:8757, so the real index, spend log and
+the real server on 8756 are never touched. It drops `ANTHROPIC_API_KEY`, so
+Ask costs nothing unless someone types a key into the dev Settings. One of
+the three sample LEMON vehicles is imported, two are left for the import
+dialog; `--empty` gives the first-start dialog, `--reset` rebuilds.
+**The user prefers local sessions to cloud sessions (2026-10-09): never start
+a cloud session or remote agent without asking.** In a cloud container,
+`dev.py --no-browser` + Playwright (`executable_path="/opt/pw-browsers/chromium"`)
+gives screenshots, but the user cannot open that server.
 
 Mercedes WIS, end to end from this one session (VM -> index). The extractor
 is `extractor/` in this repo (the only copy since 2026-10-08); its data --
@@ -863,7 +883,110 @@ a phone on the LAN, measured) since they list folders and run long jobs;
 search stays open to the LAN. Verified end to end: a WIS rebuild started
 from the dialog finished in 3 min 13 s, rc 0, evals unchanged.
 
-**From a Mercedes virtual machine** (second source in the same dialog):
+**The Import dialog's sources are folder tabs** (Folder · LEMON · Mercedes
+VM, 2026-10-09, the user's choice over radio buttons). **LEMON is one tab**:
+the catalogue tree on top, and "Already have LEMON manuals in a folder on
+this PC?" below it -- the user asked to keep one LEMON source, not two. The
+folder browser (`#impFolder`) is moved between the Folder tab and that
+section; `impSource()` still answers `lemon` (folder import) / `catalogue`
+(tree) / `folder` / `vm`, so the import code paths are unchanged.
+
+**Removing manuals: in the tab that imported them** (2026-10-09, the
+user's design over a separate cleanup section). The LEMON tab lists
+"Imported LEMON manuals" (every `lemon` source car, including ones named the
+old way that the tree can't show) with tick boxes and "Remove selected"; the
+Folder tab lists folder imports the same way; the Mercedes VM tab has one
+"Remove all Mercedes WIS data". **WIS is never removed per model**: its
+models share engine buckets and the general pool, so a single entry would
+leave the rest half-working -- the server and `remove_manuals.py` refuse a
+WIS doc_id. Removal runs `remove_manuals.py` as an import job (log, one job
+at a time): deletes the car's chunks (the FTS trigger follows), pages,
+connectors and vehicle row, one commit per car. Safe per car because
+duplicate pages are only matched within a doc_id (`index.add_page`). It
+checks the spend log row count is unchanged and never touches files on disk.
+"Shrink the index file" = VACUUM + `wal_checkpoint(TRUNCATE)` (in WAL mode
+VACUUM lands in the -wal file; without the checkpoint the file doesn't
+shrink -- the test caught it); off by default for single cars, on for WIS.
+`/api/import/manuals` lists, `POST /api/import` modes `remove` /
+`remove_wis`, both admin-only. Test: `test_remove_manuals.py`.
+
+**LEMON folder import** (inside the LEMON tab): open the archive folder, get one row per vehicle folder with
+"imported" / "partly imported" read from the index (opened `mode=ro`), tick
+which to import. `/api/import/lemon?path=` lists them
+(`importer_jobs.lemon_vehicles()`, admin-only under `/api/import`); the job is
+`ingest.py --importer lemon --only <folder> …` (`--only` matches a vehicle by
+its folder; an unknown one fails the run). The server only accepts folders
+its own listing returned. The Folder tab still auto-detects LEMON and points
+at the LEMON tab. A torrent source exists on the unmerged branch
+`claude/confident-wozniak-t9iphf`; the user chose to leave it out until it is
+tested on its own. Test: `test_lemon_import.py`.
+
+**LEMON catalogue tree** (the LEMON tab, 2026-10-09): every vehicle in the
+LEMON torrent as folders, make > year (newest first) > model > variant, each
+with a tick box -- the user wants to tick "Mercedes Benz" for all of it, or
+open it and tick a year, a model or one variant (drop-downs were tried first
+and replaced). Folders load as they are opened and show how many vehicles
+and how many are imported; ticks are all / some (indeterminate) / none.
+A pick is stored as a folder path in `APP_DIR/lemon_picks.json`, never as a
+list of cars: picking a folder drops picks inside it, unpicking inside a
+picked folder splits it into its other children (`set_pick`), so picks
+never overlap and counts are sums. `picked_vehicles()` expands them for the
+download step. Nothing downloads yet. `autorundown/lemon_catalogue.py`;
+`GET /api/import/lemon-catalogue?path=<JSON list>`, `POST …/picks {path,
+picked}`, admin-only. Test: `test_lemon_catalogue.py`.
+
+What the torrent actually is (read 2026-10-09 from `lemon-manuals.torrent`
+and the `lemon-website-source-code.tar.gz` inside it; **not** the vehicle
+folders the torrent branch assumed, so that branch can't work on it):
+`lemon/index.json` (143 MB), `lemon/pages.mtbl` (31.5 GB), `lemon/images.mtbl`
+(481 GB), the same three under `charm/`, and LEMON's own server binaries.
+`index.json` = 279,988 vehicles `{make, years, model, engine, uriPath,
+rootUriTable, rootLinkTable}`, 65 makes, 1960-2025. The `.mtbl` files are
+sorted key-value tables (zstd blocks of 128 KB, index block at the end);
+page keys are `<content type>_<sha256>` (`html_labor_detail_…`,
+`uri_table_act_…`), so **one car's pages are spread across the whole 31.5 GB**
+and a 64 MB-piece torrent can't hand over one vehicle. Images are
+`image_<id>`; whether one car's ids cluster in `images.mtbl` is untested.
+
+- The catalogue comes from the torrent's `index.json` when
+  `config.lemon_torrent_dir` holds one, else from the committed snapshot
+  `importers/data/lemon_catalogue.json.gz` (0.6 MB, `{make: {year: {model:
+  [engine]}}}`, built by `tools/build_lemon_catalogue.py`, which refuses to
+  write if any vehicle's name isn't "model engine").
+- "imported" is exact: a LEMON car's name (last part of `uriPath`, and the
+  breadcrumb our `lemon` importer reads) is always "model engine", so its
+  doc_id is `_slug(year-make-model engine)`; `load()` maps every doc_id to
+  its tree path once (~0.7 s) so imported counts reach every folder. Manuals downloaded under older
+  names ("190E 2.3-16 (201.034) L4-2.3L (102.983)") match no row; the 1987
+  catalogue has no 2.3-16 at all, only "190E 2.3, 102.983/102.985".
+- The "engine" field also carries trim and body for many makes ("Lariat, 4D
+  Pickup Extra Cab, 3.5L Eng VIN G, 4WD"), so the tree calls that level the
+  variant; a filter box narrows the open folders' variants (and the makes).
+- Per-car image download measured on the real index (2026-10-09): the
+  F-150 Lariat's 8,689 images (593 MB in its LEMON zip) sit in 154 of the
+  64 MB pieces of `images.mtbl` = 9.6 GB, in 101 runs; image ids
+  (`G000161176`, `GFD41139`, `VA467679`) are the file names in a LEMON zip.
+  A car's image list is only known from its pages, so text comes first.
+- **The download (not built) must follow what the user agreed, 2026-10-09**,
+  and the LEMON tab's "How LEMON downloads will work" already tells users so
+  -- keep the two in step: one download for all picks; size, free space
+  needed and what stays afterwards shown before starting, refused without
+  the space; afterwards the torrent files (pages.mtbl, partial images.mtbl,
+  `.parts`, resume data, index.json) are deleted and only the index plus
+  each picked car's own images (`APP_DIR/manuals/<doc_id>/images`) stay --
+  removing a car deletes its folder; setting "keep the LEMON text database"
+  off by default; never seeds, upload capped while running, session and port
+  closed when done. Ideas not yet measured: a two-pass fetch (the
+  `uri_table_*`/`link_table_*` keys sort together near the end of
+  pages.mtbl, so pass 1 could fetch only the tables and the index, pass 2
+  only the pieces holding the picks' pages) and batch-and-delete to cap peak
+  disk. Sizing it needs piece 16308 (the first 12 MB of the 60 MB pages
+  index); the user has not yet OK'd that fetch.
+- **Never fetch from lemon-manuals.la over HTTP** -- the user's rule (the
+  site asks not to be scraped). The `.torrent` itself is its download link;
+  anything else comes from the swarm.
+
+**From a Mercedes virtual machine** (third source in the same dialog):
 `/api/vms` lists VirtualBox VMs; the job runs the extractor's
 `vm_pipeline.py --vm <name> --out-root <autorundown_out> --steps …` and then
 `rebuild_wis.py` on `<out_root>/wis_extract`. The pipeline is the manual

@@ -28,6 +28,9 @@ class Config:
     # other devices must sign in with a mechanic account (auth.py); off =
     # anyone on the network can search and ask. The PC itself never signs in.
     require_signin: bool = False
+    # where the LEMON torrent is (or will be) downloaded; its lemon/index.json
+    # replaces the built-in catalogue snapshot (lemon_catalogue.py)
+    lemon_torrent_dir: str = ""
 
     @property
     def resolved_key(self) -> str:

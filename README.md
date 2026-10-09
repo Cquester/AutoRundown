@@ -157,6 +157,20 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 Keys are stored in `~/.autorundown/config.json` (override the location with
 `AUTORUNDOWN_HOME`) and are sent only to Anthropic.
 
+### Trying a change without touching your real setup
+
+```bash
+python dev.py            # opens http://localhost:8757 with sample data
+python dev.py --empty    # starts with no index: the first-start import dialog
+python dev.py --reset    # throw the dev data away and start over
+```
+
+A separate, throwaway AutoRundown: its own settings, accounts and index in
+`.dev/` (never your real `~/.autorundown`), on port 8757 so it can run next
+to the real one, and reachable only from this PC. The sample manuals are
+invented text — never use a value from them on a car. No API key is copied in,
+so nothing costs money unless you add one.
+
 ### In a shop: who can use it
 
 **The PC running AutoRundown is the admin.** Settings, the API key, imports
@@ -449,7 +463,12 @@ ingest.py          build the index
 ask.py             command-line queries
 eval.py            known-answer validation
 test_access.py     who may do what on the network (free)
+test_lemon_import.py  the LEMON tab's folder import (free)
+test_lemon_catalogue.py  the LEMON tab's catalogue tree (free)
+test_remove_manuals.py  removing manuals from the index (free)
+remove_manuals.py  remove a manual (or all Mercedes WIS) from the index
 serve.py           start the server
+dev.py             throwaway local instance with sample data
 ```
 
 ---

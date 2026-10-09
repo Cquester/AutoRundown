@@ -14,6 +14,7 @@ no native build.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import socket
 from pathlib import Path
@@ -23,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from . import auth, config, index, query, tls
-from . import autostart, importer_jobs, synonyms, wis_original
+from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_original
 from .search import get_page, scope_ids, search
 
 jobs = importer_jobs.ImportJobs()
@@ -73,6 +74,12 @@ class UserUpdateBody(BaseModel):
     clear_cap: bool = False
 
 
+class LemonPickBody(BaseModel):
+    # a folder of the catalogue tree: [make], [make, year], ... or a variant
+    path: list[str]
+    picked: bool = True
+
+
 class ImportBody(BaseModel):
     path: str
     # add: ingest.py (resumable, keeps what is there)
@@ -81,6 +88,11 @@ class ImportBody(BaseModel):
     # mode "vm": extract from this VirtualBox VM first (vm_pipeline.py)
     vm: str = ""
     steps: str = ""
+    # mode "lemon": the vehicle folders to import, relative to path
+    # mode "remove": the doc_ids to remove (LEMON / folder manuals only)
+    vehicles: list[str] = []
+    # modes "remove" / "remove_wis": VACUUM afterwards to shrink the file
+    compact: bool = False
 
 
 def _vehicle_or_404(conn, doc_id: str) -> dict:
@@ -449,6 +461,38 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         return {"path": str(p), "parent": str(p.parent) if p.parent != p else "",
                 "dirs": dirs[:500], "detected": importer_jobs.describe(p, app.state.index_path)}
 
+    @app.get("/api/import/lemon")
+    def api_import_lemon(path: str = "") -> dict:
+        p = Path(path).expanduser() if path else Path(config.load().archive_dir or Path.home())
+        return importer_jobs.lemon_vehicles(p, app.state.index_path)
+
+    @app.get("/api/import/lemon-catalogue")
+    def api_lemon_catalogue(path: str = "[]") -> dict:
+        try:
+            parts = json.loads(path)
+            if not isinstance(parts, list) or len(parts) > 4 or not all(isinstance(x, str) for x in parts):
+                raise ValueError
+        except ValueError:
+            raise HTTPException(400, "path must be a JSON list of up to 4 names")
+        try:
+            return lemon_catalogue.browse(app.state.index_path, tuple(parts))
+        except KeyError as exc:
+            raise HTTPException(404, str(exc.args[0]))
+
+    @app.post("/api/import/lemon-catalogue/picks")
+    def api_lemon_pick(body: LemonPickBody) -> dict:
+        if not 1 <= len(body.path) <= 4:
+            raise HTTPException(400, "path must name a make, year, model or variant")
+        try:
+            lemon_catalogue.set_pick(tuple(body.path), body.picked)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc.args[0]))
+        return lemon_catalogue.browse(app.state.index_path, tuple(body.path[:-1]))
+
+    @app.get("/api/import/manuals")
+    def api_import_manuals() -> dict:
+        return importer_jobs.manuals(app.state.index_path)
+
     @app.get("/api/vms")
     def api_vms() -> dict:
         return importer_jobs.list_vms()
@@ -473,9 +517,39 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                                   "vm", vm=body.vm, steps=",".join(steps))
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
+        if body.mode in ("remove", "remove_wis"):
+            have = importer_jobs.manuals(app.state.index_path)
+            if body.mode == "remove":
+                removable = {r["doc_id"] for g in ("lemon", "folder") for r in have[g]}
+                if not body.vehicles:
+                    raise HTTPException(400, "Pick at least one manual to remove.")
+                unknown = [v for v in body.vehicles if v not in removable]
+                if unknown:
+                    raise HTTPException(400, f"Not a removable manual: {unknown[0]} "
+                                             "(Mercedes WIS is removed as a whole)")
+            elif not have["wis"]["entries"]:
+                raise HTTPException(400, "There is no Mercedes WIS data in the index.")
+            try:
+                return jobs.start(Path("."), app.state.index_path, body.mode,
+                                  only=body.vehicles if body.mode == "remove" else None,
+                                  compact=body.compact)
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
         p = Path(body.path).expanduser()
         if not p.is_dir():
             raise HTTPException(400, f"Folder not found: {p}")
+        if body.mode == "lemon":
+            listed = {v["folder"] for v in importer_jobs.lemon_vehicles(
+                p, app.state.index_path)["vehicles"]}
+            if not body.vehicles:
+                raise HTTPException(400, "Pick at least one vehicle.")
+            unknown = [v for v in body.vehicles if v not in listed]
+            if unknown:
+                raise HTTPException(400, f"Not a LEMON vehicle in {p}: {unknown[0]}")
+            try:
+                return jobs.start(p, app.state.index_path, "lemon", only=body.vehicles)
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
         if body.mode not in ("add", "rebuild_wis"):
             raise HTTPException(400, f"unknown mode {body.mode!r}")
         if body.mode == "rebuild_wis" and not importer_jobs.can_rebuild_wis(app.state.index_path):
