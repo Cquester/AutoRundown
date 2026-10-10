@@ -914,7 +914,28 @@ created 0600, never written then chmod'ed.
 
 ## Importing from the site
 
-Gear icon → Settings → **Import data…**, and automatically on first start
+**Shop setup is a page, not pop-ups** (2026-10-10, the user's choice after a
+designer review, `docs/qa/designer-review.md`): `#/setup/<section>` takes
+over the window -- Manuals (the import tabs, with the job and its log in a
+card beside them), AI answers, Phones & mechanics, This PC, Advanced. Left
+nav on a PC (max 1280 px wide), a list page with drill-down at ≤900 px. The
+old Settings / Import / Mechanics dialogs (520-720 px, stacked three deep)
+are gone: only this PC is admin, so a phone-sized box made no sense there.
+Toggles and the default model save as they change ("Saved ✓"); the API key
+and the Advanced folders have their own Save, and an unsaved edit survives
+moving between sections (sections are only hidden; the nav says "unsaved").
+The header link is "⚙ Shop setup" (icon only on a phone).
+
+**First start and starting up** (same date): the page shows a "Starting
+AutoRundown…" card until `/api/me` and `/api/vehicles` answer -- a 5xx or no
+answer retries every 2 s, never a raw "Internal Server Error" (the user hit
+one after an upgrade, see `index.connect`'s `setup`). With no manuals the PC
+lands on a "Set up AutoRundown" checklist (add manuals, required; API key
+and phones, optional) and can't enter an empty search screen; a phone gets
+"No manuals yet … check back later". While an import runs, a banner says
+results are partial (`/api/status`, any signed-in device).
+
+Shop setup → **Manuals**, and automatically on first start
 when the index is empty. A folder browser plus format detection
 (`importer_jobs.describe()`: a folder with `manifest.json` + `records.jsonl`
 is a corpus straight away — letting the other detectors walk its `images/`
@@ -928,13 +949,16 @@ a phone on the LAN, measured) since they list folders and run long jobs;
 search stays open to the LAN. Verified end to end: a WIS rebuild started
 from the dialog finished in 3 min 13 s, rc 0, evals unchanged.
 
-**The Import dialog's sources are folder tabs** (LEMON · Mercedes VM ·
-Folder, opening on LEMON; tabs were the user's choice over radio buttons,
+**The import sources are folder tabs** (LEMON · Mercedes VM · Folder,
+opening on LEMON; tabs were the user's choice over radio buttons,
 2026-10-09). **LEMON is one tab** -- the user asked to keep one LEMON source,
-not two: "Import LEMON manuals from a folder on this PC" first and open (it
-is the part that works), then the catalogue tree, marked "picking only"
-until downloading is built (QA finding L14 -- users ticked cars and nothing
-imported). The
+not two -- made of **three cards, one open at a time** (2026-10-10: the user
+found the folder section at the top, open, "too much"): "From a folder on
+this PC" (open; once a LEMON folder is recognised the folder browser and
+the detected box step aside behind "Change folder…"), "Imported LEMON
+manuals (n)", "LEMON catalogue · Preview" (one muted "picking only" line,
+no warning box). `impSource()` is `lemon` when the folder card is open,
+else `catalogue` (no Import button). The
 folder browser (`#impFolder`) is moved between the Folder tab and that
 section; `impSource()` still answers `lemon` (folder import) / `catalogue`
 (tree) / `folder` / `vm`, so the import code paths are unchanged.
@@ -1331,7 +1355,8 @@ pass, known-bad guards 33 -> 12.
    the real index before merging:** `test_ui_picks.py` (car box, VIN and
    Browse changed), `eval_wis.py`, `eval.py`; and look at Settings, the
    Import dialog and the light theme (new; follows the device) on the PC
-   and a phone. The MSI build now checks python.org's Sigstore signature on
+   and a phone. Since then (2026-10-10) Shop setup replaced the Settings
+   dialog -- see "Importing from the site". The MSI build now checks python.org's Sigstore signature on
    the embeddable Python against python.org's release signers (`$signers`
    in `build.ps1`; 3.13 is thomas@python.org via Google -- the first CI
    run assumed the Windows signer and failed). A new signer fails the build

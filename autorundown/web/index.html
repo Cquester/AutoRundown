@@ -17,6 +17,7 @@
     --pill-text:#ffdca8; --conn-bg:#1d3a52; --conn-text:#8fd3ff; --conn-line:#2f5c80;
     --conn-hover:#26506f; --conn-hover-line:#4a8cbf; --hover:#ffffff10; --on-accent:#20160a;
     --danger-text:#ff8a80; --danger-line:#7a2e2e; --log-bg:#0008; --frame-bg:#e9e9e9;
+    --field-line:#6b7385;
     /* native checkboxes, selects and scrollbars drawn dark too */
     color-scheme:dark;
   }
@@ -24,7 +25,7 @@
   @media (prefers-color-scheme: light){
     :root{
       --bg:#f4f5f7; --panel:#ffffff; --panel-2:#eef0f4; --line:#d3d8e0;
-      --text:#151821; --muted:#525b6c; --accent:#b86a00; --accent-dim:#ffe3b3;
+      --text:#151821; --muted:#525b6c; --accent:#995500; --accent-dim:#ffe3b3; --field-line:#8b95a8;
       --good:#14803c; --warn:#b45309; --bad:#c62828;
       --pane:#f8f9fb; --stripe:#f3f5f8; --warn-bg:#fff4e0; --bad-bg:#fdecec;
       --pill-text:#4a2e00; --conn-bg:#e3f1fb; --conn-text:#0b5285; --conn-line:#9cc7e6;
@@ -36,6 +37,8 @@
     dialog::backdrop{background:#0006}
   }
   *{box-sizing:border-box}
+  /* hidden always wins: main{display:grid} and friends overrode it */
+  [hidden]{display:none !important}
   html,body{margin:0;height:100%}
   /* the header is one row on a desktop and two on a phone; main takes the rest */
   body{display:flex; flex-direction:column}
@@ -53,7 +56,7 @@
   .brand span{color:var(--accent)}
   select,input,button,textarea{font:inherit; color:inherit}
   select,input,textarea{
-    background:var(--panel-2); border:1px solid var(--line);
+    background:var(--panel-2); border:1px solid var(--field-line);
     border-radius:10px; padding:12px; min-height:var(--tap); width:100%;
   }
   /* the rule above is for text fields; a checkbox under it drew as a 113x48
@@ -283,9 +286,8 @@
   }
   dialog::backdrop{background:#000a}
   #scopeNote.pickhint{color:var(--accent); font-weight:600}
-  #importDlg{width:min(720px,94vw)}
-  #importDlg input[type=radio], #importDlg input[type=checkbox]{margin:0 8px 0 0}
-  #importDlg label:has(> input[type=radio]), #importDlg label:has(> input[type=checkbox]){
+  #sec-manuals input[type=radio], #sec-manuals input[type=checkbox]{margin:0 8px 0 0}
+  #sec-manuals label:has(> input[type=radio]), #sec-manuals label:has(> input[type=checkbox]){
     display:inline-flex; align-items:center; color:var(--text)}
   #impSteps{gap:6px 16px}
   .dirlist{max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px}
@@ -343,7 +345,6 @@
   details.lemhow ul{margin:6px 0 0; padding-left:20px; font-size:14px; color:var(--text)}
   details.lemhow li{margin:0 0 6px}
   details.lemfolder > summary{cursor:pointer; color:var(--muted); font-size:14px}
-  #impLemFolderBox > summary{font-size:12px; letter-spacing:.8px; text-transform:uppercase; font-weight:700}
   #impStatus a{color:var(--accent)}
   .implog{max-height:260px; overflow:auto; background:var(--log-bg); border-radius:10px; padding:10px;
     font:12px/1.4 ui-monospace,Consolas,monospace; white-space:pre-wrap; margin-top:10px}
@@ -362,6 +363,134 @@
   .panelbar{position:sticky; top:-16px; z-index:2; margin:-16px -16px 10px; padding:8px 16px;
     background:var(--pane); border-bottom:1px solid var(--line)}
   @media (min-width:901px){ .panelbar{display:none} }
+
+  /* -- disclosure markers: display:flex on <summary> removed the browser's */
+  summary{list-style:none; cursor:pointer}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"\25B8"; display:inline-block; width:1.1em; flex:none; color:var(--muted)}
+  details[open] > summary::before{content:"\25BE"}
+  details.caveat > summary{color:var(--muted)}
+  .card > details.caveat{margin:0}
+  .card > details.caveat > summary{padding:0}
+  .notfound{overflow-wrap:anywhere}
+
+  /* -- header: a labelled gear; the importing banner under it */
+  a.btnlink{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:var(--tap);
+    padding:0 18px; border-radius:10px; background:var(--accent); color:var(--on-accent); font-weight:700;
+    text-decoration:none; white-space:nowrap}
+  a.btnlink.ghostlink{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
+  #settingsBtn{margin-left:auto}
+  #settingsBtn[aria-current="page"]{border-color:var(--accent)}
+  .banner{background:var(--accent-dim); color:var(--pill-text); padding:8px 16px; font-size:14px; font-weight:600}
+  .banner a{color:inherit}
+  body[data-view="setup"] .carbox, body[data-view="setup"] .picker,
+  body[data-view="gate"] .carbox, body[data-view="gate"] .picker, body[data-view="gate"] #settingsBtn{display:none}
+
+  /* -- start-up and not-ready screens */
+  .gate{flex:1; display:flex; align-items:center; justify-content:center; padding:24px 16px}
+  .gatecard{max-width:460px; text-align:center; display:grid; gap:14px; justify-items:center}
+  .gatebrand{font-size:26px; order:0 !important}
+  #gateMsg{font-size:17px}
+
+  /* -- Shop setup: a page, not stacked pop-ups. Left nav on a PC, a list
+     page with drill-down on a narrow window */
+  .setup{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch}
+  .setupwrap{max-width:1280px; margin:0 auto; padding:24px 32px 40px; display:grid;
+    grid-template-columns:220px minmax(0,1fr); gap:32px; align-items:start}
+  .setupnav{position:sticky; top:16px; display:grid; gap:2px}
+  .setupnav .navhead{font-size:12px; letter-spacing:.8px; text-transform:uppercase; color:var(--muted);
+    font-weight:700; padding:0 12px 8px}
+  .setupnav a{display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:44px;
+    padding:0 12px; border-radius:10px; color:var(--text); text-decoration:none; font-weight:600}
+  .setupnav a:hover{background:var(--hover)}
+  .setupnav a[aria-current="page"]{background:var(--panel-2); box-shadow:inset 3px 0 0 var(--accent)}
+  .setupnav a[hidden]{display:none}
+  .setupnav .navsub{font-size:12px; color:var(--muted); font-weight:600}
+  .setupnav .navback{margin-top:12px; color:var(--muted); font-weight:600}
+  .secbar{display:none}
+  .setsec{max-width:680px}
+  .setsec.wide{max-width:none}
+  .setsec h2{margin:0 0 6px; font-size:24px}
+  .setsec .subhead{margin:28px 0 4px; font-size:16px}
+  .row.nowrap{flex-wrap:nowrap}
+  .row.nowrap > input, .row.nowrap > select{flex:1; min-width:0}
+  .savedmark{font-size:13px; color:var(--good); font-weight:600; min-height:1em}
+  .savedmark.bad{color:var(--bad)}
+  .checklist{list-style:none; padding:0; margin:18px 0; display:grid; gap:10px}
+  .checklist li{display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px}
+  .checklist li.done{border-color:var(--good)}
+  .checklist li.done b::before{content:"\2713  "; color:var(--good)}
+  .checklist .req{font-size:12px; color:var(--accent); font-weight:700; margin-left:6px}
+  .checklist .opt{font-size:12px; color:var(--muted); font-weight:600; margin-left:6px}
+  /* Manuals: sources on the left, the job beside them */
+  .mangrid{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
+  .manmain{min-width:0}
+  .jobcard{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; min-width:0;
+    align-self:start}
+  .jobcard h3{margin:0 0 8px; font-size:16px}
+  .jobcard .implog{max-height:min(60vh,520px)}
+  .impbar{position:sticky; bottom:0; display:flex; gap:12px; align-items:center; justify-content:flex-end;
+    padding:12px 0; margin-top:12px; background:var(--bg); border-top:1px solid var(--line)}
+  .impbar #impStatus{margin-right:auto}
+  .tabpanels{padding-top:12px}
+  @media (min-width:1280px){
+    .mangrid{grid-template-columns:minmax(0,1fr) 360px}
+    .jobcard{position:sticky; top:16px}
+  }
+  /* the LEMON tab: three cards, one open at a time */
+  details.lemcard{border:1px solid var(--line); border-radius:12px; background:var(--panel); margin:0 0 10px}
+  details.lemcard > summary{display:flex; align-items:center; gap:10px; min-height:52px; padding:0 14px; font-weight:600}
+  details.lemcard > summary .lc-sub{margin-left:auto; font-size:13px; color:var(--muted); font-weight:500;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
+  details.lemcard .lc-body{padding:0 14px 14px}
+  .badge{font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--muted);
+    border:1px solid var(--line); border-radius:999px; padding:2px 8px}
+  .linkbtn{background:none; border:0; padding:0; min-height:0; color:var(--accent); font-weight:600;
+    text-decoration:underline; cursor:pointer; font-size:inherit}
+  @media (max-width:900px){
+    .setupwrap{grid-template-columns:minmax(0,1fr); padding:16px 16px 32px; gap:0}
+    .setupnav{position:static}
+    .setup[data-sec=""] .setupbody{display:none}
+    .setup:not([data-sec=""]) .setupnav{display:none}
+    .setupnav a{min-height:52px; border-bottom:1px solid var(--line); border-radius:0}
+    .setupnav a:not(.navback)::after{content:"\203A"; color:var(--muted); font-size:20px}
+    .secbar{display:block; position:sticky; top:-16px; z-index:2; margin:-16px -16px 12px; padding:10px 16px;
+      background:var(--bg); border-bottom:1px solid var(--line)}
+    .secbar a{color:var(--accent); font-weight:600; text-decoration:none}
+  }
+  @media (max-width:420px){
+    .srctabs{overflow:visible}
+    .srctabs button{flex:1 1 0; padding:0 6px}
+  }
+
+  /* -- main screen: empty-state hints; options fold away on a phone */
+  .empty{color:var(--muted); padding:8px 2px}
+  .examples{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px}
+  .chipbtn{background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:999px;
+    font-weight:500; font-size:14px; min-height:44px; padding:0 14px}
+  .askbtns{display:flex; gap:8px}
+  .askbtns button{padding:0 18px}
+  details.opts{margin:-4px 0 12px}
+  details.opts > summary{min-height:44px; color:var(--muted); font-size:14px}
+  .optsbody{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  .costline{font-size:13px; color:var(--muted)}
+  @media (min-width:701px){ details.opts > summary{display:none} }
+  @media (max-width:700px){
+    .askbar{flex-wrap:wrap}
+    .askbar textarea{flex:1 0 100%}
+    .askbtns{flex:1 0 100%}
+    .askbtns button{flex:1}
+    header{padding:6px 12px}
+    .brand{font-size:15px}
+    #settingsBtn,#acctBtn{min-height:44px; padding:0 12px}
+    #settingsBtn .lbl{display:none}
+  }
+  /* -- a big screen: the reading column stays readable, pages and diagrams get the width */
+  .carbox{max-width:760px}
+  .answer, .src p{max-width:72ch}
+  .figure img.diagram{width:100%; max-width:720px}
+  @media (min-width:1400px){ main{grid-template-columns:minmax(560px,760px) 1fr} }
 </style>
 </head>
 <body>
@@ -383,24 +512,30 @@
     <button class="ghost" id="vinBtn" title="Find the vehicle from a VIN">VIN</button>
   </div>
   <button class="ghost" id="acctBtn" title="Your account" hidden></button>
-  <button class="ghost" id="settingsBtn" title="Settings" hidden>&#9881;</button>
+  <a class="btnlink ghostlink" id="settingsBtn" href="#/setup" title="Shop setup" hidden><span aria-hidden="true">&#9881;</span><span class="lbl">Shop setup</span></a>
 </header>
+<div class="banner" id="banner" role="status" hidden></div>
 
 <main>
   <section class="pane" id="left">
     <div class="askbar">
       <textarea id="q" rows="1" placeholder="Torque for the front caliper anchor plate bolts?"></textarea>
-      <button id="askBtn">Ask</button>
+      <div class="askbtns">
+        <button id="askBtn" title="AI answer from the manual (uses your API key)">Ask</button>
+        <button class="ghost" id="searchBtn" title="Search the manual's words (free)">Search</button>
+      </div>
     </div>
-    <div class="row" style="margin-bottom:14px">
-      <button class="ghost" id="searchBtn" style="padding:0 14px">Keyword search</button>
-      <select id="model" class="inline" aria-label="AI model"></select>
-      <label class="chip" style="cursor:pointer">
-        <input type="checkbox" id="variants">
-        include other trims/engines
-      </label>
-      <span class="chip" id="cost">$0.0000 this session</span>
-    </div>
+    <details class="opts" id="opts">
+      <summary>Options</summary>
+      <div class="optsbody">
+        <select id="model" class="inline" aria-label="AI model"></select>
+        <label class="chip">
+          <input type="checkbox" id="variants">
+          include other trims/engines
+        </label>
+        <span class="costline" id="cost">$0.0000 this session</span>
+      </div>
+    </details>
     <div class="muted" id="scopeNote" hidden style="margin:-6px 0 12px; font-size:14px"></div>
     <div id="out"></div>
   </section>
@@ -411,68 +546,98 @@
   </section>
 </main>
 
-<dialog id="vinDlg">
-  <h3 style="margin:0 0 4px">Find by VIN</h3>
-  <div class="muted">Decodes US VINs and European FINs using Mercedes' own
-    tables. Nothing is sent anywhere &mdash; the lookup is local.</div>
-  <label for="vinInput">VIN (the full 17 characters also gives the model year)</label>
-  <div class="vinrow">
-    <input id="vinInput" type="text" maxlength="17" autocapitalize="characters"
-           spellcheck="false" placeholder="WDD2040081A123456">
-    <button id="vinFind">Find</button>
+<section id="gate" class="gate" hidden>
+  <div class="gatecard" role="status">
+    <div class="brand gatebrand">Auto<span>Rundown</span></div>
+    <div id="gateMsg"></div>
+    <div id="gateMore" class="muted" hidden></div>
+    <button class="ghost" type="button" id="gateRetry" hidden>Retry now</button>
   </div>
-  <div class="vinnote" id="vinNote"></div>
-  <div class="row" style="margin-top:16px; justify-content:flex-end">
-    <button class="ghost" id="vinClose">Close</button>
-  </div>
-</dialog>
+</section>
 
-<dialog id="importDlg">
-  <h3 style="margin:0 0 4px">Import data</h3>
-  <p class="muted" id="impIntro" style="margin:0">Pick a folder on this PC that holds manuals:
-    an HTML manual archive, a Mercedes WIS corpus from the extractor (records.jsonl + manifest.json),
-    or a folder of HTML / text / PDF files. The format is detected for you.</p>
-  <div class="srctabs" role="tablist" aria-label="Import from">
-    <button type="button" role="tab" id="tabLemon" data-src="lemon" aria-selected="true" aria-controls="impCatPanel" tabindex="0">LEMON</button>
-    <button type="button" role="tab" id="tabVm" data-src="vm" aria-selected="false" aria-controls="impVmPanel" tabindex="-1">Mercedes VM</button>
-    <button type="button" role="tab" id="tabFolder" data-src="folder" aria-selected="false" aria-controls="impFolderHome" tabindex="-1">Folder</button>
-  </div>
-  <div class="errbox" id="impFail" role="alert" hidden style="margin-top:10px"></div>
-  <div class="implog" id="impLog" hidden></div>
+<section id="setup" class="setup" hidden aria-label="Shop setup">
+  <div class="setupwrap">
+    <nav class="setupnav" aria-label="Shop setup sections">
+      <div class="navhead">Shop setup</div>
+      <a href="#/setup/welcome" data-sec="welcome" id="navWelcome">Get started</a>
+      <a href="#/setup/manuals" data-sec="manuals">Manuals<span class="navsub" id="navManualsSub"></span></a>
+      <a href="#/setup/ai" data-sec="ai">AI answers<span class="navsub" id="navAiSub"></span></a>
+      <a href="#/setup/phones" data-sec="phones">Phones &amp; mechanics</a>
+      <a href="#/setup/pc" data-sec="pc" id="sStartRow" hidden>This PC</a>
+      <a href="#/setup/advanced" data-sec="advanced">Advanced<span class="navsub" id="navAdvSub"></span></a>
+      <a href="#/" class="navback" id="navBack">&larr; Back to search</a>
+    </nav>
+    <div class="setupbody">
+      <div class="secbar"><a href="#/setup">&larr; Shop setup</a></div>
+
+      <section class="setsec" id="sec-welcome" hidden>
+        <h2>Set up AutoRundown</h2>
+        <p class="muted">Three steps. Only the first is needed before you can search.</p>
+        <ol class="checklist">
+          <li id="wManuals"><div><b>Add manuals</b> <span class="req">required</span>
+            <div class="help" id="wManualsHelp">LEMON manuals from a folder, the Mercedes WIS data from a virtual
+              machine, or a folder of HTML / text / PDF files.</div></div>
+            <a class="btnlink" href="#/setup/manuals">Add manuals</a></li>
+          <li id="wKey"><div><b>Add an API key</b> <span class="opt">optional</span>
+            <div class="help" id="wKeyHelp">For AI answers. Keyword search works without one.</div></div>
+            <a class="btnlink ghostlink" href="#/setup/ai">AI answers</a></li>
+          <li id="wPhones"><div><b>Connect the shop's phones</b> <span class="opt">optional</span>
+            <div class="help">Phones on the same wifi open AutoRundown from this PC.</div></div>
+            <a class="btnlink ghostlink" href="#/setup/phones">Phones</a></li>
+        </ol>
+        <a class="btnlink" href="#/" id="welcomeDone" hidden>Start searching</a>
+      </section>
+
+      <section class="setsec wide" id="sec-manuals" hidden>
+        <h2>Manuals</h2>
+        <p class="muted" id="sManuals"></p>
+        <div class="mangrid">
+          <div class="manmain">
+            <div class="srctabs" role="tablist" aria-label="Import from">
+              <button type="button" role="tab" id="tabLemon" data-src="lemon" aria-selected="true" aria-controls="impCatPanel" tabindex="0">LEMON</button>
+              <button type="button" role="tab" id="tabVm" data-src="vm" aria-selected="false" aria-controls="impVmPanel" tabindex="-1">Mercedes VM</button>
+              <button type="button" role="tab" id="tabFolder" data-src="folder" aria-selected="false" aria-controls="impFolderHome" tabindex="-1">Folder</button>
+            </div>
+            <div class="tabpanels">
   <div id="impFolderHome" role="tabpanel" aria-labelledby="tabFolder"></div>
   <div id="impFolder">
     <label for="impPath">Folder</label>
     <div class="row"><input id="impPath" type="text" style="flex:1">
       <button class="ghost" id="impGo">Open</button><button class="ghost" id="impUp" title="Parent folder">Up</button></div>
+    <button type="button" class="linkbtn" id="impChange" hidden style="margin-top:8px">Change folder…</button>
     <div class="dirlist" id="impDirs"></div>
     <div class="detected" id="impDetected"></div>
     <div id="impModes" style="margin-top:10px"></div>
     <div class="manuals" id="impFolderManuals" data-group="folder" hidden></div>
     <div id="impLemon" hidden>
-      <div class="row" style="margin-top:10px; align-items:center">
+      <div class="row nowrap" style="margin-top:10px; align-items:center">
         <span class="muted" style="margin-right:auto">Vehicles in this folder</span>
-        <button class="ghost" type="button" id="impLemAll">All new</button>
-        <button class="ghost" type="button" id="impLemNone">None</button></div>
+        <button class="linkbtn" type="button" id="impLemAll">All new</button>
+        <button class="linkbtn" type="button" id="impLemNone">None</button></div>
       <div class="dirlist" id="impLemList"></div>
     </div>
   </div>
   <div id="impCatPanel" role="tabpanel" aria-labelledby="tabLemon" hidden>
-    <details class="lemfolder" id="impLemFolderBox" open>
-      <summary>Import LEMON manuals from a folder on this PC</summary>
-      <div id="impLemFolderSlot"></div>
+    <details class="lemcard" name="lemoncards" id="impLemFolderBox" open>
+      <summary><span class="lc-title">From a folder on this PC</span><span class="lc-sub" id="lemFolderSum"></span></summary>
+      <div class="lc-body"><div id="impLemFolderSlot"></div></div>
     </details>
-    <div class="sechead" style="margin-top:20px">Pick from the LEMON catalogue</div>
-    <div class="warnbox" style="margin:6px 0 0">Picking only for now: downloading the picked cars isn't
-      built yet. To import today, use a folder above.</div>
-    <div class="detected" id="impCatNote"></div>
-    <input id="impCatFilter" type="search" placeholder="Filter the open folders (e.g. 4WD, 3.5L)" style="margin-top:10px; width:100%">
-    <div class="cattree" id="impCatTree" role="tree" aria-label="LEMON vehicles"></div>
-    <div class="row" style="margin-top:8px; align-items:center">
-      <span class="muted" id="impCatCount" style="margin-right:auto"></span>
-      <button class="ghost" type="button" id="impCatClear">Clear picks</button></div>
-    <p class="muted" style="margin:6px 0 0">Tick a make for all of it, or open it and tick a year, a model or
-      one variant. Picks are saved as you tick.</p>
-    <details class="lemfolder lemhow">
+    <details class="lemcard" name="lemoncards" id="impLemImported">
+      <summary><span class="lc-title">Imported LEMON manuals</span><span class="lc-sub" id="lemImpSum"></span></summary>
+      <div class="lc-body"><div class="manuals" id="impLemonManuals" data-group="lemon"></div></div>
+    </details>
+    <details class="lemcard" name="lemoncards" id="impLemCat">
+      <summary><span class="lc-title">LEMON catalogue</span><span class="badge">Preview</span><span class="lc-sub" id="lemCatSum"></span></summary>
+      <div class="lc-body">
+        <p class="muted" style="margin:0 0 8px">Picking only &mdash; downloading the picked cars isn't built yet.
+          Tick a make for all of it, or open it and tick a year, a model or one variant; picks are saved as you tick.</p>
+        <div class="muted" id="impCatNote"></div>
+        <input id="impCatFilter" type="search" placeholder="Filter the open folders (e.g. 4WD, 3.5L)" style="margin-top:8px; width:100%">
+        <div class="cattree" id="impCatTree" role="tree" aria-label="LEMON vehicles"></div>
+        <div class="row" style="margin-top:8px; align-items:center">
+          <span class="muted" id="impCatCount" style="margin-right:auto"></span>
+          <button class="ghost" type="button" id="impCatClear">Clear picks</button></div>
+    <details class="lemhow">
       <summary>How LEMON downloads will work</summary>
       <ul>
         <li><b>What the torrent holds.</b> LEMON's torrent is not one folder per car. All the text of every
@@ -495,12 +660,14 @@
         <li><b>Only the torrent.</b> Nothing is fetched from the LEMON website itself.</li>
       </ul>
     </details>
-    <div class="manuals" id="impLemonManuals" data-group="lemon"></div>
+      </div>
+    </details>
   </div>
   <div id="impVmPanel" role="tabpanel" aria-labelledby="tabVm" hidden>
+    <div id="impVmNote"></div>
+    <div id="impVmControls">
     <label for="impVm">VirtualBox VM</label>
     <select id="impVm"></select>
-    <div class="detected" id="impVmNote"></div>
     <label>Steps (each one resumes where it stopped)</label>
     <div class="row" id="impSteps">
       <label style="margin:0"><input type="checkbox" value="docs" checked> Documents</label>
@@ -513,76 +680,113 @@
       then shuts it down and rebuilds the Mercedes part of the index. It never takes snapshots or changes
       the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
       off in between); a re-run skips what is already pulled.</p>
+    </div>
     <div class="manuals" id="impWisManuals"></div>
   </div>
+            </div>
+            <div class="impbar">
+              <span class="muted" id="impStatus" role="status"></span>
+              <button id="impStart" type="button">Import</button>
+            </div>
+          </div>
+          <aside class="jobcard" aria-label="Import job">
+            <h3>Job</h3>
+            <div class="muted" id="jobIdle">Nothing running. Pick manuals on the left and press Import.</div>
+            <div class="errbox" id="impFail" role="alert" hidden></div>
+            <div class="implog" id="impLog" hidden></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="setsec" id="sec-ai" hidden>
+        <h2>AI answers</h2>
+        <label for="sKey">Anthropic API key</label>
+        <div class="row nowrap"><input id="sKey" type="password" autocomplete="off" spellcheck="false">
+          <button type="button" id="saveKey" disabled>Save key</button></div>
+        <div class="help" id="keyStatus"></div>
+        <div class="savedmark" id="mKey" role="status"></div>
+        <label for="sModel">Default AI model <span class="muted">(phones can pick their own)</span></label>
+        <div class="row nowrap"><select id="sModel"></select><span class="savedmark" id="mModel" role="status"></span></div>
+        <div class="help" id="modelPrice"></div>
+      </section>
+
+      <section class="setsec" id="sec-phones" hidden>
+        <h2>Phones &amp; mechanics</h2>
+        <div id="sPhone" class="help"></div>
+        <label class="check"><input type="checkbox" id="sSignin"> Require each mechanic to sign in
+          <span class="savedmark" id="mSignin" role="status"></span></label>
+        <div class="help">Off: anyone on your wifi can search and ask on your API key.
+          On: each phone needs a one-time code from this PC, and you can set a monthly limit per mechanic.</div>
+        <h3 class="subhead">Mechanics</h3>
+        <div class="adduser">
+          <div><label for="uName">Add a mechanic</label>
+            <input id="uName" type="text" maxlength="60" autocomplete="off" placeholder="Name"></div>
+          <div><label for="uCap">Monthly limit in $ (optional)</label>
+            <input id="uCap" type="number" min="0" step="1" inputmode="decimal"></div>
+          <button id="uAdd" type="button">Add</button>
+        </div>
+        <div class="vinnote errnote" id="usersNote" role="alert"></div>
+        <div class="help" id="usersIntro"></div>
+        <div id="usersList" style="margin-top:12px"></div>
+      </section>
+
+      <section class="setsec" id="sec-pc" hidden>
+        <h2>This PC</h2>
+        <label class="check"><input type="checkbox" id="sAutostart"> Start AutoRundown when I sign in
+          <span class="savedmark" id="mAutostart" role="status"></span></label>
+        <div class="help">Runs in the background; its tray icon opens or stops it.</div>
+      </section>
+
+      <section class="setsec" id="sec-advanced" hidden>
+        <h2>Advanced</h2>
+        <label for="sArchive">Archive folder</label>
+        <input id="sArchive" type="text" spellcheck="false">
+        <div class="help">Where the folder browser under Manuals starts. Changing it doesn't move or import anything.</div>
+        <label for="sIndex">Index file</label>
+        <input id="sIndex" type="text" spellcheck="false">
+        <div class="help">The database AutoRundown searches. Change it only if you moved the file; it must be an
+          existing index (to build a new one, add manuals).</div>
+        <label for="sExtractor">Mercedes extractor folder</label>
+        <input id="sExtractor" type="text" spellcheck="false">
+        <div class="help">The folder that holds vm_pipeline.py, on this PC. Leave it empty to use the one
+          AutoRundown finds by itself.</div>
+        <div class="errbox" id="sErr" role="alert" hidden style="margin-top:12px"></div>
+        <div class="row" style="margin-top:14px">
+          <button type="button" id="saveAdv" disabled>Save</button>
+          <span class="savedmark" id="mAdv" role="status"></span>
+        </div>
+        <div class="help" id="sConfigPath" style="margin-top:16px"></div>
+      </section>
+    </div>
+  </div>
+</section>
+
+
+<dialog id="vinDlg">
+  <h3 style="margin:0 0 4px">Find by VIN</h3>
+  <div class="muted">Decodes US VINs and European FINs using Mercedes' own
+    tables. Nothing is sent anywhere &mdash; the lookup is local.</div>
+  <label for="vinInput">VIN (the full 17 characters also gives the model year)</label>
+  <div class="vinrow">
+    <input id="vinInput" type="text" maxlength="17" autocapitalize="characters"
+           spellcheck="false" placeholder="WDD2040081A123456">
+    <button id="vinFind">Find</button>
+  </div>
+  <div class="vinnote" id="vinNote"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
-    <span class="muted" id="impStatus" style="margin-right:auto"></span>
-    <button class="ghost" id="impClose">Close</button>
-    <button id="impStart">Import</button>
+    <button class="ghost" id="vinClose">Close</button>
   </div>
 </dialog>
 
-<dialog id="settings" class="framed" aria-labelledby="setTitle">
-  <h3 id="setTitle" class="dlghead">Settings</h3>
-  <div class="dlgbody">
-    <fieldset class="setgroup">
-      <legend>AI answers</legend>
-      <label for="sKey">Anthropic API key</label>
-      <input id="sKey" type="password" autocomplete="off" spellcheck="false">
-      <div class="help" id="keyStatus"></div>
-      <label for="sModel">AI model for answers</label>
-      <select id="sModel"></select>
-      <div class="help" id="modelPrice"></div>
-    </fieldset>
-    <fieldset class="setgroup">
-      <legend>Shop phones</legend>
-      <div id="sPhone" class="help"></div>
-      <label class="check"><input type="checkbox" id="sSignin"> Require each mechanic to sign in</label>
-      <div class="help">Off: anyone on your wifi can search and ask on your API key.
-        On: each phone needs a one-time code from this PC, and you can set a monthly limit per mechanic.</div>
-      <button class="ghost" id="openUsers" type="button" style="margin-top:10px">Mechanics &amp; spend…</button>
-    </fieldset>
-    <fieldset class="setgroup">
-      <legend>Manuals</legend>
-      <div class="help" id="sManuals" style="margin-bottom:8px"></div>
-      <button class="ghost" id="openImport" type="button">Import or remove manuals…</button>
-    </fieldset>
-    <fieldset class="setgroup" id="sStartRow" hidden>
-      <legend>This PC</legend>
-      <label class="check"><input type="checkbox" id="sAutostart"> Start AutoRundown when I sign in</label>
-      <div class="help">Runs in the background; its tray icon opens or stops it.</div>
-    </fieldset>
-    <details class="setgroup setadv">
-      <summary>Advanced: folders</summary>
-      <label for="sArchive">Archive folder</label>
-      <input id="sArchive" type="text" spellcheck="false">
-      <div class="help">Where the Import dialog's folder browser starts. Changing it doesn't move or import anything.</div>
-      <label for="sIndex">Index file</label>
-      <input id="sIndex" type="text" spellcheck="false">
-      <div class="help">The database AutoRundown searches. Change it only if you moved the file; it must be an
-        existing index (to build a new one, use Import).</div>
-      <label for="sExtractor">Mercedes extractor folder</label>
-      <input id="sExtractor" type="text" spellcheck="false">
-      <div class="help">The folder that holds vm_pipeline.py, on this PC. Leave it empty to use the one
-        AutoRundown finds by itself.</div>
-      <div class="help" id="sConfigPath" style="margin-top:12px"></div>
-    </details>
-  </div>
-  <div class="errbox" id="sErr" role="alert" hidden style="margin:0 20px"></div>
-  <div class="dlgfoot">
-    <span class="muted" id="sSaved" role="status" style="margin-right:auto"></span>
-    <button class="ghost" id="sCancel" type="button">Cancel</button>
-    <button id="saveBtn" type="button">Save</button>
-  </div>
-</dialog>
+
 
 <dialog id="signinDlg">
   <h3 style="margin:0 0 4px">Sign in</h3>
-  <div class="muted">Ask whoever runs AutoRundown in the shop for a sign-in code.
-    You only do this once on each phone.</div>
+  <div class="muted">Ask whoever runs AutoRundown in the shop for a sign-in code (8 letters and
+    numbers, like ABCD 2345). You only do this once on each phone.</div>
   <label for="signinCode">Sign-in code</label>
   <input id="signinCode" type="text" maxlength="12" autocapitalize="characters"
-         autocomplete="one-time-code" spellcheck="false" placeholder="ABCD 2345"
+         autocomplete="one-time-code" spellcheck="false" placeholder="8-letter code"
          style="font-size:22px; letter-spacing:3px; text-transform:uppercase">
   <div class="vinnote errnote" id="signinNote" role="alert"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
@@ -599,28 +803,6 @@
   </div>
 </dialog>
 
-<dialog id="usersDlg" class="framed" aria-labelledby="usersTitle">
-  <h3 class="dlghead" id="usersTitle">Mechanics &amp; spend</h3>
-  <div class="dlgbody">
-    <div class="help" id="usersIntro"></div>
-    <div id="usersList" style="margin-top:12px"></div>
-    <fieldset class="setgroup">
-      <legend>Add a mechanic</legend>
-      <div class="adduser">
-        <div><label for="uName">Name</label>
-          <input id="uName" type="text" maxlength="60" autocomplete="off"></div>
-        <div><label for="uCap">Monthly limit in $ (optional)</label>
-          <input id="uCap" type="number" min="0" step="1" inputmode="decimal"></div>
-        <button id="uAdd" type="button">Add</button>
-      </div>
-      <div class="help">They get a one-time sign-in code to type on their phone. Leave the limit empty for no limit.</div>
-    </fieldset>
-    <div class="vinnote errnote" id="usersNote" role="alert"></div>
-  </div>
-  <div class="dlgfoot">
-    <button class="ghost" type="button" onclick="document.getElementById('usersDlg').close()">Close</button>
-  </div>
-</dialog>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -640,16 +822,20 @@ async function api(path, opts = {}, timeout = 30000) {
   try {
     r = await fetch(path, {...opts, signal: ctl.signal});
   } catch (e) {
-    throw new Error(e.name === 'AbortError'
+    const err = new Error(e.name === 'AbortError'
       ? 'AutoRundown took too long to answer. Try again in a moment.'
       : 'Can’t reach AutoRundown. Is the PC running it switched on, and are you on the same network?');
+    err.status = 0;
+    throw err;
   } finally {
     clearTimeout(timer);
   }
   if (!r.ok) {
     const body = await r.json().catch(() => ({detail: r.statusText}));
     if (r.status === 401 && body.signin) showSignin();
-    throw new Error(body.detail);
+    const err = new Error(body.detail || r.statusText);
+    err.status = r.status;
+    throw err;
   }
   return r.json();
 }
@@ -663,7 +849,7 @@ new ResizeObserver(([e]) => document.documentElement.style.setProperty(
 let me = {admin: false};
 async function loadMe() {
   me = await api('/api/me');
-  $('#settingsBtn').hidden = !me.admin;
+  $('#settingsBtn').hidden = !me.admin;   // (the gate hides it while starting)
   $('#acctBtn').hidden = !me.signed_in;
   if (me.signed_in) $('#acctBtn').textContent = me.name;
   return me;
@@ -954,9 +1140,18 @@ function carBoxMatches() {
 function carChanged() {
   if (docId() === shownDoc) return;
   shownDoc = docId();
-  out.innerHTML = '';
+  out.innerHTML = emptyState();
   srcout.innerHTML = '<p class="muted">Cited pages and diagrams appear here.</p>';
   $('#right').classList.remove('open');
+}
+// nothing asked yet: say what the box is for, with a few starting points
+const EXAMPLES = ['oil capacity', 'front brake pads torque', 'spark plug gap'];
+function emptyState() {
+  const label = carBoxLabel || currentCarLabel();
+  if (!docId() || !label) return '';
+  return `<div class="empty">Ask a question about <b>${esc(label)}</b>, or search the manual's own words.`
+    + `<div class="examples">${EXAMPLES.map(x =>
+        `<button type="button" class="chipbtn" data-example="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`;
 }
 // which car results were drawn for, on the results themselves
 const resultsFor = (label = carBoxLabel || currentCarLabel()) => label
@@ -1624,7 +1819,8 @@ function origLoaded(fr) {
   let msg = null;
   try { msg = fr.contentDocument.querySelector('[data-unavailable]'); } catch (_) {}
   if (!msg) return;
-  $('#origWrap').innerHTML = `<div class="notfound">${esc(msg.textContent)}
+  $('#origWrap').innerHTML = `<div class="notfound" title="${esc(msg.textContent)}">The original layout isn't
+    available for this page.
     <div style="margin-top:10px"><button type="button" class="ghost" data-view="reading">Back to reading view</button></div></div>`;
 }
 function setPageView(original, doc, pageNo) {
@@ -1733,36 +1929,55 @@ function showModelPrice() {
     : '';
 }
 
-// -- Settings (this PC only) -------------------------------------------------
-// Only fields that were changed are sent: Save used to send the index path
-// shown (the one in use) and so overwrote the saved one whenever anything else
-// was changed. Unsaved edits are never dropped silently, and Import and
-// Mechanics open on top of Settings instead of closing it.
-let setLoaded = {}, setDirty = false;
-const SET_FIELDS = {archive_dir: '#sArchive', index_path: '#sIndex', extractor_dir: '#sExtractor',
-                    model: '#sModel'};
-async function openSettings() {
-  let s, models;
+// -- Shop setup: one page, #/setup/<section>, the PC only ---------------------
+// It replaced three stacked pop-ups (Settings over Import over the app, at
+// 520 and 720 px): only this PC is admin, so a phone-sized box made no sense
+// on its screen. Toggles and the model save as they change; the API key and
+// the folders have their own Save. Nothing is lost moving between sections:
+// they are only hidden, and a reload of the data never overwrites an edit.
+const SECTIONS = ['welcome', 'manuals', 'ai', 'phones', 'pc', 'advanced'];
+const ADV_FIELDS = {archive_dir: '#sArchive', index_path: '#sIndex', extractor_dir: '#sExtractor'};
+let setupData = null, advLoaded = {};
+function flash(sel, text, bad = false) {
+  const el = $(sel);
+  el.textContent = text; el.classList.toggle('bad', bad);
+  clearTimeout(el._t);
+  if (!bad) el._t = setTimeout(() => { el.textContent = ''; }, 3000);
+}
+async function saveSetting(body, mark) {
   try {
-    [s, models] = await Promise.all([api('/api/settings'), api('/api/models')]);
-  } catch (e) {
-    out.innerHTML = `<div class="card"><div class="errbox">Couldn't open Settings: ${esc(e.message)}</div></div>`;
-    return;
-  }
+    await api('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body)});
+    flash(mark, 'Saved ✓');
+    return true;
+  } catch (e) { flash(mark, 'Not saved: ' + e.message, true); return false; }
+}
+const advChanged = () => Object.entries(ADV_FIELDS).filter(([k, sel]) => $(sel).value.trim() !== advLoaded[k]);
+function markDirty() {
+  const adv = advChanged().length, key = !!$('#sKey').value.trim();
+  $('#saveAdv').disabled = !adv;
+  $('#saveKey').disabled = !key;
+  $('#navAdvSub').textContent = adv ? 'unsaved' : '';
+  $('#navAiSub').textContent = key ? 'unsaved' : (setupData && !setupData.has_api_key ? 'no key' : '');
+}
+async function loadSetup() {
+  const [s, models] = await Promise.all([api('/api/settings'), api('/api/models')]);
+  setupData = s;
   modelList = models;
-  $('#sModel').innerHTML = models.map(m =>
-    `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('');
-  $('#sModel').value = models.some(m => m.id === s.model) ? s.model : models[0].id;
+  const cur = $('#sModel').value;
+  $('#sModel').innerHTML = models.map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('');
+  $('#sModel').value = models.some(m => m.id === s.model) ? s.model : (cur || models[0].id);
   showModelPrice();
-  setLoaded = {archive_dir: s.archive_dir || '', index_path: s.index_path || '',
-               extractor_dir: s.extractor_dir || '', model: $('#sModel').value,
-               require_signin: !!s.require_signin, autostart: s.autostart};
-  for (const [k, sel] of Object.entries(SET_FIELDS)) if (k !== 'model') $(sel).value = setLoaded[k];
+  // fields being edited keep their text
+  for (const [k, sel] of Object.entries(ADV_FIELDS)) {
+    const was = advLoaded[k];
+    advLoaded[k] = s[k] || '';
+    if (was === undefined || $(sel).value.trim() === was) $(sel).value = advLoaded[k];
+  }
   $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
   $('#sAutostart').checked = !!s.autostart;
   $('#sSignin').checked = !!s.require_signin;
-  $('#sKey').value = '';
-  $('#sKey').placeholder = s.has_api_key ? 'leave blank to keep the saved key' : 'sk-ant-…';
+  $('#sKey').placeholder = s.has_api_key ? 'leave empty to keep the saved key' : 'sk-ant-…';
   $('#keyStatus').innerHTML = s.has_api_key
     ? `<span style="color:var(--good)">&#10003; Key saved</span>`
       + (s.key_source === 'environment' ? ' (from the ANTHROPIC_API_KEY environment variable)' : '')
@@ -1775,68 +1990,92 @@ async function openSettings() {
         `<div class="phonerow"><b>${esc(u)}</b><button type="button" class="ghost" data-copy="${esc(u)}">Copy</button></div>`).join('')
       + 'then use “Add to Home Screen”.'
     : 'No network address found, so phones can’t reach this PC right now.';
-  // counted over the whole index: ~15 s on a cold 3.5 GB one, so Settings
-  // opens without waiting and the line fills in when it arrives
-  $('#sManuals').textContent = 'Counting the manuals…';
-  api('/api/stats', {}, 120000).then(st => {
+  $('#sConfigPath').textContent = s.config_path ? `Settings are stored in ${s.config_path}.` : '';
+  markDirty();
+  // counted over the whole index: ~15 s on a cold 3.5 GB one, so it never holds the page up
+  $('#sManuals').textContent = vehicles.length ? 'Counting the manuals…' : 'No manuals yet.';
+  if (vehicles.length) api('/api/stats', {}, 120000).then(st => {
     $('#sManuals').textContent = `${st.vehicles.toLocaleString()} manual${st.vehicles === 1 ? '' : 's'}, `
       + `${st.unique_pages.toLocaleString()} pages in the index.`;
   }, () => { $('#sManuals').textContent = ''; });
-  $('#sConfigPath').textContent = s.config_path ? `Settings are stored in ${s.config_path}.` : '';
-  $('#sErr').hidden = true; $('#sSaved').textContent = '';
-  $('#saveBtn').disabled = false;
-  setDirty = false;
-  $('#settings').showModal();
 }
-$('#settingsBtn').onclick = openSettings;
-$('#sModel').onchange = showModelPrice;
-$('#settings').addEventListener('input', () => { setDirty = true; });
-$('#settings').addEventListener('change', () => { setDirty = true; });
+function renderWelcome() {
+  const n = vehicles.length, key = setupData && setupData.has_api_key;
+  $('#wManuals').classList.toggle('done', n > 0);
+  $('#wKey').classList.toggle('done', !!key);
+  $('#wManualsHelp').textContent = n
+    ? `${n} manual${n === 1 ? '' : 's'} in the index. You can add more any time under Manuals.`
+    : 'LEMON manuals from a folder, the Mercedes WIS data from a virtual machine, or a folder of HTML / text / PDF files.';
+  $('#wKeyHelp').textContent = key ? 'Saved. AI answers are on.' : 'For AI answers. Keyword search works without one.';
+  $('#welcomeDone').hidden = !n;
+}
+async function showSetup(sec) {
+  showView('setup');
+  if (!sec && !narrow()) sec = vehicles.length ? 'manuals' : 'welcome';
+  if (sec && !SECTIONS.includes(sec)) sec = 'manuals';
+  $('#setup').dataset.sec = sec || '';
+  document.querySelectorAll('.setsec').forEach(x => x.hidden = x.id !== 'sec-' + sec);
+  document.querySelectorAll('.setupnav a[data-sec]').forEach(a =>
+    a.setAttribute('aria-current', a.dataset.sec === sec ? 'page' : 'false'));
+  $('#navWelcome').hidden = vehicles.length > 0 && sec !== 'welcome';
+  $('#navBack').hidden = !vehicles.length;
+  $('#navManualsSub').textContent = vehicles.length ? '' : 'none yet';
+  $('#setup').scrollTop = 0;
+  if (!setupData) {
+    try { await loadSetup(); }
+    catch (e) { $('#sManuals').textContent = 'Couldn’t load the settings: ' + e.message; }
+  }
+  if (sec === 'welcome') renderWelcome();
+  if (sec === 'manuals') openImport();
+  if (sec === 'phones') openUsers();
+}
+$('#sModel').onchange = async () => {
+  showModelPrice();
+  const v = $('#sModel').value;
+  if (await saveSetting({model: v}, '#mModel')) { me.default_model = v; $('#model').value = v; }
+};
+$('#sSignin').onchange = async e => {
+  const v = e.target.checked;
+  if (await saveSetting({require_signin: v}, '#mSignin')) { me.require_signin = v; openUsers(); }
+  else e.target.checked = !v;
+};
+$('#sAutostart').onchange = async e => {
+  const v = e.target.checked;
+  if (!await saveSetting({autostart: v}, '#mAutostart')) e.target.checked = !v;
+};
+$('#saveKey').onclick = async () => {
+  const k = $('#sKey').value.trim();
+  if (!k) return;
+  $('#saveKey').disabled = true;
+  if (await saveSetting({api_key: k}, '#mKey')) { $('#sKey').value = ''; await loadSetup(); }
+  markDirty();
+};
+$('#sKey').addEventListener('keydown', e => { if (e.key === 'Enter') $('#saveKey').click(); });
+$('#saveAdv').onclick = async () => {
+  const body = Object.fromEntries(advChanged().map(([k, sel]) => [k, $(sel).value.trim()]));
+  if (!Object.keys(body).length) return;
+  $('#saveAdv').disabled = true;
+  $('#sErr').hidden = true;
+  try {
+    await api('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body)});
+  } catch (e) {
+    $('#sErr').textContent = 'Not saved: ' + e.message; $('#sErr').hidden = false;
+    markDirty();
+    return;
+  }
+  Object.assign(advLoaded, body);
+  flash('#mAdv', 'Saved ✓');
+  markDirty();
+  if ('index_path' in body) { await loadVehicles(); }     // another index: other cars
+};
+$('#setup').addEventListener('input', markDirty);
 $('#sPhone').addEventListener('click', e => {
   const b = e.target.closest('[data-copy]');
   if (!b) return;
   navigator.clipboard?.writeText(b.dataset.copy).then(() => { b.textContent = 'Copied'; },
                                                       () => { b.textContent = 'Select and copy'; });
 });
-const discardOk = () => !setDirty || confirm('Discard your changes to Settings?');
-$('#sCancel').onclick = () => { if (discardOk()) $('#settings').close(); };
-$('#settings').addEventListener('cancel', e => { if (!discardOk()) e.preventDefault(); });
-function settingsChanges() {
-  const body = {};
-  for (const [k, sel] of Object.entries(SET_FIELDS)) {
-    const v = k === 'model' ? $(sel).value : $(sel).value.trim();
-    if (v !== setLoaded[k]) body[k] = v;
-  }
-  if ($('#sSignin').checked !== setLoaded.require_signin) body.require_signin = $('#sSignin').checked;
-  if (!$('#sStartRow').hidden && $('#sAutostart').checked !== !!setLoaded.autostart)
-    body.autostart = $('#sAutostart').checked;
-  if ($('#sKey').value.trim()) body.api_key = $('#sKey').value.trim();
-  return body;
-}
-$('#saveBtn').onclick = async () => {
-  const body = settingsChanges();
-  if (!Object.keys(body).length) { $('#settings').close(); return; }
-  $('#saveBtn').disabled = true;
-  $('#sErr').hidden = true;
-  try {
-    await api('/api/settings', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body)
-    });
-  } catch (e) {
-    $('#sErr').textContent = 'Not saved: ' + e.message;
-    $('#sErr').hidden = false;
-    $('#saveBtn').disabled = false;
-    return;
-  }
-  setDirty = false;
-  $('#sKey').value = '';
-  $('#sSaved').textContent = 'Saved';
-  if (body.model) { me.default_model = body.model; $('#model').value = body.model; }
-  if ('require_signin' in body) me.require_signin = body.require_signin;
-  if ('index_path' in body) loadVehicles();     // another index: other cars
-  setTimeout(() => { $('#settings').close(); $('#saveBtn').disabled = false; }, 700);
-};
 
 // -- mechanics (this PC only) ------------------------------------------
 const money = v => '$' + (v || 0).toFixed(2);
@@ -1858,8 +2097,7 @@ async function loadUsers() {
     ? ` To remove the security warning, install <b>${esc(d.phone_urls[0])}/ca.crt</b> on each phone once.` : '';
   $('#usersIntro').innerHTML = (d.require_signin
       ? 'Sign-in is <b>required</b>: other devices need a code from here.'
-      : 'Sign-in is <b>off</b>: anyone on the network can search and ask. Turn it on under '
-        + '<i>Shop phones</i> in Settings.')
+      : 'Sign-in is <b>off</b>: anyone on the network can search and ask. Turn it on above.')
     + ` Phones open ${urls}.${ca}`;
   const row = u => `<div class="card usercard" data-id="${u.id}" data-name="${esc(u.name)}" style="padding:10px 12px; margin:0 0 8px">
       <div class="row" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
@@ -1882,7 +2120,7 @@ async function loadUsers() {
       </div>
       <div class="codeslot"></div></div>`;
   $('#usersList').innerHTML = (d.users.length ? d.users.map(row).join('')
-      : `<div class="notfound">No mechanics yet. Add one below to give their phone a sign-in code.</div>`)
+      : `<div class="notfound">No mechanics yet. Add one above to give their phone a sign-in code.</div>`)
     + `<div class="muted" style="margin:8px 0">This PC and devices that did not sign in: `
     + `${d.unattributed.month_questions} questions, ${money(d.unattributed.month_spend_usd)} this month.</div>`;
   if (lastCode) {
@@ -1942,12 +2180,10 @@ $('#uAdd').onclick = async () => {
   finally { $('#uAdd').disabled = false; }
 };
 $('#uName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#uAdd').click(); });
-$('#openUsers').onclick = async () => {
-  lastCode = null; $('#usersNote').textContent = '';
-  $('#usersList').innerHTML = '<div class="muted">Loading…</div>';
-  $('#usersDlg').showModal();                  // on top of Settings, which keeps its edits
+async function openUsers() {
+  if (!$('#usersList').innerHTML) $('#usersList').innerHTML = '<div class="muted">Loading…</div>';
   try { await loadUsers(); } catch (err) { $('#usersNote').textContent = err.message; }
-};
+}
 $('#year').addEventListener('change', () => { refreshPicker(); clearCarPick(); loadConnectors(); });
 $('#make').addEventListener('change', () => { refreshPicker(); clearCarPick(); loadConnectors(); });
 $('#vehicle').addEventListener('change', () => {
@@ -2079,6 +2315,7 @@ async function impBrowse(path) {
     if (seq !== impSeq) return;
     $('#impPath').value = r.path;
     $('#impUp').dataset.parent = r.parent;
+    $('#impDirs').hidden = false; $('#impDetected').hidden = false; $('#impChange').hidden = true;
     $('#impDirs').innerHTML = r.dirs.length
       ? r.dirs.map(d => `<button type="button" data-d="${esc(d)}">&#128193; ${esc(d)}</button>`).join('')
       : '<div class="muted" style="padding:8px 10px">No subfolders.</div>';
@@ -2090,8 +2327,9 @@ async function impBrowse(path) {
       ? `<b>Detected:</b> ${esc(det.summary)}` : `<span class="muted">${esc(det.summary || '')}</span>`;
     $('#impStart').disabled = !det.importer || det.importer === 'lemon';
     if (det.importer === 'lemon')
-      $('#impDetected').innerHTML += ' <span class="muted">— to pick which vehicles, use the <b>LEMON</b> tab'
-        + ' (“Already have LEMON manuals in a folder”).</span>';
+      $('#impDetected').innerHTML += ' — pick its vehicles on the '
+        + '<button type="button" class="linkbtn" id="goLemon">LEMON tab</button>.';
+    $('#goLemon')?.addEventListener('click', () => impSelectTab('lemon'));
     $('#impModes').innerHTML = det.importer === 'records' && det.rebuildable
       ? `<label style="margin:0"><input type="radio" name="impMode" value="add" checked> Add / update (keeps what is there, skips pages already imported)</label>
          <label style="margin:4px 0 0"><input type="radio" name="impMode" value="rebuild_wis"> Rebuild the Mercedes WIS data from this folder (keeps your other manuals and the spend log; ~6 min)</label>`
@@ -2162,6 +2400,7 @@ function catRender() {
   tree.querySelectorAll('input[data-some]').forEach(c => c.indeterminate = true);
   const n = catRoot.picked_total;
   $('#impCatCount').textContent = n ? `${n.toLocaleString()} vehicle${n > 1 ? 's' : ''} picked` : 'Nothing picked yet';
+  $('#lemCatSum').textContent = `${catRoot.total.toLocaleString()} vehicles · ${n.toLocaleString()} picked`;
   $('#impCatClear').disabled = !n;
 }
 async function catToggle(key) {
@@ -2222,6 +2461,7 @@ function lemSummary() {
 }
 async function impLemon(path, seq) {
   $('#impLemon').hidden = false;
+  $('#lemFolderSum').textContent = path;
   $('#impLemList').innerHTML = '<div class="muted" style="padding:8px 10px">Reading the vehicles…</div>';
   const r = await api('/api/import/lemon?path=' + encodeURIComponent(path));
   if (seq !== impSeq) return;
@@ -2238,6 +2478,13 @@ async function impLemon(path, seq) {
     || '<div class="muted" style="padding:8px 10px">Open the folder that holds your LEMON manuals (one folder per vehicle, each with index.html and pages/).</div>';
   $('#impLemList').querySelectorAll('input').forEach(c => c.onchange = lemSummary);
   lemSummary();
+  // a LEMON folder found: the browser and the detected box step aside
+  if (lemRows.length) {
+    $('#impDirs').hidden = true; $('#impDetected').hidden = true; $('#impChange').hidden = false;
+    const done = lemRows.filter(v => v.state === 'imported').length;
+    $('#lemFolderSum').textContent = `${lemRows.length} vehicle${lemRows.length > 1 ? 's' : ''}`
+      + (done ? `, ${done} imported` : '');
+  }
 }
 $('#impLemAll').onclick = () => { document.querySelectorAll('#impLemList input').forEach((c, i) =>
   c.checked = lemRows[i].state !== 'imported'); lemSummary(); };
@@ -2260,9 +2507,10 @@ function manRender() {
                                     ['#impFolderManuals', 'folder', 'Imported from folders']]) {
     const box = $(id), rows = manData[group];
     if (group === 'folder') box.hidden = !rows.length || impTab() !== 'folder';
+    if (group === 'lemon') $('#lemImpSum').textContent = rows.length ? `${rows.length}` : 'none yet';
     if (!rows.length) { box.innerHTML = group === 'lemon'
-      ? '<h4>Imported LEMON manuals</h4><div class="muted" style="font-size:14px">None yet.</div>' : ''; continue; }
-    box.innerHTML = `<h4>${title} (${rows.length})</h4>`
+      ? '<div class="muted" style="font-size:14px">None yet.</div>' : ''; continue; }
+    box.innerHTML = (group === 'lemon' ? '' : `<h4>${title} (${rows.length})</h4>`)
       + (rows.length > 8 ? `<input type="search" class="manfilter" placeholder="Filter" style="width:100%; margin-bottom:6px">` : '')
       + `<div class="dirlist">` + rows.map(r =>
         `<label class="lemrow" data-label="${esc(r.label.toLowerCase())}"><input type="checkbox" value="${esc(r.doc_id)}">`
@@ -2322,6 +2570,7 @@ const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'r
   ? 'removing Mercedes WIS' : s.mode === 'vm' ? 'Mercedes VM extract' : 'import';
 function impShow(s) {
   const log = $('#impLog');
+  $('#jobIdle').hidden = s.state !== 'idle';
   if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; $('#impFail').hidden = true; return; }
   if (s.state === 'running') impSawRunning = true;
   log.textContent = (s.log || []).join('\n');
@@ -2329,6 +2578,7 @@ function impShow(s) {
   const verb = (s.mode || '').startsWith('remove') ? 'Removing' : 'Importing';
   if (s.state !== 'running' && !impSawRunning) {
     log.hidden = true;
+    $('#jobIdle').hidden = false;
     $('#impStatus').innerHTML = `Last job: ${esc(impJobName(s))} ${s.state === 'done' ? 'finished' : 'failed'}`
       + ` ${impDur(s.ago || 0)} ago · <a href="#" id="impShowLog">Show log</a>`;
     $('#impShowLog').onclick = e => { e.preventDefault(); log.hidden = !log.hidden;
@@ -2356,7 +2606,13 @@ async function impWatch() {
       manLoad();
       if (catRoot) catRefresh();
       if (s.state === 'done') {
-        loadVehicles();
+        loadVehicles().then(() => {
+          $('#navBack').hidden = !vehicles.length;
+          $('#navManualsSub').textContent = vehicles.length ? '' : 'none yet';
+          $('#sManuals').textContent = vehicles.length
+            ? `${vehicles.length} manual${vehicles.length === 1 ? '' : 's'} in the index.` : 'No manuals yet.';
+          if (!$('#setup').hidden) renderWelcome();
+        });
         if (impSource() === 'lemon') impBrowse($('#impPath').value);  // refresh "imported" tags
       }
     }
@@ -2364,37 +2620,56 @@ async function impWatch() {
   await tick();
   if (/^(Importing|Removing)/.test($('#impStatus').textContent)) impPoll = setInterval(tick, 1500);
 }
-async function openImport(first) {
-  $('#impIntro').firstChild.textContent = first
-    ? 'No manuals are indexed yet. Pick LEMON manuals, extract them from a Mercedes virtual machine, or import them from a folder on this PC. '
-    : 'Pick LEMON manuals, extract them from a Mercedes virtual machine, or import manuals from a folder on this PC. ';
-  impSawRunning = false;
-  $('#importDlg').showModal();
-  impShowSource();
+let importOpened = false;
+function openImport() {
+  if (!importOpened) {             // first visit to Manuals in this page load
+    importOpened = true;
+    impSawRunning = false;
+    impShowSource();
+    // focus the selected tab, not the whole strip (it drew a ring round all three)
+    setTimeout(() => document.querySelector('.srctabs [aria-selected="true"]')?.focus({preventScroll: true}), 0);
+  }
   manLoad();
   impWatch().catch(() => {});
 }
-$('#openImport').onclick = () => openImport(false);   // on top of Settings
+$('#impChange').onclick = () => {
+  $('#impDirs').hidden = false; $('#impDetected').hidden = false; $('#impChange').hidden = true;
+};
 $('#impGo').onclick = () => impBrowse($('#impPath').value);
 $('#impPath').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); impBrowse($('#impPath').value); } });
 $('#impUp').onclick = () => $('#impUp').dataset.parent && impBrowse($('#impUp').dataset.parent);
-$('#impClose').onclick = () => $('#importDlg').close();
 // "lemon" is the LEMON tab's folder import (its old radio value), "catalogue" the tree
 const impTab = () => document.querySelector('.srctabs [aria-selected="true"]').dataset.src;
 const impSource = () => impTab() !== 'lemon' ? impTab() : $('#impLemFolderBox').open ? 'lemon' : 'catalogue';
+// one LEMON card open at a time (the name= attribute does it too, where supported)
+const LEMCARDS = ['#impLemFolderBox', '#impLemImported', '#impLemCat'];
+LEMCARDS.forEach(id => $(id).addEventListener('toggle', e => {
+  if (e.target.open) LEMCARDS.forEach(o => { if (o !== id) $(o).open = false; });
+  if (id === '#impLemFolderBox' || e.target.open) impShowSource();
+}));
 async function impVms() {
   $('#impVmNote').innerHTML = '<span class="muted">Looking for virtual machines…</span>';
+  $('#impVmControls').hidden = true;
   $('#impStart').disabled = true;
+  const noVm = msg => {
+    $('#impVmControls').hidden = true; $('#impStart').hidden = true;
+    const plain = String(msg).replace(/^\[\d\d:\d\d:\d\d\]\s*/, '').replace(/^STOP:\s*/, '');
+    $('#impVmNote').innerHTML = `<div class="errbox">${/VBoxManage not found|VirtualBox not found|was not found on this PC/i.test(plain)
+      ? 'VirtualBox isn’t installed on this PC (or isn’t on the PATH). Install it, then come back to this tab.'
+      : esc(plain)}</div>`;
+  };
   try {
     const r = await api('/api/vms');
-    if (r.error) { $('#impVmNote').innerHTML = `<div class="errbox">${esc(r.error)}</div>`; return; }
+    if (r.error) return noVm(r.error);
+    if (!r.vms.length) return noVm('No VirtualBox virtual machines were found on this PC.');
+    $('#impVmControls').hidden = false; $('#impStart').hidden = false;
     $('#impVm').innerHTML = r.vms.map(v =>
       `<option value="${esc(v.name)}">${esc(v.name)} (${esc(v.state)})</option>`).join('');
     $('#impVmNote').innerHTML = r.vms.length
-      ? `Output goes to <b>${esc(r.out_root)}</b>.`
+      ? `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`
       : '<span class="muted">No VirtualBox VMs found on this PC.</span>';
     $('#impStart').disabled = !r.vms.length;
-  } catch (e) { $('#impVmNote').innerHTML = `<div class="errbox">${esc(e.message)}</div>`; }
+  } catch (e) { noVm(e.message); }
 }
 function impShowSource() {
   const tab = impTab(), src = impSource();
@@ -2430,7 +2705,6 @@ $('.srctabs').addEventListener('keydown', e => {
   const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
   impSelectTab(next.dataset.src); next.focus();
 });
-$('#impLemFolderBox').addEventListener('toggle', impShowSource);
 $('#impStart').onclick = async () => {
   if (impSource() === 'vm') {
     const steps = [...document.querySelectorAll('#impSteps input:checked')].map(c => c.value);
@@ -2464,24 +2738,99 @@ $('#impStart').onclick = async () => {
   } catch (e) { $('#impStatus').textContent = e.message; }
 };
 
-// /api/me, the vehicles and the models are asked for together (they waited
-// for one another: a round trip lost on a phone). Signed out, the vehicles
-// answer 401 and the sign-in box shows.
-out.innerHTML = '<div class="muted"><span class="spinner"></span> Loading…</div>';
-const vehiclesReq = api('/api/vehicles').catch(e => e);
-const modelsReq = api('/api/models').catch(e => e);
-loadMe().then(m => {
-  if (m.require_signin && !m.admin && !m.signed_in) { showSignin(); out.innerHTML = ''; return; }
-  loadModels(modelsReq).catch(e => {
-    $('#model').innerHTML = '<option value="">AI models unavailable</option>';
-    $('#model').title = e.message;
-  });
-  return loadVehicles(vehiclesReq).then(() => {
-    if (!vehicles.length) out.innerHTML = '';
-    if (!vehicles.length && me.admin) openImport(true);
-  });
-}).catch(e => out.innerHTML =
-  `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`);
+// -- views: the app, Shop setup, or a start-up / not-ready screen ---------------
+function showView(v) {
+  $('main').hidden = v !== 'app';
+  $('#setup').hidden = v !== 'setup';
+  $('#gate').hidden = v !== 'gate';
+  document.body.dataset.view = v;
+  $('#settingsBtn').setAttribute('aria-current', v === 'setup' ? 'page' : 'false');
+}
+function showGate(msg, more = '', retry = false) {
+  showView('gate');
+  $('#gateMsg').innerHTML = msg;
+  $('#gateMore').hidden = !more; $('#gateMore').textContent = more;
+  $('#gateRetry').hidden = !retry;
+}
+let booted = false;
+function route() {
+  if (!booted) return;
+  const m = /^#\/setup(?:\/([a-z]+))?/.exec(location.hash);
+  if (m && me.admin) return showSetup(m[1] || '');
+  if (m) history.replaceState(null, '', location.pathname);
+  if (!vehicles.length) {
+    // nothing to search yet: the PC sets up, a phone is told to wait
+    if (me.admin) return location.replace('#/setup/welcome');
+    return showGate('<b>No manuals yet.</b>',
+                    'AutoRundown is being set up on the shop PC — check back later.', true);
+  }
+  showView('app');
+  if (!out.innerHTML.trim()) out.innerHTML = emptyState();
+}
+addEventListener('hashchange', route);
+// the Options row (AI model, trims) is open on a PC, folded on a phone
+const syncOpts = () => { if (window.innerWidth > 700) $('#opts').open = true; };
+addEventListener('resize', syncOpts);
+syncOpts();
+out.addEventListener('click', e => {
+  const ex = e.target.closest('[data-example]');
+  if (ex) { $('#q').value = ex.dataset.example; $('#q').focus(); }
+});
+
+// While starting: /api/me, the vehicles and the models are asked for
+// together; a 5xx or no answer is "still starting", retried every 2 s, never
+// a raw "Internal Server Error" over a half-loaded page.
+let startT0 = Date.now(), retryNow = null;
+$('#gateRetry').onclick = () => { if (retryNow) retryNow(); else location.reload(); };
+async function start() {
+  showGate('<span class="spinner"></span> Starting AutoRundown…');
+  for (;;) {
+    const vehiclesReq = api('/api/vehicles').catch(e => e);
+    const modelsReq = api('/api/models').catch(e => e);
+    try {
+      const m = await loadMe();
+      if (m.require_signin && !m.admin && !m.signed_in) {
+        showGate('<b>Sign in to use AutoRundown.</b>');
+        showSignin();
+        return;
+      }
+      await loadVehicles(vehiclesReq);
+      loadModels(modelsReq).catch(e => {
+        $('#model').innerHTML = '<option value="">AI models unavailable</option>';
+        $('#model').title = e.message;
+      });
+      break;
+    } catch (e) {
+      if (e.status === 401) { showGate('<b>Sign in to use AutoRundown.</b>'); showSignin(); return; }
+      if (e.status && e.status < 500) { showGate('<b>AutoRundown can’t open.</b>', e.message, true); return; }
+      const waited = Date.now() - startT0;
+      showGate('<span class="spinner"></span> Starting AutoRundown…',
+               waited > 10000 ? 'Still starting — this can take a minute after the PC boots or after an update.' : '',
+               waited > 10000);
+      await new Promise(res => { retryNow = res; setTimeout(res, 2000); });
+    }
+  }
+  booted = true;
+  route();
+  watchImports();
+}
+// an import running (from this PC) gives partial results: say so, on every device
+let importingSeen = false;
+async function watchImports() {
+  let s;
+  try { s = await api('/api/status'); } catch (_) { return; }
+  $('#banner').hidden = !s.importing;
+  if (s.importing) {
+    $('#banner').innerHTML = 'Importing manuals… search shows partial results until it finishes.'
+      + (me.admin ? ' <a href="#/setup/manuals">See the job</a>' : '');
+    importingSeen = true;
+    setTimeout(watchImports, 15000);
+  } else if (importingSeen) {
+    importingSeen = false;
+    loadVehicles().then(route);
+  }
+}
+start();
 </script>
 </body>
 </html>
