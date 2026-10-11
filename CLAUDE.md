@@ -156,6 +156,12 @@ The sample now draws its vehicles from the **real** `models.jsonl` preserved at
 `../Mercedes Documents/autorundown_out/wis_applic/` — real Baureihe codes, real
 production spans, real Baumuster, so the picker and the VIN lookup behave as
 they will on the real corpus. **The document text is still invented.**
+It also writes `variants.jsonl`, `vin_us.json`, `vin2fin.json` and four
+engine documents (E102/E272/E273/E276) from a small hand-made table
+(`SAMPLE_VARIANTS`: the W211 E 500/550 4MATIC and E 63 AMG, a W212 E 350
+that is M272 or M276, a W210 sedan/wagon, the two documented VIN
+prefixes), so `test_ui_picks.py` runs on sample data -- in CI too.
+Putting the old in-place variant sort back fails it with 106 failures.
 `--catalogue <path>` points it elsewhere; without a catalogue it falls back to
 a small invented one.
 

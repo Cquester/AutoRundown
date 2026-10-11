@@ -119,6 +119,10 @@ jobs:
           [ $rc = 0 ] || { echo "--- server log"; cat "$RUNNER_TEMP/ui-server.log"; }
           exit $rc
 
+      - name: Car picker sends the car it shows (every suggestion, variant and VIN)
+        # the sample corpus's hand-made variants; index opened read-only
+        run: python test_ui_picks.py --index "$RUNNER_TEMP/smoke.db"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: failure()
         with:

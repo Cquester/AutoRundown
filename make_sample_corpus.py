@@ -71,7 +71,59 @@ FALLBACK_MODEL_DATA = {
     "906": ("2006-05-01", "2018-06-30", ["906.633"]),
     "639": ("2003-08-01", "2015-06-30", ["639.701"]),
     "447": ("2014-09-01", None, ["447.601"]),
+    "124": ("1984-11-01", "1997-06-30", ["124.030", "124.032"]),
+    "164": ("2005-03-01", "2011-12-31", ["164.186", "164.177"]),
+    "166": ("2011-07-01", "2019-06-30", ["166.057", "166.073"]),
+    "210": ("1995-06-01", "2003-03-31", ["210.082", "210.282"]),
 }
+
+# Named models per series (IMPORT_SPEC 3b `variants.jsonl`), so the picker's
+# Variant menu, the one-line car box and VIN lookup have something to work
+# on -- test_ui_picks.py needs them. Hand-made from public knowledge (sales
+# names, model and engine codes as printed on the cars and in
+# importers/data/mercedes_us_years.csv), NOT copied from the WIS tables.
+# Chosen to exercise what broke before: W211 "E 500/550 4MATIC" next to the
+# E 63 AMG (the sorted-index bug), a W212 E 350 that is M272 or M276 by
+# Baumuster, and a W210 name spanning sedan and wagon (split_by_body).
+SAMPLE_VARIANTS = [
+    # series, name, {Baumuster: [engines]}, {Baumuster: body}
+    ("201", "190 E 2.3 16", {"201.034": ["102.983"]}, {}),
+    ("201", "190 E 2.3", {"201.028": ["102.985"]}, {}),
+    ("201", "190 E 2.6", {"201.029": ["103.942"]}, {}),
+    ("201", "190 D 2.5", {"201.126": ["602.911"]}, {}),
+    ("124", "300 E", {"124.030": ["103.983"]}, {}),
+    ("124", "E 320", {"124.032": ["104.992"]}, {}),
+    ("210", "E 320 4MATIC", {"210.082": ["112.941"], "210.282": ["112.941"]},
+     {"210.082": "Sedan", "210.282": "Wagon"}),
+    ("204", "C 300", {"204.054": ["272.948"]}, {}),
+    ("204", "C 300 4MATIC", {"204.080": ["272.948"]}, {}),
+    ("204", "C 63 AMG", {"204.077": ["156.985"]}, {}),
+    ("211", "E 350", {"211.056": ["272.964"]}, {}),
+    ("211", "E 350 4MATIC", {"211.087": ["272.964"]}, {}),
+    ("211", "E 500/550 4MATIC", {"211.083": ["113.967"], "211.090": ["273.924"]},
+     {"211.083": "Sedan", "211.090": "Sedan"}),
+    ("211", "E 550", {"211.072": ["273.923"]}, {}),
+    ("211", "E 63 AMG", {"211.077": ["156.983"]}, {}),
+    ("212", "E 350", {"212.056": ["272.977"], "212.059": ["276.952"]}, {}),
+    ("212", "E 550 4MATIC", {"212.072": ["273.971"]}, {}),
+    ("164", "ML 350", {"164.186": ["272.967"]}, {}),
+    ("164", "ML 63 AMG", {"164.177": ["156.980"]}, {}),
+    ("166", "ML 350", {"166.057": ["276.820"]}, {}),
+    ("166", "ML 550 4MATIC", {"166.073": ["278.928"]}, {}),
+]
+
+# US VIN tables (IMPORT_SPEC 3b): position 4 letter -> series, and the
+# first 9 VIN characters -> Baumuster. The two prefixes are the documented
+# examples in CLAUDE.md; enough for the VIN box and dialog.
+SAMPLE_VIN_US = {"WDB": {"D": "201", "E": "124", "J": "210", "U": "211"}}
+SAMPLE_VIN2FIN = {"WDBDA34D4": "201.034", "WDDGF8AB3": "204.080"}
+
+# Engine documents tied to no car: filed under the engine (E102 ...), which a
+# car reaches through its variants' engines.
+SAMPLE_ENGINE_DOCS = [("102", "Cylinder head cover, engine 102"),
+                      ("272", "Cylinder head cover, engine 272"),
+                      ("273", "Timing chain, engine 273"),
+                      ("276", "Spark plugs, engine 276")]
 
 SYSTEMS = [
     ("Front axle", [
@@ -345,6 +397,22 @@ def main():
                     "sids_header": 'ASCII-SIDS2.00,"18.06.2016","HP 9000/700"',
                 })
 
+    # engine documents, named by an ENGINE line and no MODEL
+    for fam, title in SAMPLE_ENGINE_DOCS:
+        dok += 1
+        records.append({
+            "dok_id": dok, "dok_nr_id": 2000000 + dok, "dok_type": 1,
+            "lang": "en", "title": title,
+            "fzg_art_bits": "00100000000000000000000000000000",
+            "fzg_art_indices": [2], "kurzgueltigkeit_id": 98393,
+            "cluster": 8, "body_format": "sids",
+            "applicability_notes": [f"ENGINE {fam}"], **model_fields([]),
+            "cross_refs": [], "image_refs": [], "figures": [],
+            "body_text": "Remove the cover bolts in the reverse of the "
+                         "tightening sequence.\n\nCover bolts: 9 Nm",
+            "sids_header": 'ASCII-SIDS2.00,"18.06.2016","HP 9000/700"',
+        })
+
     # service information -> tsb
     for title, body in SERVICE_INFO:
         for group in range(3):
@@ -427,6 +495,11 @@ def main():
                 "baumuster": baumuster,
                 "bm_zeilen": len(baumuster) * 4,
             }, ensure_ascii=False) + "\n")
+        # the real catalogue lists engine series too; an ENGINE line is only
+        # trusted for a series the catalogue knows
+        for fam in sorted({fam for fam, _ in SAMPLE_ENGINE_DOCS} - set(MODEL_DATA)):
+            f.write(json.dumps({"reihe": fam, "year_from": None, "year_to": None,
+                                "baumuster": [], "bm_zeilen": 0}) + "\n")
 
     with_models = sum(1 for r in records if r["model_series"])
     manifest["schema_version"] = "1.1"
@@ -438,12 +511,26 @@ def main():
         "models_file": "models.jsonl",
     }
 
+    variants = [v for v in SAMPLE_VARIANTS if v[0] in MODEL_DATA]
+    with (OUT / "variants.jsonl").open("w", encoding="utf-8", newline="\n") as f:
+        for series, name, ebm, bodies in variants:
+            f.write(json.dumps({
+                "model_series": series, "name": name, "baumuster": sorted(ebm),
+                "wmi": ["WDB"], "engines": sorted({e for es in ebm.values() for e in es}),
+                "engine_by_bm": ebm, "body_by_bm": bodies,
+                "division": "car", "vehicle_type": "CAR"}) + "\n")
+    (OUT / "vin_us.json").write_text(json.dumps(SAMPLE_VIN_US), encoding="utf-8")
+    (OUT / "vin2fin.json").write_text(json.dumps(SAMPLE_VIN2FIN), encoding="utf-8")
+    manifest.update({"variants_file": "variants.jsonl", "vin_us_file": "vin_us.json",
+                     "vin2fin_file": "vin2fin.json"})
+
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2),
                                        encoding="utf-8")
     print(f"{len(records)} records ({with_models} with model data) + "
           f"{len(MODEL_DATA)} series -> {OUT}")
     print(f"  formats: {fmt}")
     print(f"  empty body: {manifest['empty_body_count']}")
+    print(f"  {len(variants)} named models, {len(SAMPLE_VIN2FIN)} US VIN prefixes")
 
 
 if __name__ == "__main__":
