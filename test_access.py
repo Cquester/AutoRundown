@@ -67,8 +67,28 @@ check(config.load().api_key == "", "  ... and the key is unchanged")
 check(post(phone, "/api/import", {"path": "/"}).status_code == 403, "a phone cannot import")
 check(phone.get("/api/browse").status_code == 403, "a phone cannot browse folders")
 check(phone.get("/api/admin/users").status_code == 403, "a phone cannot list accounts")
-check(rebind.get("/api/settings").status_code == 403,
+check(rebind.get("/api/settings").status_code == 421,
       "loopback with a foreign Host (DNS rebinding) is not admin")
+check(rebind.get("/api/search", params={"doc_id": "v1", "q": "oil"}).status_code == 421,
+      "  ... and can't search either")
+check(post(rebind, "/api/ask", {"doc_id": "v1", "question": "x"}).status_code == 421,
+      "  ... or ask on this PC's key")
+check(client("127.0.0.1", "LOCALHOST.:8756").get("/api/me").status_code == 200,
+      "localhost in any case, with a trailing dot, is served")
+check(phone.get("/api/me").status_code == 200, "a phone using the PC's IP address is served")
+check(client("192.168.1.50", "autorundown.local:8756").get("/api/me").status_code == 200,
+      "  ... and one using autorundown.local")
+
+print("settings are checked before they are saved")
+for bad, what in (({"index_path": ""}, "an empty index path"),
+                  ({"index_path": str(TMP / "typo" / "indx.db")}, "an index path that doesn't exist"),
+                  ({"extractor_dir": "\\\\evil\\share"}, "an extractor on a network share"),
+                  ({"extractor_dir": "relative/dir"}, "a relative extractor folder"),
+                  ({"extractor_dir": str(TMP)}, "a folder without vm_pipeline.py"),
+                  ({"model": "gpt-4"}, "an unknown model")):
+    check(post(pc, "/api/settings", bad).status_code == 400, f"refused: {what}")
+check(not (TMP / "typo").exists(), "  ... and no empty database was created for the typo")
+check(pc.get("/api/vehicles").status_code == 200, "  ... and the site still works")
 check("index_path" not in phone.get("/api/stats").json(), "a phone does not see this PC's paths")
 check("index_path" in pc.get("/api/stats").json(), "this PC does")
 check(post(pc, "/api/settings", {"model": "claude-haiku-4-5"},
@@ -78,11 +98,60 @@ check(post(pc, "/api/settings", {"model": "claude-haiku-4-5"}).status_code == 20
       "this PC can change settings")
 check(APP.state.index_path == str(idx), "  ... without moving the server off its --index")
 
+print("the index is brought up to date before the server answers")
+import sqlite3  # noqa: E402
+old = TMP / "old-index.db"
+c = index.connect(old)
+c.execute("DROP INDEX pages_doc_page")       # an index from before that index existed
+c.commit()
+c.close()
+server.create_app(str(old), TMP / "auth.db")
+c = sqlite3.connect(old)
+check(c.execute("SELECT 1 FROM sqlite_master WHERE name='pages_doc_page'").fetchone() is not None,
+      "create_app adds new indexes up front (on first requests they raced and 500'd)")
+c.close()
+c = index.connect(old, setup=False)
+check(c.execute("SELECT COUNT(*) FROM vehicles").fetchone()[0] == 0, "  ... and request connections skip the schema")
+c.close()
+
+print("headers, sizes and cross-site requests")
+r = pc.get("/")
+check(r.headers.get("x-frame-options") == "SAMEORIGIN" and "frame-ancestors" in r.headers.get(
+      "content-security-policy", ""), "pages can't be framed by another site")
+check(r.headers.get("x-content-type-options") == "nosniff", "  ... and are never content-sniffed")
+check(pc.get("/", headers={"If-None-Match": r.headers["etag"]}).status_code == 304,
+      "the page is not sent again when the browser has it")
+check(pc.get("/api/vehicles", headers={"Accept-Encoding": "gzip"}).status_code == 200, "vehicles answer")
+check(pc.get("/api/vms", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403,
+      "an <img> on another site can't reach an admin route as this PC")
+check(pc.get("/api/browse", headers={"Sec-Fetch-Site": "same-site"}).status_code == 403,
+      "  ... nor can another port of localhost")
+check(pc.get("/api/import", headers={"Sec-Fetch-Site": "same-origin"}).status_code == 200,
+      "  ... this page itself still can")
+check(pc.get("/api/browse", params={"path": str(TMP / "no-such-folder")}).status_code == 404,
+      "a folder that doesn't exist is an error, not the home folder")
+check(pc.get("/api/browse", params={"path": "\\\\server\\share"}).status_code == 400,
+      "network shares are not browsed")
+check(post(phone, "/api/auth/signin", {"code": "x" * 300_000}).status_code == 413,
+      "a 300 KB request body is refused before it is read")
+check(phone.get("/api/search", params={"doc_id": "v1", "q": "oil", "limit": 100000}).status_code == 422,
+      "a search can't ask for 100,000 results")
+check(post(phone, "/api/ask", {"doc_id": "v1", "question": "x" * 5000}).status_code == 422,
+      "a 5,000-character question is refused (paid input)")
+check(all("file_path" not in v for v in phone.get("/api/vehicles").json()),
+      "a phone doesn't see this PC's folders in the vehicle list")
+check(all("file_path" in v for v in pc.get("/api/vehicles").json()), "  ... this PC does")
+
 print("accounts")
 r = post(pc, "/api/admin/users", {"name": "Sam", "monthly_cap_usd": 0.05})
 check(r.status_code == 200 and len(r.json()["code"]) == 8, "this PC adds a mechanic and gets a code")
 sam_id, code = r.json()["id"], r.json()["code"]
 check(post(pc, "/api/admin/users", {"name": "sam"}).status_code == 400, "names are unique, any case")
+for cap in (-5, "Infinity", "NaN", 1e9):
+    check(post(pc, "/api/admin/users", {"name": f"Cap {cap}", "monthly_cap_usd": cap}).status_code == 422,
+          f"a monthly limit of {cap} is refused")
+check(post(pc, f"/api/admin/users/{sam_id}", {"monthly_cap_usd": -1}).status_code == 422,
+      "  ... when changing a limit too")
 
 print("sign-in required")
 check(post(pc, "/api/settings", {"require_signin": True}).status_code == 200, "this PC turns it on")

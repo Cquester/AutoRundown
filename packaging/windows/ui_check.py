@@ -4,7 +4,8 @@
                                          [--channel msedge] [--shots <dir>]
 
 Expects a server on an EMPTY index (a fresh install). Checks, in order:
-the first-run import dialog opens by itself; browsing to <corpus> detects it;
+the first-run "Set up AutoRundown" checklist opens by itself; its "Add
+manuals" step opens Shop setup > Manuals; browsing to <corpus> detects it;
 Import runs the import job (ingest.py in a child process -- the path the
 Windows bundle exists to keep working) to "Finished"; the car box finds a
 car; keyword search returns hits; a hit opens its page; the layout holds at
@@ -50,13 +51,16 @@ def main() -> int:
             print(f"ok   {msg}", flush=True)
 
         page.goto(args.url)
-        dlg = page.locator("#importDlg")
-        expect(dlg).to_be_visible(timeout=15_000)
-        expect(page.locator("#impIntro")).to_contain_text("No manuals are indexed yet")
-        step("first start: import dialog opened by itself")
+        expect(page.locator("#sec-welcome")).to_be_visible(timeout=30_000)
+        expect(page.locator("#sec-welcome")).to_contain_text("Set up AutoRundown")
+        if page.locator("main").is_visible():
+            raise AssertionError("the search screen shows before any manual is imported")
+        step("first start: the set-up checklist opened by itself")
         shot("01-first-run")
 
-        page.click(".srctabs [data-src=folder]")   # the dialog opens on the LEMON tab
+        page.click("#wManuals a")                  # "Add manuals"
+        expect(page.locator("#sec-manuals")).to_be_visible(timeout=10_000)
+        page.click(".srctabs [data-src=folder]")   # Manuals opens on the LEMON tab
         page.fill("#impPath", corpus)
         page.press("#impPath", "Enter")
         expect(page.locator("#impDetected")).to_contain_text("Detected:", timeout=30_000)
@@ -73,7 +77,8 @@ def main() -> int:
             print(log[-2000:])
             raise AssertionError("import log has no 'indexed' line")
 
-        page.click("#impClose")
+        page.click("#navBack")                     # "Back to search", shown once manuals exist
+        expect(page.locator("main")).to_be_visible(timeout=10_000)
         page.fill("#carInput", args.car)
         opt = page.locator("#carList .opt[data-k]").first
         expect(opt).to_be_visible(timeout=10_000)
@@ -96,16 +101,18 @@ def main() -> int:
         step("result opens its page")
         shot("05-page")
 
-        page.click("#settingsBtn")
-        expect(page.locator("#settings")).to_be_visible(timeout=10_000)
+        page.click("#settingsBtn")                 # Shop setup: a page, not a pop-up
+        expect(page.locator("#setup")).to_be_visible(timeout=10_000)
+        page.click("a[data-sec=phones]")
         expect(page.locator("#sPhone")).to_be_visible()
-        step(f"settings: {page.locator('#sPhone').inner_text()}")
+        step(f"shop setup: {page.locator('#sPhone').inner_text()}")
         start_row = page.locator("#sStartRow").is_visible()
         if start_row != (sys.platform == "win32"):
             raise AssertionError(f"'Start when I sign in' shown={start_row} on {sys.platform}")
-        step(f"settings: start-at-sign-in option {'shown' if start_row else 'hidden (not Windows)'}")
+        step(f"shop setup: start-at-sign-in option {'shown' if start_row else 'hidden (not Windows)'}")
         shot("06-settings")
-        page.keyboard.press("Escape")
+        page.click("#navBack")
+        expect(page.locator("main")).to_be_visible(timeout=10_000)
 
         page.set_viewport_size({"width": 390, "height": 844})
         page.wait_for_timeout(300)

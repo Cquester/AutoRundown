@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -79,8 +80,7 @@ def doc_id(make: str, year: str, model: str, engine: str) -> str:
 
 
 def load() -> dict:
-    """The catalogue, cached until its source file changes. Adds `where`:
-    doc_id -> its 4-part path, for marking imported cars."""
+    """The catalogue, cached until its source file changes."""
     live = torrent_index()
     src = live or SNAPSHOT
     key = (str(src), src.stat().st_mtime if src.is_file() else 0)
@@ -91,11 +91,35 @@ def load() -> dict:
             else:
                 cat = json.loads(gzip.decompress(SNAPSHOT.read_bytes()).decode("utf-8"))
                 cat["source"] = f"snapshot of the torrent's index.json, {cat.get('built', '?')}"
-            cat["where"] = {doc_id(m, y, mo, e): (m, y, mo, e)
-                            for m, ys in cat["makes"].items() for y, mos in ys.items()
-                            for mo, es in mos.items() for e in es}
-            _cache.update(key=key, cat=cat, counts={})
+            _cache.update(key=key, cat=cat, counts={}, where={})
         return _cache["cat"]
+
+
+def locate(cat: dict, doc: str) -> tuple | None:
+    """The 4-part tree path of a LEMON doc_id ("1987-mercedes-benz-190e-…"),
+    or None. Only that year's makes, and the one make the id names, are
+    slugged: mapping all 279,988 cars up front took ~1.7 s and ~90 MB on the
+    first open of the Import dialog."""
+    where = _cache.setdefault("where", {})
+    if doc in where:
+        return where[doc]
+    found = None
+    m = re.match(r"(\d{4})-", doc)
+    if m:
+        year = m.group(1)
+        for make, years in cat["makes"].items():
+            if year in years and doc.startswith(f"{year}-{_slug(make)}-"):
+                for model, engines in years[year].items():
+                    for e in engines:
+                        if doc_id(make, year, model, e) == doc:
+                            found = (make, year, model, e)
+                            break
+                    if found:
+                        break
+            if found:
+                break
+    where[doc] = found
+    return found
 
 
 def _node(cat: dict, path: tuple):
@@ -201,7 +225,7 @@ def browse(index_path: str | Path, path: tuple = ()) -> dict:
     have = _indexed(index_path)
     imported: dict[tuple, int] = {}
     for d, complete in have.items():
-        where = cat["where"].get(d)
+        where = locate(cat, d) if complete else None
         if where and complete:
             for i in range(1, 5):
                 imported[where[:i]] = imported.get(where[:i], 0) + 1

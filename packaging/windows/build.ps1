@@ -12,7 +12,8 @@
 # a frozen exe: import jobs run ingest.py / rebuild_wis.py as child processes
 # with sys.executable, which must stay a real Python.
 param(
-    [string]$Out = "dist"
+    [string]$Out = "dist",
+    [switch]$NoVerify
 )
 $ErrorActionPreference = "Stop"
 $root  = (Resolve-Path "$PSScriptRoot\..\..").Path
@@ -32,8 +33,47 @@ New-Item -ItemType Directory -Force $py, $app | Out-Null
 
 # 1. embeddable Python, same version as the one pip runs under
 $zip = Join-Path $root "build\windows\python-$pyver-embed-amd64.zip"
+$url = "https://www.python.org/ftp/python/$pyver/python-$pyver-embed-amd64.zip"
 if (-not (Test-Path $zip)) {
-    Invoke-WebRequest "https://www.python.org/ftp/python/$pyver/python-$pyver-embed-amd64.zip" -OutFile $zip
+    Invoke-WebRequest $url -OutFile $zip
+    Invoke-WebRequest "$url.sigstore" -OutFile "$zip.sigstore"
+}
+# Only an interpreter python.org signed goes into the installer: the zip
+# must carry a Sigstore signature from one of python.org's release signers
+# (https://www.python.org/downloads/metadata/sigstore/ -- which one depends on
+# the version; 3.13.15 was signed by thomas@python.org via Google). -NoVerify
+# skips this for an offline rebuild from a zip checked before.
+$signers = @(
+    @("thomas@python.org",      "https://accounts.google.com"),     # 3.12, 3.13
+    @("hugo@python.org",        "https://github.com/login/oauth"),  # 3.14, 3.15
+    @("steve.dower@python.org", "https://github.com/login/oauth"),  # Windows builds
+    @("pablogsal@python.org",   "https://accounts.google.com"),     # 3.10, 3.11
+    @("lukasz@langa.pl",        "https://github.com/login/oauth")   # 3.8, 3.9
+)
+if (-not $NoVerify) {
+    & python -m pip install --disable-pip-version-check -q "sigstore>=3.6"
+    if ($LASTEXITCODE) { throw "could not install sigstore to check the Python download" }
+    $signedBy = $null
+    # sigstore reports on stderr ("OK: ..."), and Windows PowerShell with
+    # ErrorActionPreference=Stop turns any native stderr line into a fatal
+    # error -- even a success. Judge by the exit code only.
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    foreach ($s in $signers) {
+        & python -m sigstore verify identity --bundle "$zip.sigstore" `
+            --cert-identity $s[0] --cert-oidc-issuer $s[1] $zip 2>$null | Out-Null
+        if (-not $LASTEXITCODE) { $signedBy = $s[0]; break }
+    }
+    if (-not $signedBy) {
+        # say who did sign it, so a new release manager is one line to add
+        & python -m sigstore --verbose verify identity --bundle "$zip.sigstore" `
+            --cert-identity $signers[0][0] --cert-oidc-issuer $signers[0][1] $zip
+        $ErrorActionPreference = $eap
+        Remove-Item $zip, "$zip.sigstore"
+        throw "the Python download is not signed by a known python.org release signer"
+    }
+    $ErrorActionPreference = $eap
+    Write-Host "Python ${pyver} - Sigstore signature by ${signedBy} verified"
 }
 Expand-Archive $zip -DestinationPath $py
 
@@ -55,6 +95,10 @@ Expand-Archive $zip -DestinationPath $py
     --target (Join-Path $py "Lib\site-packages") -r (Join-Path $root "requirements.txt") `
     -r (Join-Path $root "requirements-extractor.txt")
 if ($LASTEXITCODE) { throw "pip install failed" }
+# what went in, exactly: requirements say ">=", so this is the record of
+# which versions this MSI ships (and a constraints file for the next build)
+& python -m pip list --disable-pip-version-check --format=freeze `
+    --path (Join-Path $py "Lib\site-packages") | Set-Content -Encoding utf8 (Join-Path $stage "installed-packages.txt")
 
 # 3. the app: the package plus the command-line tools a user may run
 Copy-Item -Recurse (Join-Path $root "autorundown") $app

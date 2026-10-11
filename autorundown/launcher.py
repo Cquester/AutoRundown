@@ -182,6 +182,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     from . import server
+    # brings the index up to date before serving (index.connect); after an
+    # upgrade that can take a moment on a large index
+    print("Opening the index…", flush=True)
     srv = server.make_server(args.index or config.load().index_path, port=args.port)
     if background:
         return run_background(srv, url, not args.no_browser)

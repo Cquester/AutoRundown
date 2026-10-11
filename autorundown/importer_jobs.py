@@ -41,7 +41,11 @@ def extractor_candidates() -> list[Path]:
     ships, see packaging/windows -- so only there it looks for the user's
     copy on the Desktop."""
     from . import config
-    found = [Path(c) for c in (config.load().extractor_dir,) if c] + [ROOT / "extractor"]
+    # its Python gets run: never from a network share or a relative path,
+    # whatever an older config holds (server.py checks new settings)
+    c = config.load().extractor_dir
+    ok = c and not c.startswith(("\\\\", "//")) and Path(c).is_absolute()
+    found = ([Path(c)] if ok else []) + [ROOT / "extractor"]
     if not (ROOT / "extractor").is_dir():
         sub = Path("Mercedes Documents") / "autorundown_extractor"
         home = Path.home()
@@ -89,7 +93,10 @@ def list_vms() -> dict:
                        timeout=60)
     if r.returncode != 0:
         return {"extractor": str(ext), "vms": [],
-                "error": (r.stdout + r.stderr).strip().splitlines()[-1:] or ["VirtualBox not found"]}
+                # a string: the UI showed "(s ?? "").replace is not a function"
+                # for the list this used to be
+                "error": "\n".join((r.stdout + r.stderr).strip().splitlines()[-3:])
+                         or "VirtualBox was not found on this PC."}
     vms = [dict(zip(("name", "state"), l.split("\t"))) for l in r.stdout.splitlines() if "\t" in l]
     try:
         out_root = extractor_out_root(ext)

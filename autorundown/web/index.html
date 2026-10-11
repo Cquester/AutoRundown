@@ -5,15 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AutoRundown</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#12141a">
+<meta name="theme-color" content="#12141a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <style>
   :root{
     --bg:#12141a; --panel:#191c24; --panel-2:#212632; --line:#2c323f;
     --text:#e8ecf4; --muted:#9aa4b8; --accent:#ffb02e; --accent-dim:#7a5410;
     --good:#4ade80; --warn:#fb923c; --bad:#f87171;
     --tap:48px;
+    --pane:#141821; --stripe:#171b23; --warn-bg:#2a2015; --bad-bg:#2a1717;
+    --pill-text:#ffdca8; --conn-bg:#1d3a52; --conn-text:#8fd3ff; --conn-line:#2f5c80;
+    --conn-hover:#26506f; --conn-hover-line:#4a8cbf; --hover:#ffffff10; --on-accent:#20160a;
+    --danger-text:#ff8a80; --danger-line:#7a2e2e; --log-bg:#0008; --frame-bg:#e9e9e9;
+    --field-line:#6b7385;
+    /* native checkboxes, selects and scrollbars drawn dark too */
+    color-scheme:dark;
+  }
+  /* a bright shop floor: follows the phone's or PC's light setting */
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f4f5f7; --panel:#ffffff; --panel-2:#eef0f4; --line:#d3d8e0;
+      --text:#151821; --muted:#525b6c; --accent:#995500; --accent-dim:#ffe3b3; --field-line:#8b95a8;
+      --good:#14803c; --warn:#b45309; --bad:#c62828;
+      --pane:#f8f9fb; --stripe:#f3f5f8; --warn-bg:#fff4e0; --bad-bg:#fdecec;
+      --pill-text:#4a2e00; --conn-bg:#e3f1fb; --conn-text:#0b5285; --conn-line:#9cc7e6;
+      --conn-hover:#cfe6f7; --conn-hover-line:#5a9fd0; --hover:#0000000a; --on-accent:#ffffff;
+      --danger-text:#b42318; --danger-line:#e8a39d; --log-bg:#eef0f4; --frame-bg:#ffffff;
+      color-scheme:light;
+    }
+    ::placeholder{color:#6b7385}
+    dialog::backdrop{background:#0006}
   }
   *{box-sizing:border-box}
+  /* hidden always wins: main{display:grid} and friends overrode it */
+  [hidden]{display:none !important}
   html,body{margin:0;height:100%}
   /* the header is one row on a desktop and two on a phone; main takes the rest */
   body{display:flex; flex-direction:column}
@@ -31,22 +56,52 @@
   .brand span{color:var(--accent)}
   select,input,button,textarea{font:inherit; color:inherit}
   select,input,textarea{
-    background:var(--panel-2); border:1px solid var(--line);
+    background:var(--panel-2); border:1px solid var(--field-line);
     border-radius:10px; padding:12px; min-height:var(--tap); width:100%;
   }
+  /* the rule above is for text fields; a checkbox under it drew as a 113x48
+     white block (Settings' sign-in box) */
+  input[type=checkbox], input[type=radio]{width:20px; height:20px; min-height:0; padding:0;
+    margin:0; flex:none; accent-color:var(--accent); vertical-align:middle}
+  label.check{display:flex; gap:10px; align-items:center; min-height:44px; margin:10px 0 0;
+    color:var(--text); font-size:15px; cursor:pointer}
+  ::placeholder{color:#8a93a6; opacity:1}
+  .help{font-size:13px; color:var(--muted); margin-top:4px; line-height:1.4}
+  /* a dialog taller than the window keeps its buttons in view */
+  dialog.framed[open]{display:flex; flex-direction:column; max-height:min(90vh, 900px); padding:0}
+  .dlghead{margin:0; padding:18px 20px 4px}
+  .dlgbody{overflow:auto; padding:0 20px 12px; min-height:0}
+  .dlgfoot{display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;
+    padding:12px 20px 16px; border-top:1px solid var(--line); background:var(--panel)}
+  fieldset.setgroup{border:0; border-top:1px solid var(--line); margin:16px 0 0; padding:6px 0 0; min-width:0}
+  fieldset.setgroup legend{font-size:12px; letter-spacing:.8px; text-transform:uppercase;
+    color:var(--muted); font-weight:700; padding:0 8px 0 0}
+  details.setadv{border-top:1px solid var(--line); margin-top:16px; padding-top:6px}
+  details.setadv summary{cursor:pointer; font-size:12px; letter-spacing:.8px; text-transform:uppercase;
+    color:var(--muted); font-weight:700; min-height:44px; display:flex; align-items:center}
+  .adduser{display:grid; grid-template-columns:1fr 190px auto; gap:8px; align-items:end}
+  .adduser label{margin-top:8px}
+  @media (max-width:560px){ .adduser{grid-template-columns:1fr} }
+  .errnote:not(:empty){color:var(--bad)}
+  .codecard{margin-top:10px; padding-top:10px; border-top:1px solid var(--line)}
+  .capedit{margin-top:6px}
+  .phonerow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0}
+  .phonerow b{color:var(--text); font-size:15px; overflow-wrap:anywhere}
+  .phonerow button{min-height:36px; padding:0 12px; font-size:13px}
   select{min-width:0}
   /* compact enough to sit inline with the toolbar chips */
   select.inline{width:auto; min-height:40px; padding:6px 10px; font-size:14px}
   /* year / make / model. Wraps to a second row on a phone rather than
      squeezing three selects into one line */
   .carbox{position:relative; display:flex; gap:8px; flex:1; min-width:0}
-  .carbox input{flex:1; min-width:0}
-  .suggest{position:absolute; top:calc(100% + 4px); left:0; right:70px; z-index:30;
+  .carfield{position:relative; flex:1; min-width:0}
+  .carfield input{width:100%}
+  .suggest{position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:30;
     background:var(--panel); border:1px solid var(--line); border-radius:12px;
     max-height:60vh; overflow:auto; box-shadow:0 10px 30px #0008}
   .suggest .opt{padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--line)}
   .suggest .opt:last-child{border-bottom:0}
-  .suggest .opt.on, .suggest .opt:hover{background:#ffffff10}
+  .suggest .opt.on, .suggest .opt:hover{background:var(--hover)}
   .suggest .opt .sub{color:var(--muted); font-size:13px}
   .picker{display:flex; gap:8px; flex:1 0 100%; min-width:0; flex-wrap:wrap}
   .picker[hidden]{display:none}
@@ -68,12 +123,16 @@
     .picker #variant{flex:1 1 calc(100% - 74px)}
     .picker #vinBtn{flex:0 0 auto}
   }
+  /* Browse opens below the car box; the account and gear stay on the top row */
+  #acctBtn,#settingsBtn{order:2}
+  .picker{order:3}
+  .picker:has(#variant[hidden]) #vehicle{flex:1 1 calc(100% - 74px)}
   #acctBtn{max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 12px}
   .vinrow{display:flex; gap:8px; align-items:flex-start}
   .vinrow input{font-variant-numeric:tabular-nums; letter-spacing:.5px}
   .vinnote{margin-top:10px; font-size:14px; color:var(--muted)}
   button{
-    background:var(--accent); color:#20160a; border:0; border-radius:10px;
+    background:var(--accent); color:var(--on-accent); border:0; border-radius:10px;
     padding:0 20px; min-height:var(--tap); font-weight:700; cursor:pointer;
     white-space:nowrap;
   }
@@ -83,7 +142,7 @@
   main{display:grid; grid-template-columns:1fr 1fr; flex:1; min-height:0}
   @media (max-width:900px){ main{grid-template-columns:1fr} }
   .pane{overflow-y:auto; padding:16px; -webkit-overflow-scrolling:touch}
-  #right{border-left:1px solid var(--line); background:#141821}
+  #right{border-left:1px solid var(--line); background:var(--pane)}
   @media (max-width:900px){
     #right{
       position:fixed; inset:var(--hdr, 62px) 0 0 0; z-index:15; border-left:0;
@@ -115,20 +174,20 @@
   .spec .value{font-size:30px; font-weight:800; line-height:1.15; margin:4px 0}
   .spec .appl{font-size:14px; color:var(--muted)}
   .pagelink{
-    display:inline-block; background:var(--accent-dim); color:#ffdca8;
+    display:inline-block; background:var(--accent-dim); color:var(--pill-text);
     border:0; border-radius:8px; padding:8px 12px; font-size:14px;
     font-weight:700; cursor:pointer; margin:4px 6px 0 0; min-height:36px;
   }
-  .warnbox{border-left:4px solid var(--warn); background:#2a2015; padding:12px; border-radius:10px; margin:10px 0}
-  .errbox{border-left:4px solid var(--bad); background:#2a1717; padding:12px; border-radius:10px}
+  .warnbox{border-left:4px solid var(--warn); background:var(--warn-bg); padding:12px; border-radius:10px; margin:10px 0}
+  .errbox{border-left:4px solid var(--bad); background:var(--bad-bg); padding:12px; border-radius:10px}
   .notfound{border-left:4px solid var(--muted); background:var(--panel-2); padding:14px; border-radius:10px}
   /* WIS pages: reading view vs the document redrawn from its SIDS layout */
   .viewtoggle{display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:12px}
   .viewtoggle button{border-radius:0; background:var(--panel-2); color:var(--text); font-weight:600;
     min-height:36px; padding:0 14px; font-size:14px}
-  .viewtoggle button.on{background:var(--accent); color:#20160a}
+  .viewtoggle button.on{background:var(--accent); color:var(--on-accent)}
   .fulllink{color:var(--accent); font-weight:600; white-space:nowrap}
-  .origframe{display:block; width:100%; height:70vh; border:0; border-radius:8px; background:#e9e9e9}
+  .origframe{display:block; width:100%; height:70vh; border:0; border-radius:8px; background:var(--frame-bg)}
   .src{font-size:15px; line-height:1.6}
   .src p{margin:10px 0}
   /* pipe tables from the extractor are rebuilt as real tables here */
@@ -136,12 +195,12 @@
   .src th,.src td{border:1px solid var(--line); padding:8px 10px;
     text-align:left; vertical-align:top}
   .src th{background:var(--panel-2); font-weight:700; position:sticky; top:0}
-  .src tbody tr:nth-child(even) td{background:#171b23}
+  .src tbody tr:nth-child(even) td{background:var(--stripe)}
   .tablewrap{overflow-x:auto; -webkit-overflow-scrolling:touch}
   .step{display:flex; gap:12px; margin:16px 0}
   .step .num{
     flex:0 0 30px; height:30px; border-radius:50%; background:var(--accent);
-    color:#20160a; font-weight:800; font-size:14px;
+    color:var(--on-accent); font-weight:800; font-size:14px;
     display:flex; align-items:center; justify-content:center;
   }
   .step .body{flex:1; min-width:0}
@@ -149,17 +208,16 @@
     border-left:3px solid var(--muted); background:var(--panel-2);
     padding:10px 12px; border-radius:8px; margin:10px 0; font-size:14px;
   }
-  .note.warn{border-left-color:var(--warn); background:#2a2015}
+  .note.warn{border-left-color:var(--warn); background:var(--warn-bg)}
   .note b{color:var(--warn)}
   .torque{
-    display:inline-block; background:var(--accent-dim); color:#ffdca8;
-    border-radius:6px; padding:2px 8px; font-weight:700;
+    display:inline-block; background:var(--accent-dim); color:var(--pill-text);
+    border-radius:6px; padding:2px 8px; font-weight:700; white-space:nowrap;
   }
   .safety{margin-top:14px; padding-top:10px; border-top:1px solid var(--line);
     color:var(--muted); font-size:13px}
   details.caveat{margin:10px 0}
-  details.caveat summary{cursor:pointer; color:var(--warn); font-size:14px;
-    padding:8px 0; min-height:36px}
+  details.caveat summary{cursor:pointer; color:var(--warn); font-size:14px; padding:8px 0}
   .sechead{
     font-size:12px; letter-spacing:.8px; text-transform:uppercase;
     color:var(--muted); margin:18px 0 8px; font-weight:700;
@@ -174,14 +232,15 @@
   .srcbtn:hover{border-color:var(--accent)}
   .srcbtn .pno{color:var(--accent); font-weight:700; font-size:13px;
     white-space:nowrap; flex:0 0 auto}
+  .srcbtn{white-space:normal}
   .srcbtn .ptitle{font-size:14px; line-height:1.35}
   .conn{
-    display:inline-block; background:#1d3a52; color:#8fd3ff;
-    border:1px solid #2f5c80; border-radius:6px; padding:1px 7px;
+    display:inline-block; background:var(--conn-bg); color:var(--conn-text);
+    border:1px solid var(--conn-line); border-radius:6px; padding:1px 7px;
     font-weight:700; cursor:pointer; font-size:.95em;
   }
 
-  .conn:hover{background:#26506f; border-color:#4a8cbf}
+  .conn:hover{background:var(--conn-hover); border-color:var(--conn-hover-line)}
   .connhead{
     display:flex; gap:10px; align-items:center; margin:4px 0 10px;
     font-size:20px; font-weight:800;
@@ -190,6 +249,8 @@
     font-size:12px; letter-spacing:.6px; text-transform:uppercase;
     color:var(--muted); font-weight:700; margin:16px 0 6px;
   }
+  button.xref, button.conn{min-height:0; font:inherit; white-space:normal; display:inline}
+  button.xref{background:none; border:0; padding:0; border-radius:0}
   .xref{
     color:var(--accent); cursor:pointer; text-decoration:underline;
     text-underline-offset:2px; font-weight:600;
@@ -206,11 +267,13 @@
   ol.steps li::before{
     content:counter(s); position:absolute; left:0; top:0;
     width:28px; height:28px; border-radius:50%; background:var(--accent);
-    color:#20160a; font-weight:800; font-size:13px;
+    color:var(--on-accent); font-weight:800; font-size:13px;
     display:flex; align-items:center; justify-content:center;
   }
   img.diagram{max-width:100%; border-radius:10px; background:#fff; margin:8px 0; display:block}
-  .hit{padding:12px; border-bottom:1px solid var(--line); cursor:pointer}
+  .hit{display:block; width:100%; text-align:left; background:none; color:var(--text);
+    border:0; border-bottom:1px solid var(--line); border-radius:0; padding:12px;
+    min-height:0; font-weight:400; white-space:normal; cursor:pointer}
   .hit:hover{background:var(--panel-2)}
   .hit .t{font-weight:600}
   .hit .s{font-size:13px; color:var(--muted)}
@@ -223,16 +286,14 @@
   }
   dialog::backdrop{background:#000a}
   #scopeNote.pickhint{color:var(--accent); font-weight:600}
-  #importDlg{width:min(720px,94vw)}
-  #importDlg input[type=radio], #importDlg input[type=checkbox]{
-    width:auto; height:auto; padding:0; margin:0 6px 0 0; vertical-align:middle; accent-color:var(--accent)}
-  #importDlg label:has(> input[type=radio]), #importDlg label:has(> input[type=checkbox]){
+  #sec-manuals input[type=radio], #sec-manuals input[type=checkbox]{margin:0 8px 0 0}
+  #sec-manuals label:has(> input[type=radio]), #sec-manuals label:has(> input[type=checkbox]){
     display:inline-flex; align-items:center; color:var(--text)}
   #impSteps{gap:6px 16px}
   .dirlist{max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px}
   .dirlist button{display:block; width:100%; text-align:left; background:none; border:0;
     border-bottom:1px solid var(--line); color:var(--text); padding:7px 10px; font:inherit; cursor:pointer}
-  .dirlist button:hover{background:#ffffff10}
+  .dirlist button:hover{background:var(--hover)}
   .lemrow{display:flex; width:100%; box-sizing:border-box; align-items:center; gap:8px; border-bottom:1px solid var(--line);
     padding:0 10px; margin:0; cursor:pointer; color:var(--text); font-size:15px}
   .lemrow > input{flex:none}
@@ -240,7 +301,19 @@
   .lemrow > .sz{flex:none; color:var(--muted); font-size:13px}
   .lemrow > .tag{flex:none; font-size:12px; color:var(--accent)}
   /* import sources as folder tabs */
-  .srctabs{display:flex; flex-wrap:wrap; gap:4px; margin-top:14px; border-bottom:1px solid var(--line)}
+  .srctabs{display:flex; gap:4px; margin-top:14px; border-bottom:1px solid var(--line);
+    overflow-x:auto; scrollbar-width:none}
+  .srctabs button{flex:none}
+  @media (max-width:420px){ .srctabs button{padding:0 12px} }
+  #impLemList .lemrow > .nm{white-space:normal; overflow-wrap:anywhere}
+  @media (max-width:700px){
+    .cattree{max-height:none}
+    .implog{white-space:pre; overflow-x:auto}
+  }
+  #impStatus.bad{color:var(--bad); font-weight:600}
+  /* keyboard focus, the same everywhere */
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  button:not(.ghost):not(.danger):not(.hit):not(.xref):not(.conn):focus-visible{outline-color:var(--text)}
   .srctabs button{background:transparent; color:var(--muted); border:1px solid transparent; border-bottom:0;
     border-radius:10px 10px 0 0; padding:0 16px; font-weight:600; margin-bottom:-1px}
   .srctabs button[aria-selected="true"]{background:var(--panel-2); color:var(--text);
@@ -266,28 +339,169 @@
   .manuals .lemrow > .nm{white-space:normal; overflow-wrap:anywhere}
   .manuals .rmbar{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:8px}
   .manuals .rmbar label{margin:0; font-size:13px; color:var(--muted)}
-  button.danger{background:var(--panel-2); color:#ff8a80; border:1px solid #7a2e2e; font-weight:600}
+  button.danger{background:var(--panel-2); color:var(--danger-text); border:1px solid var(--danger-line); font-weight:600}
   button.danger:disabled{opacity:.45; cursor:default}
   details.lemfolder{margin-top:12px}
   details.lemhow ul{margin:6px 0 0; padding-left:20px; font-size:14px; color:var(--text)}
   details.lemhow li{margin:0 0 6px}
-  details.lemfolder > summary{cursor:pointer; color:var(--muted); font-size:14px; padding:4px 0}
+  details.lemfolder > summary{cursor:pointer; color:var(--muted); font-size:14px}
   #impStatus a{color:var(--accent)}
-  .implog{max-height:260px; overflow:auto; background:#0008; border-radius:10px; padding:10px;
+  .implog{max-height:260px; overflow:auto; background:var(--log-bg); border-radius:10px; padding:10px;
     font:12px/1.4 ui-monospace,Consolas,monospace; white-space:pre-wrap; margin-top:10px}
-  .detected{margin-top:10px; padding:10px; border-radius:10px; background:#ffffff0c; font-size:14px}
+  .detected{margin-top:10px; padding:10px; border-radius:10px; background:var(--hover); font-size:14px}
   label{display:block; margin:12px 0 6px; font-size:14px; color:var(--muted)}
-  .closebtn{position:absolute; right:14px; top:70px; z-index:16}
-  @media (min-width:901px){ .closebtn{display:none} }
+  /* touch targets: 44 px at least (several were 29-40) */
+  .pagelink{min-height:44px}
+  .viewtoggle button{min-height:44px}
+  details > summary{min-height:44px; display:flex; align-items:center}
+  label.chip{min-height:44px; cursor:pointer}
+  select.inline{min-height:44px}
+  .trow{min-height:48px}
+  .trow > .tw{min-height:44px; width:44px}
+  .lemrow{min-height:48px}
+  /* the phone panel's way back stays in view however far it is scrolled */
+  .panelbar{position:sticky; top:-16px; z-index:2; margin:-16px -16px 10px; padding:8px 16px;
+    background:var(--pane); border-bottom:1px solid var(--line)}
+  @media (min-width:901px){ .panelbar{display:none} }
+
+  /* -- disclosure markers: display:flex on <summary> removed the browser's */
+  summary{list-style:none; cursor:pointer}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"\25B8"; display:inline-block; width:1.1em; flex:none; color:var(--muted)}
+  details[open] > summary::before{content:"\25BE"}
+  details.caveat > summary{color:var(--muted)}
+  .card > details.caveat{margin:0}
+  .card > details.caveat > summary{padding:0}
+  .notfound{overflow-wrap:anywhere}
+
+  /* -- header: a labelled gear; the importing banner under it */
+  a.btnlink{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:var(--tap);
+    padding:0 18px; border-radius:10px; background:var(--accent); color:var(--on-accent); font-weight:700;
+    text-decoration:none; white-space:nowrap}
+  a.btnlink.ghostlink{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
+  #settingsBtn{margin-left:auto}
+  #settingsBtn[aria-current="page"]{border-color:var(--accent)}
+  .banner{background:var(--accent-dim); color:var(--pill-text); padding:8px 16px; font-size:14px; font-weight:600}
+  .banner a{color:inherit}
+  body[data-view="setup"] .carbox, body[data-view="setup"] .picker,
+  body[data-view="gate"] .carbox, body[data-view="gate"] .picker, body[data-view="gate"] #settingsBtn{display:none}
+
+  /* -- start-up and not-ready screens */
+  .gate{flex:1; display:flex; align-items:center; justify-content:center; padding:24px 16px}
+  .gatecard{max-width:460px; text-align:center; display:grid; gap:14px; justify-items:center}
+  .gatebrand{font-size:26px; order:0 !important}
+  #gateMsg{font-size:17px}
+
+  /* -- Shop setup: a page, not stacked pop-ups. Left nav on a PC, a list
+     page with drill-down on a narrow window */
+  .setup{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch}
+  .setupwrap{max-width:1280px; margin:0 auto; padding:24px 32px 40px; display:grid;
+    grid-template-columns:220px minmax(0,1fr); gap:32px; align-items:start}
+  .setupnav{position:sticky; top:16px; display:grid; gap:2px}
+  .setupnav .navhead{font-size:12px; letter-spacing:.8px; text-transform:uppercase; color:var(--muted);
+    font-weight:700; padding:0 12px 8px}
+  .setupnav a{display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:44px;
+    padding:0 12px; border-radius:10px; color:var(--text); text-decoration:none; font-weight:600}
+  .setupnav a:hover{background:var(--hover)}
+  .setupnav a[aria-current="page"]{background:var(--panel-2); box-shadow:inset 3px 0 0 var(--accent)}
+  .setupnav a[hidden]{display:none}
+  .setupnav .navsub{font-size:12px; color:var(--muted); font-weight:600}
+  .setupnav .navback{margin-top:12px; color:var(--muted); font-weight:600}
+  .secbar{display:none}
+  .setsec{max-width:680px}
+  .setsec.wide{max-width:none}
+  .setsec h2{margin:0 0 6px; font-size:24px}
+  .setsec .subhead{margin:28px 0 4px; font-size:16px}
+  .row.nowrap{flex-wrap:nowrap}
+  .row.nowrap > input, .row.nowrap > select{flex:1; min-width:0}
+  .savedmark{font-size:13px; color:var(--good); font-weight:600; min-height:1em}
+  .savedmark.bad{color:var(--bad)}
+  .checklist{list-style:none; padding:0; margin:18px 0; display:grid; gap:10px}
+  .checklist li{display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px}
+  .checklist li.done{border-color:var(--good)}
+  .checklist li.done b::before{content:"\2713  "; color:var(--good)}
+  .checklist .req{font-size:12px; color:var(--accent); font-weight:700; margin-left:6px}
+  .checklist .opt{font-size:12px; color:var(--muted); font-weight:600; margin-left:6px}
+  /* Manuals: sources on the left, the job beside them */
+  .mangrid{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
+  .manmain{min-width:0}
+  .jobcard{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; min-width:0;
+    align-self:start}
+  .jobcard h3{margin:0 0 8px; font-size:16px}
+  .jobcard .implog{max-height:min(60vh,520px)}
+  .impbar{position:sticky; bottom:0; display:flex; gap:12px; align-items:center; justify-content:flex-end;
+    padding:12px 0; margin-top:12px; background:var(--bg); border-top:1px solid var(--line)}
+  .impbar #impStatus{margin-right:auto}
+  .tabpanels{padding-top:12px}
+  @media (min-width:1280px){
+    .mangrid{grid-template-columns:minmax(0,1fr) 360px}
+    .jobcard{position:sticky; top:16px}
+  }
+  /* the LEMON tab: three cards, one open at a time */
+  details.lemcard{border:1px solid var(--line); border-radius:12px; background:var(--panel); margin:0 0 10px}
+  details.lemcard > summary{display:flex; align-items:center; gap:10px; min-height:52px; padding:0 14px; font-weight:600}
+  details.lemcard > summary .lc-sub{margin-left:auto; font-size:13px; color:var(--muted); font-weight:500;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
+  details.lemcard .lc-body{padding:0 14px 14px}
+  .badge{font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--muted);
+    border:1px solid var(--line); border-radius:999px; padding:2px 8px}
+  .linkbtn{background:none; border:0; padding:0; min-height:0; color:var(--accent); font-weight:600;
+    text-decoration:underline; cursor:pointer; font-size:inherit}
+  @media (max-width:900px){
+    .setupwrap{grid-template-columns:minmax(0,1fr); padding:16px 16px 32px; gap:0}
+    .setupnav{position:static}
+    .setup[data-sec=""] .setupbody{display:none}
+    .setup:not([data-sec=""]) .setupnav{display:none}
+    .setupnav a{min-height:52px; border-bottom:1px solid var(--line); border-radius:0}
+    .setupnav a:not(.navback)::after{content:"\203A"; color:var(--muted); font-size:20px}
+    .secbar{display:block; position:sticky; top:-16px; z-index:2; margin:-16px -16px 12px; padding:10px 16px;
+      background:var(--bg); border-bottom:1px solid var(--line)}
+    .secbar a{color:var(--accent); font-weight:600; text-decoration:none}
+  }
+  @media (max-width:420px){
+    .srctabs{overflow:visible}
+    .srctabs button{flex:1 1 0; padding:0 6px}
+  }
+
+  /* -- main screen: empty-state hints; options fold away on a phone */
+  .empty{color:var(--muted); padding:8px 2px}
+  .examples{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px}
+  .chipbtn{background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:999px;
+    font-weight:500; font-size:14px; min-height:44px; padding:0 14px}
+  .askbtns{display:flex; gap:8px}
+  .askbtns button{padding:0 18px}
+  details.opts{margin:-4px 0 12px}
+  details.opts > summary{min-height:44px; color:var(--muted); font-size:14px}
+  .optsbody{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  .costline{font-size:13px; color:var(--muted)}
+  @media (min-width:701px){ details.opts > summary{display:none} }
+  @media (max-width:700px){
+    .askbar{flex-wrap:wrap}
+    .askbar textarea{flex:1 0 100%}
+    .askbtns{flex:1 0 100%}
+    .askbtns button{flex:1}
+    header{padding:6px 12px}
+    .brand{font-size:15px}
+    #settingsBtn,#acctBtn{min-height:44px; padding:0 12px}
+    #settingsBtn .lbl{display:none}
+  }
+  /* -- a big screen: the reading column stays readable, pages and diagrams get the width */
+  .carbox{max-width:760px}
+  .answer, .src p{max-width:72ch}
+  .figure img.diagram{width:100%; max-width:720px}
+  @media (min-width:1400px){ main{grid-template-columns:minmax(560px,760px) 1fr} }
 </style>
 </head>
 <body>
 <header>
   <div class="brand">Auto<span>Rundown</span></div>
   <div class="carbox">
-    <input id="carInput" type="text" autocomplete="off" spellcheck="false"
-           placeholder="Your car — e.g. 2009 E550 4MATIC — or paste a VIN" aria-label="Vehicle">
-    <div class="suggest" id="carList" hidden></div>
+    <div class="carfield">
+      <input id="carInput" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Your car — e.g. 2009 E550 4MATIC — or paste a VIN" aria-label="Vehicle">
+      <div class="suggest" id="carList" hidden></div>
+    </div>
     <button class="ghost" id="browseBtn" title="Pick from lists instead">Browse</button>
   </div>
   <div class="picker" id="picker" hidden>
@@ -298,87 +512,124 @@
     <button class="ghost" id="vinBtn" title="Find the vehicle from a VIN">VIN</button>
   </div>
   <button class="ghost" id="acctBtn" title="Your account" hidden></button>
-  <button class="ghost" id="settingsBtn" title="Settings" hidden>&#9881;</button>
+  <a class="btnlink ghostlink" id="settingsBtn" href="#/setup" title="Shop setup" hidden><span aria-hidden="true">&#9881;</span><span class="lbl">Shop setup</span></a>
 </header>
+<div class="banner" id="banner" role="status" hidden></div>
 
 <main>
   <section class="pane" id="left">
     <div class="askbar">
       <textarea id="q" rows="1" placeholder="Torque for the front caliper anchor plate bolts?"></textarea>
-      <button id="askBtn">Ask</button>
+      <div class="askbtns">
+        <button id="askBtn" title="AI answer from the manual (uses your API key)">Ask</button>
+        <button class="ghost" id="searchBtn" title="Search the manual's words (free)">Search</button>
+      </div>
     </div>
-    <div class="row" style="margin-bottom:14px">
-      <button class="ghost" id="searchBtn" style="padding:0 14px">Keyword search</button>
-      <select id="model" class="inline" aria-label="Model"></select>
-      <label class="chip" style="cursor:pointer">
-        <input type="checkbox" id="variants" style="width:auto;min-height:auto;padding:0">
-        include other trims/engines
-      </label>
-      <span class="chip" id="cost">$0.0000 this session</span>
-    </div>
+    <details class="opts" id="opts">
+      <summary>Options</summary>
+      <div class="optsbody">
+        <select id="model" class="inline" aria-label="AI model"></select>
+        <label class="chip">
+          <input type="checkbox" id="variants">
+          include other trims/engines
+        </label>
+        <span class="costline" id="cost">$0.0000 this session</span>
+      </div>
+    </details>
     <div class="muted" id="scopeNote" hidden style="margin:-6px 0 12px; font-size:14px"></div>
     <div id="out"></div>
   </section>
 
   <section class="pane" id="right">
-    <button class="ghost closebtn" onclick="document.getElementById('right').classList.remove('open')">Close</button>
+    <div class="panelbar"><button class="ghost" type="button" id="closeRight">&larr; Back</button></div>
     <div id="srcout"><p class="muted">Cited pages and diagrams appear here.</p></div>
   </section>
 </main>
 
-<dialog id="vinDlg">
-  <h3 style="margin:0 0 4px">Find by VIN</h3>
-  <div class="muted">Decodes US VINs and European FINs using Mercedes' own
-    tables. Nothing is sent anywhere &mdash; the lookup is local.</div>
-  <label for="vinInput">VIN (the full 17 characters also gives the model year)</label>
-  <div class="vinrow">
-    <input id="vinInput" type="text" maxlength="17" autocapitalize="characters"
-           spellcheck="false" placeholder="WDD2040081A123456">
-    <button id="vinFind">Find</button>
+<section id="gate" class="gate" hidden>
+  <div class="gatecard" role="status">
+    <div class="brand gatebrand">Auto<span>Rundown</span></div>
+    <div id="gateMsg"></div>
+    <div id="gateMore" class="muted" hidden></div>
+    <button class="ghost" type="button" id="gateRetry" hidden>Retry now</button>
   </div>
-  <div class="vinnote" id="vinNote"></div>
-  <div class="row" style="margin-top:16px; justify-content:flex-end">
-    <button class="ghost" id="vinClose">Close</button>
-  </div>
-</dialog>
+</section>
 
-<dialog id="importDlg">
-  <h3 style="margin:0 0 4px">Import data</h3>
-  <p class="muted" id="impIntro" style="margin:0">Pick a folder on this PC that holds manuals:
-    an HTML manual archive, a Mercedes WIS corpus from the extractor (records.jsonl + manifest.json),
-    or a folder of HTML / text / PDF files. The format is detected for you.</p>
-  <div class="srctabs" role="tablist" aria-label="Import from">
-    <button type="button" role="tab" data-src="lemon" aria-selected="true">LEMON</button>
-    <button type="button" role="tab" data-src="vm" aria-selected="false">Mercedes VM</button>
-    <button type="button" role="tab" data-src="folder" aria-selected="false">Folder</button>
-  </div>
-  <div id="impFolderHome"></div>
+<section id="setup" class="setup" hidden aria-label="Shop setup">
+  <div class="setupwrap">
+    <nav class="setupnav" aria-label="Shop setup sections">
+      <div class="navhead">Shop setup</div>
+      <a href="#/setup/welcome" data-sec="welcome" id="navWelcome">Get started</a>
+      <a href="#/setup/manuals" data-sec="manuals">Manuals<span class="navsub" id="navManualsSub"></span></a>
+      <a href="#/setup/ai" data-sec="ai">AI answers<span class="navsub" id="navAiSub"></span></a>
+      <a href="#/setup/phones" data-sec="phones">Phones &amp; mechanics</a>
+      <a href="#/setup/pc" data-sec="pc" id="sStartRow" hidden>This PC</a>
+      <a href="#/setup/advanced" data-sec="advanced">Advanced<span class="navsub" id="navAdvSub"></span></a>
+      <a href="#/" class="navback" id="navBack">&larr; Back to search</a>
+    </nav>
+    <div class="setupbody">
+      <div class="secbar"><a href="#/setup">&larr; Shop setup</a></div>
+
+      <section class="setsec" id="sec-welcome" hidden>
+        <h2>Set up AutoRundown</h2>
+        <p class="muted">Three steps. Only the first is needed before you can search.</p>
+        <ol class="checklist">
+          <li id="wManuals"><div><b>Add manuals</b> <span class="req">required</span>
+            <div class="help" id="wManualsHelp">LEMON manuals from a folder, the Mercedes WIS data from a virtual
+              machine, or a folder of HTML / text / PDF files.</div></div>
+            <a class="btnlink" href="#/setup/manuals">Add manuals</a></li>
+          <li id="wKey"><div><b>Add an API key</b> <span class="opt">optional</span>
+            <div class="help" id="wKeyHelp">For AI answers. Keyword search works without one.</div></div>
+            <a class="btnlink ghostlink" href="#/setup/ai">AI answers</a></li>
+          <li id="wPhones"><div><b>Connect the shop's phones</b> <span class="opt">optional</span>
+            <div class="help">Phones on the same wifi open AutoRundown from this PC.</div></div>
+            <a class="btnlink ghostlink" href="#/setup/phones">Phones</a></li>
+        </ol>
+        <a class="btnlink" href="#/" id="welcomeDone" hidden>Start searching</a>
+      </section>
+
+      <section class="setsec wide" id="sec-manuals" hidden>
+        <h2>Manuals</h2>
+        <p class="muted" id="sManuals"></p>
+        <div class="mangrid">
+          <div class="manmain">
+            <div class="srctabs" role="tablist" aria-label="Import from">
+              <button type="button" role="tab" id="tabLemon" data-src="lemon" aria-selected="true" aria-controls="impCatPanel" tabindex="0">LEMON</button>
+              <button type="button" role="tab" id="tabVm" data-src="vm" aria-selected="false" aria-controls="impVmPanel" tabindex="-1">Mercedes VM</button>
+              <button type="button" role="tab" id="tabFolder" data-src="folder" aria-selected="false" aria-controls="impFolderHome" tabindex="-1">Folder</button>
+            </div>
+            <div class="tabpanels">
+  <div id="impFolderHome" role="tabpanel" aria-labelledby="tabFolder"></div>
   <div id="impFolder">
     <label for="impPath">Folder</label>
     <div class="row"><input id="impPath" type="text" style="flex:1">
       <button class="ghost" id="impGo">Open</button><button class="ghost" id="impUp" title="Parent folder">Up</button></div>
+    <button type="button" class="linkbtn" id="impChange" hidden style="margin-top:8px">Change folder…</button>
     <div class="dirlist" id="impDirs"></div>
     <div class="detected" id="impDetected"></div>
     <div id="impModes" style="margin-top:10px"></div>
     <div class="manuals" id="impFolderManuals" data-group="folder" hidden></div>
     <div id="impLemon" hidden>
-      <div class="row" style="margin-top:10px; align-items:center">
+      <div class="row nowrap" style="margin-top:10px; align-items:center">
         <span class="muted" style="margin-right:auto">Vehicles in this folder</span>
-        <button class="ghost" type="button" id="impLemAll">All new</button>
-        <button class="ghost" type="button" id="impLemNone">None</button></div>
+        <button class="linkbtn" type="button" id="impLemAll">All new</button>
+        <button class="linkbtn" type="button" id="impLemNone">None</button></div>
       <div class="dirlist" id="impLemList"></div>
     </div>
   </div>
-  <div id="impCatPanel" hidden>
-    <div class="detected" id="impCatNote"></div>
-    <input id="impCatFilter" type="search" placeholder="Filter the open folders (e.g. 4WD, 3.5L)" style="margin-top:10px; width:100%">
-    <div class="cattree" id="impCatTree" role="tree" aria-label="LEMON vehicles"></div>
-    <div class="row" style="margin-top:8px; align-items:center">
-      <span class="muted" id="impCatCount" style="margin-right:auto"></span>
-      <button class="ghost" type="button" id="impCatClear">Clear picks</button></div>
-    <p class="muted" style="margin:6px 0 0">Tick a make for all of it, or open it and tick a year, a model or
-      one variant. Picks are saved as you tick. Downloading them isn't built yet.</p>
-    <details class="lemfolder lemhow">
+  <div id="impCatPanel" role="tabpanel" aria-labelledby="tabLemon" hidden>
+    <details class="lemcard" name="lemoncards" id="impLemCat" open>
+      <summary><span class="lc-title">LEMON catalogue</span><span class="badge">Preview</span><span class="lc-sub" id="lemCatSum"></span></summary>
+      <div class="lc-body">
+        <p class="muted" style="margin:0 0 8px">Picking only &mdash; downloading the picked cars isn't built yet.
+          Tick a make for all of it, or open it and tick a year, a model or one variant; picks are saved as you tick.</p>
+        <div class="muted" id="impCatNote"></div>
+        <input id="impCatFilter" type="search" placeholder="Filter the open folders (e.g. 4WD, 3.5L)" style="margin-top:8px; width:100%">
+        <div class="cattree" id="impCatTree" role="tree" aria-label="LEMON vehicles"></div>
+        <div class="row" style="margin-top:8px; align-items:center">
+          <span class="muted" id="impCatCount" style="margin-right:auto"></span>
+          <button class="ghost" type="button" id="impCatClear">Clear picks</button></div>
+    <details class="lemhow">
       <summary>How LEMON downloads will work</summary>
       <ul>
         <li><b>What the torrent holds.</b> LEMON's torrent is not one folder per car. All the text of every
@@ -401,16 +652,22 @@
         <li><b>Only the torrent.</b> Nothing is fetched from the LEMON website itself.</li>
       </ul>
     </details>
-    <div class="manuals" id="impLemonManuals" data-group="lemon"></div>
-    <details class="lemfolder" id="impLemFolderBox">
-      <summary>Already have LEMON manuals in a folder on this PC?</summary>
-      <div id="impLemFolderSlot"></div>
+      </div>
+    </details>
+    <details class="lemcard" name="lemoncards" id="impLemFolderBox">
+      <summary><span class="lc-title">From a folder on this PC</span><span class="lc-sub" id="lemFolderSum"></span></summary>
+      <div class="lc-body"><div id="impLemFolderSlot"></div></div>
+    </details>
+    <details class="lemcard" name="lemoncards" id="impLemImported">
+      <summary><span class="lc-title">Imported LEMON manuals</span><span class="lc-sub" id="lemImpSum"></span></summary>
+      <div class="lc-body"><div class="manuals" id="impLemonManuals" data-group="lemon"></div></div>
     </details>
   </div>
-  <div id="impVmPanel" hidden>
+  <div id="impVmPanel" role="tabpanel" aria-labelledby="tabVm" hidden>
+    <div id="impVmNote"></div>
+    <div id="impVmControls">
     <label for="impVm">VirtualBox VM</label>
     <select id="impVm"></select>
-    <div class="detected" id="impVmNote"></div>
     <label>Steps (each one resumes where it stopped)</label>
     <div class="row" id="impSteps">
       <label style="margin:0"><input type="checkbox" value="docs" checked> Documents</label>
@@ -423,60 +680,115 @@
       then shuts it down and rebuilds the Mercedes part of the index. It never takes snapshots or changes
       the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
       off in between); a re-run skips what is already pulled.</p>
+    </div>
     <div class="manuals" id="impWisManuals"></div>
   </div>
-  <div class="implog" id="impLog" hidden></div>
+            </div>
+            <div class="impbar">
+              <span class="muted" id="impStatus" role="status"></span>
+              <button id="impStart" type="button">Import</button>
+            </div>
+          </div>
+          <aside class="jobcard" aria-label="Import job">
+            <h3>Job</h3>
+            <div class="muted" id="jobIdle">Nothing running. Pick manuals on the left and press Import.</div>
+            <div class="errbox" id="impFail" role="alert" hidden></div>
+            <div class="implog" id="impLog" hidden></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="setsec" id="sec-ai" hidden>
+        <h2>AI answers</h2>
+        <label for="sKey">Anthropic API key</label>
+        <div class="row nowrap"><input id="sKey" type="password" autocomplete="off" spellcheck="false">
+          <button type="button" id="saveKey" disabled>Save key</button></div>
+        <div class="help" id="keyStatus"></div>
+        <div class="savedmark" id="mKey" role="status"></div>
+        <label for="sModel">Default AI model <span class="muted">(phones can pick their own)</span></label>
+        <div class="row nowrap"><select id="sModel"></select><span class="savedmark" id="mModel" role="status"></span></div>
+        <div class="help" id="modelPrice"></div>
+      </section>
+
+      <section class="setsec" id="sec-phones" hidden>
+        <h2>Phones &amp; mechanics</h2>
+        <div id="sPhone" class="help"></div>
+        <label class="check"><input type="checkbox" id="sSignin"> Require each mechanic to sign in
+          <span class="savedmark" id="mSignin" role="status"></span></label>
+        <div class="help">Off: anyone on your wifi can search and ask on your API key.
+          On: each phone needs a one-time code from this PC, and you can set a monthly limit per mechanic.</div>
+        <h3 class="subhead">Mechanics</h3>
+        <div class="adduser">
+          <div><label for="uName">Add a mechanic</label>
+            <input id="uName" type="text" maxlength="60" autocomplete="off" placeholder="Name"></div>
+          <div><label for="uCap">Monthly limit in $ (optional)</label>
+            <input id="uCap" type="number" min="0" step="1" inputmode="decimal"></div>
+          <button id="uAdd" type="button">Add</button>
+        </div>
+        <div class="vinnote errnote" id="usersNote" role="alert"></div>
+        <div class="help" id="usersIntro"></div>
+        <div id="usersList" style="margin-top:12px"></div>
+      </section>
+
+      <section class="setsec" id="sec-pc" hidden>
+        <h2>This PC</h2>
+        <label class="check"><input type="checkbox" id="sAutostart"> Start AutoRundown when I sign in
+          <span class="savedmark" id="mAutostart" role="status"></span></label>
+        <div class="help">Runs in the background; its tray icon opens or stops it.</div>
+      </section>
+
+      <section class="setsec" id="sec-advanced" hidden>
+        <h2>Advanced</h2>
+        <label for="sArchive">Archive folder</label>
+        <input id="sArchive" type="text" spellcheck="false">
+        <div class="help">Where the folder browser under Manuals starts. Changing it doesn't move or import anything.</div>
+        <label for="sIndex">Index file</label>
+        <input id="sIndex" type="text" spellcheck="false">
+        <div class="help">The database AutoRundown searches. Change it only if you moved the file; it must be an
+          existing index (to build a new one, add manuals).</div>
+        <label for="sExtractor">Mercedes extractor folder</label>
+        <input id="sExtractor" type="text" spellcheck="false">
+        <div class="help">The folder that holds vm_pipeline.py, on this PC. Leave it empty to use the one
+          AutoRundown finds by itself.</div>
+        <div class="errbox" id="sErr" role="alert" hidden style="margin-top:12px"></div>
+        <div class="row" style="margin-top:14px">
+          <button type="button" id="saveAdv" disabled>Save</button>
+          <span class="savedmark" id="mAdv" role="status"></span>
+        </div>
+        <div class="help" id="sConfigPath" style="margin-top:16px"></div>
+      </section>
+    </div>
+  </div>
+</section>
+
+
+<dialog id="vinDlg">
+  <h3 style="margin:0 0 4px">Find by VIN</h3>
+  <div class="muted">Decodes US VINs and European FINs using Mercedes' own
+    tables. Nothing is sent anywhere &mdash; the lookup is local.</div>
+  <label for="vinInput">VIN (the full 17 characters also gives the model year)</label>
+  <div class="vinrow">
+    <input id="vinInput" type="text" maxlength="17" autocapitalize="characters"
+           spellcheck="false" placeholder="WDD2040081A123456">
+    <button id="vinFind">Find</button>
+  </div>
+  <div class="vinnote" id="vinNote"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
-    <span class="muted" id="impStatus" style="margin-right:auto"></span>
-    <button class="ghost" id="impClose">Close</button>
-    <button id="impStart">Import</button>
+    <button class="ghost" id="vinClose">Close</button>
   </div>
 </dialog>
 
-<dialog id="settings">
-  <h3 style="margin:0 0 4px">Settings</h3>
-  <p class="muted" style="margin:0">Stored locally in ~/.autorundown/config.json. The key is sent only to Anthropic.</p>
-  <label for="sKey">Anthropic API key</label>
-  <input id="sKey" type="password" placeholder="sk-ant-...">
-  <label for="sModel">Model</label>
-  <select id="sModel"></select>
-  <div class="muted" id="modelPrice" style="margin-top:6px"></div>
-  <label for="sArchive">Archive directory</label>
-  <input id="sArchive" type="text">
-  <label for="sIndex">Index path</label>
-  <input id="sIndex" type="text">
-  <div id="sStartRow" hidden>
-    <label class="chip" style="cursor:pointer; margin-top:14px">
-      <input type="checkbox" id="sAutostart" style="width:auto;min-height:auto;padding:0">
-      Start AutoRundown when I sign in (runs in the background; tray icon to open or stop it)
-    </label>
-  </div>
-  <div id="sPhone" class="muted" style="margin-top:10px" hidden></div>
-  <label for="sExtractor">Mercedes extractor folder</label>
-  <input id="sExtractor" type="text" placeholder="found automatically on the Desktop — or paste the autorundown_extractor folder">
-  <label>Data</label>
-  <button class="ghost" id="openImport" type="button">Import data…</button>
-  <span class="muted" style="margin-left:8px">add manuals, or rebuild the Mercedes WIS data</span>
-  <label>Phones and other computers</label>
-  <label class="chip" style="cursor:pointer; margin-top:0">
-    <input type="checkbox" id="sSignin"> require each mechanic to sign in
-  </label>
-  <div><button class="ghost" id="openUsers" type="button" style="margin-top:8px">Mechanics &amp; spend…</button></div>
-  <div class="row" style="margin-top:18px; justify-content:flex-end">
-    <button class="ghost" onclick="document.getElementById('settings').close()">Cancel</button>
-    <button id="saveBtn">Save</button>
-  </div>
-</dialog>
+
 
 <dialog id="signinDlg">
   <h3 style="margin:0 0 4px">Sign in</h3>
-  <div class="muted">Ask whoever runs AutoRundown in the shop for a sign-in code.
-    You only do this once on each phone.</div>
+  <div class="muted">Ask whoever runs AutoRundown in the shop for a sign-in code (8 letters and
+    numbers, like ABCD 2345). You only do this once on each phone.</div>
   <label for="signinCode">Sign-in code</label>
   <input id="signinCode" type="text" maxlength="12" autocapitalize="characters"
-         autocomplete="one-time-code" spellcheck="false" placeholder="ABCD 2345"
+         autocomplete="one-time-code" spellcheck="false" placeholder="8-letter code"
          style="font-size:22px; letter-spacing:3px; text-transform:uppercase">
-  <div class="vinnote" id="signinNote"></div>
+  <div class="vinnote errnote" id="signinNote" role="alert"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
     <button id="signinGo">Sign in</button>
   </div>
@@ -491,38 +803,39 @@
   </div>
 </dialog>
 
-<dialog id="usersDlg">
-  <h3 style="margin:0 0 4px">Mechanics &amp; spend</h3>
-  <div class="muted" id="usersIntro"></div>
-  <div id="usersList" style="margin-top:12px"></div>
-  <div id="usersCode"></div>
-  <label for="uName">Add a mechanic</label>
-  <div class="vinrow">
-    <input id="uName" type="text" maxlength="60" placeholder="Name">
-    <input id="uCap" type="number" min="0" step="1" placeholder="$ limit / month (optional)"
-           style="max-width:220px">
-    <button id="uAdd">Add</button>
-  </div>
-  <div class="vinnote" id="usersNote"></div>
-  <div class="row" style="margin-top:16px; justify-content:flex-end">
-    <button class="ghost" onclick="document.getElementById('usersDlg').close()">Close</button>
-  </div>
-</dialog>
 
 <script>
 const $ = s => document.querySelector(s);
 const out = $('#out'), srcout = $('#srcout');
 let vehicles = [], sessionCost = 0, modelList = [];
 
-const esc = s => (s ?? '').replace(/[&<>"]/g, c =>
-  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// escapes for text and for attribute values in either quote style
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-async function api(path, opts) {
-  const r = await fetch(path, opts);
+// A request that never answers used to leave a blank page or a dead button;
+// now it fails after `timeout` ms with a message that says what to check.
+async function api(path, opts = {}, timeout = 30000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeout);
+  let r;
+  try {
+    r = await fetch(path, {...opts, signal: ctl.signal});
+  } catch (e) {
+    const err = new Error(e.name === 'AbortError'
+      ? 'AutoRundown took too long to answer. Try again in a moment.'
+      : 'Can’t reach AutoRundown. Is the PC running it switched on, and are you on the same network?');
+    err.status = 0;
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!r.ok) {
     const body = await r.json().catch(() => ({detail: r.statusText}));
     if (r.status === 401 && body.signin) showSignin();
-    throw new Error(body.detail);
+    const err = new Error(body.detail || r.statusText);
+    err.status = r.status;
+    throw err;
   }
   return r.json();
 }
@@ -536,7 +849,7 @@ new ResizeObserver(([e]) => document.documentElement.style.setProperty(
 let me = {admin: false};
 async function loadMe() {
   me = await api('/api/me');
-  $('#settingsBtn').hidden = !me.admin;
+  $('#settingsBtn').hidden = !me.admin;   // (the gate hides it while starting)
   $('#acctBtn').hidden = !me.signed_in;
   if (me.signed_in) $('#acctBtn').textContent = me.name;
   return me;
@@ -549,6 +862,11 @@ function showSignin() {
   $('#signinDlg').showModal();
 }
 $('#signinDlg').addEventListener('cancel', e => e.preventDefault());  // no way past it
+// a #code= link opened while the box is already showing still fills it in
+addEventListener('hashchange', () => {
+  const m = /[#&]code=([A-Za-z0-9-]+)/.exec(location.hash);
+  if (m && $('#signinDlg').open) $('#signinCode').value = m[1];
+});
 $('#signinGo').onclick = async () => {
   try {
     await api('/api/auth/signin', {method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -616,8 +934,10 @@ const CARPICK = 'autorundown.carPick.v3';
 function remember(id) { try { localStorage.setItem(REMEMBERED, id); } catch (e) {} }
 function remembered() { try { return localStorage.getItem(REMEMBERED); } catch (e) { return null; } }
 
-async function loadVehicles() {
-  vehicles = await api('/api/vehicles');
+async function loadVehicles(pending) {
+  const got = pending ? await pending : await api('/api/vehicles');
+  if (got instanceof Error) throw got;
+  vehicles = got;
   vehicles.forEach(v => {
     v._years = yearsOf(v);
     try { v._variants = JSON.parse(v.variants || '[]'); } catch (e) { v._variants = []; }
@@ -632,15 +952,22 @@ async function loadVehicles() {
     + years.map(y => `<option value="${y}">${y}</option>`).join('');
 
   refreshPicker(remembered());
-  buildCarIndex();
+  // ~100 ms on a phone: built once the page has painted, or on first use
+  carIndex = []; carIndexReady = false;
+  (window.requestIdleCallback || setTimeout)(() => { if (!carIndexReady) buildCarIndex(); });
   // bring back the last car typed in the box (its engine/year live outside the dropdowns)
+  // only for the car actually selected: a pick kept in memory outlived the
+  // removal of its manual and went on labelling the box with a car that was
+  // no longer the one searched
+  carPick = null;
   try {
     const saved = JSON.parse(localStorage.getItem(CARPICK) || 'null');
     if (saved && saved.doc === $('#vehicle').value) {
       carPick = {engine: saved.engine, year: saved.year, label: saved.label, sub: saved.sub};
     }
   } catch (_) {}
-  $('#carInput').value = carPick ? carPick.label : currentCarLabel();
+  setCarBox(carPick ? carPick.label : currentCarLabel());
+  carChanged();
   await loadConnectors();
 }
 
@@ -778,7 +1105,7 @@ const yearSel = () => (carPick && carPick.year) || null;
 function clearCarPick() {
   carPick = null;
   try { localStorage.removeItem(CARPICK); } catch (_) {}
-  setTimeout(() => { $('#carInput').value = currentCarLabel(); }, 0);
+  setTimeout(() => { setCarBox(currentCarLabel()); carChanged(); }, 0);
 }
 function currentCarLabel() {
   const v = vehicles.find(x => x.doc_id === $('#vehicle').value);
@@ -788,13 +1115,55 @@ function currentCarLabel() {
                                       : `${v.year_range || ''} ${v.make} ${v.model}`.trim();
 }
 
+// The box is free text, so it can say one car while another is selected
+// (typed and never picked). carBoxLabel is what was last put there for the
+// selected car; asking or searching while the box says something else is
+// refused rather than silently using the old car.
+let carBoxLabel = '', shownDoc = null;
+function setCarBox(text) { carBoxLabel = text || ''; $('#carInput').value = carBoxLabel; }
+function carBoxMatches() {
+  const typed = $('#carInput').value.trim();
+  if (!docId()) {
+    out.innerHTML = `<div class="card"><div class="warnbox"><b>Pick your car first.</b></div></div>`;
+    return false;
+  }
+  if (typed === carBoxLabel.trim()) return true;
+  out.innerHTML = `<div class="card"><div class="warnbox"><b>Pick your car from the list first.</b> `
+    + (typed ? `The box says “${esc(typed)}”, but` : `The box is empty, but`)
+    + ` the selected car is <b>${esc(carBoxLabel || currentCarLabel())}</b>. Choose a suggestion,`
+    + ` or press Escape in the box to keep the selected car.</div></div>`;
+  $('#carInput').focus();
+  $('#carInput').dispatchEvent(new Event('input'));
+  return false;
+}
+// a different car: what is on screen was for the old one
+function carChanged() {
+  if (docId() === shownDoc) return;
+  shownDoc = docId();
+  out.innerHTML = emptyState();
+  srcout.innerHTML = '<p class="muted">Cited pages and diagrams appear here.</p>';
+  $('#right').classList.remove('open');
+}
+// nothing asked yet: say what the box is for, with a few starting points
+const EXAMPLES = ['oil capacity', 'front brake pads torque', 'spark plug gap'];
+function emptyState() {
+  const label = carBoxLabel || currentCarLabel();
+  if (!docId() || !label) return '';
+  return `<div class="empty">Ask a question about <b>${esc(label)}</b>, or search the manual's own words.`
+    + `<div class="examples">${EXAMPLES.map(x =>
+        `<button type="button" class="chipbtn" data-example="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`;
+}
+// which car results were drawn for, on the results themselves
+const resultsFor = (label = carBoxLabel || currentCarLabel()) => label
+  ? `<div class="muted" style="margin:0 0 8px">Results for <b>${esc(label)}</b></div>` : '';
+
 // -- one-line vehicle box ------------------------------------------------------
 // "2009 Mercedes-Benz E550 4Matic" -> that car, that year, and so that engine:
 // a sales name can span engines (E 350: M272 to 2011, M276 after), and the
 // NHTSA year table (importers/data/mercedes_us_years.csv) says which exact
 // model -- and so which engine -- a year means. A VIN goes in the same box.
 // The old dropdowns stay as "Browse" and still hold the selection state.
-let carPick = null, carIndex = [], carSel = -1;
+let carPick = null, carIndex = [], carIndexReady = false, carSel = -1;
 const famsOf = (x, bms) => [...new Set(bms.flatMap(b => (x.engine_by_bm || {})[b] || [])
   .map(e => String(e).slice(0, 3)))].filter(f => /^\d{3}$/.test(f));
 const yearsIn = s => String(s || '').split(',').flatMap(part => {
@@ -812,46 +1181,52 @@ const nameAliases = n => {
   const m = String(n).match(/^(.*?)(\d{3})\/(\d{3})(.*)$/);
   return m ? [n, `${m[1]}${m[2]}${m[4]}`, `${m[1]}${m[3]}${m[4]}`] : [n];
 };
+const wordsOf = s => new Set(String(s).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
 function buildCarIndex() {
   carIndex = [];
+  carIndexReady = true;
   for (const v of vehicles) {
     const make = v.make || '';
     if (!v._variants.length) {
       carIndex.push({label: `${v.year_range || ''} ${make} ${v.model}`.trim(), sub: '',
                      doc: v.doc_id, variant: null, engine: null, year: null,
-                     years: v._years, hay: compact(`${make} ${v.model} ${v.doc_id}`)});
+                     years: v._years, hay: compact(`${make} ${v.model} ${v.doc_id}`),
+                     words: wordsOf(`${make} ${v.model}`)});
       continue;
     }
     const engines = engineGroups(v).filter(([f]) => f).length;
     carIndex.push({label: `${v.year_range} ${make} ${v.model}`, generation: true,
                    sub: engines > 1 ? `whole generation — all ${engines} engines` : 'whole generation',
                    doc: v.doc_id, variant: null, engine: null, year: null, years: v._years,
-                   hay: compact(`${make} ${v.model}`)});
+                   hay: compact(`${make} ${v.model}`), words: wordsOf(`${make} ${v.model}`)});
     v._variants.forEach((x, i) => {
-      const hayBase = compact(`${make} ${v.model} ${nameAliases(x.name).join(' ')} `
-                              + `${(x.us_trims || []).join(' ')} ${BODY_WORDS[x.body] || ''}`);
+      const text = `${make} ${v.model} ${nameAliases(x.name).join(' ')} `
+                   + `${(x.us_trims || []).join(' ')} ${BODY_WORDS[x.body] || ''}`;
+      const hayBase = compact(text), words = wordsOf(text);
       const famLabel = fams => fams.map(f => (x.engine_families || {})[f] || `Engine ${f}`).join(' or ');
-      const usYears = new Set(Object.values(x.us_years || {}).flatMap(yearsIn));
+      const bmYears = Object.entries(x.us_years || {}).map(([b, ys]) => [b, new Set(yearsIn(ys))]);
+      const usYears = new Set(bmYears.flatMap(([, ys]) => [...ys]));
       if (usYears.size) {
         for (const y of [...usYears].sort()) {
-          const bms = Object.keys(x.us_years).filter(b => yearsIn(x.us_years[b]).includes(y));
+          const bms = bmYears.filter(([, ys]) => ys.has(y)).map(([b]) => b);
           const fams = famsOf(x, bms);
           carIndex.push({label: `${y} ${make} ${x.name}`, sub: `${v.model} · ${famLabel(fams)}`,
                          doc: v.doc_id, variant: i, engine: fams.join(',') || null, year: y,
-                         years: [y], hay: hayBase});
+                         years: [y], hay: hayBase, words});
         }
       } else {
         const fams = Object.keys(x.engine_families || {});
         carIndex.push({label: `${make} ${x.name}`,
                        sub: `${v.year_range} ${v.model} · ${famLabel(fams)} · not a US model`,
                        doc: v.doc_id, variant: i, engine: null, year: null,
-                       years: v._years, hay: hayBase});
+                       years: v._years, hay: hayBase, words});
       }
     });
   }
 }
 // every typed word must appear; a year narrows to cars of that year
 function carMatches(q) {
+  if (!carIndexReady) buildCarIndex();
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   let year = null; const terms = [];
   for (const w of words) {
@@ -859,8 +1234,11 @@ function carMatches(q) {
     else if (/^'?\d\d$/.test(w)) { const n = +w.replace("'", ''); year = n <= 30 ? 2000 + n : 1900 + n; }
     else if (!/^(mercedes|benz|mercedes-benz|mb)$/.test(w)) terms.push(compact(w));
   }
+  // one letter matches a whole word only: "c class" found every *-Class,
+  // because "c" is inside "mercedes"
+  const has = (e, t) => !t || (t.length === 1 ? e.words.has(t) : e.hay.includes(t));
   const hits = carIndex.filter(e => (!year || (e.years || []).includes(year))
-                                    && terms.every(t => !t || e.hay.includes(t)));
+                                    && terms.every(t => has(e, t)));
   // exact-year models first, then generations, then the rest; shorter names first
   const rank = e => (e.year === year && year ? 0 : e.generation ? 1 : 2) * 1000 + e.label.length;
   return {year, hits: hits.sort((a, b) => rank(a) - rank(b)).slice(0, 12)};
@@ -879,12 +1257,14 @@ function showCarList(items) {
 }
 function applyCar(e, typedYear) {
   if (!e) return;
+  $('#picker').hidden = true;     // the header shrinks back once a car is chosen
   $('#year').value = ''; $('#make').value = '';
   refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
   carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub};
   try { localStorage.setItem(CARPICK, JSON.stringify({...carPick, doc: e.doc, variant: e.variant})); } catch (_) {}
-  $('#carInput').value = e.label;
+  setCarBox(e.label);
   $('#carList').hidden = true;
+  carChanged();
   showScope(); loadConnectors();
 }
 function carFromVin(raw) {
@@ -898,12 +1278,17 @@ function carFromVin(raw) {
                ? ` · ${fams.map(f => (x.engine_families || {})[f] || 'Engine ' + f).join(' or ')}` : ''),
           doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year};
 }
-const looksLikeVin = s => /^[A-HJ-NPR-Z0-9]{9,17}$/i.test(s.replace(/\s/g, '')) && /\d/.test(s) && /[A-Z]/i.test(s)
-                          && s.replace(/\s/g, '').length >= 11;
+// A VIN is one token of 10-17 VIN characters with several digits. Spaces
+// used to be removed first, so "mercedes 190" (11 letters and digits) was
+// decoded as a VIN; a car name that matches a car is never treated as one.
+const looksLikeVin = s => {
+  const t = s.trim();
+  return /^[A-HJ-NPR-Z0-9]{10,17}$/i.test(t) && (t.match(/\d/g) || []).length >= 4 && /[A-Z]/i.test(t);
+};
 $('#carInput').addEventListener('input', () => {
   const q = $('#carInput').value.trim();
   if (!q) { $('#carList').hidden = true; return; }
-  if (looksLikeVin(q)) {
+  if (looksLikeVin(q) && !carMatches(q).hits.length) {
     const e = carFromVin(q);
     if (e.error) { $('#carList').innerHTML = `<div class="opt"><div class="sub">${esc(e.error)}</div></div>`;
                    $('#carList').hidden = false; $('#carList')._items = []; carSel = -1; return; }
@@ -921,7 +1306,11 @@ $('#carInput').addEventListener('keydown', ev => {
     list.querySelectorAll('.opt').forEach((o, k) => o.classList.toggle('on', k === carSel));
   } else if (ev.key === 'Enter') {
     ev.preventDefault(); applyCar(items[Math.max(carSel, 0)]);
-  } else if (ev.key === 'Escape') { list.hidden = true; }
+  } else if (ev.key === 'Escape') { list.hidden = true; setCarBox(carBoxLabel); }
+});
+// Escape with no list open (e.g. after "Pick your car from the list first")
+$('#carInput').addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && $('#carList').hidden) setCarBox(carBoxLabel);
 });
 $('#carInput').addEventListener('focus', () => $('#carInput').select());
 $('#carInput').addEventListener('blur', () => setTimeout(() => $('#carList').hidden = true, 150));
@@ -976,8 +1365,10 @@ const model = () => $('#model').value || undefined;
 // On another device (only the PC may change settings) the choice is
 // remembered in that browser and sent with each question instead.
 const MODEL_KEY = 'autorundown.model';
-async function loadModels() {
-  modelList = await api('/api/models');
+async function loadModels(pending) {
+  const got = pending ? await pending : await api('/api/models');
+  if (got instanceof Error) throw got;
+  modelList = got;
   let current = me.default_model;
   if (!me.admin) try { current = localStorage.getItem(MODEL_KEY) || current; } catch (_) {}
   $('#model').innerHTML = modelList.map(m =>
@@ -997,14 +1388,37 @@ $('#model').onchange = async () => {
   if ($('#sModel').options.length) $('#sModel').value = $('#model').value;
 };
 
+// On a phone the source panel covers the screen. It opens only when asked
+// for (a page, a diagram button), and the phone's Back gesture closes it
+// instead of leaving the app.
+const narrow = () => window.innerWidth <= 900;
 function openRight() {
-  if (window.innerWidth <= 900) $('#right').classList.add('open');
+  if (!narrow() || $('#right').classList.contains('open')) return;
+  $('#right').classList.add('open');
+  history.pushState({panel: 1}, '');
 }
+function closeRight() {
+  if (!$('#right').classList.contains('open')) return;
+  if (history.state && history.state.panel) history.back();   // popstate closes it
+  else $('#right').classList.remove('open');
+}
+addEventListener('popstate', () => $('#right').classList.remove('open'));
 
 // diagram refs may contain slashes (nested archives), so encode each
 // segment rather than the whole ref
+// Content stays on screen after the car changes, so every page link and image
+// carries the car it was rendered for (renderDoc while drawing), never the one
+// selected when it is clicked: page 2 of the F-150 must not open the Camry's.
+let renderDoc = null;
+const viewDoc = () => renderDoc || docId();
+function withDoc(doc, fn) {
+  const prev = renderDoc;
+  renderDoc = doc;
+  try { return fn(); } finally { renderDoc = prev; }
+}
+const pageAttrs = p => `data-page="${esc(p)}" data-doc="${esc(viewDoc())}"`;
 const imgUrl = n =>
-  `/api/image/${encodeURIComponent(docId())}/`
+  `/api/image/${encodeURIComponent(viewDoc())}/`
   + String(n).split('/').map(encodeURIComponent).join('/');
 
 // wrapped in a link: a wiring diagram is far wider than the panel, and the
@@ -1044,19 +1458,20 @@ function inline(s, layout = false) {
   h = h.replace(/\[diagram:\s*([^\]]+)\]/g, (_, n) => imgTag(n.trim()));
   // cross-references the manual itself carried, made followable again
   h = h.replace(/\[\[ref:(\d+)::([^\]]*)\]\]/g,
-    (_, pg, label) => `<a class="xref" onclick="showPage('${pg}')">${label}</a>`);
+    (_, pg, label) => `<button type="button" class="xref" data-page="${esc(pg)}">${label}</button>`);
   // connector ids are bare text in the manual; link only ids we actually
   // have pages for, so DTC codes and table data do not become dead links
   if (connectorIds.size) {
     h = h.replace(/\b(C\d{3,4}[A-Z]?)\b/g, (m, id) =>
       connectorIds.has(id)
-        ? `<span class="conn" onclick="showConnector('${id}')">${id}</span>`
+        ? `<button type="button" class="conn" data-conn="${esc(id)}">${id}</button>`
         : m);
   }
   // make torque values jump out; they are what people are usually here for
   h = layout
     ? h.replace(WIS_TORQUE, '<span class="torque">$&</span>')
-    : h.replace(/(\d[\d.,]*\s*(?:lb\.?\s?ft|lb\.?\s?in|Nm|N\.m)\b)/gi,
+    // "37 Nm (27 lb ft)" is one value written twice: one pill, not two
+    : h.replace(/(\d[\d.,]*\s*(?:lb\.?\s?ft|lb\.?\s?in|Nm|N\.m)\b(?:\s*\([^()]*?\d[^()]*?(?:lb\.?\s?ft|lb\.?\s?in|Nm|N\.m)\.?\))?)/gi,
                 '<span class="torque">$1</span>');
   return h;
 }
@@ -1170,6 +1585,7 @@ let pageTitles = {};
 let connectorIds = new Set();
 
 async function loadConnectors() {
+  if (!docId()) { connectorIds = new Set(); return; }
   try {
     connectorIds = new Set(await api(`/api/connectors/${encodeURIComponent(docId())}`));
   } catch { connectorIds = new Set(); }
@@ -1191,7 +1607,7 @@ async function showConnector(id) {
          <div class="muted" style="margin-bottom:6px">${esc(e.title)}</div>
          ${e.images.map(imgTag).join('')}
          <div class="src">${renderSource(e.text || '')}</div>
-         <button class="pagelink" onclick="showPage('${esc(e.page_no)}')">open page ${esc(e.page_no)}</button>`);
+         <button class="pagelink" ${pageAttrs(e.page_no)}>open page ${esc(e.page_no)}</button>`);
     srcout.innerHTML = `<div class="connhead">Connector ${esc(d.connector_id)}</div>`
       + (parts.length ? parts.join('<hr style="border:0;border-top:1px solid var(--line);margin:18px 0">')
                       : '<div class="notfound">No connector pages found.</div>');
@@ -1206,7 +1622,7 @@ function specHtml(s) {
     <div class="value">${esc(s.value)}</div>
     <div class="appl">${esc(s.applicability)}</div>
     ${(s.source_pages||[]).map((p, i) =>
-      `<button class="pagelink" onclick="showPage('${esc(p)}')">`
+      `<button class="pagelink" ${pageAttrs(p)}>`
       + `${i === 0 ? 'page' : 'also'} ${esc(p)}</button>`).join('')}
   </div>`;
 }
@@ -1214,7 +1630,7 @@ function specHtml(s) {
 // citations carry the page's title so you know what you are opening
 function srcBtn(p) {
   const t = pageTitles[String(p)] || '';
-  return `<button class="srcbtn" onclick="showPage('${esc(p)}')">
+  return `<button class="srcbtn" ${pageAttrs(p)}>
     <span class="pno">p${esc(p)}</span>
     <span class="ptitle">${esc(t) || 'open page'}</span>
   </button>`;
@@ -1224,11 +1640,14 @@ function figureHtml(f) {
   return `<div class="figure">
     <div class="cap"><b>${esc(f.caption)}</b>${f.page ? ' — page ' + esc(f.page) : ''}</div>
     ${imgTag(f.image)}
-    ${f.page ? `<button class="pagelink" onclick="showPage('${esc(f.page)}')">open page ${esc(f.page)}</button>` : ''}
+    ${f.page ? `<button class="pagelink" ${pageAttrs(f.page)}>open page ${esc(f.page)}</button>` : ''}
   </div>`;
 }
 
-function renderAnswer(d) {
+function renderAnswer(d, doc = docId(), label = carBoxLabel) {
+  withDoc(doc, () => drawAnswer(d, label));
+}
+function drawAnswer(d, label) {
   pageTitles = d.page_titles || {};
   sessionCost += d.usage?.cost_usd || 0;
   $('#cost').textContent = '$' + sessionCost.toFixed(4) + ' this session'
@@ -1245,10 +1664,10 @@ function renderAnswer(d) {
     // next, the spec values last -- the user asked for "procedure and AI
     // description on top, torque specs on the bottom", reading down the way
     // the job is done.
-    h += `<div class="card">`;
+    h += `<div class="card">` + resultsFor(label);
     if (d.answer) {
       h += `<div class="sechead">Answer</div><div class="answer">`
-         + esc(d.answer).split(/\n{2,}|(?<=\.)\s(?=[A-Z])/)
+         + esc(d.answer).split(/\n{2,}/)
              .filter(s => s.trim())
              .map(s => `<p style="margin:8px 0">${s.trim()}</p>`).join('')
          + `</div>`;
@@ -1294,7 +1713,7 @@ function renderAnswer(d) {
       + `engines or models — not your car, hidden</summary>`
       + d.other_vehicle_specs.map(s => `<div class="muted" style="margin:6px 0">`
           + `${esc(s.name)}: ${esc(s.value)} <i>(${esc(s.applicability)})</i> — ${esc(s.reason)}`
-          + ` ${(s.source_pages || []).map(p => `<button class="pagelink" onclick="showPage('${esc(p)}')">`
+          + ` ${(s.source_pages || []).map(p => `<button class="pagelink" ${pageAttrs(p)}>`
                                                + `page ${esc(p)}</button>`).join('')}</div>`).join('')
       + `</details></div>`;
   }
@@ -1305,53 +1724,72 @@ function renderAnswer(d) {
   h += `<div class="muted">searched: ${d.queries.map(esc).join(' &middot; ')}</div>`;
   out.innerHTML = h;
 
-  if (d.diagrams?.length) {
+  // a diagram already shown as a Figure isn't repeated
+  const figs = new Set((d.figures || []).map(f => f.image));
+  const diagrams = (d.diagrams || []).filter(n => !figs.has(n));
+  if (diagrams.length) {
     srcout.innerHTML = `<div class="sechead">Diagrams from cited pages</div>`
-      + d.diagrams.map(imgTag).join('');
-    openRight();
+      + diagrams.map(imgTag).join('');
+    // on a phone the panel would cover the answer: offer it instead
+    if (narrow()) out.insertAdjacentHTML('beforeend', `<button type="button" class="ghost" id="showDiagrams" `
+      + `style="width:100%; margin-top:6px">Diagrams from cited pages (${diagrams.length})</button>`);
   }
 }
 
+let asking = false;
 async function ask() {
   const q = $('#q').value.trim();
-  if (!q) return;
+  // each call is a paid request: Enter pressed again while one is running
+  // used to send another (the button was disabled, the key was not)
+  if (!q || asking) return;
+  if (!carBoxMatches()) return;
+  const doc = docId(), label = carBoxLabel;
+  asking = true;
   $('#askBtn').disabled = true;
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching the manual&hellip;</div>`;
   try {
     renderAnswer(await api('/api/ask', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({doc_id:docId(), question:q, include_other_variants:variants(),
+      body: JSON.stringify({doc_id:doc, question:q, include_other_variants:variants(),
                             model:model(), variant:variantIdx(), engine:engineSel(), year:yearSel()})
-    }));
+    }, 240000), doc, label);
   } catch (e) {
     out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   } finally {
+    asking = false;
     $('#askBtn').disabled = false;
   }
 }
 
+let searchSeq = 0;
 async function keywordSearch() {
   const q = $('#q').value.trim();
-  if (!q) return;
+  if (!q) { $('#q').focus(); $('#q').placeholder = 'Type what to search for, e.g. oil drain plug torque'; return; }
+  if (!carBoxMatches()) return;
+  // a slow reply for an earlier search must not replace a later one
+  const seq = ++searchSeq, doc = docId(), label = carBoxLabel;
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
   try {
-    const rows = await api(`/api/search?doc_id=${encodeURIComponent(docId())}`
+    const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}`
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
       + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+    if (seq !== searchSeq) return;
     // the server also searches the manual's own wording ("valve cover" ->
     // "cylinder head cover"); say so, or the results look off-topic
     const alt = rows.find(r => r.query && r.query.toLowerCase() !== q.toLowerCase());
-    out.innerHTML = (alt ? `<div class="muted" style="margin:0 0 8px">Also searched the manual's term: `
+    out.innerHTML = withDoc(doc, () => resultsFor(label)
+      + (alt ? `<div class="muted" style="margin:0 0 8px">Also searched the manual's term: `
                          + `<b>${esc(alt.query)}</b></div>` : '')
       + (rows.length ? `<div class="card" style="padding:0">` + rows.map(r =>
-      `<div class="hit" onclick="showPage('${esc(r.page_no)}')">
+      `<button type="button" class="hit" ${pageAttrs(r.page_no)}>
          <div class="t">${esc(r.title)}${r.applicability!=='this_vehicle'
            ? ' <span style="color:var(--warn)">[other variant]</span>' : ''}</div>
          <div class="s">${esc(r.section_path)}</div>
-       </div>`).join('') + `</div>`
-      : `<div class="card"><div class="notfound">No keyword matches.</div></div>`);
+       </button>`).join('') + `</div>`
+      : `<div class="card"><div class="notfound">No keyword matches.</div></div>`));
   } catch (e) {
+    if (seq !== searchSeq) return;
     out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   }
 }
@@ -1364,8 +1802,8 @@ function wantOriginal() { try { return localStorage.getItem(ORIGINAL_KEY) === '1
 function viewToggle(doc, pageNo) {
   const on = wantOriginal();
   return `<div class="viewtoggle" role="group" aria-label="Page view">
-    <button class="${on ? '' : 'on'}" aria-pressed="${!on}" onclick="setPageView(false,'${esc(doc)}','${esc(pageNo)}')">Reading view</button>
-    <button class="${on ? 'on' : ''}" aria-pressed="${on}" onclick="setPageView(true,'${esc(doc)}','${esc(pageNo)}')">Original layout</button>
+    <button type="button" class="${on ? '' : 'on'}" aria-pressed="${!on}" data-view="reading" data-doc="${esc(doc)}" data-pno="${esc(pageNo)}">Reading view</button>
+    <button type="button" class="${on ? 'on' : ''}" aria-pressed="${on}" data-view="original" data-doc="${esc(doc)}" data-pno="${esc(pageNo)}">Original layout</button>
   </div>`;
 }
 function originalFrame(doc, pageNo) {
@@ -1375,6 +1813,15 @@ function originalFrame(doc, pageNo) {
   return `<div id="origWrap"><div class="muted" style="margin-bottom:6px">Redrawn from the
       WIS page layout; approximate. &nbsp;<a class="fulllink" href="${url}" target="_blank" rel="noopener">Open full screen &#8599;</a></div>
     <iframe class="origframe" id="origFrame" title="Original layout" src="${url}"></iframe></div>`;
+}
+// the server marks a page it can't draw; show that here, not in a grey frame
+function origLoaded(fr) {
+  let msg = null;
+  try { msg = fr.contentDocument.querySelector('[data-unavailable]'); } catch (_) {}
+  if (!msg) return;
+  $('#origWrap').innerHTML = `<div class="notfound" title="${esc(msg.textContent)}">The original layout isn't
+    available for this page.
+    <div style="margin-top:10px"><button type="button" class="ghost" data-view="reading">Back to reading view</button></div></div>`;
 }
 function setPageView(original, doc, pageNo) {
   try { localStorage.setItem(ORIGINAL_KEY, original ? '1' : '0'); } catch (_) {}
@@ -1389,17 +1836,23 @@ function setPageView(original, doc, pageNo) {
   else if (wrap) wrap.hidden = !original;
 }
 // the drawn page reports its height so the iframe never scrolls inside the pane
+// iframe load events don't bubble; capture them on the panel
+srcout.addEventListener('load', e => { if (e.target.id === 'origFrame') origLoaded(e.target); }, true);
 addEventListener('message', e => {
   const fr = $('#origFrame');
   if (fr && e.source === fr.contentWindow && e.data && e.data.wisOriginalHeight)
     fr.style.height = (e.data.wisOriginalHeight + 4) + 'px';
 });
 
-async function showPage(pageNo) {
+let pageSeq = 0;
+async function showPage(pageNo, doc) {
+  doc = doc || docId();
+  const seq = ++pageSeq;      // the page clicked last wins, not the slowest
   srcout.innerHTML = `<span class="spinner"></span>`;
   openRight();
   try {
-    const p = await api(`/api/page/${encodeURIComponent(docId())}/${encodeURIComponent(pageNo)}`);
+    const p = await api(`/api/page/${encodeURIComponent(doc)}/${encodeURIComponent(pageNo)}`);
+    if (seq !== pageSeq) return;
     // the extracted text repeats the page title as its first line
     let body = p.text || '';
     if (p.title && body.trimStart().startsWith(p.title)) {
@@ -1408,18 +1861,19 @@ async function showPage(pageNo) {
     // the page may come from a companion bucket (general, engine), so look
     // up the vehicle that owns it, falling back to the selected one
     const owner = vehicles.find(x => x.doc_id === p.doc_id)
-               || vehicles.find(x => x.doc_id === docId());
+               || vehicles.find(x => x.doc_id === doc);
     const wis = WIS_SOURCE.test(owner?.source_name || '');
     // WIS pages end with the text read out of their diagrams ("Diagram
     // labels: N26/15 X63/4 ...") and the figure numbers. That is there to be
     // searched, not read -- the diagram itself is on the page.
     if (wis) body = body.split('\n')
       .filter(l => !/^(Diagram labels|Figures): /.test(l)).join('\n');
-    const bodyHtml = renderSource(body, wis);
+    renderDoc = doc;
     // any diagram not already placed inline goes at the end
     const shown = new Set([...(p.text||'').matchAll(/\[diagram:\s*([^\]]+)\]/g)]
       .map(m => m[1].trim()));
     const extra = (p.images||[]).filter(n => !shown.has(n));
+    const bodyHtml = renderSource(body, wis);
     srcout.innerHTML =
       `<div class="muted">${esc(p.section_path)}</div>
        <h3 style="margin:6px 0 2px">${esc(p.title)}</h3>
@@ -1432,17 +1886,35 @@ async function showPage(pageNo) {
       + (p.links?.length
           ? `<div class="sechead">Referenced pages</div>`
             + p.links.map(l =>
-                `<button class="srcbtn" onclick="showPage('${esc(l.page)}')">`
+                `<button class="srcbtn" ${pageAttrs(l.page)}>`
                 + `<span class="pno">p${esc(l.page)}</span>`
                 + `<span class="ptitle">${esc(l.label)}</span></button>`).join('')
           : '')
       + (extra.length ? `<div class="sechead">${shown.size ? 'Other diagrams' : 'Diagrams'}</div>` : '')
       + extra.map(imgTag).join('');
   } catch (e) {
-    srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    if (seq === pageSeq) srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  } finally {
+    renderDoc = null;
   }
 }
 
+document.addEventListener('click', e => {
+  const pg = e.target.closest('[data-page]');
+  if (pg) { e.preventDefault(); showPage(pg.dataset.page, pg.dataset.doc); return; }
+  const cn = e.target.closest('[data-conn]');
+  if (cn) { e.preventDefault(); showConnector(cn.dataset.conn); return; }
+  const vw = e.target.closest('[data-view]');
+  if (vw) {
+    // "Back to reading view" under an unavailable page: drop that frame
+    if (!vw.dataset.doc) $('#origWrap')?.remove();
+    setPageView(vw.dataset.view === 'original', vw.dataset.doc, vw.dataset.pno);
+  }
+});
+
+$('#closeRight').onclick = closeRight;
+if (narrow()) $('#q').placeholder = 'Ask about this car…';
+out.addEventListener('click', e => { if (e.target.closest('#showDiagrams')) openRight(); });
 $('#askBtn').onclick = ask;
 $('#searchBtn').onclick = keywordSearch;
 $('#q').addEventListener('keydown', e => {
@@ -1457,54 +1929,167 @@ function showModelPrice() {
     : '';
 }
 
-$('#settingsBtn').onclick = async () => {
+// -- Shop setup: one page, #/setup/<section>, the PC only ---------------------
+// It replaced three stacked pop-ups (Settings over Import over the app, at
+// 520 and 720 px): only this PC is admin, so a phone-sized box made no sense
+// on its screen. Toggles and the model save as they change; the API key and
+// the folders have their own Save. Nothing is lost moving between sections:
+// they are only hidden, and a reload of the data never overwrites an edit.
+const SECTIONS = ['welcome', 'manuals', 'ai', 'phones', 'pc', 'advanced'];
+const ADV_FIELDS = {archive_dir: '#sArchive', index_path: '#sIndex', extractor_dir: '#sExtractor'};
+let setupData = null, advLoaded = {};
+function flash(sel, text, bad = false) {
+  const el = $(sel);
+  el.textContent = text; el.classList.toggle('bad', bad);
+  clearTimeout(el._t);
+  if (!bad) el._t = setTimeout(() => { el.textContent = ''; }, 3000);
+}
+async function saveSetting(body, mark) {
+  try {
+    await api('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body)});
+    flash(mark, 'Saved ✓');
+    return true;
+  } catch (e) { flash(mark, 'Not saved: ' + e.message, true); return false; }
+}
+const advChanged = () => Object.entries(ADV_FIELDS).filter(([k, sel]) => $(sel).value.trim() !== advLoaded[k]);
+function markDirty() {
+  const adv = advChanged().length, key = !!$('#sKey').value.trim();
+  $('#saveAdv').disabled = !adv;
+  $('#saveKey').disabled = !key;
+  $('#navAdvSub').textContent = adv ? 'unsaved' : '';
+  $('#navAiSub').textContent = key ? 'unsaved' : (setupData && !setupData.has_api_key ? 'no key' : '');
+}
+async function loadSetup() {
   const [s, models] = await Promise.all([api('/api/settings'), api('/api/models')]);
+  setupData = s;
   modelList = models;
-  $('#sModel').innerHTML = models.map(m =>
-    `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('');
-  $('#sModel').value = s.model || models[0].id;
+  const cur = $('#sModel').value;
+  $('#sModel').innerHTML = models.map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('');
+  $('#sModel').value = models.some(m => m.id === s.model) ? s.model : (cur || models[0].id);
   showModelPrice();
-  $('#sArchive').value = s.archive_dir || '';
-  $('#sIndex').value = s.index_path || '';
-  $('#sExtractor').value = s.extractor_dir || '';
+  // fields being edited keep their text
+  for (const [k, sel] of Object.entries(ADV_FIELDS)) {
+    const was = advLoaded[k];
+    advLoaded[k] = s[k] || '';
+    if (was === undefined || $(sel).value.trim() === was) $(sel).value = advLoaded[k];
+  }
   $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
   $('#sAutostart').checked = !!s.autostart;
-  const phone = s.phone_urls || [];
-  $('#sPhone').hidden = !phone.length;
-  $('#sPhone').innerHTML = phone.length
-    ? 'On your phone (same wifi): ' + phone.map(u => `<b>${esc(u)}</b>`).join(' or ')
-      + ' — open it, then "Add to Home Screen".' : '';
   $('#sSignin').checked = !!s.require_signin;
-  $('#sKey').placeholder = s.has_api_key
-    ? `key configured (${s.key_source}) — leave blank to keep`
-    : 'sk-ant-...';
-  $('#settings').showModal();
+  $('#sKey').placeholder = s.has_api_key ? 'leave empty to keep the saved key' : 'sk-ant-…';
+  $('#keyStatus').innerHTML = s.has_api_key
+    ? `<span style="color:var(--good)">&#10003; Key saved</span>`
+      + (s.key_source === 'environment' ? ' (from the ANTHROPIC_API_KEY environment variable)' : '')
+      + '. Type a new one only to replace it.'
+    : `<span style="color:var(--warn)">No key yet.</span> Ask is off until you add one; keyword search works `
+      + `without it. Get a key at console.anthropic.com.`;
+  const phone = s.phone_urls || [];
+  $('#sPhone').innerHTML = phone.length
+    ? 'On a phone on the same wifi, open:' + phone.map(u =>
+        `<div class="phonerow"><b>${esc(u)}</b><button type="button" class="ghost" data-copy="${esc(u)}">Copy</button></div>`).join('')
+      + 'then use “Add to Home Screen”.'
+    : 'No network address found, so phones can’t reach this PC right now.';
+  $('#sConfigPath').textContent = s.config_path ? `Settings are stored in ${s.config_path}.` : '';
+  markDirty();
+  // counted over the whole index: ~15 s on a cold 3.5 GB one, so it never holds the page up
+  $('#sManuals').textContent = vehicles.length ? 'Counting the manuals…' : 'No manuals yet.';
+  if (vehicles.length) api('/api/stats', {}, 120000).then(st => {
+    $('#sManuals').textContent = `${st.vehicles.toLocaleString()} manual${st.vehicles === 1 ? '' : 's'}, `
+      + `${st.unique_pages.toLocaleString()} pages in the index.`;
+  }, () => { $('#sManuals').textContent = ''; });
+}
+function renderWelcome() {
+  const n = vehicles.length, key = setupData && setupData.has_api_key;
+  $('#wManuals').classList.toggle('done', n > 0);
+  $('#wKey').classList.toggle('done', !!key);
+  $('#wManualsHelp').textContent = n
+    ? `${n} manual${n === 1 ? '' : 's'} in the index. You can add more any time under Manuals.`
+    : 'LEMON manuals from a folder, the Mercedes WIS data from a virtual machine, or a folder of HTML / text / PDF files.';
+  $('#wKeyHelp').textContent = key ? 'Saved. AI answers are on.' : 'For AI answers. Keyword search works without one.';
+  $('#welcomeDone').hidden = !n;
+}
+async function showSetup(sec) {
+  showView('setup');
+  if (!sec && !narrow()) sec = vehicles.length ? 'manuals' : 'welcome';
+  if (sec && !SECTIONS.includes(sec)) sec = 'manuals';
+  $('#setup').dataset.sec = sec || '';
+  document.querySelectorAll('.setsec').forEach(x => x.hidden = x.id !== 'sec-' + sec);
+  document.querySelectorAll('.setupnav a[data-sec]').forEach(a =>
+    a.setAttribute('aria-current', a.dataset.sec === sec ? 'page' : 'false'));
+  $('#navWelcome').hidden = vehicles.length > 0 && sec !== 'welcome';
+  $('#navBack').hidden = !vehicles.length;
+  $('#navManualsSub').textContent = vehicles.length ? '' : 'none yet';
+  $('#setup').scrollTop = 0;
+  if (!setupData) {
+    try { await loadSetup(); }
+    catch (e) { $('#sManuals').textContent = 'Couldn’t load the settings: ' + e.message; }
+  }
+  if (sec === 'welcome') renderWelcome();
+  if (sec === 'manuals') openImport();
+  if (sec === 'phones') openUsers();
+}
+$('#sModel').onchange = async () => {
+  showModelPrice();
+  const v = $('#sModel').value;
+  if (await saveSetting({model: v}, '#mModel')) { me.default_model = v; $('#model').value = v; }
 };
-$('#sModel').onchange = showModelPrice;
-$('#saveBtn').onclick = async () => {
-  const body = {
-    archive_dir: $('#sArchive').value,
-    index_path: $('#sIndex').value,
-    extractor_dir: $('#sExtractor').value.trim(),
-    ...($('#sStartRow').hidden ? {} : {autostart: $('#sAutostart').checked}),
-    model: $('#sModel').value,
-    require_signin: $('#sSignin').checked,
-  };
-  if ($('#sKey').value.trim()) body.api_key = $('#sKey').value.trim();
+$('#sSignin').onchange = async e => {
+  const v = e.target.checked;
+  if (await saveSetting({require_signin: v}, '#mSignin')) { me.require_signin = v; openUsers(); }
+  else e.target.checked = !v;
+};
+$('#sAutostart').onchange = async e => {
+  const v = e.target.checked;
+  if (!await saveSetting({autostart: v}, '#mAutostart')) e.target.checked = !v;
+};
+$('#saveKey').onclick = async () => {
+  const k = $('#sKey').value.trim();
+  if (!k) return;
+  $('#saveKey').disabled = true;
+  if (await saveSetting({api_key: k}, '#mKey')) { $('#sKey').value = ''; await loadSetup(); }
+  markDirty();
+};
+$('#sKey').addEventListener('keydown', e => { if (e.key === 'Enter') $('#saveKey').click(); });
+$('#saveAdv').onclick = async () => {
+  const body = Object.fromEntries(advChanged().map(([k, sel]) => [k, $(sel).value.trim()]));
+  if (!Object.keys(body).length) return;
+  $('#saveAdv').disabled = true;
+  $('#sErr').hidden = true;
   try {
-    await api('/api/settings', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body)
-    });
-  } catch (e) { alert('Settings not saved: ' + e.message); return; }
-  $('#sKey').value = '';
-  $('#settings').close();
-  $('#model').value = $('#sModel').value;
-  loadVehicles();
+    await api('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body)});
+  } catch (e) {
+    $('#sErr').textContent = 'Not saved: ' + e.message; $('#sErr').hidden = false;
+    markDirty();
+    return;
+  }
+  Object.assign(advLoaded, body);
+  flash('#mAdv', 'Saved ✓');
+  markDirty();
+  if ('index_path' in body) { await loadVehicles(); }     // another index: other cars
 };
+$('#setup').addEventListener('input', markDirty);
+$('#sPhone').addEventListener('click', e => {
+  const b = e.target.closest('[data-copy]');
+  if (!b) return;
+  navigator.clipboard?.writeText(b.dataset.copy).then(() => { b.textContent = 'Copied'; },
+                                                      () => { b.textContent = 'Select and copy'; });
+});
 
 // -- mechanics (this PC only) ------------------------------------------
 const money = v => '$' + (v || 0).toFixed(2);
+// "" = no limit; otherwise dollars, 0 or more. -5 used to be stored (and
+// blocked the mechanic for good) and 1e999 silently meant no limit.
+function parseCap(raw) {
+  const v = String(raw ?? '').trim();
+  if (v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 100000)
+    throw new Error('The limit must be an amount in dollars, 0 or more (leave it empty for no limit).');
+  return n;
+}
+let lastCode = null;          // {id, name, code, minutes}: shown in that mechanic's card
 async function loadUsers() {
   const d = await api('/api/admin/users');
   const urls = d.phone_urls.map(u => `<b>${esc(u)}</b>`).join(' or ') || '<i>no network address found</i>';
@@ -1512,76 +2097,95 @@ async function loadUsers() {
     ? ` To remove the security warning, install <b>${esc(d.phone_urls[0])}/ca.crt</b> on each phone once.` : '';
   $('#usersIntro').innerHTML = (d.require_signin
       ? 'Sign-in is <b>required</b>: other devices need a code from here.'
-      : 'Sign-in is <b>off</b>: anyone on the network can search and ask. Turn it on in Settings.')
+      : 'Sign-in is <b>off</b>: anyone on the network can search and ask. Turn it on above.')
     + ` Phones open ${urls}.${ca}`;
-  const row = u => `<div class="card" style="padding:10px 12px; margin:0 0 8px">
+  const row = u => `<div class="card usercard" data-id="${u.id}" data-name="${esc(u.name)}" style="padding:10px 12px; margin:0 0 8px">
       <div class="row" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
         <div><b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
           <div class="muted">${u.month_questions} questions, ${money(u.month_spend_usd)} this month`
           + (u.monthly_cap_usd != null ? ` of ${money(u.monthly_cap_usd)} limit` : ', no limit')
           + ` · ${u.devices} signed-in device${u.devices === 1 ? '' : 's'}</div></div>
         <div class="row" style="gap:6px; flex-wrap:wrap">
-          ${u.disabled ? '' : `<button class="ghost" data-act="code" data-id="${u.id}">Sign-in code</button>`}
-          <button class="ghost" data-act="cap" data-id="${u.id}">Limit</button>
-          ${u.devices ? `<button class="ghost" data-act="signout" data-id="${u.id}">Sign out devices</button>` : ''}
-          <button class="ghost" data-act="${u.disabled ? 'enable' : 'disable'}" data-id="${u.id}">
+          ${u.disabled ? '' : `<button type="button" class="ghost" data-act="code">Sign-in code</button>`}
+          <button type="button" class="ghost" data-act="cap">Limit</button>
+          ${u.devices ? `<button type="button" class="ghost" data-act="signout">Sign out devices</button>` : ''}
+          <button type="button" class="${u.disabled ? 'ghost' : 'danger'}" data-act="${u.disabled ? 'enable' : 'disable'}">
             ${u.disabled ? 'Enable' : 'Disable'}</button>
-        </div></div></div>`;
-  $('#usersList').innerHTML = d.users.map(row).join('')
-    + `<div class="muted" style="margin:4px 0 8px">This PC and devices that did not sign in: `
+        </div></div>
+      <div class="capedit" hidden>
+        <label for="cap${u.id}">Monthly limit in $ (empty = no limit)</label>
+        <div class="row"><input id="cap${u.id}" class="capin" type="number" min="0" step="1" inputmode="decimal"
+          value="${u.monthly_cap_usd ?? ''}" style="max-width:160px">
+          <button type="button" data-act="capsave">Save limit</button></div>
+      </div>
+      <div class="codeslot"></div></div>`;
+  $('#usersList').innerHTML = (d.users.length ? d.users.map(row).join('')
+      : `<div class="notfound">No mechanics yet. Add one above to give their phone a sign-in code.</div>`)
+    + `<div class="muted" style="margin:8px 0">This PC and devices that did not sign in: `
     + `${d.unattributed.month_questions} questions, ${money(d.unattributed.month_spend_usd)} this month.</div>`;
+  if (lastCode) {
+    const slot = $(`#usersList .usercard[data-id="${lastCode.id}"] .codeslot`);
+    if (slot) slot.innerHTML = codeCard(lastCode);
+  }
 }
-function showCode(name, r) {
-  $('#usersCode').innerHTML = `<div class="card" style="margin:8px 0">Sign-in code for <b>${esc(name)}</b>
-    (one use, valid ${r.minutes} minutes):
+const codeCard = c => `<div class="codecard">Sign-in code for <b>${esc(c.name)}</b>
+    (one use, valid ${c.minutes} minutes):
     <div style="font-size:32px; font-weight:700; letter-spacing:4px; color:var(--accent); margin:6px 0">
-      ${esc(r.code.slice(0, 4))} ${esc(r.code.slice(4))}</div>
+      ${esc(c.code.slice(0, 4))} ${esc(c.code.slice(4))}</div>
     <div class="muted">Open AutoRundown on their phone and type it in.</div></div>`;
-}
 $('#usersList').onclick = async e => {
   const b = e.target.closest('button[data-act]');
-  if (!b) return;
-  const id = b.dataset.id, act = b.dataset.act;
-  const name = b.closest('.card').querySelector('b').textContent;
+  if (!b || b.disabled) return;
+  const card = b.closest('.usercard'), id = card.dataset.id, name = card.dataset.name, act = b.dataset.act;
+  if (act === 'cap') {                       // just opens the editor
+    const ed = card.querySelector('.capedit');
+    ed.hidden = !ed.hidden;
+    if (!ed.hidden) ed.querySelector('input').focus();
+    return;
+  }
+  if (act === 'disable' && !confirm(`Disable ${name}? Their phones are signed out at once.`)) return;
+  b.disabled = true;                         // a double click issued two codes
   try {
-    if (act === 'code') showCode(name, await api(`/api/admin/users/${id}/code`, {method: 'POST'}));
-    else if (act === 'signout') await api(`/api/admin/users/${id}/signout`, {method: 'POST'});
-    else if (act === 'cap') {
-      const v = prompt(`Monthly limit in dollars for ${name} (blank = no limit):`);
-      if (v === null) return;
-      const body = v.trim() === '' ? {clear_cap: true} : {monthly_cap_usd: Number(v)};
-      if (!body.clear_cap && !(body.monthly_cap_usd >= 0)) throw new Error('Not a number: ' + v);
+    if (act === 'code') {
+      const r = await api(`/api/admin/users/${id}/code`, {method: 'POST'});
+      lastCode = {id, name, ...r};
+    } else if (act === 'signout') {
+      await api(`/api/admin/users/${id}/signout`, {method: 'POST'});
+    } else if (act === 'capsave') {
+      const cap = parseCap(card.querySelector('.capin').value);
       await api(`/api/admin/users/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)});
+        body: JSON.stringify(cap === null ? {clear_cap: true} : {monthly_cap_usd: cap})});
     } else {
-      if (act === 'disable' && !confirm(`Disable ${name}? Their phones are signed out at once.`)) return;
       await api(`/api/admin/users/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({disabled: act === 'disable'})});
+      if (act === 'disable' && lastCode && lastCode.id === id) lastCode = null;
     }
     $('#usersNote').textContent = '';
     await loadUsers();
-  } catch (err) { $('#usersNote').textContent = err.message; }
+  } catch (err) { $('#usersNote').textContent = err.message; b.disabled = false; }
 };
 $('#uAdd').onclick = async () => {
   const name = $('#uName').value.trim();
-  const cap = $('#uCap').value.trim();
+  if (!name) { $('#usersNote').textContent = 'Type the mechanic’s name first.'; $('#uName').focus(); return; }
+  $('#uAdd').disabled = true;
   try {
+    const cap = parseCap($('#uCap').value);
     const r = await api('/api/admin/users', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name, monthly_cap_usd: cap === '' ? null : Number(cap)})});
+      body: JSON.stringify({name, monthly_cap_usd: cap})});
     $('#uName').value = ''; $('#uCap').value = '';
     $('#usersNote').textContent = '';
-    showCode(name, r);
+    lastCode = {id: String(r.id), name, code: r.code, minutes: r.minutes};
     await loadUsers();
   } catch (err) { $('#usersNote').textContent = err.message; }
+  finally { $('#uAdd').disabled = false; }
 };
-$('#openUsers').onclick = async () => {
-  $('#settings').close();
-  $('#usersCode').innerHTML = ''; $('#usersNote').textContent = '';
-  $('#usersDlg').showModal();
+$('#uName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#uAdd').click(); });
+async function openUsers() {
+  if (!$('#usersList').innerHTML) $('#usersList').innerHTML = '<div class="muted">Loading…</div>';
   try { await loadUsers(); } catch (err) { $('#usersNote').textContent = err.message; }
-};
-$('#year').addEventListener('change', () => { clearCarPick(); refreshPicker(); loadConnectors(); });
-$('#make').addEventListener('change', () => { clearCarPick(); refreshPicker(); loadConnectors(); });
+}
+$('#year').addEventListener('change', () => { refreshPicker(); clearCarPick(); loadConnectors(); });
+$('#make').addEventListener('change', () => { refreshPicker(); clearCarPick(); loadConnectors(); });
 $('#vehicle').addEventListener('change', () => {
   clearCarPick();
   refreshVariants();          // a new generation starts at "All variants"
@@ -1613,11 +2217,27 @@ function vinYear(vin, v) {
 //    a series (WDB + D = 201); the vehicle stores those as vin_codes. A US VIN
 //    names the series, not the variant.
 // A VIN from another make matches nothing and says so.
+// Mercedes-Benz world manufacturer identifiers: Germany (WDB, WDD, WDC, W1K …),
+// the US plants (4JG, 55S), smart (WME), vans (WD3/WD4, VSA, NMB …), plus any
+// the index's own VIN tables name
+const MB_WMI = new Set(['WDB', 'WDC', 'WDD', 'WDF', 'WD0', 'WD1', 'WD2', 'WD3', 'WD4', 'WD5', 'WD6', 'WD7',
+  'WD8', 'WDX', 'WDY', 'WDZ', 'W1K', 'W1N', 'W1V', 'W1W', 'W1X', 'W1Y', 'W1Z', 'W1T', '4JG', '55S',
+  'WME', 'WMX', 'VSA', 'NMB', 'NM9', '8AB', '9BM', 'LE4', 'MHL', 'ADB', 'RLM', '3MB']);
+function isMercedesWmi(wmi) {
+  if (MB_WMI.has(wmi)) return true;
+  return vehicles.some(v => (v.vin_codes || '').includes(`,${wmi}:`)
+    || (v._variants || []).some(x => (x.vin9 || []).some(p => p.startsWith(wmi))));
+}
 function vinLookup(raw) {
   const vin = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (vin.length < 4)
     return {error: 'Enter the VIN — at least the first 4 characters.'};
   const wmi = vin.slice(0, 3);
+  // the maker comes first: a Fiat (ZFA…) with digits at 4-6 was read as a
+  // Mercedes FIN and picked a W201
+  if (!isMercedesWmi(wmi))
+    return {error: `That VIN starts with ${wmi}, which is not a Mercedes-Benz maker code. `
+                   + `This lookup decodes Mercedes VINs only.`};
 
   if (/^\d{3}/.test(vin.slice(3, 6))) {                     // European FIN
     const series = vin.slice(3, 6);
@@ -1670,6 +2290,8 @@ $('#vinFind').onclick = () => {
   $('#make').value = '';
   refreshPicker(r.variant !== null ? `${r.vehicle.doc_id}::${r.variant}`
                                    : r.vehicle.doc_id);
+  // the box follows the pick (it kept showing the previous car)
+  clearCarPick();
   loadConnectors();
   $('#vinNote').textContent = `Found by ${r.how}`
     + (hasYear ? `, model year ${r.year}.` : '.');
@@ -1693,6 +2315,7 @@ async function impBrowse(path) {
     if (seq !== impSeq) return;
     $('#impPath').value = r.path;
     $('#impUp').dataset.parent = r.parent;
+    $('#impDirs').hidden = false; $('#impDetected').hidden = false; $('#impChange').hidden = true;
     $('#impDirs').innerHTML = r.dirs.length
       ? r.dirs.map(d => `<button type="button" data-d="${esc(d)}">&#128193; ${esc(d)}</button>`).join('')
       : '<div class="muted" style="padding:8px 10px">No subfolders.</div>';
@@ -1702,10 +2325,11 @@ async function impBrowse(path) {
     const det = r.detected || {};
     $('#impDetected').innerHTML = det.importer
       ? `<b>Detected:</b> ${esc(det.summary)}` : `<span class="muted">${esc(det.summary || '')}</span>`;
-    $('#impStart').disabled = !det.importer;
+    $('#impStart').disabled = !det.importer || det.importer === 'lemon';
     if (det.importer === 'lemon')
-      $('#impDetected').innerHTML += ' <span class="muted">— to pick which vehicles, use the <b>LEMON</b> tab'
-        + ' (“Already have LEMON manuals in a folder”).</span>';
+      $('#impDetected').innerHTML += ' — pick its vehicles on the '
+        + '<button type="button" class="linkbtn" id="goLemon">LEMON tab</button>.';
+    $('#goLemon')?.addEventListener('click', () => impSelectTab('lemon'));
     $('#impModes').innerHTML = det.importer === 'records' && det.rebuildable
       ? `<label style="margin:0"><input type="radio" name="impMode" value="add" checked> Add / update (keeps what is there, skips pages already imported)</label>
          <label style="margin:4px 0 0"><input type="radio" name="impMode" value="rebuild_wis"> Rebuild the Mercedes WIS data from this folder (keeps your other manuals and the spend log; ~6 min)</label>`
@@ -1731,10 +2355,11 @@ function catSavedOpen() {
   catch (e) { return []; }
 }
 const catGet = path => api('/api/import/lemon-catalogue?path=' + encodeURIComponent(catKey(path)));
-async function catRefresh() {
-  // the root and every open folder, so counts and ticks above and below stay right
+async function catRefresh(only) {
+  // the root and every open folder (or `only` those), so counts and ticks
+  // above and below stay right
   const seq = ++catSeq;
-  const paths = [[], ...[...catOpen.keys()].map(k => JSON.parse(k))];
+  const paths = only || [[], ...[...catOpen.keys()].map(k => JSON.parse(k))];
   const res = await Promise.all(paths.map(p => catGet(p).catch(() => null)));
   if (seq !== catSeq) return;
   res.forEach((r, i) => {
@@ -1775,6 +2400,7 @@ function catRender() {
   tree.querySelectorAll('input[data-some]').forEach(c => c.indeterminate = true);
   const n = catRoot.picked_total;
   $('#impCatCount').textContent = n ? `${n.toLocaleString()} vehicle${n > 1 ? 's' : ''} picked` : 'Nothing picked yet';
+  $('#lemCatSum').textContent = `${catRoot.total.toLocaleString()} vehicles · ${n.toLocaleString()} picked`;
   $('#impCatClear').disabled = !n;
 }
 async function catToggle(key) {
@@ -1790,9 +2416,16 @@ async function catToggle(key) {
 }
 async function catPick(key, picked) {
   try {
-    await api('/api/import/lemon-catalogue/picks', {method: 'POST',
-      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path: JSON.parse(key), picked})});
-    await catRefresh();
+    const path = JSON.parse(key);
+    const parent = await api('/api/import/lemon-catalogue/picks', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path, picked})});
+    // the reply is the folder holding the tick; refetch only what else can
+    // change: the folders above it and open ones inside it (each tick sent
+    // 7 requests with five folders open)
+    if (path.length > 1) catOpen.set(catKey(path.slice(0, -1)), parent.rows);
+    const above = path.slice(0, -2).map((_, i) => path.slice(0, i + 1));
+    const inside = [...catOpen.keys()].filter(k => k.startsWith(key.slice(0, -1) + ',')).map(k => JSON.parse(k));
+    await catRefresh([[], ...above, ...inside]);
   } catch (e) { $('#impCatCount').textContent = e.message; catRefresh(); }
 }
 $('#impCatTree').addEventListener('click', e => {
@@ -1803,7 +2436,8 @@ $('#impCatTree').addEventListener('click', e => {
     if (!row.classList.contains('lvl-variant')) catToggle(row.dataset.k);
   }
 });
-$('#impCatFilter').oninput = () => catRender();
+let catFilterTimer = 0;
+$('#impCatFilter').oninput = () => { clearTimeout(catFilterTimer); catFilterTimer = setTimeout(catRender, 150); };
 $('#impCatClear').onclick = async () => {
   if (!confirm('Clear every pick?')) return;
   for (const r of catRoot.rows) if (r.picked !== 'none')
@@ -1827,6 +2461,7 @@ function lemSummary() {
 }
 async function impLemon(path, seq) {
   $('#impLemon').hidden = false;
+  $('#lemFolderSum').textContent = path;
   $('#impLemList').innerHTML = '<div class="muted" style="padding:8px 10px">Reading the vehicles…</div>';
   const r = await api('/api/import/lemon?path=' + encodeURIComponent(path));
   if (seq !== impSeq) return;
@@ -1843,6 +2478,13 @@ async function impLemon(path, seq) {
     || '<div class="muted" style="padding:8px 10px">Open the folder that holds your LEMON manuals (one folder per vehicle, each with index.html and pages/).</div>';
   $('#impLemList').querySelectorAll('input').forEach(c => c.onchange = lemSummary);
   lemSummary();
+  // a LEMON folder found: the browser and the detected box step aside
+  if (lemRows.length) {
+    $('#impDirs').hidden = true; $('#impDetected').hidden = true; $('#impChange').hidden = false;
+    const done = lemRows.filter(v => v.state === 'imported').length;
+    $('#lemFolderSum').textContent = `${lemRows.length} vehicle${lemRows.length > 1 ? 's' : ''}`
+      + (done ? `, ${done} imported` : '');
+  }
 }
 $('#impLemAll').onclick = () => { document.querySelectorAll('#impLemList input').forEach((c, i) =>
   c.checked = lemRows[i].state !== 'imported'); lemSummary(); };
@@ -1852,7 +2494,11 @@ $('#impLemNone').onclick = () => { document.querySelectorAll('#impLemList input'
 // its models share engine and general pages (remove_manuals.py)
 let manData = null;
 async function manLoad() {
-  try { manData = await api('/api/import/manuals'); } catch (e) { manData = null; }
+  try { manData = await api('/api/import/manuals'); }
+  catch (e) {
+    manData = null;
+    $('#impLemonManuals').innerHTML = `<div class="errbox">Couldn’t list the imported manuals: ${esc(e.message)}</div>`;
+  }
   manRender();
 }
 function manRender() {
@@ -1861,9 +2507,10 @@ function manRender() {
                                     ['#impFolderManuals', 'folder', 'Imported from folders']]) {
     const box = $(id), rows = manData[group];
     if (group === 'folder') box.hidden = !rows.length || impTab() !== 'folder';
+    if (group === 'lemon') $('#lemImpSum').textContent = rows.length ? `${rows.length}` : 'none yet';
     if (!rows.length) { box.innerHTML = group === 'lemon'
-      ? '<h4>Imported LEMON manuals</h4><div class="muted" style="font-size:14px">None yet.</div>' : ''; continue; }
-    box.innerHTML = `<h4>${title} (${rows.length})</h4>`
+      ? '<div class="muted" style="font-size:14px">None yet.</div>' : ''; continue; }
+    box.innerHTML = (group === 'lemon' ? '' : `<h4>${title} (${rows.length})</h4>`)
       + (rows.length > 8 ? `<input type="search" class="manfilter" placeholder="Filter" style="width:100%; margin-bottom:6px">` : '')
       + `<div class="dirlist">` + rows.map(r =>
         `<label class="lemrow" data-label="${esc(r.label.toLowerCase())}"><input type="checkbox" value="${esc(r.doc_id)}">`
@@ -1882,11 +2529,13 @@ function manRender() {
     if (f) f.oninput = () => box.querySelectorAll('.dirlist .lemrow').forEach(l =>
       l.hidden = !l.dataset.label.includes(f.value.toLowerCase().trim()));
     btn.onclick = () => {
+      if (btn.disabled) return;
       const ids = sel(), byId = Object.fromEntries(rows.map(r => [r.doc_id, r]));
       const pages = ids.reduce((n, d) => n + byId[d].pages, 0);
       const names = ids.slice(0, 5).map(d => '  • ' + byId[d].label).join('\n') + (ids.length > 5 ? `\n  … and ${ids.length - 5} more` : '');
       if (!confirm(`Remove ${ids.length} manual${ids.length > 1 ? 's' : ''} (${pages.toLocaleString()} pages) from the index?\n\n`
           + names + '\n\nYour manual files on disk and the spend log are not touched. You can import them again later.')) return;
+      btn.disabled = true;               // a second click asked twice
       manRemove('remove', ids, box.querySelector('.mancompact').checked);
     };
   }
@@ -1921,13 +2570,15 @@ const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'r
   ? 'removing Mercedes WIS' : s.mode === 'vm' ? 'Mercedes VM extract' : 'import';
 function impShow(s) {
   const log = $('#impLog');
-  if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; return; }
+  $('#jobIdle').hidden = s.state !== 'idle';
+  if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; $('#impFail').hidden = true; return; }
   if (s.state === 'running') impSawRunning = true;
   log.textContent = (s.log || []).join('\n');
   const t = impDur(s.elapsed);
   const verb = (s.mode || '').startsWith('remove') ? 'Removing' : 'Importing';
   if (s.state !== 'running' && !impSawRunning) {
     log.hidden = true;
+    $('#jobIdle').hidden = false;
     $('#impStatus').innerHTML = `Last job: ${esc(impJobName(s))} ${s.state === 'done' ? 'finished' : 'failed'}`
       + ` ${impDur(s.ago || 0)} ago · <a href="#" id="impShowLog">Show log</a>`;
     $('#impShowLog').onclick = e => { e.preventDefault(); log.hidden = !log.hidden;
@@ -1938,6 +2589,11 @@ function impShow(s) {
     $('#impStatus').textContent = s.state === 'running' ? `${verb}… ${t}`
       : s.state === 'done' ? `Finished in ${t}.` : `Failed (exit ${s.returncode}) after ${t} — see the log.`;
   }
+  const failed = s.state === 'failed' || (s.state !== 'running' && s.state !== 'done' && s.state !== 'idle');
+  $('#impStatus').classList.toggle('bad', failed);
+  const last = (s.log || []).filter(l => l.trim()).slice(-1)[0] || '';
+  $('#impFail').hidden = !(failed && impSawRunning);
+  if (failed && impSawRunning) $('#impFail').textContent = `The ${impJobName(s)} failed: ${last}`;
   $('#impStart').disabled = s.state === 'running' || (impSource() === 'lemon' && !lemPicked().length);
 }
 async function impWatch() {
@@ -1950,7 +2606,13 @@ async function impWatch() {
       manLoad();
       if (catRoot) catRefresh();
       if (s.state === 'done') {
-        loadVehicles();
+        loadVehicles().then(() => {
+          $('#navBack').hidden = !vehicles.length;
+          $('#navManualsSub').textContent = vehicles.length ? '' : 'none yet';
+          $('#sManuals').textContent = vehicles.length
+            ? `${vehicles.length} manual${vehicles.length === 1 ? '' : 's'} in the index.` : 'No manuals yet.';
+          if (!$('#setup').hidden) renderWelcome();
+        });
         if (impSource() === 'lemon') impBrowse($('#impPath').value);  // refresh "imported" tags
       }
     }
@@ -1958,37 +2620,56 @@ async function impWatch() {
   await tick();
   if (/^(Importing|Removing)/.test($('#impStatus').textContent)) impPoll = setInterval(tick, 1500);
 }
-async function openImport(first) {
-  $('#impIntro').firstChild.textContent = first
-    ? 'No manuals are indexed yet. Pick LEMON manuals, extract them from a Mercedes virtual machine, or import them from a folder on this PC. '
-    : 'Pick LEMON manuals, extract them from a Mercedes virtual machine, or import manuals from a folder on this PC. ';
-  impSawRunning = false;
-  $('#importDlg').showModal();
-  impShowSource();
+let importOpened = false;
+function openImport() {
+  if (!importOpened) {             // first visit to Manuals in this page load
+    importOpened = true;
+    impSawRunning = false;
+    impShowSource();
+    // focus the selected tab, not the whole strip (it drew a ring round all three)
+    setTimeout(() => document.querySelector('.srctabs [aria-selected="true"]')?.focus({preventScroll: true}), 0);
+  }
   manLoad();
   impWatch().catch(() => {});
 }
-$('#openImport').onclick = () => { $('#settings').close(); openImport(false); };
+$('#impChange').onclick = () => {
+  $('#impDirs').hidden = false; $('#impDetected').hidden = false; $('#impChange').hidden = true;
+};
 $('#impGo').onclick = () => impBrowse($('#impPath').value);
 $('#impPath').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); impBrowse($('#impPath').value); } });
 $('#impUp').onclick = () => $('#impUp').dataset.parent && impBrowse($('#impUp').dataset.parent);
-$('#impClose').onclick = () => $('#importDlg').close();
 // "lemon" is the LEMON tab's folder import (its old radio value), "catalogue" the tree
 const impTab = () => document.querySelector('.srctabs [aria-selected="true"]').dataset.src;
 const impSource = () => impTab() !== 'lemon' ? impTab() : $('#impLemFolderBox').open ? 'lemon' : 'catalogue';
+// one LEMON card open at a time (the name= attribute does it too, where supported)
+const LEMCARDS = ['#impLemFolderBox', '#impLemImported', '#impLemCat'];
+LEMCARDS.forEach(id => $(id).addEventListener('toggle', e => {
+  if (e.target.open) LEMCARDS.forEach(o => { if (o !== id) $(o).open = false; });
+  if (id === '#impLemFolderBox' || e.target.open) impShowSource();
+}));
 async function impVms() {
   $('#impVmNote').innerHTML = '<span class="muted">Looking for virtual machines…</span>';
+  $('#impVmControls').hidden = true;
   $('#impStart').disabled = true;
+  const noVm = msg => {
+    $('#impVmControls').hidden = true; $('#impStart').hidden = true;
+    const plain = String(msg).replace(/^\[\d\d:\d\d:\d\d\]\s*/, '').replace(/^STOP:\s*/, '');
+    $('#impVmNote').innerHTML = `<div class="errbox">${/VBoxManage not found|VirtualBox not found|was not found on this PC/i.test(plain)
+      ? 'VirtualBox isn’t installed on this PC (or isn’t on the PATH). Install it, then come back to this tab.'
+      : esc(plain)}</div>`;
+  };
   try {
     const r = await api('/api/vms');
-    if (r.error) { $('#impVmNote').innerHTML = `<div class="errbox">${esc(r.error)}</div>`; return; }
+    if (r.error) return noVm(r.error);
+    if (!r.vms.length) return noVm('No VirtualBox virtual machines were found on this PC.');
+    $('#impVmControls').hidden = false; $('#impStart').hidden = false;
     $('#impVm').innerHTML = r.vms.map(v =>
       `<option value="${esc(v.name)}">${esc(v.name)} (${esc(v.state)})</option>`).join('');
     $('#impVmNote').innerHTML = r.vms.length
-      ? `Output goes to <b>${esc(r.out_root)}</b>.`
+      ? `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`
       : '<span class="muted">No VirtualBox VMs found on this PC.</span>';
     $('#impStart').disabled = !r.vms.length;
-  } catch (e) { $('#impVmNote').innerHTML = `<div class="errbox">${esc(e.message)}</div>`; }
+  } catch (e) { noVm(e.message); }
 }
 function impShowSource() {
   const tab = impTab(), src = impSource();
@@ -2003,11 +2684,17 @@ function impShowSource() {
   $('#impStart').hidden = src === 'catalogue';
   $('#impStart').textContent = tab === 'vm' ? 'Extract & import' : 'Import';
   if (tab === 'vm') impVms();
-  else if (src === 'catalogue') { if (!catRoot) impCatalogueOpen(); }
-  else impBrowse($('#impPath').value);
+  else {
+    // the LEMON tab shows its folder import and the catalogue together
+    if (tab === 'lemon' && !catRoot) impCatalogueOpen();
+    if (src !== 'catalogue') impBrowse($('#impPath').value);
+  }
 }
 function impSelectTab(src) {
-  document.querySelectorAll('.srctabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.src === src));
+  document.querySelectorAll('.srctabs button').forEach(b => {
+    b.setAttribute('aria-selected', b.dataset.src === src);
+    b.tabIndex = b.dataset.src === src ? 0 : -1;        // arrow keys move between tabs
+  });
   impShowSource();
 }
 document.querySelectorAll('.srctabs button').forEach(b => b.onclick = () => impSelectTab(b.dataset.src));
@@ -2018,7 +2705,6 @@ $('.srctabs').addEventListener('keydown', e => {
   const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
   impSelectTab(next.dataset.src); next.focus();
 });
-$('#impLemFolderBox').addEventListener('toggle', impShowSource);
 $('#impStart').onclick = async () => {
   if (impSource() === 'vm') {
     const steps = [...document.querySelectorAll('#impSteps input:checked')].map(c => c.value);
@@ -2052,12 +2738,99 @@ $('#impStart').onclick = async () => {
   } catch (e) { $('#impStatus').textContent = e.message; }
 };
 
-loadMe().then(m => {
-  if (m.require_signin && !m.admin && !m.signed_in) { showSignin(); return; }
-  loadModels().catch(() => {});
-  return loadVehicles().then(() => { if (!vehicles.length && me.admin) openImport(true); });
-}).catch(e => out.innerHTML =
-  `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`);
+// -- views: the app, Shop setup, or a start-up / not-ready screen ---------------
+function showView(v) {
+  $('main').hidden = v !== 'app';
+  $('#setup').hidden = v !== 'setup';
+  $('#gate').hidden = v !== 'gate';
+  document.body.dataset.view = v;
+  $('#settingsBtn').setAttribute('aria-current', v === 'setup' ? 'page' : 'false');
+}
+function showGate(msg, more = '', retry = false) {
+  showView('gate');
+  $('#gateMsg').innerHTML = msg;
+  $('#gateMore').hidden = !more; $('#gateMore').textContent = more;
+  $('#gateRetry').hidden = !retry;
+}
+let booted = false;
+function route() {
+  if (!booted) return;
+  const m = /^#\/setup(?:\/([a-z]+))?/.exec(location.hash);
+  if (m && me.admin) return showSetup(m[1] || '');
+  if (m) history.replaceState(null, '', location.pathname);
+  if (!vehicles.length) {
+    // nothing to search yet: the PC sets up, a phone is told to wait
+    if (me.admin) return location.replace('#/setup/welcome');
+    return showGate('<b>No manuals yet.</b>',
+                    'AutoRundown is being set up on the shop PC — check back later.', true);
+  }
+  showView('app');
+  if (!out.innerHTML.trim()) out.innerHTML = emptyState();
+}
+addEventListener('hashchange', route);
+// the Options row (AI model, trims) is open on a PC, folded on a phone
+const syncOpts = () => { if (window.innerWidth > 700) $('#opts').open = true; };
+addEventListener('resize', syncOpts);
+syncOpts();
+out.addEventListener('click', e => {
+  const ex = e.target.closest('[data-example]');
+  if (ex) { $('#q').value = ex.dataset.example; $('#q').focus(); }
+});
+
+// While starting: /api/me, the vehicles and the models are asked for
+// together; a 5xx or no answer is "still starting", retried every 2 s, never
+// a raw "Internal Server Error" over a half-loaded page.
+let startT0 = Date.now(), retryNow = null;
+$('#gateRetry').onclick = () => { if (retryNow) retryNow(); else location.reload(); };
+async function start() {
+  showGate('<span class="spinner"></span> Starting AutoRundown…');
+  for (;;) {
+    const vehiclesReq = api('/api/vehicles').catch(e => e);
+    const modelsReq = api('/api/models').catch(e => e);
+    try {
+      const m = await loadMe();
+      if (m.require_signin && !m.admin && !m.signed_in) {
+        showGate('<b>Sign in to use AutoRundown.</b>');
+        showSignin();
+        return;
+      }
+      await loadVehicles(vehiclesReq);
+      loadModels(modelsReq).catch(e => {
+        $('#model').innerHTML = '<option value="">AI models unavailable</option>';
+        $('#model').title = e.message;
+      });
+      break;
+    } catch (e) {
+      if (e.status === 401) { showGate('<b>Sign in to use AutoRundown.</b>'); showSignin(); return; }
+      if (e.status && e.status < 500) { showGate('<b>AutoRundown can’t open.</b>', e.message, true); return; }
+      const waited = Date.now() - startT0;
+      showGate('<span class="spinner"></span> Starting AutoRundown…',
+               waited > 10000 ? 'Still starting — this can take a minute after the PC boots or after an update.' : '',
+               waited > 10000);
+      await new Promise(res => { retryNow = res; setTimeout(res, 2000); });
+    }
+  }
+  booted = true;
+  route();
+  watchImports();
+}
+// an import running (from this PC) gives partial results: say so, on every device
+let importingSeen = false;
+async function watchImports() {
+  let s;
+  try { s = await api('/api/status'); } catch (_) { return; }
+  $('#banner').hidden = !s.importing;
+  if (s.importing) {
+    $('#banner').innerHTML = 'Importing manuals… search shows partial results until it finishes.'
+      + (me.admin ? ' <a href="#/setup/manuals">See the job</a>' : '');
+    importingSeen = true;
+    setTimeout(watchImports, 15000);
+  } else if (importingSeen) {
+    importingSeen = false;
+    loadVehicles().then(route);
+  }
+}
+start();
 </script>
 </body>
 </html>

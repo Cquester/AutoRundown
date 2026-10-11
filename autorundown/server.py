@@ -14,14 +14,19 @@ no native build.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import socket
+import sqlite3
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
-from pydantic import BaseModel
+from typing import Annotated
+
+from pydantic import BaseModel, Field
 
 from . import auth, config, index, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_original
@@ -34,7 +39,8 @@ WEB_DIR = Path(__file__).parent / "web"
 
 class AskBody(BaseModel):
     doc_id: str
-    question: str
+    # every character is paid input; a question is a sentence or two
+    question: str = Field(max_length=2000)
     include_other_variants: bool = False
     # index into the vehicle's variants: adds that model's engine documents
     variant: int | None = None
@@ -63,14 +69,19 @@ class SigninBody(BaseModel):
     code: str
 
 
+# dollars a month: -5 used to be stored (the mechanic was refused for good)
+# and Infinity / NaN silently meant no limit
+Cap = Annotated[float, Field(ge=0, le=100000, allow_inf_nan=False)]
+
+
 class NewUserBody(BaseModel):
     name: str
-    monthly_cap_usd: float | None = None
+    monthly_cap_usd: Cap | None = None
 
 
 class UserUpdateBody(BaseModel):
     disabled: bool | None = None
-    monthly_cap_usd: float | None = None
+    monthly_cap_usd: Cap | None = None
     clear_cap: bool = False
 
 
@@ -112,6 +123,87 @@ ADMIN_PREFIXES = ("/api/settings", "/api/browse", "/api/vms", "/api/import",
                   "/api/admin/", "/api/shutdown")
 
 
+# the largest request body accepted; JSON settings, a question or an import
+# request are a few KB. Without it a 100 MB body was read into memory first
+MAX_BODY = 256 * 1024
+# every response: never framed by another site (clickjacking the admin page),
+# never content-sniffed, no Referer to anywhere
+SECURITY_HEADERS = {
+    "X-Frame-Options": "SAMEORIGIN",
+    "Content-Security-Policy": "frame-ancestors 'self'; object-src 'none'; base-uri 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+class BodyLimit:
+    """Refuse request bodies over MAX_BODY, declared or streamed (ASGI)."""
+
+    class TooLarge(Exception):
+        pass
+
+    def __init__(self, app, limit: int = MAX_BODY):
+        self.app, self.limit = app, limit
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        headers = dict(scope.get("headers") or [])
+        try:
+            declared = int(headers.get(b"content-length", b"0") or 0)
+        except ValueError:
+            declared = 0
+        if declared > self.limit:
+            return await self._refuse(send)
+        seen, started = 0, False
+
+        async def counted():
+            nonlocal seen
+            msg = await receive()
+            if msg["type"] == "http.request":
+                seen += len(msg.get("body", b""))
+                if seen > self.limit:
+                    raise BodyLimit.TooLarge
+            return msg
+
+        async def watched(msg):
+            nonlocal started
+            started = started or msg["type"] == "http.response.start"
+            await send(msg)
+
+        try:
+            await self.app(scope, counted, watched)
+        except BodyLimit.TooLarge:
+            if not started:
+                await self._refuse(send)
+
+    @staticmethod
+    async def _refuse(send):
+        body = b'{"detail":"Request too large."}'
+        await send({"type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body})
+
+
+def _local_path_error(raw: str) -> str | None:
+    """Folders the PC is asked to read must be on the PC: opening
+    \\\\server\\share makes Windows connect out and offer this PC's login."""
+    if (raw or "").strip().startswith(("\\\\", "//")):
+        return "Only folders on this PC can be used, not network shares."
+    return None
+
+
+def _cross_site(request: Request) -> bool:
+    """A browser says where a request came from (Sec-Fetch-Site). For the
+    admin routes only this page itself (same-origin) or a typed URL (none) will
+    do: an <img src="http://localhost:8756/api/vms"> on any web site ran the
+    extractor before. Clients that send no such header (curl, the tray's
+    --stop) are not browsers and are not affected."""
+    site = request.headers.get("sec-fetch-site")
+    return site is not None and site not in ("same-origin", "none")
+
+
 def _is_admin_path(path: str) -> bool:
     return any(path == p or path.startswith(p + ("" if p.endswith("/") else "/"))
                for p in ADMIN_PREFIXES)
@@ -128,8 +220,65 @@ def _origin_ok(request: Request) -> bool:
     return origin.split("://", 1)[-1].rstrip("/").lower() == host.lower()
 
 
+# what /api/image will serve: pictures only. An .svg or .html in a manual's
+# images/ folder was served as a page of this site, script and all
+IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tif", ".tiff"}
+# a diagram opened full size is a document of this origin: no script, ever
+IMAGE_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; "
+                               "style-src 'unsafe-inline'; sandbox",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+# the iframe's page when there is nothing to draw; the UI looks for the marker
+UNAVAILABLE = "<p data-unavailable='1' style='font-family:sans-serif'>{}</p>"
+
+
+def _index_error(raw: str) -> str | None:
+    """Why `raw` can't be the index, or None. Saving "" pointed the server at
+    the current folder (every request 500, and it stuck after a restart); a typo
+    created a new empty database, so every manual seemed to vanish."""
+    if not (raw or "").strip():
+        return "The index path can't be empty."
+    path = Path(raw.strip()).expanduser()
+    if not path.is_file():
+        return (f"There is no index file at {path}. Pick an existing index.db "
+                "(to build a new one, use Import).")
+    try:
+        con = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            con.execute("SELECT 1 FROM vehicles LIMIT 1")
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return f"{path} is not an AutoRundown index."
+    return None
+
+
+def _extractor_error(raw: str) -> str | None:
+    """Why `raw` can't be the extractor folder, or None. Its Python is run
+    (/api/vms, imports), so it must be a real local folder holding the
+    extractor -- never a network share (\\\\server\\x), which would run
+    someone else's code and, on Windows, send this PC's credentials there."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None                      # "" = the repo's own extractor/
+    if raw.startswith(("\\\\", "//")):
+        return "The extractor folder must be on this PC, not a network share."
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        return "Give the extractor folder's full path (e.g. C:\\Users\\you\\…\\extractor)."
+    if not (path / "vm_pipeline.py").is_file():
+        return f"{path} doesn't hold the Mercedes extractor (vm_pipeline.py)."
+    return None
+
+
 def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app = FastAPI(title="AutoRundown")
+    # vehicles.json is ~750 KB at full size; a phone on slow wifi waited 4.7 s
+    app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
+    app.add_middleware(BodyLimit)      # added last = runs first
     app.state.index_path = index_path
     app.state.auth_path = auth_path or auth.AUTH_PATH
     app.state.https = False
@@ -138,17 +287,29 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app.state.mdns_name = ""          # serve() sets it once announced
     app.state.shutdown = lambda: None   # make_server() wires the real one
 
+    # tables, indexes and new columns are brought up to date here, before the
+    # server answers anything (see index.connect)
+    index.connect(index_path).close()
+
     def db():
         # SQLite connections are per-thread; make a fresh one per request.
-        return index.connect(app.state.index_path)
+        return index.connect(app.state.index_path, setup=False)
 
     def adb():
         return auth.connect(app.state.auth_path)
+
+    short = socket.gethostname().split(".")[0].lower()
+    host_names = {short, f"{short}.local", socket.gethostname().lower(), "autorundown.local"}
 
     @app.middleware("http")
     async def who_is_asking(request: Request, call_next):
         path = request.url.path
         addr = request.client.host if request.client else ""
+        # a name that isn't this PC's means DNS rebinding: a web page whose own
+        # name now resolves here, able to search and ask on this PC's key
+        names = host_names | ({app.state.mdns_name.lower()} if app.state.mdns_name else set())
+        if not auth.host_allowed(request.headers.get("host", ""), names):
+            return JSONResponse({"detail": "Unknown host name."}, 421)
         admin = auth.is_admin_request(addr, request.headers.get("host", ""))
         if request.method not in ("GET", "HEAD", "OPTIONS") and not _origin_ok(request):
             return JSONResponse({"detail": "Cross-site request refused."}, 403)
@@ -163,11 +324,16 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if _is_admin_path(path) and not admin:
             return JSONResponse(
                 {"detail": "Only available on the PC running AutoRundown."}, 403)
+        if _is_admin_path(path) and _cross_site(request):
+            return JSONResponse({"detail": "Cross-site request refused."}, 403)
         if (path not in PUBLIC_PATHS and who is None
                 and config.load().require_signin):
             return JSONResponse({"detail": "Sign in to use AutoRundown.",
                                  "signin": True}, 401)
-        return await call_next(request)
+        response = await call_next(request)
+        for k, v in SECURITY_HEADERS.items():
+            response.headers.setdefault(k, v)   # /api/image sets its own CSP
+        return response
 
     @app.get("/api/me")
     def api_me(request: Request) -> dict:
@@ -227,9 +393,17 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         return Response(tls.CA_CRT.read_bytes(), media_type="application/x-x509-ca-cert",
                         headers={"Content-Disposition": 'attachment; filename="autorundown-ca.crt"'})
 
-    @app.get("/", response_class=HTMLResponse)
-    def home() -> str:
-        return (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    def _etagged(request: Request, body: bytes, media_type: str) -> Response:
+        """304 when the browser already has this exact body."""
+        tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+        headers = {"ETag": tag, "Cache-Control": "no-cache"}
+        if request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers=headers)
+        return Response(body, media_type=media_type, headers=headers)
+
+    @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
+    def home(request: Request) -> Response:
+        return _etagged(request, (WEB_DIR / "index.html").read_bytes(), "text/html; charset=utf-8")
 
     @app.get("/manifest.webmanifest")
     def manifest() -> JSONResponse:
@@ -255,18 +429,32 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
+    @app.get("/api/status")
+    def api_status() -> dict:
+        """Is an import running? Any device may ask: the page shows "search
+        shows partial results until it finishes" while one is. No log, no paths."""
+        st = jobs.status()
+        return {"importing": st.get("state") == "running"}
+
     @app.get("/api/vehicles")
-    def vehicles() -> list[dict]:
+    def vehicles(request: Request) -> Response:
         conn = db()
         try:
-            return index.vehicles(conn)
+            rows = index.vehicles(conn)
         finally:
             conn.close()
+        if not request.state.who.admin:   # this PC's folders are its own business
+            for v in rows:
+                v.pop("file_path", None)
+        return _etagged(request, json.dumps(rows, separators=(",", ":")).encode(),
+                        "application/json")
 
     @app.get("/api/search")
-    def api_search(doc_id: str, q: str, limit: int = 12,
+    def api_search(doc_id: str, q: str = Query(max_length=500),
+                   limit: int = Query(12, ge=1, le=50),
                    include_other_variants: bool = False,
-                   variant: int | None = None, engine: str | None = None) -> list[dict]:
+                   variant: int | None = None,
+                   engine: str | None = Query(None, max_length=64)) -> list[dict]:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
@@ -327,13 +515,15 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             conn.close()
 
     @app.get("/api/page/{doc_id}/{page_no}")
-    def api_page(doc_id: str, page_no: str) -> dict:
+    def api_page(request: Request, doc_id: str, page_no: str) -> dict:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
             page = get_page(conn, scope_ids(vehicle), page_no)
             if not page:
                 raise HTTPException(404, "page not found")
+            if not request.state.who.admin:
+                page.pop("file_path", None)
             page["images"] = [i for i in (page.get("images") or "").split("\n") if i]
             # "pageno::label" -> objects the UI can render as links
             page["links"] = [
@@ -346,7 +536,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             conn.close()
 
     @app.get("/api/original/{doc_id}/{page_no}", response_class=HTMLResponse)
-    def api_original(doc_id: str, page_no: str) -> HTMLResponse:
+    def api_original(request: Request, doc_id: str, page_no: str) -> HTMLResponse:
         """A WIS document redrawn from its SIDS layout (wis_original.py).
 
         Figures go through /api/image like everywhere else -- every WIS
@@ -360,20 +550,24 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             conn.close()
         if not page or not page_no.isdigit() or not re.match(
                 r"mercedes-wis", vehicle.get("source_name") or ""):
-            raise HTTPException(404, "no original layout for this page")
+            return HTMLResponse(UNAVAILABLE.format("There is no original layout for this page."), 404)
         from urllib.parse import quote
         try:
             body = wis_original.render(
                 Path(vehicle["file_path"]), int(page_no), page.get("title") or "",
                 lambda f: f"/api/image/{quote(doc_id)}/{quote(f)}")
         except wis_original.NotAvailable as exc:
-            return HTMLResponse(f"<p style='font-family:sans-serif'>{exc}</p>", 404)
+            # the reason names this PC's folders: for the PC only
+            why = (str(exc) if request.state.who.admin
+                   else "The original layout isn't available for this page.")
+            return HTMLResponse(UNAVAILABLE.format(
+                why.replace("&", "&amp;").replace("<", "&lt;")), 404)
         return HTMLResponse(body)
 
     # `:path` because diagrams may sit in nested directories, e.g.
     # images/IMP49Q313/euro210/551068321.png
     @app.get("/api/image/{doc_id}/{name:path}")
-    def api_image(doc_id: str, name: str) -> FileResponse:
+    def api_image(request: Request, doc_id: str, name: str) -> FileResponse:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
@@ -381,6 +575,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             conn.close()
         images_dir = (Path(vehicle["file_path"]) / "images").resolve()
         if not images_dir.is_dir():
+            if not request.state.who.admin:
+                raise HTTPException(404, "This manual's diagrams aren't available.")
             # the index survived a move but the archive did not come with it
             raise HTTPException(
                 404,
@@ -393,9 +589,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             target.relative_to(images_dir)
         except ValueError:
             raise HTTPException(404, "image not found")
-        if not target.is_file():
+        if not target.is_file() or target.suffix.lower() not in IMAGE_TYPES:
             raise HTTPException(404, "image not found")
-        return FileResponse(target)
+        return FileResponse(target, headers=IMAGE_HEADERS)
 
     @app.get("/api/connectors/{doc_id}")
     def api_connector_ids(doc_id: str) -> list[str]:
@@ -449,9 +645,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         return {"ok": True}
 
     @app.get("/api/browse")
-    def api_browse(path: str = "") -> dict:
+    def api_browse(path: str = Query("", max_length=1000)) -> dict:
+        if _local_path_error(path):
+            raise HTTPException(400, _local_path_error(path))
         p = Path(path).expanduser() if path else Path(config.load().archive_dir or Path.home())
         if not p.is_dir():
+            if path:
+                # a typo used to land in the home folder with Import enabled
+                raise HTTPException(404, f"Folder not found: {p}")
             p = Path.home()
         try:
             dirs = sorted((c.name for c in p.iterdir()
@@ -462,7 +663,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 "dirs": dirs[:500], "detected": importer_jobs.describe(p, app.state.index_path)}
 
     @app.get("/api/import/lemon")
-    def api_import_lemon(path: str = "") -> dict:
+    def api_import_lemon(path: str = Query("", max_length=1000)) -> dict:
+        if _local_path_error(path):
+            raise HTTPException(400, _local_path_error(path))
         p = Path(path).expanduser() if path else Path(config.load().archive_dir or Path.home())
         return importer_jobs.lemon_vehicles(p, app.state.index_path)
 
@@ -535,6 +738,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                                   compact=body.compact)
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
+        if _local_path_error(body.path):
+            raise HTTPException(400, _local_path_error(body.path))
         p = Path(body.path).expanduser()
         if not p.is_dir():
             raise HTTPException(400, f"Folder not found: {p}")
@@ -575,10 +780,24 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "autostart": autostart.is_enabled() if autostart.supported() else None,
             "phone_urls": _phone_urls(),
             "require_signin": cfg.require_signin,
+            "config_path": str(config.CONFIG_PATH),
         }
 
     @app.post("/api/settings")
     def post_settings(body: SettingsBody) -> dict:
+        # check everything before changing anything
+        if body.index_path is not None and body.index_path != app.state.index_path:
+            err = _index_error(body.index_path)
+            if err:
+                raise HTTPException(400, err)
+            body.index_path = str(Path(body.index_path.strip()).expanduser())
+        if body.extractor_dir is not None:
+            err = _extractor_error(body.extractor_dir)
+            if err:
+                raise HTTPException(400, err)
+            body.extractor_dir = body.extractor_dir.strip()
+        if body.model is not None and body.model not in query.MODELS:
+            raise HTTPException(400, f"Unknown model {body.model!r}.")
         if body.autostart is not None and body.autostart != autostart.is_enabled():
             try:
                 autostart.set_enabled(body.autostart)
@@ -595,6 +814,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         # model, sign-in) used to swap a `serve.py --index X` server onto the
         # config's index
         if body.index_path is not None:
+            index.connect(cfg.index_path).close()   # bring it up to date first
             app.state.index_path = cfg.index_path
         return {"ok": True}
 
