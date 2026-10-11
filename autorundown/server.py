@@ -590,14 +590,17 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             variants = json.loads(vehicle.get("variants") or "[]")
         except ValueError:
             variants = []
+        fams = {f.strip() for f in (engine or "").split(",") if f.strip()}
         if variant is not None and 0 <= variant < len(variants):
             engines = list(variants[variant].get("engines") or [])
-        elif engine:
-            fams = {f.strip() for f in engine.split(",") if f.strip()}
-            engines = sorted({e for v in variants for e in v.get("engines") or []
-                              if e.split(".")[0] in fams})
+        elif fams:
+            engines = sorted({e for v in variants for e in v.get("engines") or []})
         else:
             return []
+        # the car box sends both: a sales name that changed engine ("E 350",
+        # M272 then M276) narrowed by the model year to one family
+        if fams:
+            engines = [e for e in engines if e.split(".")[0] in fams]
         return wis_links.oil(Path(vehicle["file_path"]), vehicle.get("model_code") or "", engines)
 
     @app.get("/api/wis/sa/{doc_id}")

@@ -155,6 +155,11 @@ def main() -> int:
         check("oil: the variant's own engine only",
               [(r["engine"], r["litres"]) for r in app.get(f"/api/wis/oil/{c201}?variant={v26}").json()],
               [("103.942", 6.0)])
+        check("oil: variant + a family it doesn't have (car box, other year): nothing",
+              app.get(f"/api/wis/oil/{c201}?variant={v26}&engine=102").json(), [])
+        check("oil: variant + its own family",
+              [r["engine"] for r in app.get(f"/api/wis/oil/{c201}?variant={v26}&engine=103").json()],
+              ["103.942"])
         check("oil: the picked engine family only",
               [(r["engine"], r["litres"]) for r in app.get(f"/api/wis/oil/{c201}?engine=102").json()],
               [("102.983", 5.0)])
