@@ -92,12 +92,20 @@ needs loopback peer AND loopback Host, so `forward.py` runs twice: in the
 sandbox `<ip>:18756 -> 127.0.0.1:8756`, on the PC `127.0.0.1:18756 ->
 <ip>:18756`. The sandbox sees only `.sandbox\in` (read-only: MSI, scripts,
 sample manuals, copied to its Desktop), `-Manuals <dir>` read-only at
-`C:r\manuals`, and writes only `.sandbox\out` (`inside.log`,
+`C:\ar\manuals`, and writes only `.sandbox\out` (`inside.log`,
 `ready.json`/`failed.json`). Closing the window discards everything. One
 sandbox at a time (a Windows limit). It has no API key unless one is typed
 into its Shop setup -- that spends for real. The forwarder chain was
-checked against `dev.py` (admin true, POST 200); **the sandbox itself has
-not been run yet** (the feature was off on 2026-10-11).
+checked against `dev.py` (admin true, POST 200). **First real run,
+2026-10-11** (v0.1.3 release MSI): installed and served inside in ~4 min,
+but the PC could ping the sandbox and not connect -- Windows had added
+inbound *block* rules for the bundled `pythonw.exe` (the unanswered
+first-listen firewall prompt), which beat the port allow rule.
+`inside.ps1` now adds program allow rules before the app starts and
+removes any AutoRundown block rule; `start.ps1` checks `/api/me` answers
+as admin through the forwarder and warns if not. Debug a running sandbox
+with `wsb list` / `wsb exec --id <id> -r System -c "<cmd>"` (Windows 11
+24H2+), writing output to `C:\ar\out`.
 
 Mercedes WIS, end to end from this one session (VM -> index). The extractor
 is `extractor/` in this repo (the only copy since 2026-10-08); its data --

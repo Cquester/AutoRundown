@@ -46,6 +46,18 @@ try {
         Copy-Item -Recurse "$in\samples" "$env:USERPROFILE\Desktop\Sample manuals"
     }
 
+    # 3b. let the PC in before anything listens. When a program first
+    #     listens and nobody answers the firewall prompt, Windows adds
+    #     *block* rules for it, which beat a port allow rule -- the PC could
+    #     ping the sandbox but not connect. An allow rule for the program
+    #     itself means no prompt and no block rule.
+    foreach ($exe in "python.exe", "pythonw.exe") {
+        New-NetFirewallRule -DisplayName "AutoRundown sandbox ($exe)" -Direction Inbound `
+            -Action Allow -Program "$inst\python\$exe" | Out-Null
+    }
+    New-NetFirewallRule -DisplayName "AutoRundown sandbox" -Direction Inbound -Action Allow `
+        -Protocol TCP -LocalPort $port, $app | Out-Null
+
     # 4. first start, from the Start-menu shortcut like a new user
     #    (background mode, tray icon, opens Edge in here)
     Start-Process "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
@@ -66,9 +78,10 @@ try {
     if (-not $ip) { Fail "the sandbox has no IPv4 address (is networking on?)" }
 
     # 6. <ip>:<port> -> 127.0.0.1:8756, so the PC's requests arrive from
-    #    loopback here (admin), and let the PC in through the firewall
-    New-NetFirewallRule -DisplayName "AutoRundown sandbox" -Direction Inbound -Action Allow `
-        -Protocol TCP -LocalPort $port, $app | Out-Null
+    #    loopback here (admin). Any block rule Windows added anyway goes.
+    Get-NetFirewallRule -Direction Inbound | Where-Object Action -eq Block |
+        Where-Object { ($_ | Get-NetFirewallApplicationFilter).Program -like "*\AutoRundown\*" } |
+        Remove-NetFirewallRule
     Start-Process "$inst\python\pythonw.exe" -WindowStyle Hidden `
         -ArgumentList "`"$in\forward.py`" --listen ${ip}:$port --to 127.0.0.1:$app"
     Start-Sleep -Seconds 1

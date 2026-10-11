@@ -163,5 +163,13 @@ Write-Host "Ctrl+C stops the forwarding; closing the Sandbox window discards it 
 $fwd = Start-Process python -NoNewWindow -PassThru -ArgumentList `
     "`"$(Join-Path $PSScriptRoot 'forward.py')`" --listen 127.0.0.1:$Port --to $($r.ip):$($r.port)"
 Start-Sleep -Seconds 1
+# prove it end to end: the PC's browser must reach it, and as admin
+try {
+    $me = Invoke-RestMethod "http://localhost:$Port/api/me" -TimeoutSec 15
+    if (-not $me.admin) { Write-Warning "reachable, but not as admin -- Shop setup will be refused" }
+    else { Write-Host "checked: http://localhost:$Port answers as admin" }
+} catch {
+    Write-Warning "http://localhost:$Port does not answer ($($_.Exception.Message)); see $out\inside.log"
+}
 Start-Process "http://localhost:$Port"
 try { Wait-Process -Id $fwd.Id } finally { Stop-Process -Id $fwd.Id -ErrorAction SilentlyContinue }
