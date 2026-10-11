@@ -14,7 +14,7 @@ fields are comma-separated, quoted strings hold the text. Two text carriers:
 We classify every quoted string by content: structural marker ('<...'),
 cross-reference docnr, vehicle applicability note, icon glyph, or body text.
 """
-import gzip, io, json, os, re, sys
+import gzip, json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wis_paths import out_root  # noqa: E402  (data stays outside the repo)

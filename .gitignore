@@ -29,3 +29,6 @@ extractor/parse_sids.before-*.py
 screenshots/
 .dev/
 sample_lemon/
+
+# Windows Sandbox exchange folder (tools/sandbox/start.ps1)
+.sandbox/
