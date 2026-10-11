@@ -8,11 +8,15 @@ in order, each resumable -- a re-run skips what is already pulled:
 
   online (VM up):   docs      pull.js          document bodies -> bodies.pack
                     applic    pull_applic.js + pull_applic2.js  model links
-                    vehicles  pull_vehicles.js names, VIN tables
+                    vehicles  pull_vehicles.js names, VIN tables, docnrs,
+                                               SA codes, oil capacities, labour
+                    links     pull_links.js    wiring-diagram component codes,
+                                               positions and names (batched)
                     images    pull_images.js   graphics, 15k per batch,
                                                VM power-cycled between batches
   offline:          build     parse.py -> apply_applic.py -> parse_vehicles.py
-                              -> convert_images.py -> apply_images.py
+                              -> parse_links.py -> convert_images.py
+                              -> apply_images.py
 
 What it will NOT do to the VM: take or restore snapshots, change network
 adapters, or touch the guest's firewall. It only starts it headless, stops
@@ -39,8 +43,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 from wis_paths import home, out_root, check_outside_repo  # noqa: E402
 DEFAULT_OUT = out_root()
-STEPS = ("docs", "applic", "vehicles", "images", "build")
+STEPS = ("docs", "applic", "vehicles", "links", "images", "build")
 BATCH = 15000
+GZIP_MAGIC = bytes((0x1F, 0x8B))     # a SIDS body; anything else is an RTF/XML stub
 
 
 def log(msg: str) -> None:
@@ -235,6 +240,31 @@ def build_image_list(extract: Path, images: Path) -> int:
     return len(seen)
 
 
+def build_links_list(extract: Path, links: Path) -> int:
+    """The documents whose diagram tables pull_links.js reads: every body in
+    bodies.pack that is not SIDS (gzip). Those are the RTF stubs that carry
+    wiring diagrams and picture menus; a SIDS page has no DXF rows."""
+    import struct
+    pack = extract / "bodies.pack"
+    if not pack.is_file():
+        die(f"{pack} missing -- run the docs step first")
+    ids, size = [], pack.stat().st_size
+    with pack.open("rb") as f:
+        off = 0
+        while off + 8 <= size:
+            f.seek(off)
+            dok, ln = struct.unpack(">ii", f.read(8))
+            if off + 8 + ln > size:
+                break
+            if f.read(2) != GZIP_MAGIC:
+                ids.append(dok)
+            off += 8 + ln
+    links.mkdir(parents=True, exist_ok=True)
+    (links / "links_list.txt").write_text(
+        "".join(f"{i}\n" for i in sorted(ids)), encoding="utf-8")
+    return len(ids)
+
+
 def pulled_count(images: Path) -> int:
     idx = images / "pull_images.tsv"
     if not idx.is_file():
@@ -276,9 +306,10 @@ def main(argv=None) -> int:
 
     out = Path(args.out_root)
     check_outside_repo(out)
-    extract, vehicles, applic2, images = (out / "wis_extract", out / "wis_vehicles",
-                                          out / "wis_applic2", out / "wis_images")
-    for d in (extract, vehicles, applic2, images):
+    extract, vehicles, applic2, images, links = (
+        out / "wis_extract", out / "wis_vehicles", out / "wis_applic2",
+        out / "wis_images", out / "wis_links")
+    for d in (extract, vehicles, applic2, images, links):
         d.mkdir(parents=True, exist_ok=True)
     online = [s for s in steps if s != "build"]
     started_here = vm_state(args.vm) != "running"
@@ -315,6 +346,12 @@ def main(argv=None) -> int:
         if "vehicles" in steps:
             log("== vehicle names and VIN tables")
             pull("pull_vehicles.js", vehicles, "vehicle-table pull")
+        if "links" in steps:
+            if not (links / "links_list.txt").is_file():
+                log(f"== diagram links: {build_links_list(extract, links):,} documents listed")
+            else:
+                log("== diagram links (resuming)")
+            pull("pull_links.js", links, "diagram-link pull")
         if "images" in steps:
             total = build_image_list(extract, images)
             log(f"== images: {total:,} graphics, {pulled_count(images):,} already pulled; "
@@ -339,12 +376,14 @@ def main(argv=None) -> int:
         log("== offline build")
         py = sys.executable
         env = {"AR_OUT": str(extract), "AR_LANG": args.lang, "AR_VEH": str(vehicles),
+               "AR_LINKS": str(links),
                "AR_HOST": "", "AR_DB": args.db, "AR_OUT_ROOT": str(out)}
         for cmd in (
             [py, "parse.py"],
             [py, "apply_applic.py", "--extract", str(extract), "--applic", str(applic2),
              "--applic1", str(extract), "--rebuild-join"],
             [py, "parse_vehicles.py"],
+            [py, "parse_links.py"],
             [py, "convert_images.py", "--raw", str(images / "raw"),
              "--out", str(extract / "images"), "--jobs", "3"],
             [py, "apply_images.py", "--extract", str(extract)],

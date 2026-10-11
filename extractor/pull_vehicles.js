@@ -48,7 +48,36 @@ function s(v){ return v==null ? "" : (""+v).replace(/[\t\r\n]/g," ").trim(); }
 // rows -- Mercedes' own US VIN decoder. W_WMI2FINMapping: which WMIs it covers.
 var TABLES = ["ASRA_FahrzeugII", "ASRA_Fahrzeug", "AW_Fahrzeuge",
               "USTypBM2TypBM", "USMotKar2TypBM4", "Modelljahr2SACode",
-              "ASRA_Typkennzahl", "FzgArt", "AW_VIN2FIN", "W_WMI2FINMapping"];
+              "ASRA_Typkennzahl", "FzgArt", "AW_VIN2FIN", "W_WMI2FINMapping",
+// Reference tables beyond "which car is this" (2026-10-10):
+//   W_Dokumente        DokNrID -> docnr ("ah0320n100002a"): turns the
+//                      cross-references printed on pages into links
+//   SACode, SANummer   option (SA) code and SA number descriptions
+//   AW_AssystFuellmengen, AW_AssystFussnote   engine oil capacities
+//   SSTeilID, SSTeilBenennung   damage-code component names: what the
+//                      &H& hotspots on the 99xxxxxx picture menus name
+//   ASRA_*             labour operations and flat-rate times
+              "W_Dokumente", "SACode", "SANummer",
+              "AW_AssystFuellmengen", "AW_AssystFussnote",
+              "SSTeilID", "SSTeilBenennung",
+              "ASRA_Arbeitsposition", "ASRA_Arbeitswert", "ASRA_Konstruktionsgruppe",
+              "ASRA_Konstruktionsuntergruppe", "ASRA_Zusatzarbeit", "ASRA_Familie"];
+// Multi-language tables: only the language being pulled (AR_LANG, 2 =
+// English). The others are 10-30x larger and never read.
+var LANG = parseInt(env("AR_LANG", "2"), 10);
+var LANG2 = (LANG < 10 ? "0" : "") + LANG;     // ASRA writes it as "02"
+var WHERE = {
+  "SACode": "SprachCode = " + LANG,
+  "SANummer": "SprachCode = " + LANG,
+  "AW_AssystFuellmengen": "SprachCode = " + LANG,
+  "AW_AssystFussnote": "SprachCode = " + LANG,
+  "SSTeilID": "SprachCode = " + LANG,
+  "SSTeilBenennung": "TeilID IN (SELECT TeilID FROM SSTeilID WHERE SprachCode = " + LANG + ")",
+  "ASRA_Arbeitsposition": "SprachAbk = '" + LANG2 + "'",
+  "ASRA_Konstruktionsgruppe": "SprachAbk = '" + LANG2 + "'",
+  "ASRA_Konstruktionsuntergruppe": "SprachAbk = '" + LANG2 + "'",
+  "ASRA_Familie": "SprachAbk = '" + LANG2 + "'"
+};
 // AR_TABLES=a,b pulls just those (e.g. to add a new table without redoing all)
 if (env("AR_TABLES", "")) TABLES = env("AR_TABLES", "").split(",");
 
@@ -65,7 +94,7 @@ for (var t = 0; t < TABLES.length; t++) {
   var part = OUT + "/" + name + ".tsv.part";
   try {
     var st = conn.createStatement(); st.setFetchSize(2000);
-    var rs = st.executeQuery("SELECT * FROM " + name);
+    var rs = st.executeQuery("SELECT * FROM " + name + (WHERE[name] ? " WHERE " + WHERE[name] : ""));
     var md = rs.getMetaData(), nc = md.getColumnCount();
     var out = new BufferedOutputStream(new FileOutputStream(part, false));
     var cols = [];

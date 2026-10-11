@@ -234,6 +234,11 @@
     white-space:nowrap; flex:0 0 auto}
   .srcbtn{white-space:normal}
   .srcbtn .ptitle{font-size:14px; line-height:1.35}
+  .srcbtn .papplies{display:block; color:var(--muted); font-size:12.5px; margin-top:2px}
+  .srcbtn .pother{display:block; color:var(--warn); font-size:12.5px; margin-top:2px}
+  .xrefgroup{scroll-margin-top:12px; border-radius:10px}
+  .xrefgroup.flash{outline:2px solid var(--accent); outline-offset:4px}
+  .xrefgroup .docnr{font-family:Consolas,monospace; font-size:13px; color:var(--muted); margin-top:10px}
   .conn{
     display:inline-block; background:var(--conn-bg); color:var(--conn-text);
     border:1px solid var(--conn-line); border-radius:6px; padding:1px 7px;
@@ -1844,6 +1849,55 @@ addEventListener('message', e => {
     fr.style.height = (e.data.wisOriginalHeight + 4) + 'px';
 });
 
+// -- WIS cross-references -------------------------------------------------
+// A page names other documents by number ("Refer to: AR42.10-P-0100A"). The
+// server resolves the ones that open a page, the chosen car's variant first;
+// a number with one sensible target opens it, one with several jumps to the
+// "Referenced documents" list, where each variant shows what it applies to.
+let curXrefs = {list: [], doc: null};
+const DOCNR_HTML = /\b[A-Z]{2}[0-9]{2}\.[0-9]{2}-[A-Z]{1,2}-[0-9]{3,4}[A-Z]?(?:-[0-9]{2}[A-Z]?)?\b/g;
+
+function linkDocnrs(html, xrefs) {
+  const at = new Map(xrefs.map((x, i) => [x.docnr, i]));
+  // text between tags only, so no attribute is ever rewritten
+  return html.replace(/(^|>)([^<]+)/g, (_, gt, txt) => gt + txt.replace(DOCNR_HTML, m =>
+    at.has(m) ? `<button type="button" class="xref" data-xref="${at.get(m)}">${m}</button>` : m));
+}
+
+function xrefTarget(x) {
+  // one page, or exactly one inside the car's scope: open it directly
+  const inScope = x.pages.filter(pg => pg.in_scope);
+  if (inScope.length === 1) return inScope[0];
+  if (!inScope.length && x.pages.length === 1) return x.pages[0];
+  return null;
+}
+
+function xrefList(xrefs, doc) {
+  if (!xrefs.length) return '';
+  return `<div class="sechead">Referenced documents</div>` + xrefs.map((x, i) =>
+    `<div class="xrefgroup" id="xref-${i}"><div class="docnr">${esc(x.docnr)}</div>`
+    + x.pages.slice(0, 8).map(pg =>
+        `<button class="srcbtn" data-page="${esc(pg.page_no)}" data-doc="${esc(doc)}">`
+        + `<span class="pno">p${esc(pg.page_no)}</span><span class="ptitle">${esc(pg.title)}`
+        + (x.pages.length > 1 && pg.applies ? `<span class="papplies">${esc(pg.applies)}</span>` : '')
+        + (pg.in_scope ? '' : '<span class="pother">Filed under another model</span>')
+        + `</span></button>`).join('')
+    + (x.pages.length > 8 ? `<div class="muted">… and ${x.pages.length - 8} more versions</div>` : '')
+    + `</div>`).join('');
+}
+
+function followXref(i) {
+  const x = curXrefs.list[i];
+  if (!x) return;
+  const t = xrefTarget(x);
+  if (t) { showPage(t.page_no, curXrefs.doc); return; }
+  const g = document.getElementById(`xref-${i}`);
+  if (!g) return;
+  g.scrollIntoView({behavior: 'smooth', block: 'start'});
+  g.classList.add('flash');
+  setTimeout(() => g.classList.remove('flash'), 1600);
+}
+
 let pageSeq = 0;
 async function showPage(pageNo, doc) {
   doc = doc || docId();
@@ -1873,13 +1927,19 @@ async function showPage(pageNo, doc) {
     const shown = new Set([...(p.text||'').matchAll(/\[diagram:\s*([^\]]+)\]/g)]
       .map(m => m[1].trim()));
     const extra = (p.images||[]).filter(n => !shown.has(n));
-    const bodyHtml = renderSource(body, wis);
+    let bodyHtml = renderSource(body, wis);
+    // WIS document numbers that open a page (server: wis_links.resolve)
+    const xrefs = p.xrefs || [];
+    if (xrefs.length) bodyHtml = linkDocnrs(bodyHtml, xrefs);
+    curXrefs = {list: xrefs, doc};
     srcout.innerHTML =
       `<div class="muted">${esc(p.section_path)}</div>
        <h3 style="margin:6px 0 2px">${esc(p.title)}</h3>
        <div class="muted" style="margin-bottom:12px">page ${esc(p.page_no)}</div>
        ${p.applicability!=='this_vehicle'
          ? '<div class="warnbox">This page documents a different variant or trim.</div>' : ''}
+       ${p.outside_scope
+         ? `<div class="warnbox">This document is filed under <b>${esc(p.outside_scope)}</b>, not under the car you picked. Check that it applies before using its values.</div>` : ''}
        ${wis ? viewToggle(p.doc_id, p.page_no) : ''}
        <div class="src" id="readingView"${wis && wantOriginal() ? ' hidden' : ''}>${bodyHtml}</div>
        ${wis && wantOriginal() ? originalFrame(p.doc_id, p.page_no) : ''}`
@@ -1890,6 +1950,7 @@ async function showPage(pageNo, doc) {
                 + `<span class="pno">p${esc(l.page)}</span>`
                 + `<span class="ptitle">${esc(l.label)}</span></button>`).join('')
           : '')
+      + xrefList(xrefs, doc)
       + (extra.length ? `<div class="sechead">${shown.size ? 'Other diagrams' : 'Diagrams'}</div>` : '')
       + extra.map(imgTag).join('');
   } catch (e) {
@@ -1902,6 +1963,8 @@ async function showPage(pageNo, doc) {
 document.addEventListener('click', e => {
   const pg = e.target.closest('[data-page]');
   if (pg) { e.preventDefault(); showPage(pg.dataset.page, pg.dataset.doc); return; }
+  const xr = e.target.closest('[data-xref]');
+  if (xr) { e.preventDefault(); followXref(+xr.dataset.xref); return; }
   const cn = e.target.closest('[data-conn]');
   if (cn) { e.preventDefault(); showConnector(cn.dataset.conn); return; }
   const vw = e.target.closest('[data-view]');

@@ -29,7 +29,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from . import auth, config, index, query, tls
-from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_original
+from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
 from .search import get_page, scope_ids, search
 
 jobs = importer_jobs.ImportJobs()
@@ -111,6 +111,31 @@ def _vehicle_or_404(conn, doc_id: str) -> dict:
         if v["doc_id"] == doc_id:
             return v
     raise HTTPException(404, f"unknown vehicle {doc_id}")
+
+
+def _is_wis(vehicle: dict) -> bool:
+    return bool(re.match(r"mercedes-wis", vehicle.get("source_name") or ""))
+
+
+def _corpus_ids(conn, vehicle: dict) -> list[str]:
+    """doc_ids of every vehicle built from the same WIS corpus as `vehicle`."""
+    return [v["doc_id"] for v in index.vehicles(conn)
+            if _is_wis(v) and v.get("file_path") == vehicle.get("file_path")]
+
+
+def _wis_page(conn, vehicle: dict, page_no: str) -> tuple[dict | None, bool]:
+    """A page in the car's scope, else -- WIS only -- the same document filed
+    under another model of the same corpus, flagged as outside the scope.
+
+    The second case is a followed cross-reference whose document WIS files
+    under other models only. Search and answers never come through here; a
+    wrong-model page is shown on request, with a note, never as a result.
+    """
+    page = get_page(conn, scope_ids(vehicle), page_no)
+    if page or not _is_wis(vehicle):
+        return page, True
+    ids = _corpus_ids(conn, vehicle)
+    return (get_page(conn, ids, page_no) if ids else None), False
 
 
 # answer to any device, signed in or not: the page itself, so it can show
@@ -519,9 +544,19 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            page = get_page(conn, scope_ids(vehicle), page_no)
+            page, in_scope = _wis_page(conn, vehicle, page_no)
             if not page:
                 raise HTTPException(404, "page not found")
+            if not in_scope:
+                owner = next((v for v in index.vehicles(conn)
+                              if v["doc_id"] == page["doc_id"]), {})
+                page["outside_scope"] = owner.get("model") or page["doc_id"]
+            if _is_wis(vehicle):
+                # printed document numbers that open a page; the chosen car's
+                # variant first (wis_links.py)
+                page["xrefs"] = wis_links.resolve(
+                    conn, Path(vehicle["file_path"]), page.get("text") or "",
+                    scope_ids(vehicle), _corpus_ids(conn, vehicle), page_no)
             if not request.state.who.admin:
                 page.pop("file_path", None)
             page["images"] = [i for i in (page.get("images") or "").split("\n") if i]
@@ -545,7 +580,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            page = get_page(conn, scope_ids(vehicle), page_no)
+            page, _ = _wis_page(conn, vehicle, page_no)
         finally:
             conn.close()
         if not page or not page_no.isdigit() or not re.match(
