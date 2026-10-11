@@ -59,6 +59,9 @@ python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogu
 python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
 python test_remove_manuals.py                     # FREE, removing manuals (~20 s)
+python test_citations.py                          # FREE, _verify_citations (<1 s)
+python tools/check_js.py                          # FREE, index.html's JS parses (needs node)
+powershell -File tools/sandbox/start.ps1 [-Source] # fresh install in Windows Sandbox, :18756
 ```
 
 **Try UI and import changes with `python dev.py`, on the user's PC.** It
@@ -73,6 +76,28 @@ dialog; `--empty` gives the first-start dialog, `--reset` rebuilds.
 a cloud session or remote agent without asking.** In a cloud container,
 `dev.py --no-browser` + Playwright (`executable_path="/opt/pw-browsers/chromium"`)
 gives screenshots, but the user cannot open that server.
+
+**A fresh install, isolated: `tools/sandbox/start.ps1`** (2026-10-11, the
+user's choice over WSL/Hyper-V/Docker). Windows Sandbox (Windows 11 Pro;
+the feature must be turned on once, elevated, by the user -- the script
+prints the command) gets an MSI (`-Msi`, `-Run <CI run id>`, `-Release`,
+else the newest `dist\*.msi`, else the latest release), installs it like
+a user (`AUTOSTART=0`), starts it from the Start-menu shortcut, and the
+PC's browser reaches it at **http://localhost:18756 as admin** (Shop
+setup works); `http://<sandbox IP>:8756` is the mechanic/phone view.
+`-Source` lays this checkout's code (uncommitted too) over the installed
+app -- the way to try a branch without building an MSI; it deletes the
+MSI's `unchecked-hash` .pyc, or the old code would keep running. Admin
+needs loopback peer AND loopback Host, so `forward.py` runs twice: in the
+sandbox `<ip>:18756 -> 127.0.0.1:8756`, on the PC `127.0.0.1:18756 ->
+<ip>:18756`. The sandbox sees only `.sandbox\in` (read-only: MSI, scripts,
+sample manuals, copied to its Desktop), `-Manuals <dir>` read-only at
+`C:r\manuals`, and writes only `.sandbox\out` (`inside.log`,
+`ready.json`/`failed.json`). Closing the window discards everything. One
+sandbox at a time (a Windows limit). It has no API key unless one is typed
+into its Shop setup -- that spends for real. The forwarder chain was
+checked against `dev.py` (admin true, POST 200); **the sandbox itself has
+not been run yet** (the feature was off on 2026-10-11).
 
 Mercedes WIS, end to end from this one session (VM -> index). The extractor
 is `extractor/` in this repo (the only copy since 2026-10-08); its data --
@@ -1156,12 +1181,26 @@ macOS/Linux run from source (README), by the user's decision.
   running it would contend for the name.
 - Version: `autorundown/__init__.py` `__version__`; bump it per release (MSI
   MajorUpgrade needs a higher version to replace an install).
-- **Releases: a push to `main` publishes one** (the workflow's `release`
+- **CI is `.github/workflows/ci.yml`** (2026-10-11, the user's design):
+  every PR runs lint (`ruff --select F`), `tools/check_js.py`, the free
+  suites, a sample index served and searched, and `ui_check.py` in
+  Playwright's Chromium -- on Linux; Windows and macOS legs join by
+  themselves once the repo is public (the user plans to make it public;
+  while private, Windows minutes count 2x and macOS 10x of 2,000/month,
+  and required checks are not available). On `main` and tags the same
+  tests run first, then `windows-msi.yml` (now `workflow_call` only, or
+  "Run workflow" by hand), then the release. PRs build the MSI only when
+  they touch packaging, the launcher/autostart/mdns/config, requirements
+  or workflows (`changes` job). `claude/**` pushes no longer build
+  anything: open a PR. No secret is used; `ANTHROPIC_API_KEY` is forced
+  empty and `ANTHROPIC_BASE_URL` points at a closed port.
+  **Add a new free test to the "Test suites" loop in `ci.yml`.**
+- **Releases: a push to `main` publishes one** (`ci.yml`'s `release`
   job, 2026-10-09, the user's request). When the MSI job passes on `main`,
   the MSI and its `.sha256` go to a GitHub release `v<__version__>` with
   generated notes. A version that already has a release is skipped with a
   notice, never overwritten -- so **bump `__version__` in the PR** to ship
-  it. Branch pushes only upload the MSI as a workflow artifact (90 days).
+  it. A PR that builds the MSI uploads it as a workflow artifact (90 days).
   Only that job gets `contents: write`; the build itself stays read-only.
 - The WIS extractor is **not bundled**, deliberately: it reads the EWA
   Java and `tbjdbc.jar` from the "Mercedes Documents" folder

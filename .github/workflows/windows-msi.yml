@@ -1,19 +1,14 @@
 # Build the Windows MSI, install it on a clean runner, check the installed
 # app actually works (index a sample corpus, serve it, search it), then
 # uninstall and check nothing is left. Free: no Anthropic API calls.
+#
+# Called by ci.yml after the tests pass (main, tags, and PRs that touch
+# packaging); ci.yml makes the release from its AutoRundown-msi artifact.
+# Run it on its own from the Actions tab with "Run workflow".
 name: Windows installer
 
 on:
-  push:
-    branches: [main, "claude/**"]
-    tags: ["v*"]
-    paths:
-      - "autorundown/**"
-      - "*.py"
-      - "requirements*.txt"
-      - "extractor/**"
-      - "packaging/windows/**"
-      - ".github/workflows/windows-msi.yml"
+  workflow_call:
   workflow_dispatch:
 
 # read-only token: this workflow builds and tests, it never writes to the repo
@@ -295,40 +290,3 @@ jobs:
         with:
           name: msi-logs
           path: "*.log"
-
-  # A push to main (a merged PR) whose MSI passed every check above becomes a
-  # GitHub release "v<version>" with the MSI attached. The version is
-  # autorundown/__init__.py's __version__ (the MSI's own file name), so bump
-  # it to publish a new release: a version that already has a release is left
-  # alone, with a notice, rather than overwritten. Only this job may write.
-  release:
-    needs: msi
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: AutoRundown-msi
-          path: dist
-
-      - name: Create the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          msi=$(ls dist/AutoRundown-*.msi)
-          version=$(basename "$msi" .msi); version=${version#AutoRundown-}
-          tag="v$version"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "::notice::$tag already has a release; bump __version__ in autorundown/__init__.py to publish a new one."
-            exit 0
-          fi
-          (cd dist && sha256sum "$(basename "$msi")" > "$(basename "$msi").sha256")
-          gh release create "$tag" "$msi" "$msi.sha256" \
-            --target "$GITHUB_SHA" \
-            --title "AutoRundown $version" \
-            --generate-notes
-          echo "::notice::published $tag"

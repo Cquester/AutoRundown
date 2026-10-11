@@ -118,7 +118,7 @@ def run_retrieval(top_n: int = 10, cases: list[dict] | None = None,
                   index_path: str | None = None) -> int:
     conn = index.connect(index_path or config.load().index_path)
     failures = 0
-    print(f"retrieval check -- no API calls, costs nothing")
+    print("retrieval check -- no API calls, costs nothing")
     print(f"(expected page must appear in top {top_n})\n")
     for case in (cases if cases is not None else CASES):
         if "expect_page" not in case:

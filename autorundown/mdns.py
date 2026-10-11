@@ -36,7 +36,7 @@ class Announcer:
         try:
             from zeroconf import IPVersion, ServiceInfo, Zeroconf
             info = ServiceInfo(
-                "_http._tcp.local.", f"AutoRundown._http._tcp.local.",
+                "_http._tcp.local.", "AutoRundown._http._tcp.local.",
                 addresses=[socket.inet_aton(self.ip)], port=self.port,
                 server=f"{self.name}.local.", properties={"path": "/"})
             zc = Zeroconf(ip_version=IPVersion.V4Only)
