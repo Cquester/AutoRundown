@@ -64,6 +64,7 @@ python extractor/parse_links.py                   # rebuild wis_links.sqlite (of
 python test_citations.py                          # FREE, _verify_citations (<1 s)
 python tools/check_js.py                          # FREE, index.html's JS parses (needs node)
 powershell -File tools/sandbox/start.ps1 [-Source] # fresh install in Windows Sandbox, :18756
+wsl -d Ubuntu -- bash tools/container/box.sh up qa  # test box (Docker in WSL), :18800
 ```
 
 **Try UI and import changes with `python dev.py`, on the user's PC.** It
@@ -108,6 +109,30 @@ removes any AutoRundown block rule; `start.ps1` checks `/api/me` answers
 as admin through the forwarder and warns if not. Debug a running sandbox
 with `wsb list` / `wsb exec --id <id> -r System -c "<cmd>"` (Windows 11
 24H2+), writing output to `C:\ar\out`.
+
+**Test boxes: where agents and "test it like a user" runs happen**
+(`tools/container/`, 2026-10-11; the user chose Docker Engine inside WSL2
+over Docker Desktop -- Ubuntu 26.04, Docker 29.9, the user is in the
+`docker` group so no sudo). `box.sh build` makes the image `autorundown-test`
+(Python 3.13, the app's requirements, ruff, Playwright Chromium, Node,
+Claude Code; ~2.5 min). `box.sh up <name> [--port N]` copies the working
+tree **as it is now** (uncommitted too; no .git, indexes, samples) into a
+new container `ar-<name>` and starts it in ~11 s: `init-firewall.sh` limits
+outbound traffic to Anthropic's domains (PyPI, GitHub, the LAN, this PC:
+refused, and the script proves example.com fails), then `dev.py` serves
+sample data and `tools/sandbox/forward.py` makes the published port
+(`127.0.0.1:N` in WSL, reached from Windows as `localhost:N`) arrive from
+loopback, so **the user's browser is admin there**. `exec`, `claude`
+(headless Claude Code, permission prompts off -- that is what the box is
+for), `fetch` (copy results to `.dev/box/<name>/`), `list`, `down`. The
+Claude Code sign-in lives in volume `ar-claude-auth` (`box.sh login`, once,
+interactive, by the user). A box tests a **snapshot**: after changing code,
+`down` and `up` again. Run boxes from a session's own worktree. Verified
+2026-10-11: no `/mnt`, 3.3 MB `/work`, no API key; ruff, check_js, all 7
+suites, `test_ui_picks.py` (235 picks) and `ui_check.py` pass inside in
+~1 min. The first `ui_check.py` run in a box found a real race (below,
+"Importing from the site"). Windows Sandbox stays for installer/release
+checks and for the user clicking through the real Windows app.
 
 Mercedes WIS, end to end from this one session (VM -> index). The extractor
 is `extractor/` in this repo (the only copy since 2026-10-08); its data --
@@ -1045,6 +1070,14 @@ lands on a "Set up AutoRundown" checklist (add manuals, required; API key
 and phones, optional) and can't enter an empty search screen; a phone gets
 "No manuals yet … check back later". While an import runs, a banner says
 results are partial (`/api/status`, any signed-in device).
+
+**A late folder reply no longer overwrites a typed path** (2026-10-11,
+found by `ui_check.py` in a test box): opening Manuals asks
+`/api/browse` for the home folder; a path typed before that reply landed
+was replaced by it, and Enter then browsed the home folder. `impBrowse()`
+drops a reply when `#impPath` was edited (`impTyped`, an `input` counter)
+after it was requested. Probably also the "two paths run together" glitch
+seen once on Windows.
 
 Shop setup → **Manuals**, and automatically on first start
 when the index is empty. A folder browser plus format detection

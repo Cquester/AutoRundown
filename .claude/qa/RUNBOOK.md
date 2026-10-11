@@ -4,11 +4,23 @@ Read this first. It is the same for every agent in `.claude/agents/qa-*.md`.
 
 ## Where this runs
 
-In an **isolated environment only**: a Claude Code cloud session or a
-Windows Sandbox. Never on the user's own PC with access to their files.
-If you can see `~/.autorundown/`, `Desktop/Mercedes Documents/` or an
-`index.db` larger than a few MB in the repo root, stop and report that
-instead of testing.
+In an **isolated environment only**. The usual one is a **test box**
+(`tools/container/box.sh`, Docker in WSL): a Linux container holding a copy
+of the repo at `/work`, outbound network Anthropic only, no API key. The
+orchestrator on the PC starts it and runs you inside it:
+
+```bash
+wsl -d Ubuntu -- bash tools/container/box.sh up qa --port 18800
+wsl -d Ubuntu -- bash tools/container/box.sh claude qa "Use the qa-engineer agent ..."
+wsl -d Ubuntu -- bash tools/container/box.sh fetch qa .dev/qa      # reports out
+```
+
+A Claude Code cloud session also qualifies. Never on the user's own PC with
+access to their files. If you can see `~/.autorundown/`,
+`Desktop/Mercedes Documents/`, `/mnt/c` or an `index.db` larger than a few
+MB in the repo root, stop and report that instead of testing. In a box,
+`pip install` and other downloads fail by design: everything is in the
+image, and dev.py is already serving on :8757.
 
 ## The site under test
 
