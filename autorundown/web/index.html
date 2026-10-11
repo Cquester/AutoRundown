@@ -239,6 +239,22 @@
   .xrefgroup{scroll-margin-top:12px; border-radius:10px}
   .xrefgroup.flash{outline:2px solid var(--accent); outline-offset:4px}
   .xrefgroup .docnr{font-family:Consolas,monospace; font-size:13px; color:var(--muted); margin-top:10px}
+  /* wiring diagrams: a tap target over each printed component code */
+  .diawrap{position:relative; display:block; max-width:720px}
+  .diawrap a{display:block}
+  .hot{position:absolute; transform:translate(-2px,-85%); width:3.4em; height:1.5em;
+    min-height:0; padding:0; border:1.5px solid transparent; border-radius:4px;
+    background:transparent; cursor:pointer}
+  .hot:hover, .hot:focus-visible, .hot.on{border-color:var(--accent); background:var(--accent-dim)}
+  details.comps{margin:10px 0}
+  details.comps summary{cursor:pointer; color:var(--accent); padding:8px 0; font-weight:600}
+  .comp{display:flex; flex-wrap:wrap; gap:6px 10px; align-items:baseline; padding:8px 6px;
+    border-top:1px solid var(--line); scroll-margin-top:12px; border-radius:6px}
+  .comp.flash{outline:2px solid var(--accent); outline-offset:2px}
+  .comp .code{font-family:Consolas,monospace; font-weight:700; min-width:5em}
+  .comp .cname{flex:1 1 12em}
+  .comp .acts{display:flex; gap:6px; flex-wrap:wrap}
+  .comp .acts button{min-height:32px; padding:4px 10px; font-size:13px}
   .conn{
     display:inline-block; background:var(--conn-bg); color:var(--conn-text);
     border:1px solid var(--conn-line); border-radius:6px; padding:1px 7px;
@@ -515,6 +531,7 @@
     <select id="vehicle" aria-label="Model"></select>
     <select id="variant" aria-label="Variant (optional)" hidden></select>
     <button class="ghost" id="vinBtn" title="Find the vehicle from a VIN">VIN</button>
+    <button class="ghost" id="saBtn" title="What the option codes on a data card mean" hidden>Option codes</button>
   </div>
   <button class="ghost" id="acctBtn" title="Your account" hidden></button>
   <a class="btnlink ghostlink" id="settingsBtn" href="#/setup" title="Shop setup" hidden><span aria-hidden="true">&#9881;</span><span class="lbl">Shop setup</span></a>
@@ -780,6 +797,22 @@
   <div class="vinnote" id="vinNote"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
     <button class="ghost" id="vinClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="saDlg">
+  <h3 style="margin:0 0 4px">Option codes</h3>
+  <div class="muted">Type or paste the codes from the car's data card (e.g. 494 U10 P31).
+    Descriptions come from Mercedes WIS; the lookup is local.</div>
+  <label for="saInput">Codes</label>
+  <div class="vinrow">
+    <input id="saInput" type="text" autocapitalize="characters" spellcheck="false"
+           placeholder="494 U10 P31">
+    <button id="saFind">Look up</button>
+  </div>
+  <div id="saOut" style="margin-top:10px"></div>
+  <div class="row" style="margin-top:16px; justify-content:flex-end">
+    <button class="ghost" id="saClose">Close</button>
   </div>
 </dialog>
 
@@ -1324,10 +1357,35 @@ $('#browseBtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; };
 // Documents are filed per generation, not per variant. Say what a choice
 // actually searches, so a variant name doesn't imply a precision the manuals
 // don't have.
+// Engine oil capacity from WIS's service data, added to the scope note once
+// the engine is known (a variant or an engine picked) -- never a list of
+// every engine's figure. The server returns nothing when it isn't.
+let oilSeq = 0;
+async function showOil(v) {
+  const seq = ++oilSeq, n = variantIdx(), eng = engineSel();
+  $('#oilNote')?.remove();
+  if (!WIS_SOURCE.test(v.source_name || '') || (n === null && !eng)) return;
+  let rows;
+  try {
+    rows = await api(`/api/wis/oil/${encodeURIComponent(v.doc_id)}?`
+      + (n === null ? '' : `variant=${n}&`) + (eng ? `engine=${encodeURIComponent(eng)}` : ''));
+  } catch { return; }
+  if (seq !== oilSeq || !rows.length) return;
+  const many = new Set(rows.map(r => r.engine)).size > 1;
+  const span = document.createElement('span');
+  span.id = 'oilNote';
+  span.textContent = ' Engine oil capacity (WIS service data): ' + rows.map(r =>
+    `${String(r.litres).replace(/\.0$/, '')} ${r.unit}`
+    + (many ? ` (${r.engine})` : '') + (r.note ? ` ${r.note}` : '')).join('; ') + '.';
+  $('#scopeNote').appendChild(span);
+}
+
 function showScope() {
   const v = vehicles.find(x => x.doc_id === docId());
   const note = $('#scopeNote');
+  $('#saBtn').hidden = !WIS_SOURCE.test(v?.source_name || '');
   if (!v || !v._variants.length) { note.hidden = true; return; }
+  setTimeout(() => showOil(v));
   note.classList.remove('pickhint');
   if (carPick && carPick.engine) {
     note.textContent = `${carPick.label} — ${carPick.sub}. Searches the ${v.model} manual without `
@@ -1886,6 +1944,73 @@ function xrefList(xrefs, doc) {
     + `</div>`).join('');
 }
 
+// -- WIS wiring diagrams --------------------------------------------------
+// WIS knows where each component code is printed on a diagram and what it
+// is called (server: wis_links.diagram). Each code gets a tap target over
+// the picture, and a "Components on this diagram" list with its name, a
+// keyword search for it, and the document it links to when WIS has one.
+let curComps = {list: [], doc: null};
+
+async function loadDiagram(seq, doc, p) {
+  let d;
+  try { d = await api(`/api/diagram/${encodeURIComponent(doc)}/${encodeURIComponent(p.page_no)}`); }
+  catch { return; }                       // no data: the page stays as it is
+  if (seq !== pageSeq || !d.codes?.length) return;
+  curComps = {list: d.codes, doc};
+  const img = [...srcout.querySelectorAll('img.diagram')]
+    .find(i => decodeURIComponent(i.getAttribute('src') || '').endsWith('/' + d.image));
+  let anchor = $('#readingView');
+  if (img) {
+    const link = img.closest('a') || img;
+    const wrap = document.createElement('div');
+    wrap.className = 'diawrap';
+    link.replaceWith(wrap);
+    wrap.appendChild(link);
+    d.codes.forEach((c, i) => c.at.forEach(([x, y]) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'hot'; b.dataset.comp = i;
+      b.style.left = (x * 100) + '%'; b.style.top = (y * 100) + '%';
+      b.title = c.name ? `${c.code} — ${c.name}` : c.code;
+      b.setAttribute('aria-label', b.title);
+      wrap.appendChild(b);
+    }));
+    anchor = wrap;
+  }
+  if (!anchor) return;
+  const list = document.createElement('details');
+  list.className = 'comps'; list.id = 'comps';
+  list.innerHTML = `<summary>Components on this diagram (${d.codes.length})</summary>`
+    + d.codes.map((c, i) => {
+        const t = xrefTarget({pages: c.pages || []});
+        return `<div class="comp" id="comp-${i}"><span class="code">${esc(c.code)}</span>`
+          + `<span class="cname">${esc(c.name || '')}</span><span class="acts">`
+          + `<button type="button" class="ghost" data-compsearch="${i}">Search</button>`
+          + (t ? `<button type="button" class="ghost" data-page="${esc(t.page_no)}" `
+               + `data-doc="${esc(doc)}" title="${esc(t.title)}">Open document</button>` : '')
+          + `</span></div>`;
+      }).join('');
+  anchor.after(list);
+}
+
+function showComp(i) {
+  const list = $('#comps'), row = document.getElementById(`comp-${i}`);
+  if (!list || !row) return;
+  list.open = true;
+  srcout.querySelectorAll('.hot.on').forEach(h => h.classList.remove('on'));
+  srcout.querySelectorAll(`.hot[data-comp="${i}"]`).forEach(h => h.classList.add('on'));
+  row.scrollIntoView({behavior: 'smooth', block: 'center'});
+  row.classList.add('flash');
+  setTimeout(() => row.classList.remove('flash'), 1600);
+}
+
+function searchComp(i) {
+  const c = curComps.list[i];
+  if (!c) return;
+  $('#q').value = c.code;
+  keywordSearch();
+  if (narrow()) closeRight();
+}
+
 function followXref(i) {
   const x = curXrefs.list[i];
   if (!x) return;
@@ -1953,6 +2078,8 @@ async function showPage(pageNo, doc) {
       + xrefList(xrefs, doc)
       + (extra.length ? `<div class="sechead">${shown.size ? 'Other diagrams' : 'Diagrams'}</div>` : '')
       + extra.map(imgTag).join('');
+    curComps = {list: [], doc};
+    if (p.diagram) loadDiagram(seq, doc, p);
   } catch (e) {
     if (seq === pageSeq) srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   } finally {
@@ -1965,6 +2092,10 @@ document.addEventListener('click', e => {
   if (pg) { e.preventDefault(); showPage(pg.dataset.page, pg.dataset.doc); return; }
   const xr = e.target.closest('[data-xref]');
   if (xr) { e.preventDefault(); followXref(+xr.dataset.xref); return; }
+  const hot = e.target.closest('[data-comp]');
+  if (hot) { e.preventDefault(); showComp(+hot.dataset.comp); return; }
+  const cs = e.target.closest('[data-compsearch]');
+  if (cs) { e.preventDefault(); searchComp(+cs.dataset.compsearch); return; }
   const cn = e.target.closest('[data-conn]');
   if (cn) { e.preventDefault(); showConnector(cn.dataset.conn); return; }
   const vw = e.target.closest('[data-view]');
@@ -2343,6 +2474,33 @@ $('#vinBtn').onclick = () => {
   $('#vinInput').focus();
 };
 $('#vinClose').onclick = () => $('#vinDlg').close();
+
+// Option codes (WIS SACode): each code's meaning for this car's vehicle
+// type; a code with none for it shows what it means on other types, marked.
+$('#saBtn').onclick = () => {
+  $('#saOut').innerHTML = '';
+  $('#saDlg').showModal();
+  $('#saInput').focus();
+};
+$('#saClose').onclick = () => $('#saDlg').close();
+async function saLookup() {
+  const codes = $('#saInput').value.trim();
+  if (!codes) return;
+  $('#saOut').innerHTML = '<span class="spinner"></span>';
+  try {
+    const rows = await api(`/api/wis/sa/${encodeURIComponent(docId())}?codes=${encodeURIComponent(codes)}`);
+    $('#saOut').innerHTML = rows.length ? `<div class="tablewrap"><table><tbody>` + rows.map(r =>
+      `<tr><td><b>${esc(r.code)}</b></td><td>${r.name ? esc(r.name)
+        : r.other.length ? `<span class="muted">Not a code for this kind of vehicle. On others: `
+                           + `${r.other.map(esc).join('; ')}</span>`
+        : '<span class="muted">Unknown code</span>'}</td></tr>`).join('')
+      + `</tbody></table></div>` : '<div class="muted">No codes found in that text.</div>';
+  } catch (e) {
+    $('#saOut').innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+$('#saFind').onclick = saLookup;
+$('#saInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saLookup(); } });
 $('#vinFind').onclick = () => {
   const r = vinLookup($('#vinInput').value);
   if (r.error) { $('#vinNote').textContent = r.error; return; }

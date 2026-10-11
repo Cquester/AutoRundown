@@ -101,6 +101,63 @@ def main() -> int:
               app.get(f"/api/original/{c176}/1002306").status_code in (200, 404), True)
         check("an unknown page is still 404",
               app.get(f"/api/page/{c176}/9999999").status_code, 404)
+
+        print("wiring diagrams, option codes, oil")
+        c201 = ids["201"]
+        check("no diagram data: the page says so", page.get("diagram"), False)
+        with sqlite3.connect(cdir / wis_links.NAME) as c:
+            c.executescript("""
+            CREATE TABLE diagram_code(dok_id INTEGER, code TEXT, x INTEGER, y INTEGER);
+            CREATE TABLE diagram_name(dok_id INTEGER, code TEXT, name TEXT);
+            CREATE TABLE diagram_svgref(dok_id INTEGER, link_type INTEGER, code TEXT, docnr TEXT);
+            CREATE TABLE sa_code(vehicle_type INTEGER, code TEXT, name TEXT);
+            CREATE TABLE oil(series TEXT, engine TEXT, engine_type INTEGER, litres REAL,
+                             unit TEXT, note TEXT);
+            INSERT INTO diagram_code VALUES (1002306, 'N3/10', 100, 200), (1002306, 'N3/9', 5, 5);
+            INSERT INTO diagram_name VALUES (1002306, 'N3/10', 'ME control unit'),
+                                            (1002306, 'N3/9', 'CDI control unit');
+            INSERT INTO diagram_svgref VALUES (1002306, 1, 'N3/10', 'ar4210p0100aa');
+            INSERT INTO sa_code VALUES (1, '494', 'US version'), (8, '494', 'Bias-ply tyres'),
+                                       (8, '14U', '44 standard seats');
+            INSERT INTO oil VALUES ('201', '102983', 1, 5.0, 'l', ''),
+                                   ('201', '103942', 1, 6.0, 'l', '');
+            """)
+        wis_links._open.clear()
+        check("a diagram page says it has data",
+              app.get(f"/api/page/{c201}/1002306").json().get("diagram"), True)
+        d = app.get(f"/api/diagram/{c201}/1002306").json()
+        check("codes sorted as numbers (N3/9 before N3/10), with names",
+              [(c["code"], c["name"]) for c in d["codes"]],
+              [("N3/9", "CDI control unit"), ("N3/10", "ME control unit")])
+        check("no image frame: no positions, the list still works",
+              [c["at"] for c in d["codes"]], [[], []])
+        check("a code's linked document (a full number: that variant only)",
+              [(p["page_no"], p["in_scope"]) for p in d["codes"][1]["pages"]],
+              [("1002297", False)])
+        check("a page without data: 404",
+              app.get(f"/api/diagram/{c201}/1002297").status_code, 404)
+
+        check("option codes: this car type's meaning; others only if it has none",
+              [(r["code"], r["name"], r["other"]) for r in wis_links.sa_codes(cdir, "494, 14u zz", "CAR")],
+              [("494", "US version", []), ("14U", "", ["44 standard seats"])])
+        sa = app.get(f"/api/wis/sa/{c201}", params={"codes": "494"}).json()
+        check("vehicle type unknown: every meaning, none picked",
+              [(r["code"], r["name"], r["other"]) for r in sa],
+              [("494", "", ["US version", "Bias-ply tyres"])])
+
+        conn = index.connect(idx)
+        names = [v["name"] for v in __import__("json").loads(
+            conn.execute("SELECT variants FROM vehicles WHERE doc_id=?", (c201,)).fetchone()[0])]
+        conn.close()
+        v26 = names.index("190 E 2.6")
+        check("oil: nothing until the engine is known",
+              app.get(f"/api/wis/oil/{c201}").json(), [])
+        check("oil: the variant's own engine only",
+              [(r["engine"], r["litres"]) for r in app.get(f"/api/wis/oil/{c201}?variant={v26}").json()],
+              [("103.942", 6.0)])
+        check("oil: the picked engine family only",
+              [(r["engine"], r["litres"]) for r in app.get(f"/api/wis/oil/{c201}?engine=102").json()],
+              [("102.983", 5.0)])
     finally:
         wis_links._open.clear()
         shutil.rmtree(TMP, ignore_errors=True)

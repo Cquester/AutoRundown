@@ -557,6 +557,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 page["xrefs"] = wis_links.resolve(
                     conn, Path(vehicle["file_path"]), page.get("text") or "",
                     scope_ids(vehicle), _corpus_ids(conn, vehicle), page_no)
+                page["diagram"] = page_no.isdigit() and wis_links.has_diagram(
+                    Path(vehicle["file_path"]), int(page_no))
             if not request.state.who.admin:
                 page.pop("file_path", None)
             page["images"] = [i for i in (page.get("images") or "").split("\n") if i]
@@ -567,6 +569,80 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 if "::" in raw
             ]
             return page
+        finally:
+            conn.close()
+
+    @app.get("/api/wis/oil/{doc_id}")
+    def api_wis_oil(doc_id: str, variant: int | None = None,
+                    engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """Engine oil capacity for the chosen engine(s) only: a variant's own
+        engines, or the engine family picked ("272", "272,276"). With
+        neither, nothing -- a series' capacities side by side is the
+        wrong-engine mix the picker exists to prevent. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+        finally:
+            conn.close()
+        if not _is_wis(vehicle):
+            return []
+        try:
+            variants = json.loads(vehicle.get("variants") or "[]")
+        except ValueError:
+            variants = []
+        if variant is not None and 0 <= variant < len(variants):
+            engines = list(variants[variant].get("engines") or [])
+        elif engine:
+            fams = {f.strip() for f in engine.split(",") if f.strip()}
+            engines = sorted({e for v in variants for e in v.get("engines") or []
+                              if e.split(".")[0] in fams})
+        else:
+            return []
+        return wis_links.oil(Path(vehicle["file_path"]), vehicle.get("model_code") or "", engines)
+
+    @app.get("/api/wis/sa/{doc_id}")
+    def api_wis_sa(doc_id: str, codes: str = Query(max_length=2000)) -> list[dict]:
+        """Option (SA) code descriptions from WIS, for codes off a data card."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+        finally:
+            conn.close()
+        types = []
+        try:
+            types = [v.get("vehicle_type") for v in json.loads(vehicle.get("variants") or "[]")]
+        except ValueError:
+            pass
+        # the series' own type: its variants' commonest
+        vtype = max(set(t for t in types if t), key=types.count, default="")
+        got = (wis_links.sa_codes(Path(vehicle["file_path"]), codes, vtype)
+               if _is_wis(vehicle) else None)
+        if got is None:
+            raise HTTPException(404, "Option codes come from the Mercedes WIS data, "
+                                     "which this car's manual is not part of.")
+        return got
+
+    @app.get("/api/diagram/{doc_id}/{page_no}")
+    def api_diagram(doc_id: str, page_no: str) -> dict:
+        """Component codes on a WIS wiring diagram page (wis_links.diagram):
+        each code's name, where it is printed on the page's image, and the
+        pages its linked document opens, the chosen car's first. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            page, _ = _wis_page(conn, vehicle, page_no)
+            if not page or not _is_wis(vehicle) or not page_no.isdigit():
+                raise HTTPException(404, "no diagram data for this page")
+            images = [i for i in (page.get("images") or "").split("\n") if i]
+            corpus = Path(vehicle["file_path"])
+            d = wis_links.diagram(corpus, int(page_no), images[0] if images else "")
+            if not d:
+                raise HTTPException(404, "no diagram data for this page")
+            scope, ids = scope_ids(vehicle), _corpus_ids(conn, vehicle)
+            for c in d["codes"]:
+                c["pages"] = (wis_links.pages_for(conn, corpus, c["docnr"], scope, ids, page_no)
+                              if c["docnr"] else [])
+            return d
         finally:
             conn.close()
 
