@@ -459,14 +459,18 @@ def _verify_citations(answer: AnswerModel, passages: list[dict]) -> list[str]:
             dropped.append(f"figure '{fig.caption}' referenced {fig.image}")
     answer.figures = kept_figs
 
-    # a claimed answer with no surviving citation is not trustworthy
+    # a claimed answer with no surviving citation is not trustworthy. Steps
+    # carry no citation of their own, so they never count as one: a procedure
+    # whose cited pages were all invented is withheld with the rest (the
+    # user's rule, 2026-10-11: only answers with sources behind them)
     if (answer.found and not answer.source_pages and not answer.specs
-            and not answer.figures and not answer.steps):
+            and not answer.figures):
         answer.found = False
         note = ("Answer withheld: the model did not cite a page from the "
                 "retrieved passages.")
         answer.caveats = f"{answer.caveats} {note}".strip()
         answer.answer = ""
+        answer.steps = []
     return dropped
 
 

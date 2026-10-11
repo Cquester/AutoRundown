@@ -11,7 +11,6 @@ import json
 import re
 import sqlite3
 from pathlib import Path
-from typing import Iterable, Iterator
 
 from .importers.base import PageRecord, VehicleRecord
 

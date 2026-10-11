@@ -3,6 +3,10 @@
     python test_ui_picks.py                       # the real index.db, headless
     python test_ui_picks.py --index sample_wis.db --headed
 
+sample_wis.db (make_sample_corpus.py + ingest.py) carries ~20 hand-made
+variants and two VIN prefixes, enough for CI (ci.yml runs it there); the real
+index checks ~1,600 variants.
+
 Needs `pip install -r requirements-dev.txt` (Playwright). It drives the
 installed Edge or Chrome (`channel=msedge`), so no browser download.
 
