@@ -22,10 +22,25 @@ Tables written (all English, as pulled):
   sa_code(vehicle_type, code, name)      option (SA) codes
   sa_number(number, name)
   oil(series, engine, engine_type, litres, unit, note)   engine oil capacity
+  labour_car(baumuster, engine, sparte, pl, family, type)   which labour-time
+                               book(s) a car is in (ASRA_Fahrzeug); one
+                               Baumuster can be in several (by chassis range:
+                               124.026 is in "124 (up to 09/92)" and the later
+                               book), so the server lists them, never guesses
+  labour_book(sparte, pl, family, type, family_name, type_name)
+  labour_group(kg, name), labour_subgroup(sparte, kg, entry, name)
+  labour_op(sparte, kg, op, entry, category, text)   English operation texts
+  labour_time(sparte, pl, family, kg, op, typenart, raw)   raw times;
+                               typenart is the type code, its group ("40"
+                               = 4x) or "00" (all) -- never overlapping
+  labour_formula(region, sparte, pl, family, kg, category, expr)   the
+                               flat rate is expr applied to the raw time, in
+                               minutes; checked against LEMON's warranty
+                               hours for the 190E 2.3-16 (five jobs, all
+                               within 0.1 h). Category Z (extra work) has none.
 
 Rows a resumed pull_links.js batch wrote twice are dropped (set semantics).
-The labour-time (ASRA_*) and damage-code (SS*) tables are pulled but not
-parsed yet: how they join to our vehicles is not established.
+The damage-code (SS*) tables are pulled but not parsed yet.
 
 Config via environment:
   AR_VEH    pulled vehicle/reference TSVs  (default <out root>/wis_vehicles)
@@ -171,6 +186,8 @@ def main():
     c.executemany("INSERT INTO oil VALUES (?,?,?,?,?,?)", sorted(set(oil)))
     counts["oil"] = len(set(oil))
 
+    labour(c, counts)
+
     c.execute("INSERT INTO meta VALUES ('counts', ?)", (json.dumps(counts),))
     c.commit()
     c.close()
@@ -178,6 +195,73 @@ def main():
     print("-> " + os.path.join(OUT, NAME))
     for k, v in counts.items():
         print(f"  {k:15} {v:>10,}")
+
+
+def dotted(code: str) -> str:
+    """'201034' -> '201.034', the form variants.jsonl uses."""
+    code = (code or "").strip()
+    return f"{code[:3]}.{code[3:]}" if len(code) == 6 and code.isdigit() else code
+
+
+def labour(c, counts):
+    """ASRA labour times (flat rates) -- see the module docstring."""
+    print("labour times")
+    lang = "02"                          # ASRA writes English as "02"
+    c.executescript("""
+    CREATE TABLE labour_car(baumuster TEXT, engine TEXT, sparte TEXT, pl TEXT, family TEXT, type TEXT,
+                            PRIMARY KEY (baumuster, engine, sparte, pl, family, type));
+    CREATE TABLE labour_book(sparte TEXT, pl TEXT, family TEXT, type TEXT, family_name TEXT,
+                             type_name TEXT, PRIMARY KEY (sparte, pl, family, type));
+    CREATE TABLE labour_group(kg TEXT PRIMARY KEY, name TEXT);
+    CREATE TABLE labour_subgroup(sparte TEXT, kg TEXT, entry TEXT, name TEXT,
+                                 PRIMARY KEY (sparte, kg, entry));
+    CREATE TABLE labour_op(sparte TEXT, kg TEXT, op TEXT, entry TEXT, category TEXT, text TEXT,
+                           PRIMARY KEY (sparte, kg, op));
+    CREATE TABLE labour_time(sparte TEXT, pl TEXT, family TEXT, kg TEXT, op TEXT, typenart TEXT,
+                             raw INTEGER, PRIMARY KEY (sparte, pl, family, kg, op, typenart));
+    CREATE TABLE labour_formula(region TEXT, sparte TEXT, pl TEXT, family TEXT, kg TEXT,
+                                category TEXT, expr TEXT,
+                                PRIMARY KEY (region, sparte, pl, family, kg, category));
+    CREATE INDEX labour_car_bm ON labour_car(baumuster);
+    """)
+    cars = {(dotted(r["TypBM"]), dotted(r["MotorBM"]), r["SparteAbk"], r["ProduktionslandAbk"],
+             r["FamilieAbk"], r["TypkennzahlAbk"])
+            for r in tsv(VEH, "ASRA_Fahrzeug") if r.get("TypBM") and r.get("FamilieAbk")}
+    c.executemany("INSERT INTO labour_car VALUES (?,?,?,?,?,?)", sorted(cars))
+    fam = {(r["SparteAbk"], r["ProduktionslandAbk"], r["FamilieAbk"]): fix_mojibake(r["FamilieText"]).strip()
+           for r in tsv(VEH, "ASRA_Familie") if r.get("SprachAbk") == lang}
+    books = set()
+    for r in tsv(VEH, "ASRA_Typkennzahl"):
+        if r.get("SprachAbk") != lang:
+            continue
+        k = (r["SparteAbk"], r["ProduktionslandAbk"], r["FamilieAbk"])
+        books.add((*k, r["TypkennzahlAbk"], fam.get(k, ""), fix_mojibake(r["TypkennzahlName"]).strip()))
+    c.executemany("INSERT OR IGNORE INTO labour_book VALUES (?,?,?,?,?,?)", sorted(books))
+    c.executemany("INSERT OR IGNORE INTO labour_group VALUES (?,?)", sorted(
+        (r["KonstruktionsgruppeAbk"], fix_mojibake(r["KonstruktionsgruppeName"]).strip())
+        for r in tsv(VEH, "ASRA_Konstruktionsgruppe") if r.get("SprachAbk") == lang))
+    c.executemany("INSERT OR IGNORE INTO labour_subgroup VALUES (?,?,?,?)", sorted(
+        (r["SparteAbk"], r["KonstruktionsgruppeAbk"], r["Einstiegsnummer"],
+         fix_mojibake(r["KonstruktionsuntergruppeName"]).strip())
+        for r in tsv(VEH, "ASRA_Konstruktionsuntergruppe") if r.get("SprachAbk") == lang))
+    fields = ("ArbeitspositionTeil", "ArbeitspositionTaetigkeit", "ArbeitspositionBauzustand",
+              "ArbeitspositionVerbundzustand")
+    c.executemany("INSERT OR IGNORE INTO labour_op VALUES (?,?,?,?,?,?)", sorted(
+        (r["SparteAbk"], r["KonstruktionsgruppeAbk"], r["ArbeitspositionNummer"], r["Einstiegsnummer"],
+         r["ArbeitspositionKategorie"],
+         " ".join(fix_mojibake(" ".join(r.get(f) or "" for f in fields)).split()))
+        for r in tsv(VEH, "ASRA_Arbeitsposition") if r.get("SprachAbk") == lang))
+    c.executemany("INSERT OR IGNORE INTO labour_time VALUES (?,?,?,?,?,?,?)", (
+        (r["SparteAbk"], r["ProduktionslandAbk"], r["FamilieAbk"], r["KonstruktionsgruppeAbk"],
+         r["ArbeitspositionNummer"], r["TypenArt"], num(r["Arbeitswert"]))
+        for r in tsv(VEH, "ASRA_Arbeitswert") if num(r.get("Arbeitswert")) is not None))
+    expr = {r["FormelID"]: r["FormelAusdruck"].strip() for r in tsv(VEH, "ASRA_Formel")}
+    c.executemany("INSERT OR IGNORE INTO labour_formula VALUES (?,?,?,?,?,?,?)", (
+        (r["RegionAbk"], r["SparteAbk"], r["ProduktionslandAbk"], r["FamilieAbk"],
+         r["KonstruktionsgruppeAbk"], r["ArbeitspositionKategorie"], expr[r["FormelID"]])
+        for r in tsv(VEH, "ASRA_Formelverwendung") if r.get("FormelID") in expr))
+    for t in ("labour_car", "labour_book", "labour_op", "labour_time", "labour_formula"):
+        counts[t] = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
 
 
 if __name__ == "__main__":

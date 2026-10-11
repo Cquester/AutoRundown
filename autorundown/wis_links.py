@@ -19,6 +19,9 @@ Free, local: no API calls. Without the sidecar every reference stays text.
 """
 from __future__ import annotations
 
+import ast
+import functools
+import operator
 import re
 import sqlite3
 import threading
@@ -256,3 +259,117 @@ def oil(corpus: Path, series: str, engines: list[str]) -> list[dict]:
                          f"engine IN ({','.join('?' * len(keys))}) ORDER BY engine, note",
                  [series, *keys]) or []
     return [{"engine": keys[e], "litres": l, "unit": u, "note": n} for e, l, u, n in rows]
+
+
+# -- labour times (WIS's ASRA flat rates) ------------------------------------
+#
+# A car (Baumuster + engine) is in one or more labour-time books (ASRA
+# family + type code; parse_links.py). A book's time for an operation is
+# the row for its exact type code, else its type group ("4x" -> "40"), else
+# "00" -- these never overlap (measured on all 478,402 operation x family
+# cases). The stored value is raw; the flat rate is the region's formula
+# applied to it, in minutes. Checked against LEMON's Mercedes warranty hours
+# for the 190E 2.3-16: voltage regulator 44 min / 0.7 h, bleed brakes 19 /
+# 0.3, ignition switch 84 / 1.5, starter 110 / 1.8, thermostat 25 / 0.5.
+# Extra-work operations (category Z) have no formula and are left out, as
+# are raw zeros (an operation that doesn't apply to that type).
+
+REGION = "10"          # ASRA "International"; "00" is Germany
+
+_OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+        ast.Div: operator.truediv, ast.Pow: operator.pow}
+
+
+@functools.lru_cache(maxsize=256)
+def _formula(expr: str):
+    """WIS's formula text ("(0.9883**x*0.3+1.21)*x") as a function of x.
+
+    Parsed as arithmetic only -- numbers, x, + - * / **, brackets. The text
+    comes from a database, so it is never handed to eval(); anything else
+    raises ValueError and that operation gets no time.
+    """
+    tree = ast.parse(expr.strip(), mode="eval")
+
+    def ev(n, x):
+        if isinstance(n, ast.Expression):
+            return ev(n.body, x)
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.Name) and n.id == "x":
+            return x
+        if isinstance(n, ast.BinOp) and type(n.op) in _OPS:
+            return _OPS[type(n.op)](ev(n.left, x), ev(n.right, x))
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
+            return -ev(n.operand, x)
+        raise ValueError(f"not arithmetic: {ast.dump(n)[:60]}")
+
+    ev(tree, 1.0)                    # refuse a bad formula now, not per row
+    return lambda x: ev(tree, x)
+
+
+def labour_books(corpus: Path, baumuster: list[str], engines: list[str]) -> list[dict]:
+    """The labour-time books this car is in: [{book, family, type}].
+
+    With engines given, only books listed for those engines -- unless none
+    are, then every book of the Baumuster. Several books are listed, never
+    one picked: which applies depends on the chassis number.
+    """
+    if not baumuster:
+        return []
+    marks = ",".join("?" * len(baumuster))
+    rows = _rows(corpus, f"SELECT DISTINCT c.engine, c.sparte, c.pl, c.family, c.type, "
+                         f"b.family_name, b.type_name FROM labour_car c LEFT JOIN labour_book b "
+                         f"USING (sparte, pl, family, type) WHERE c.baumuster IN ({marks})",
+                 baumuster) or []
+    mine = [r for r in rows if r[0] in set(engines)] if engines else []
+    seen, out = set(), []
+    for _, sp, pl, fam, typ, fname, tname in (mine or rows):
+        key = f"{sp}-{pl}-{fam}-{typ}"
+        if key not in seen:
+            seen.add(key)
+            out.append({"book": key, "family": fname or f"Family {fam}", "type": tname or f"Type {typ}"})
+    return sorted(out, key=lambda b: (b["family"], b["type"]))
+
+
+def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
+                 alt: str = "") -> dict:
+    """Flat-rate times in one book, optionally only operations whose text
+    holds every word of `q` -- or of `alt`, the manual's wording for it
+    ("water pump" -> "coolant pump", synonyms.py): {"total", "items":
+    [{group, op, text, minutes, hours}]}, by repair group and operation."""
+    try:
+        sp, pl, fam, typ = book.split("-")
+    except ValueError:
+        return {"total": 0, "items": []}
+    groups = dict(_rows(corpus, "SELECT kg, name FROM labour_group") or [])
+    raw = {}
+    for kg, op, ta, value in _rows(
+            corpus, "SELECT kg, op, typenart, raw FROM labour_time WHERE sparte=? AND pl=? "
+                    "AND family=? AND typenart IN (?,?,?)",
+            (sp, pl, fam, typ, typ[:1] + "0", "00")) or []:
+        raw[(kg, op)] = value        # at most one of the three exists (never overlap)
+    if not raw:
+        return {"total": 0, "items": []}
+    forms = {(kg, cat): e for kg, cat, e in _rows(
+        corpus, "SELECT kg, category, expr FROM labour_formula WHERE region=? AND sparte=? "
+                "AND pl=? AND family=?", (REGION, sp, pl, fam)) or []}
+    queries = [ws for ws in (re.findall(r"\w+", (s or "").lower()) for s in (q, alt)) if ws]
+    items = []
+    for kg, op, cat, text in _rows(corpus, "SELECT kg, op, category, text FROM labour_op "
+                                           "WHERE sparte=?", (sp,)) or []:
+        x = raw.get((kg, op))
+        if not x or cat == "Z" or (kg, cat) not in forms:
+            continue
+        low = text.lower()
+        if queries and not any(all(w in low for w in ws) for ws in queries):
+            continue
+        try:
+            minutes = _formula(forms[(kg, cat)])(x)
+        except (ValueError, SyntaxError, ZeroDivisionError, OverflowError, TypeError):
+            continue
+        if minutes <= 0:
+            continue
+        items.append({"group": groups.get(kg, kg), "kg": kg, "op": f"{kg}-{op}", "text": text,
+                      "minutes": round(minutes), "hours": round(minutes / 60, 1)})
+    items.sort(key=lambda i: i["op"])
+    return {"total": len(items), "items": items[:limit]}
