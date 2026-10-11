@@ -92,7 +92,9 @@ jobs:
           doc=$(curl -sf http://127.0.0.1:8760/api/vehicles | python -c "import json,sys; print(max(json.load(sys.stdin), key=lambda v: v['indexed_pages'] or 0)['doc_id'])")
           n=$(curl -sf "http://127.0.0.1:8760/api/search?doc_id=$doc&q=torque" | python -c "import json,sys; print(len(json.load(sys.stdin)))")
           echo "search 'torque' on $doc: $n result(s)"
-          curl -sf http://127.0.0.1:8760/ | grep -q "<html" || { echo "::error::UI not served"; exit 1; }
+          # (not `curl | grep -q`: grep stops reading, curl gets SIGPIPE, pipefail fails)
+          page=$(curl -sf http://127.0.0.1:8760/)
+          [[ "$page" == *"<html"* ]] || { echo "::error::UI not served"; exit 1; }
           # a page naming some other host must be refused (DNS rebinding)
           code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: evil.example" http://127.0.0.1:8760/api/stats)
           [ "$code" = 421 ] || { echo "::error::foreign Host answered $code, expected 421"; exit 1; }
