@@ -11,20 +11,38 @@
 #   ...                       box.sh claude qa "use the qa-engineer agent ..."
 #   ...                       box.sh fetch qa .dev/qa       # copy results out
 #   ...                       box.sh list | down qa | down --all
-#   ...                       box.sh login                  # once: sign Claude Code in
 #
 # `up` copies the working tree as it is now (uncommitted changes included,
 # no .git, no indexes or generated samples) -- a box tests a snapshot, so
 # re-run `up` after changing code. Several boxes can run at once, one port
-# each. The Claude Code sign-in is the one thing kept between boxes (Docker
-# volume ar-claude-auth); everything else goes with `down`.
+# each; everything in a box goes with `down`.
+#
+# Claude Code in a box uses YOUR normal sign-in, from outside the repo: the
+# one file ~/.claude/.credentials.json of your user profile (Windows'
+# %USERPROFILE%\.claude, or WSL's ~/.claude if you sign in there) is
+# mounted in, read-write so a refreshed token reaches both sides, plus the
+# default model from settings.json. Nothing else of ~/.claude (other
+# projects' history, memory, plugins) goes in. CLAUDE_HOME=<dir> overrides.
 set -euo pipefail
 
 IMAGE=autorundown-test
-AUTH_VOLUME=ar-claude-auth
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 die() { echo "box: $*" >&2; exit 1; }
+
+claude_home() {
+    # the user's own Claude Code folder: CLAUDE_HOME, else WSL's, else Windows'
+    if [ -n "${CLAUDE_HOME:-}" ]; then echo "$CLAUDE_HOME"; return; fi
+    if [ -f "$HOME/.claude/.credentials.json" ]; then echo "$HOME/.claude"; return; fi
+    local win
+    win="$(cmd.exe /c 'echo %USERPROFILE%' 2> /dev/null | tr -d '\r')" || true
+    [ -n "$win" ] && echo "$(wslpath "$win")/.claude"
+}
+
+default_model() {
+    local f="$1/settings.json"
+    [ -f "$f" ] && sed -n 's/.*"model"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1
+}
 name_ok() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name must be a-z, 0-9, '-': $1"; }
 
 snapshot() {
@@ -55,10 +73,20 @@ cmd_up() {
     done
     docker image inspect "$IMAGE" > /dev/null 2>&1 || die "no image yet: run 'box.sh build'"
     docker container inspect "ar-$name" > /dev/null 2>&1 && die "ar-$name exists: 'box.sh down $name' first"
+    local home cred model claude_args=()
+    home="$(claude_home)"
+    cred="$home/.credentials.json"
+    if [ -f "$cred" ]; then
+        claude_args+=(-v "$cred:/home/dev/.claude/.credentials.json")
+        model="$(default_model "$home")"
+        [ -n "$model" ] && claude_args+=(-e "AR_CLAUDE_MODEL=$model")
+    else
+        echo "box: no Claude Code sign-in at $cred -- 'box.sh claude' won't work" >&2
+    fi
     docker create --name "ar-$name" --label autorundown-box=1 \
         --cap-add NET_ADMIN --cap-add NET_RAW \
         -p "127.0.0.1:$port:18757" \
-        -v "$AUTH_VOLUME:/home/dev/.claude" \
+        "${claude_args[@]}" \
         "$IMAGE" > /dev/null
     snapshot | docker cp -a - "ar-$name:/work"
     docker start "ar-$name" > /dev/null
@@ -86,7 +114,9 @@ cmd_claude() {
     local name="${1:-}" prompt="${2:-}"
     name_ok "$name"
     [ -n "$prompt" ] || die "usage: box.sh claude NAME \"prompt\""
-    docker exec -w /work "ar-$name" claude -p "$prompt" --dangerously-skip-permissions
+    docker exec -w /work "ar-$name" bash -c \
+        'exec claude -p "$1" --dangerously-skip-permissions ${AR_CLAUDE_MODEL:+--model "$AR_CLAUDE_MODEL"}' \
+        _ "$prompt"
 }
 
 cmd_fetch() {
@@ -97,12 +127,6 @@ cmd_fetch() {
     mkdir -p "$dest"
     docker cp "ar-$name:/work/$path" "$dest/"
     echo "copied to .dev/box/$name/$(basename "$path")"
-}
-
-cmd_login() {
-    docker run -it --rm --cap-add NET_ADMIN --cap-add NET_RAW \
-        -v "$AUTH_VOLUME:/home/dev/.claude" --entrypoint bash "$IMAGE" \
-        -c "sudo /usr/local/bin/init-firewall.sh && claude"
 }
 
 cmd_list() {
@@ -126,8 +150,7 @@ case "${1:-}" in
     exec) shift; cmd_exec "$@" ;;
     claude) shift; cmd_claude "$@" ;;
     fetch) shift; cmd_fetch "$@" ;;
-    login) shift; cmd_login ;;
     list) cmd_list ;;
     down) shift; cmd_down "$@" ;;
-    *) sed -n '2,24p' "$0"; exit 2 ;;
+    *) sed -n '2,/^set -e/{/^set -e/!p}' "$0"; exit 2 ;;
 esac

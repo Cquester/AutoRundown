@@ -124,10 +124,19 @@ sample data and `tools/sandbox/forward.py` makes the published port
 (`127.0.0.1:N` in WSL, reached from Windows as `localhost:N`) arrive from
 loopback, so **the user's browser is admin there**. `exec`, `claude`
 (headless Claude Code, permission prompts off -- that is what the box is
-for), `fetch` (copy results to `.dev/box/<name>/`), `list`, `down`. The
-Claude Code sign-in lives in volume `ar-claude-auth` (`box.sh login`, once,
-interactive, by the user). A box tests a **snapshot**: after changing code,
-`down` and `up` again. Run boxes from a session's own worktree. Verified
+for), `fetch` (copy results to `.dev/box/<name>/`), `list`, `down`.
+**Claude Code in a box uses the user's own CLI sign-in** (the user's
+rule, 2026-10-11: their credentials stay outside the repo, in their
+default settings): `up` mounts only `%USERPROFILE%\.claude\.credentials.json`
+(or WSL's `~/.claude`, or `CLAUDE_HOME`), read-write so a refreshed token
+reaches both sides, and passes `settings.json`'s `model` as
+`AR_CLAUDE_MODEL`; nothing else of `~/.claude` (other projects, memory,
+plugins -- Serena would try to download) goes in. The Claude desktop app
+keeps its own sign-in: that file is the command-line tool's, and on
+2026-10-11 it had expired (last used 2026-10-08) -- `claude` then `/login`
+in a Windows terminal refreshes it. A box tests a **snapshot**: after
+changing code, `down` and `up` again. Boxes run from the main folder (the
+user's preference over a separate worktree folder). Verified
 2026-10-11: no `/mnt`, 3.3 MB `/work`, no API key; ruff, check_js, all 7
 suites, `test_ui_picks.py` (235 picks) and `ui_check.py` pass inside in
 ~1 min. The first `ui_check.py` run in a box found a real race (below,
