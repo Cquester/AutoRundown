@@ -29,7 +29,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from . import auth, config, index, query, tls
-from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_original
+from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
 from .search import get_page, scope_ids, search
 
 jobs = importer_jobs.ImportJobs()
@@ -111,6 +111,31 @@ def _vehicle_or_404(conn, doc_id: str) -> dict:
         if v["doc_id"] == doc_id:
             return v
     raise HTTPException(404, f"unknown vehicle {doc_id}")
+
+
+def _is_wis(vehicle: dict) -> bool:
+    return bool(re.match(r"mercedes-wis", vehicle.get("source_name") or ""))
+
+
+def _corpus_ids(conn, vehicle: dict) -> list[str]:
+    """doc_ids of every vehicle built from the same WIS corpus as `vehicle`."""
+    return [v["doc_id"] for v in index.vehicles(conn)
+            if _is_wis(v) and v.get("file_path") == vehicle.get("file_path")]
+
+
+def _wis_page(conn, vehicle: dict, page_no: str) -> tuple[dict | None, bool]:
+    """A page in the car's scope, else -- WIS only -- the same document filed
+    under another model of the same corpus, flagged as outside the scope.
+
+    The second case is a followed cross-reference whose document WIS files
+    under other models only. Search and answers never come through here; a
+    wrong-model page is shown on request, with a note, never as a result.
+    """
+    page = get_page(conn, scope_ids(vehicle), page_no)
+    if page or not _is_wis(vehicle):
+        return page, True
+    ids = _corpus_ids(conn, vehicle)
+    return (get_page(conn, ids, page_no) if ids else None), False
 
 
 # answer to any device, signed in or not: the page itself, so it can show
@@ -519,9 +544,21 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            page = get_page(conn, scope_ids(vehicle), page_no)
+            page, in_scope = _wis_page(conn, vehicle, page_no)
             if not page:
                 raise HTTPException(404, "page not found")
+            if not in_scope:
+                owner = next((v for v in index.vehicles(conn)
+                              if v["doc_id"] == page["doc_id"]), {})
+                page["outside_scope"] = owner.get("model") or page["doc_id"]
+            if _is_wis(vehicle):
+                # printed document numbers that open a page; the chosen car's
+                # variant first (wis_links.py)
+                page["xrefs"] = wis_links.resolve(
+                    conn, Path(vehicle["file_path"]), page.get("text") or "",
+                    scope_ids(vehicle), _corpus_ids(conn, vehicle), page_no)
+                page["diagram"] = page_no.isdigit() and wis_links.has_diagram(
+                    Path(vehicle["file_path"]), int(page_no))
             if not request.state.who.admin:
                 page.pop("file_path", None)
             page["images"] = [i for i in (page.get("images") or "").split("\n") if i]
@@ -535,6 +572,83 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
+    @app.get("/api/wis/oil/{doc_id}")
+    def api_wis_oil(doc_id: str, variant: int | None = None,
+                    engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """Engine oil capacity for the chosen engine(s) only: a variant's own
+        engines, or the engine family picked ("272", "272,276"). With
+        neither, nothing -- a series' capacities side by side is the
+        wrong-engine mix the picker exists to prevent. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+        finally:
+            conn.close()
+        if not _is_wis(vehicle):
+            return []
+        try:
+            variants = json.loads(vehicle.get("variants") or "[]")
+        except ValueError:
+            variants = []
+        fams = {f.strip() for f in (engine or "").split(",") if f.strip()}
+        if variant is not None and 0 <= variant < len(variants):
+            engines = list(variants[variant].get("engines") or [])
+        elif fams:
+            engines = sorted({e for v in variants for e in v.get("engines") or []})
+        else:
+            return []
+        # the car box sends both: a sales name that changed engine ("E 350",
+        # M272 then M276) narrowed by the model year to one family
+        if fams:
+            engines = [e for e in engines if e.split(".")[0] in fams]
+        return wis_links.oil(Path(vehicle["file_path"]), vehicle.get("model_code") or "", engines)
+
+    @app.get("/api/wis/sa/{doc_id}")
+    def api_wis_sa(doc_id: str, codes: str = Query(max_length=2000)) -> list[dict]:
+        """Option (SA) code descriptions from WIS, for codes off a data card."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+        finally:
+            conn.close()
+        types = []
+        try:
+            types = [v.get("vehicle_type") for v in json.loads(vehicle.get("variants") or "[]")]
+        except ValueError:
+            pass
+        # the series' own type: its variants' commonest
+        vtype = max(set(t for t in types if t), key=types.count, default="")
+        got = (wis_links.sa_codes(Path(vehicle["file_path"]), codes, vtype)
+               if _is_wis(vehicle) else None)
+        if got is None:
+            raise HTTPException(404, "Option codes come from the Mercedes WIS data, "
+                                     "which this car's manual is not part of.")
+        return got
+
+    @app.get("/api/diagram/{doc_id}/{page_no}")
+    def api_diagram(doc_id: str, page_no: str) -> dict:
+        """Component codes on a WIS wiring diagram page (wis_links.diagram):
+        each code's name, where it is printed on the page's image, and the
+        pages its linked document opens, the chosen car's first. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            page, _ = _wis_page(conn, vehicle, page_no)
+            if not page or not _is_wis(vehicle) or not page_no.isdigit():
+                raise HTTPException(404, "no diagram data for this page")
+            images = [i for i in (page.get("images") or "").split("\n") if i]
+            corpus = Path(vehicle["file_path"])
+            d = wis_links.diagram(corpus, int(page_no), images[0] if images else "")
+            if not d:
+                raise HTTPException(404, "no diagram data for this page")
+            scope, ids = scope_ids(vehicle), _corpus_ids(conn, vehicle)
+            for c in d["codes"]:
+                c["pages"] = (wis_links.pages_for(conn, corpus, c["docnr"], scope, ids, page_no)
+                              if c["docnr"] else [])
+            return d
+        finally:
+            conn.close()
+
     @app.get("/api/original/{doc_id}/{page_no}", response_class=HTMLResponse)
     def api_original(request: Request, doc_id: str, page_no: str) -> HTMLResponse:
         """A WIS document redrawn from its SIDS layout (wis_original.py).
@@ -545,7 +659,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            page = get_page(conn, scope_ids(vehicle), page_no)
+            page, _ = _wis_page(conn, vehicle, page_no)
         finally:
             conn.close()
         if not page or not page_no.isdigit() or not re.match(

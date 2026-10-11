@@ -59,6 +59,8 @@ python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogu
 python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
 python test_remove_manuals.py                     # FREE, removing manuals (~20 s)
+python test_wis_links.py                          # FREE, WIS cross-refs/diagrams/codes/oil (~5 s)
+python extractor/parse_links.py                   # rebuild wis_links.sqlite (offline, ~1 min)
 python test_citations.py                          # FREE, _verify_citations (<1 s)
 python tools/check_js.py                          # FREE, index.html's JS parses (needs node)
 powershell -File tools/sandbox/start.ps1 [-Source] # fresh install in Windows Sandbox, :18756
@@ -116,9 +118,10 @@ the EWA install it reads, `autorundown_out/` it writes -- stays in
 ```bash
 python extractor/wis_paths.py                     # where it reads + writes
 # 1. everything, resumable (~4 h from scratch, mostly images): docs ->
-#    applic -> vehicles -> images (VM on, headless, 15k-image batches with
-#    the VM off between) -> build (offline: parse.py, apply_applic.py
-#    --rebuild-join, parse_vehicles.py, convert_images.py, apply_images.py)
+#    applic -> vehicles -> links -> images (VM on, headless, 15k-image
+#    batches with the VM off between) -> build (offline: parse.py,
+#    apply_applic.py --rebuild-join, parse_vehicles.py, parse_links.py,
+#    convert_images.py, apply_images.py)
 python extractor/vm_pipeline.py --vm "Mercedes_Ultimate_207"
 #    a subset: --steps vehicles,build  (or images,build). The Import dialog
 #    runs exactly this, then rebuild_wis.py.
@@ -494,8 +497,9 @@ was glued to a graphic token, e.g. the last "00" of tool number
 Diagram labels and figure numbers are
 appended as "Diagram labels: …" / "Figures: …" for BM25 and the model, and
 hidden in the page view. Images open full size on click (wiring diagrams are
-~6,800 px wide SVG). Cross-refs are WIS docnrs (`SI00.00-D-0026A`) with no
-docnr -> dok_id map, so they stay text, not links.
+~6,800 px wide SVG). Cross-refs (`SI00.00-D-0026A`) stay text in the index;
+the server turns them into links when a page opens (see "WIS reference
+tables" below).
 
 **"Original layout": the document redrawn from WIS's own page layout.** The
 user found the reading view "bunched up" next to WIS. WIS pages get a
@@ -529,8 +533,15 @@ API calls. What it knows about SIDS, each measured on a corpus sample:
   a spec is worse than an obvious unknown.
 - **RTF bodies** (40,238 -- wiring diagrams, scanned manual pages) are stubs
   naming a graphic: the original layout is that graphic page-wide. Some
-  start with a UTF-8 BOM; `&H&` lines are hotspots (links to other DokIDs),
-  not graphics, and are ignored. The 103 XML bodies have no layout (404).
+  start with a UTF-8 BOM; `&H&` lines are hotspots, not graphics, and are
+  ignored. They are **not** links to DokIDs (measured 2026-10-11: none of
+  16,954 targets is a document): `0|x|y|w|h;code;` in cm on the graphic,
+  on the 99xxxxxx picture menus of WIS's warranty damage-code catalogue
+  (Schadensschlüssel), `code` a damage-code component (`SSTeilID` ->
+  `SSTeilBenennung`). Boxes line up exactly when drawn. Not used yet; they
+  also leak into those 17,995 records' body_text as `.53|0.46;5441R;`
+  junk (a `parse_sids.py` fix, not done). The 103 XML bodies have no
+  layout (404).
 - **Most WIS pages are landscape** (~15,600 units, ~1,330 px drawn). The
   sheet is zoomed to fit the frame like a PDF (a minimum zoom with sideways
   scroll was worse on a phone); "Open full screen" opens it alone for
@@ -541,6 +552,59 @@ Checked by eye on 49013390, 49014567 (R107 exhaust, steps + tools),
 10008414 (torque table), 25016103 (legend), 25147935 (RTF wiring diagram),
 49009029 (scanned page), at desktop and 375 px. A sweep of 4,000 random
 DokIDs: 3,999 render (1 XML), 0 unresolved pictures, slowest 0.9 s.
+
+**WIS reference tables: cross-refs, wiring diagrams, option codes, oil
+(2026-10-11).** A read-only survey of all 319 WIS tables
+(`extractor/probe_wis_tables.js`; output `autorundown_out/wis_tables_survey/`)
+found **no parts catalogue** -- no part numbers with quantities, no exploded
+drawings; that is EPC, locked (above). What it did find, now pulled:
+- `pull_vehicles.js` also pulls `W_Dokumente` (DokNrID -> docnr), `SACode` /
+  `SANummer`, `AW_AssystFuellmengen` (oil), `SSTeilID` / `SSTeilBenennung`
+  (damage codes) and the `ASRA_*` labour tables -- English rows only
+  (`WHERE` per table, `AR_LANG`). `pull_links.js` (new `links` step in
+  `vm_pipeline.py`, resumable, 400 DokIDs per query) pulls `DXF`,
+  `DXFLegendePos`, `DXFLegende`, `AW_DXFReferenz`, `AW_SVGReferenz` for the
+  corpus's 40,341 non-SIDS documents (~30 s). `parse_links.py` (in `build`)
+  writes **`wis_links.sqlite` next to the corpus**; the server reads it
+  through `autorundown/wis_links.py`. No rebuild of the index needed. Every
+  lookup treats a missing sidecar or table as "no data", never a 500.
+- **Cross-references open their page** (`wis_links.resolve`, `/api/page`
+  returns `xrefs`). **A printed number leaves off the variant letters**:
+  `AR15.40-P-5710E` is stored as `...5710ea`, `...eb`, `...ecm`, one per
+  model, and WIS picks by the car. So a reference matches every stored
+  number that is the printed one plus *letters only* (never the sub-document
+  `...-01A`), and the variant filed under the chosen car's scope comes first.
+  This happens at request time, with the scope -- resolving at import (tried
+  first, reverted) matched only 46% exactly and would have picked another
+  model's version blind. Measured: 69-76% of printed refs open a page on
+  W211/W201/W124, ~3 ms per page; the rest are mostly owner's-manual (BA)
+  numbers WIS doesn't hold. UI: one target opens directly; several jump to a
+  "Referenced documents" list showing what each applies to. A page filed
+  only under other models opens with an `outside_scope` warning
+  (`server._wis_page`); search and answers never come through that path.
+  WIS's own titles can mislead: BT40.15-P-0080-01A is "Valve body gasket
+  modified." and really is the tyre-pressure-monitor valve torque.
+- **Wiring diagrams are tappable** (`/api/diagram`, `wis_links.diagram`):
+  22,231 English diagram pages have component positions + names. Positions
+  are 1/1000 mm; two image forms, both checked by eye: DXF conversions (SVG
+  in mm, **Y flipped**) and WIS's own SVGs (pt + viewBox, no flip, laid out
+  `xMinYMid meet` -- fractions are of what is drawn, not of the viewBox).
+  UI: a tap target per printed code over the `<img>`, plus "Components on
+  this diagram" (name, keyword search, linked document via `AW_SVGReferenz`).
+  The full-size view has no tap targets.
+- **Option codes**: a dialog beside VIN (`/api/wis/sa`). A code means
+  different things per vehicle type (494 = "US version" on a car, a tyre on
+  a bus); the car's type (`FZG_ART`) picks one, others shown only if it has
+  none, all listed when the type is unknown.
+- **Oil capacity** (`/api/wis/oil`) in the scope note **only once the engine
+  is known**: a variant's engines, narrowed by the car box's year-picked
+  family (an E 350 that is M272 or M276 by year showed both before that fix).
+  Only 359 English rows / 35 series.
+- **Pulled, not used**: `ASRA_*` labour times (how they join to our cars is
+  not established) and the damage-code tables (hotspot names).
+Tests: `test_wis_links.py` (free). Browser-checked against the real index
+(Playwright, no API key): links, diagram tap targets, the dialog, the oil
+line, 375 px.
 
 ---
 
@@ -690,8 +754,10 @@ not try to get around it. The user was told the legitimate routes: look a VIN
 up in the EPC program inside the VM, or use credentials issued with their
 licence if they have any.
 
-**No option-code (SA code) descriptions are reachable either — checked
-2026-10-08, do not look again.** `SPECIALFILES` (1.2 MB; "42 tables" counted
+**EPC holds no reachable option-code (SA code) descriptions — checked
+2026-10-08, do not look again in EPC. WIS has them** (found 2026-10-11:
+`SACode`, 23,105 English rows, and `SANummer`; see "WIS reference tables").
+The EPC side, for the record: `SPECIALFILES` (1.2 MB; "42 tables" counted
 the system catalogue and views: 12 base tables) has no code text. With
 `tbuser`, 11 of its 12 base tables refuse SELECT; their `_V` views are
 granted and hold only data-card *routing* metadata: `DC_MODEL_DESC`
@@ -703,8 +769,8 @@ region), `AGG_FILTERS*`, `DB_LANGS`, `VERSIONS` ("DW 01/2017"), `SAREC_INI`
 (6 config rows). `PWORD`/`PWORD_V` were deliberately not read. The
 catalogue databases where EPC keeps code texts — `ALLTEXT`, `COMM`, and
 `SA_IMAGES`/`BM_IMAGES` — refuse `tbuser` at login, like the data cards.
-So decoding a pasted data card needs a code list from elsewhere; nothing
-was added to the pipeline. Survey output:
+(The code list now comes from WIS instead; the data card itself is still
+EPC-only and locked.) Survey output:
 `autorundown_out/epc_survey/`; script `extractor/probe_epc_survey.js`.
 
 **Per-model US model years: built once from NHTSA, committed.**
@@ -1421,6 +1487,13 @@ pass, known-bad guards 33 -> 12.
    in `build.ps1`; 3.13 is thomas@python.org via Google -- the first CI
    run assumed the Windows signer and failed). A new signer fails the build
    with sigstore naming who signed: add that line. `-NoVerify` skips it.
+
+9. **WIS reference tables (2026-10-11), branch `claude/wis-links`, built in
+   the worktree `Desktop/AI Mechanic-wis-links`** (another session switched
+   the main folder's branch mid-task). See "WIS reference tables". Open:
+   labour times (join unknown), hotspot names, links inside the "Original
+   layout" iframe, tap targets in the full-size view, and the body_text
+   hotspot junk in `parse_sids.py`.
 
 ## Working style the user prefers
 
