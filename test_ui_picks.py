@@ -54,8 +54,9 @@ def fail(msg):
     FAILURES.append(msg)
 
 
-def ro_connect(path):
-    """index.connect() runs the schema + migrations, i.e. writes. Not here."""
+def ro_connect(path, setup=False):
+    """index.connect() runs the schema + migrations, i.e. writes. Not here,
+    whatever `setup` the server asks for."""
     p = quote(Path(path).resolve().as_posix(), safe="/:")
     conn = sqlite3.connect(f"file:{p}?mode=ro", uri=True, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -330,6 +331,8 @@ def main(argv=None):
             if p:
                 expect_variant(p, f"VIN box {vin}", name=name, bm=bm,
                                label=page.input_value("#carInput"))
+            if page.is_hidden("#picker"):   # choosing a car closes the Browse row
+                page.click("#browseBtn")
             page.click("#vinBtn")
             page.fill("#vinInput", vin)
             page.click("#vinFind")
@@ -344,6 +347,8 @@ def main(argv=None):
         print("\n3. Browse + reload")
         doc211 = next((d for d in truth.vehicles if d.endswith("-211")), None)
         if doc211:
+            if page.is_hidden("#picker"):
+                page.click("#browseBtn")
             page.select_option("#year", "")
             page.select_option("#make", "")
             page.select_option("#vehicle", doc211)

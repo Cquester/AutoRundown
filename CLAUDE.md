@@ -953,12 +953,13 @@ from the dialog finished in 3 min 13 s, rc 0, evals unchanged.
 opening on LEMON; tabs were the user's choice over radio buttons,
 2026-10-09). **LEMON is one tab** -- the user asked to keep one LEMON source,
 not two -- made of **three cards, one open at a time** (2026-10-10: the user
-found the folder section at the top, open, "too much"): "From a folder on
-this PC" (open; once a LEMON folder is recognised the folder browser and
-the detected box step aside behind "Change folder…"), "Imported LEMON
-manuals (n)", "LEMON catalogue · Preview" (one muted "picking only" line,
-no warning box). `impSource()` is `lemon` when the folder card is open,
-else `catalogue` (no Import button). The
+found the folder section at the top, open, "too much"): "LEMON catalogue ·
+Preview" first and open (2026-10-10, the user: "catalogue should be on the
+top"; one muted "picking only" line, no warning box), then "From a folder
+on this PC" (once a LEMON folder is recognised the folder browser and
+the detected box step aside behind "Change folder…"), then "Imported LEMON
+manuals (n)". `impSource()` is `lemon` when the folder card is open,
+else `catalogue` (no Import button, so the tab opens without one). The
 folder browser (`#impFolder`) is moved between the Folder tab and that
 section; `impSource()` still answers `lemon` (folder import) / `catalogue`
 (tree) / `folder` / `vm`, so the import code paths are unchanged.
