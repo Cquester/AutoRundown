@@ -168,7 +168,12 @@ jobs:
   # alone, with a notice, rather than overwritten. Only this job may write.
   release:
     needs: msi
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # always(): msi's own dependency `changes` is skipped on a push, and
+    # GitHub skips every job downstream of a skipped one unless its condition
+    # names a status -- that skipped the v0.1.4 release after PR #8
+    if: >-
+      always() && needs.msi.result == 'success' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
