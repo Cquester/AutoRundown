@@ -85,6 +85,18 @@ _verify_citations(a, PASSAGES)
 check("uncited answer withheld", not a.found and a.answer == "" and not a.specs, f"{a}")
 check("withheld answer says why", "withheld" in a.caveats.lower(), a.caveats)
 
+# 7b. steps cite nothing themselves: a procedure whose pages were all
+#     invented is withheld too, steps and all
+a = answer(steps=["Remove the wheel.", "Remove the caliper bolts."], source_pages=["999"])
+_verify_citations(a, PASSAGES)
+check("uncited procedure withheld", not a.found and not a.steps and a.answer == "", f"{a}")
+
+# 7c. ...but a procedure with a real source page stays
+a = answer(steps=["Remove the wheel."], source_pages=["12", "999"])
+_verify_citations(a, PASSAGES)
+check("cited procedure kept", a.found and a.steps == ["Remove the wheel."]
+      and a.source_pages == ["12"], f"{a}")
+
 # 8. an answer that was already "not found" stays as it is
 a = answer(found=False, answer="", caveats="Not in this manual.")
 _verify_citations(a, PASSAGES)

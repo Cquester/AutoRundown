@@ -226,6 +226,12 @@ wrong-vehicle spec must never be a candidate.
 or figure the retrieval did not actually return, and withholds an answer left
 with no surviving citation. This is the core safety property — a confident
 wrong torque is worse than no answer. Do not weaken it.
+Steps carry no citation of their own, so they never count as one: an
+answer of steps whose cited pages were all invented is withheld, steps and
+all (the user's rule, 2026-10-11: "only answers that have sources behind
+it"; before, a steps-only answer survived with no citation). Tests:
+`test_citations.py`. Not yet seen on a paid answer -- if the model often
+leaves `source_pages` empty on procedures, they will now show as withheld.
 
 **Retrieval merges round-robin, not by global score.** Global ranking let one
 half of a two-part question crowd out the other ("how much oil AND drain plug
