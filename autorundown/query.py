@@ -94,7 +94,13 @@ class Figure(BaseModel):
 
 class AnswerModel(BaseModel):
     found: bool = Field(description="False if the archive does not contain the answer")
-    answer: str = Field(description="Direct answer in plain language. Empty if not found.")
+    answer: str = Field(description="One to three plain sentences. Empty if not found.")
+    document_page: str = Field(
+        default="",
+        description="The one page to open next to the answer: the manual's "
+                    "procedure for the job, or the spec table when only a "
+                    "value was asked for. Must be a page from the passages."
+    )
     specs: list[SpecItem] = Field(
         default_factory=list,
         description="Only actual values read off the page. Never a "
@@ -102,9 +108,8 @@ class AnswerModel(BaseModel):
     )
     steps: list[str] = Field(
         default_factory=list,
-        description="Ordered procedure steps, when the question asks how to "
-                    "do something. One action per entry, in order. Empty if "
-                    "the question only asked for a value."
+        description="Leave empty. The procedure is shown from the manual "
+                    "page itself (document_page), not retold."
     )
     figures: list[Figure] = Field(
         default_factory=list,
@@ -178,23 +183,26 @@ Hard rules:
   empty. Saying "not in the archive" is a correct and useful response. Do not
   substitute general automotive knowledge.
 - Prefer torque-specification tables over prose mentions when both appear.
-- Keep `answer` to a couple of sentences. The other fields carry the content;
-  do not restate them at length.
+- Keep `answer` to one to three sentences. You are pointing the mechanic at
+  the right manual page, not retelling it: the page in `document_page` is
+  shown in full next to your answer.
 
 Putting things in the right field:
 - `specs` is ONLY for values you can read off the page -- a torque, a
   capacity, a clearance. A cross-reference is not a value: never write a spec
   whose value is "see Fig 15" or "refer to the illustration". If the manual
   answers with a picture, use `figures` instead.
-- `figures` is for diagrams needed to act on the answer: tightening
-  sequences, component locations, routing. Copy the filename exactly from a
-  [diagram: ...] marker in the passages. If a tightening sequence is asked
-  for and the manual gives it as a figure, that figure is the answer -- put
-  it here and say so plainly in `answer`.
-- `steps` is for ordered procedures, when the question asks how to do
-  something. One action per entry, in the manual's order, keeping any torque
-  value inside the step it belongs to. Leave empty when only a value was
-  asked for."""
+- `document_page` is the single page to open beside the answer. For "how do
+  I ..." it is the page with the procedure for that job; for "what is the
+  torque / capacity ..." it is the page with that value's table. Pick the
+  page for this vehicle, not a sibling engine's.
+- For a procedure, `specs` lists the torque values (and other values) the
+  procedure uses, so they can be read at a glance; the steps themselves
+  stay on the page. For a value-only question, `specs` holds just that value.
+- Leave `steps` empty: do not retell the procedure.
+- `figures` only when a diagram on a page OTHER than `document_page` is
+  needed (a tightening sequence printed elsewhere). Copy the filename exactly
+  from a [diagram: ...] marker in the passages."""
 
 
 @dataclass
@@ -249,6 +257,7 @@ class Result:
             "answer": self.answer.answer,
             "specs": [s.model_dump() for s in self.answer.specs],
             "steps": self.answer.steps,
+            "document_page": self.answer.document_page,
             "figures": [f.model_dump() for f in self.answer.figures],
             "source_pages": self.answer.source_pages,
             "page_titles": self.page_titles,
@@ -459,6 +468,17 @@ def _verify_citations(answer: AnswerModel, passages: list[dict]) -> list[str]:
             dropped.append(f"figure '{fig.caption}' referenced {fig.image}")
     answer.figures = kept_figs
 
+    # the page opened beside the answer is a citation like any other; an
+    # invented one falls back to the first real page the answer cites
+    if answer.document_page and str(answer.document_page) not in available:
+        dropped.append(f"document page {answer.document_page}")
+        answer.document_page = ""
+    if answer.document_page and str(answer.document_page) not in map(str, answer.source_pages):
+        answer.source_pages.insert(0, answer.document_page)
+    if not answer.document_page:
+        first = answer.source_pages or [p for s in answer.specs for p in s.source_pages]
+        answer.document_page = str(first[0]) if first else ""
+
     # a claimed answer with no surviving citation is not trustworthy. Steps
     # carry no citation of their own, so they never count as one: a procedure
     # whose cited pages were all invented is withheld with the rest (the
@@ -471,6 +491,7 @@ def _verify_citations(answer: AnswerModel, passages: list[dict]) -> list[str]:
         answer.caveats = f"{answer.caveats} {note}".strip()
         answer.answer = ""
         answer.steps = []
+        answer.document_page = ""
     return dropped
 
 

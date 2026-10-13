@@ -268,20 +268,21 @@ python ask.py --list
 4. Claude answers from the retrieved passages only, copying values exactly.
 5. Every citation is verified against the retrieved set.
 
-Answers are structured rather than prose:
+Claude does not retell the manual. An answer is one to three sentences, a
+table of the values the job needs, and **the manual page itself, opened beside
+the answer**: the procedure for "how do I…", the spec table for "what is the
+torque…". The page is the authority; the summary only points at it.
 
 | Field | Holds |
 |---|---|
-| `specs` | Values only — a torque, a capacity, a clearance |
-| `figures` | Diagrams that *are* the answer: tightening sequences, locations |
-| `steps` | Ordered procedure, when you asked how to do something |
+| `document_page` | The one page to open beside the answer (verified like any citation) |
+| `specs` | Values only — a torque, a capacity, a clearance — shown as a table |
+| `figures` | A diagram on *another* page that the job needs (shown as a link) |
 | `caveats` | Applicability warnings, or a genuine conflict between pages |
 
-That split matters because the manual answers different questions in different
-forms. A torque is a number; a tightening sequence is published only as a
-bolt-numbering diagram. Without somewhere to put a figure, a model writes a spec
-whose value is *"see Fig 15"* — which then renders in large type as though it
-were a torque. Figures are shown inline beside the spec.
+A value is a number, never *"see Fig 15"*: a picture belongs to its page, which
+is one tap away. On a phone the page opens when you tap it, so it does not cover
+the answer.
 
 Citations name the page rather than just numbering it — `p6706 · Front Brake
 Caliper Anchor Plate: Removal`. Titles are resolved locally from the index, so

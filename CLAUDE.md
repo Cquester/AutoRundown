@@ -263,14 +263,19 @@ the old per-bucket code on that index: 42 searches, identical rows; median
 1.37 s -> 0.80 s, worst 9.8 s -> 1.3 s. Not done: a `doc_id` column inside
 the FTS table (narrows inside FTS5; ~10x more, but rebuilds the FTS table).
 
-**Answer schema is split by shape**: `specs` (values only), `figures`
-(diagrams that *are* the answer, e.g. tightening sequences), `steps` (ordered
-procedure). Without `figures`, the model writes a spec whose value is "see
-Fig 15", which renders in 30px type as though it were a torque.
-
-**The answer reads top-down the way the job is done** (the user's request,
-2026-10-08): Answer, Procedure, Figures, then Specifications, caveats,
-sources. It used to lead with specs.
+**The answer points at the manual page; it does not retell it** (the user,
+2026-10-13: "it gets really messy having AI respond and have a bunch of images
+on the side ... it's more to provide the correct document"). An answer is one
+to three sentences, a table of the values the job uses (`specs`), and
+`document_page` -- the procedure page for "how do I", the spec page for a
+value -- which the UI opens on the right (on a phone: a button, so it does not
+cover the answer). `steps` is left empty by the prompt and not rendered; the
+side panel of "diagrams from cited pages" is gone; `figures` survive only as
+links to a diagram on another page. `document_page` is checked like any
+citation in `_verify_citations` (invented -> dropped, falls back to the first
+real cited page; never counts on its own). A value is never "see Fig 15" --
+that rendered in big type as though it were a torque. **Not yet tried on a
+paid answer.**
 
 **Only the chosen car's values, checked after the model.** The user typed
 "2001 E 320 4MATIC" (W210, M112) and got torque values for every W210
