@@ -61,7 +61,10 @@ var TABLES = ["ASRA_FahrzeugII", "ASRA_Fahrzeug", "AW_Fahrzeuge",
               "AW_AssystFuellmengen", "AW_AssystFussnote",
               "SSTeilID", "SSTeilBenennung",
               "ASRA_Arbeitsposition", "ASRA_Arbeitswert", "ASRA_Konstruktionsgruppe",
-              "ASRA_Konstruktionsuntergruppe", "ASRA_Zusatzarbeit", "ASRA_Familie"];
+              "ASRA_Konstruktionsuntergruppe", "ASRA_Zusatzarbeit", "ASRA_Familie",
+// the flat-rate formulas per region and repair group: the stored time is a
+// raw value, the flat rate is the formula applied to it (parse_links.py)
+              "ASRA_Formel", "ASRA_Formelverwendung"];
 // Multi-language tables: only the language being pulled (AR_LANG, 2 =
 // English). The others are 10-30x larger and never read.
 var LANG = parseInt(env("AR_LANG", "2"), 10);

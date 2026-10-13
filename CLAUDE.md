@@ -600,8 +600,27 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   is known**: a variant's engines, narrowed by the car box's year-picked
   family (an E 350 that is M272 or M276 by year showed both before that fix).
   Only 359 English rows / 35 series.
-- **Pulled, not used**: `ASRA_*` labour times (how they join to our cars is
-  not established) and the damage-code tables (hotspot names).
+- **Labour times** (`/api/wis/labour`, `wis_links.labour_*`; a "Labour
+  times" button beside Option codes and a link in the scope note once a
+  variant is picked). WIS ships Mercedes' ASRA flat rates. The chain:
+  Baumuster (+ engine) -> `ASRA_Fahrzeug` -> family + type code ("book");
+  a time is the row for the exact type code, else its group (`40` = 4x),
+  else `00` -- never overlapping (all 478,402 operation x family cases);
+  the stored value is **raw**, and the flat rate is the region's formula
+  (`ASRA_Formel` / `Formelverwendung`, International) applied to it, **in
+  minutes**. Proven against LEMON's "Manufacturer Warranty Hours" for the
+  same 190E 2.3-16: voltage regulator 44 min / 0.7 h, bleed brakes 19 /
+  0.3, ignition switch 84 / 1.5, starter 110 / 1.8, thermostat 25 / 0.5
+  (raw minutes alone are ~30% low). The `ASRA_Vorwort` preface is only
+  release notes -- it does not state the unit. Formulas are parsed as
+  arithmetic only (`_formula`, never `eval`). **A car can be in several
+  books** (sedan/wagon, engine change, chassis-range splits like "124 (up
+  to 09/92)"): the UI asks, never picks -- 22 of 29 W211 variants on the
+  current index, mostly sedan vs wagon because the body-style split is not
+  yet in the real index. Extra work (category Z) has no formula and is left
+  out; raw 0 means "not this type". Search also tries the manual's words
+  (`synonyms.py`: water pump -> coolant pump, brake pads -> brake linings).
+- **Pulled, not used**: the damage-code tables (hotspot names).
 Tests: `test_wis_links.py` (free). Browser-checked against the real index
 (Playwright, no API key): links, diagram tap targets, the dialog, the oil
 line, 375 px.
@@ -1490,8 +1509,9 @@ pass, known-bad guards 33 -> 12.
 
 9. **WIS reference tables (2026-10-11), branch `claude/wis-links`, built in
    the worktree `Desktop/AI Mechanic-wis-links`** (another session switched
-   the main folder's branch mid-task). See "WIS reference tables". Open:
-   labour times (join unknown), hotspot names, links inside the "Original
+   the main folder's branch mid-task). See "WIS reference tables". Merged
+   as PR #8; labour times followed on `claude/labour-times`. Open: hotspot
+   names, links inside the "Original
    layout" iframe, tap targets in the full-size view, and the body_text
    hotspot junk in `parse_sids.py`.
 
