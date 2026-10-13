@@ -1,6 +1,6 @@
 """Removing manuals from the index -- FREE, no API calls, ~20 s.
 
-    python test_remove_manuals.py
+    python tests/test_remove_manuals.py
 
 Builds an index with two sample LEMON cars, one folder import and the sample
 Mercedes WIS corpus, then checks: the listing groups them the way the tabs
@@ -12,6 +12,7 @@ log survives every removal; a phone on the LAN can't list or remove; and
 """
 from __future__ import annotations
 
+from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import os
 import sqlite3
 import subprocess
@@ -30,7 +31,6 @@ import make_sample_lemon  # noqa: E402
 import remove_manuals  # noqa: E402
 from autorundown import server  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent
 fails = 0
 
 
@@ -58,7 +58,7 @@ docs.mkdir(parents=True)
 ingest.main(["--archive", str(TMP / "docs"), "--index", str(db), "--importer", "folder"])
 wis = ROOT / "sample_corpus" / "wis_en"
 if not (wis / "manifest.json").is_file():
-    subprocess.run([sys.executable, str(ROOT / "make_sample_corpus.py")], check=True, cwd=ROOT)
+    subprocess.run([sys.executable, str(ROOT / "tools" / "make_sample_corpus.py")], check=True, cwd=ROOT)
 ingest.main(["--archive", str(wis), "--index", str(db)])
 con = sqlite3.connect(db)
 con.execute("INSERT INTO usage_log (ts, source, model, question, calls, input_tokens, output_tokens, cost_usd) "

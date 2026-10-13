@@ -71,8 +71,9 @@ jobs:
       - name: Test suites
         run: |
           rc=0
-          for t in test_citations.py test_records.py test_access.py test_lemon_import.py \
-                   test_lemon_catalogue.py test_remove_manuals.py test_wis_links.py; do
+          for t in tests/test_citations.py tests/test_records.py tests/test_access.py \
+                   tests/test_lemon_import.py tests/test_lemon_catalogue.py \
+                   tests/test_remove_manuals.py tests/test_wis_links.py; do
             echo "::group::$t"
             start=$SECONDS
             python "$t" || { echo "::error::$t failed"; rc=1; }
@@ -83,7 +84,7 @@ jobs:
 
       - name: Sample index, served and searched
         run: |
-          python make_sample_corpus.py
+          python tools/make_sample_corpus.py
           export AUTORUNDOWN_HOME="$RUNNER_TEMP/smoke-home"
           python ingest.py --archive sample_corpus --index "$RUNNER_TEMP/smoke.db"
           python serve.py --index "$RUNNER_TEMP/smoke.db" --host 127.0.0.1 --port 8760 > "$RUNNER_TEMP/smoke.log" 2>&1 &
@@ -123,7 +124,7 @@ jobs:
 
       - name: Car picker sends the car it shows (every suggestion, variant and VIN)
         # the sample corpus's hand-made variants; index opened read-only
-        run: python test_ui_picks.py --index "$RUNNER_TEMP/smoke.db"
+        run: python tests/test_ui_picks.py --index "$RUNNER_TEMP/smoke.db"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: failure()

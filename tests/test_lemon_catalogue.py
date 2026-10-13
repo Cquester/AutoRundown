@@ -1,6 +1,6 @@
 """The LEMON tab's catalogue tree -- FREE, no API calls, no network, ~3 s.
 
-    python test_lemon_catalogue.py
+    python tests/test_lemon_catalogue.py
 
 Checks: the committed snapshot loads (279,988 vehicles, 65 makes); the tree
 opens make > year (newest first) > model > variant with the right counts; a
@@ -14,6 +14,7 @@ AUTORUNDOWN_HOME, so nothing real is touched.
 """
 from __future__ import annotations
 
+from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import json
 import os
 import tempfile

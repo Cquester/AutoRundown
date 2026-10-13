@@ -21,7 +21,7 @@ once, so always use **your** box's name and ports, never another's:
   "require sign-in", issue a code) and see what the phone side gets; test
   the phone side at 375x812;
 - commands inside the box: `... box.sh exec <name> <command>` (e.g.
-  `python test_records.py`), and `... box.sh check <name>` for every CI
+  `python tests/test_records.py`), and `... box.sh check <name>` for every CI
   check at once;
 - files out of the box: `... box.sh fetch <name> <path>` ->
   `.dev/box/<name>/`.

@@ -1,6 +1,6 @@
 """Generate a stand-in WIS corpus, for working on the UI without the VM.
 
-    python make_sample_corpus.py [--catalogue <models.jsonl>] [--per-series N]
+    python tools/make_sample_corpus.py [--catalogue <models.jsonl>] [--per-series N]
     python ingest.py --archive sample_corpus --index sample_wis.db
     python serve.py --index sample_wis.db
 
@@ -20,7 +20,8 @@ import json
 import random
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent / "sample_corpus" / "wis_en"
+ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / "sample_corpus" / "wis_en"
 
 random.seed(7)
 
@@ -34,7 +35,7 @@ MODELS = ["201", "176", "246", "204", "205", "211", "212", "213", "222",
 #
 # 201 (the W201 190/190E) is deliberately included: it is the pre-1990 case
 # the spec warns about, whose documents rarely name the model in prose.
-REAL_CATALOGUE = (Path(__file__).resolve().parent.parent
+REAL_CATALOGUE = (ROOT.parent
                   / "Mercedes Documents" / "autorundown_out" / "wis_applic"
                   / "models.jsonl")
 

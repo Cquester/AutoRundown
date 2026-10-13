@@ -1,6 +1,6 @@
 """Who may do what on the shop network -- FREE, no API calls, ~2 s.
 
-    python test_access.py
+    python tests/test_access.py
 
 Drives the real FastAPI app in-process, from three kinds of client:
 this PC (127.0.0.1), a phone on the LAN (192.168.1.50), and the PC reached
@@ -11,6 +11,7 @@ Python's own ssl module, as a phone would.
 """
 from __future__ import annotations
 
+from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import os
 import sys
 import tempfile

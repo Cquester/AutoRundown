@@ -17,7 +17,7 @@
 #   wsl -d Ubuntu -- bash tools/container/box.sh build
 #   ...                       box.sh up [NAME] [--port N]   # prints its name + addresses
 #   ...                       box.sh check NAME             # every CI check, inside (~35 s)
-#   ...                       box.sh exec NAME python test_records.py
+#   ...                       box.sh exec NAME python tests/test_records.py
 #   ...                       box.sh fetch NAME /tmp/ui-shots   # copy files out
 #   ...                       box.sh list | down NAME | down --all
 #

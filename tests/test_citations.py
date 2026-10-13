@@ -1,6 +1,6 @@
 """Citation verification, the core safety property -- FREE, no API calls, <1 s.
 
-    python test_citations.py
+    python tests/test_citations.py
 
 query._verify_citations() must drop every page and figure the retrieval did
 not return, and withhold an answer left with no surviving citation (CLAUDE.md:
@@ -9,6 +9,7 @@ built by hand here; nothing is sent to Anthropic.
 """
 from __future__ import annotations
 
+from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import os
 import sys
 import tempfile

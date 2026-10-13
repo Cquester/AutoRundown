@@ -1,7 +1,7 @@
 """UI check: the variant the page sends is the car it shows -- free.
 
-    python test_ui_picks.py                       # the real index.db, headless
-    python test_ui_picks.py --index sample_wis.db --headed
+    python tests/test_ui_picks.py                       # the real index.db, headless
+    python tests/test_ui_picks.py --index sample_wis.db --headed
 
 sample_wis.db (make_sample_corpus.py + ingest.py) carries ~20 hand-made
 variants and two VIN prefixes, enough for CI (ci.yml runs it there); the real
@@ -33,17 +33,16 @@ by the test, not the server, so nothing is written and it is fast. Anything
 that is not a GET, and /api/ask in particular, is aborted and fails the run --
 this never spends API credit.
 """
+from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import argparse
 import json
 import socket
 import sqlite3
-import sys
 import threading
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from autorundown import config, index  # noqa: E402
 from autorundown.search import scope_ids  # noqa: E402

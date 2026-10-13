@@ -1,4 +1,4 @@
 # Development-only tools, not needed to run AutoRundown.
-# test_ui_picks.py drives the real page; it uses the installed Edge/Chrome,
+# tests/test_ui_picks.py drives the real page; it uses the installed Edge/Chrome,
 # so `playwright install` (a browser download) is not needed.
 playwright>=1.40

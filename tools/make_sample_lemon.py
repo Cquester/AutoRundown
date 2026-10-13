@@ -1,7 +1,7 @@
 """Generate a small stand-in LEMON archive, for trying the LEMON import and
 the reading view without the real manuals.
 
-    python make_sample_lemon.py [--out sample_lemon]
+    python tools/make_sample_lemon.py [--out sample_lemon]
     python ingest.py --archive sample_lemon --importer lemon --index sample.db
 
 The text and numbers are invented -- **this is NOT manual content; never use
@@ -17,7 +17,7 @@ import argparse
 import html
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 # (folder, make, year, variant)
 VEHICLES = [

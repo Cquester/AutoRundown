@@ -10,9 +10,9 @@ First read `.claude/qa/RUNBOOK.md` and follow it exactly (isolation, browser
 setup, hard rules, report format). Never call `/api/ask`.
 
 Run the existing free suites first and report any failure as a finding:
-`python test_access.py`, `python test_records.py`,
-`python test_lemon_import.py`, `python test_lemon_catalogue.py`,
-`python test_remove_manuals.py`. (`test_ui_picks.py` and `eval_wis.py` need
+`python tests/test_access.py`, `python tests/test_records.py`,
+`python tests/test_lemon_import.py`, `python tests/test_lemon_catalogue.py`,
+`python tests/test_remove_manuals.py`. (`tests/test_ui_picks.py` and `eval_wis.py` need
 the real index; skip them and say so.)
 
 Then, with Playwright and direct HTTP against http://localhost:8757:

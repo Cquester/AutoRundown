@@ -7,7 +7,7 @@ nothing it does touches your real index, settings, accounts or spend log.
 
 Everything lives in `.dev/` in this repo (gitignored): its own
 AUTORUNDOWN_HOME (config, sign-in accounts, TLS), its own index. The samples
-are invented text (make_sample_lemon.py, make_sample_corpus.py): two of the
+are invented text (tools/make_sample_lemon.py, tools/make_sample_corpus.py): two of the
 three LEMON sample vehicles are left unimported, so the LEMON tab's folder import
 source has something to pick. Port 8757, localhost only by default, so it can
 run next to the real one (8756) and isn't on the shop network.
@@ -42,8 +42,8 @@ def run(cmd: list[str], env: dict) -> None:
 def build(index: Path, env: dict) -> None:
     py = sys.executable
     lemon = DEV / "lemon"
-    run([py, "make_sample_lemon.py", "--out", str(lemon)], env)
-    run([py, "make_sample_corpus.py"], env)
+    run([py, "tools/make_sample_lemon.py", "--out", str(lemon)], env)
+    run([py, "tools/make_sample_corpus.py"], env)
     run([py, "ingest.py", "--archive", str(ROOT / "sample_corpus"), "--index", str(index)], env)
     # one LEMON vehicle in; the other two are left for the import dialog
     run([py, "ingest.py", "--archive", str(lemon), "--index", str(index),
@@ -86,7 +86,7 @@ def main() -> int:
         for p in DEV.glob("empty.db*"):
             p.unlink()
         (DEV / "lemon").exists() or run(
-            [sys.executable, "make_sample_lemon.py", "--out", str(DEV / "lemon")], env)
+            [sys.executable, "tools/make_sample_lemon.py", "--out", str(DEV / "lemon")], env)
     else:
         index = DEV / "index.db"
         if not index.exists():

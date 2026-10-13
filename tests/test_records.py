@@ -1,6 +1,6 @@
 """Regression check for the `records` importer -- free, no API calls.
 
-    python test_records.py
+    python tests/test_records.py
 
 Builds a synthetic corpus from the record shapes in the extractor's
 IMPORT_SPEC.md (sections 3 and 3a), then drives the whole path: detect -> discover -> pages ->
@@ -8,6 +8,7 @@ ingest -> search, in both grouping modes. Unlike eval.py these cases are not
 tied to a particular archive, so they keep working when the real corpus is
 re-pulled.
 """
+from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import collections
 import contextlib
 import csv
@@ -15,11 +16,9 @@ import io
 import json
 import shutil
 import sqlite3
-import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from autorundown import importers, index, search  # noqa: E402
 from autorundown.importers.records import (  # noqa: E402
@@ -307,7 +306,7 @@ def main():
         check("no two series end up with the same label",
               len(cn) == len(set(cn.values())), True)
         check("other sources have no curated table", curated_years("some-other-source"), {})
-        with open(Path(__file__).resolve().parent / "autorundown" / "importers" / "data"
+        with open(ROOT / "autorundown" / "importers" / "data"
                   / "mercedes_years.csv", encoding="utf-8", newline="") as f:
             rows_ = list(csv.DictReader(f))
         bad_rows = [r["series"] for r in rows_ if not (
