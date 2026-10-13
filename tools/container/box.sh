@@ -58,7 +58,10 @@ cmd_up() {
     done
     docker image inspect "$IMAGE" > /dev/null 2>&1 || die "no image yet: run 'box.sh build'"
     docker container inspect "ar-$name" > /dev/null 2>&1 && die "ar-$name exists: 'box.sh down $name' first"
+    # --restart: WSL stops its VM (and Docker) soon after the last Windows
+    # command ends; when it starts again the box comes back by itself
     docker create --name "ar-$name" --label autorundown-box=1 \
+        --restart unless-stopped \
         --cap-add NET_ADMIN --cap-add NET_RAW \
         -p "127.0.0.1:$port:18757" \
         "$IMAGE" > /dev/null

@@ -133,7 +133,15 @@ subagents of a local session and work on the box only through its URL and
 `box.sh exec` (`.claude/qa/RUNBOOK.md`). Claude Code inside a box was tried
 and dropped: it needs the CLI's own sign-in (`~/.claude/.credentials.json`,
 separate from the desktop app's, and expired since 2026-10-08), which the
-user did not want per box. A box tests a **snapshot**: after changing code,
+user did not want per box. **WSL stops its VM a few seconds after the last
+Windows command ends**, and Docker with it -- the user found the box
+"not running" (Exited 255). Boxes are created `--restart unless-stopped`
+(back by themselves in ~1 s when WSL starts; `entrypoint.sh` clears
+`/tmp/ready` first), and while someone is using one, a session keeps WSL
+up with a background `wsl.exe -d Ubuntu --exec sleep infinity`. The
+permanent fix is `vmIdleTimeout=-1` under `[wsl2]` in the user's
+`%USERPROFILE%\.wslconfig` -- their setting to change, not ours.
+A box tests a **snapshot**: after changing code,
 `down` and `up` again. Boxes run from the main folder (the user's
 preference over a separate worktree folder). Python on Windows writes CRLF:
 edit the `.sh` files with the Write/Edit tools, or bash fails on `\r`

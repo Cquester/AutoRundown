@@ -4,6 +4,7 @@
 # box alive for `box.sh exec`.
 set -euo pipefail
 
+rm -f /tmp/ready             # a restarted box is ready only when it says so again
 sudo /usr/local/bin/init-firewall.sh
 
 cd /work
