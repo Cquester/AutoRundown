@@ -34,6 +34,32 @@ built it.
 
 ---
 
+## Testing a change: start here
+
+Three places to test, each for one job. **All free**; none can spend API
+credit.
+
+1. **Quick checks on the PC**: the free suites (`python test_records.py`
+   etc.) and `eval.py` / `eval_wis.py` against the real index (read-only).
+   No server needed.
+2. **A test box for anything "like a user", and for every agent**:
+   `wsl -d Ubuntu -- bash tools/container/box.sh up` starts your own copy of
+   the app in Docker, with sample data, no network, nothing of the user's.
+   Keep the `BOX name=… admin=… phone=…` line it prints: **admin** is "this
+   PC", **phone** is a mechanic's phone. `box.sh check <name>` runs every
+   CI check inside it; `down <name>` when finished -- your box only,
+   several chats share this PC. Hand agents the `BOX` line; QA agents read
+   `.claude/qa/RUNBOOK.md`. **How-to and rules: `tools/container/README.md`.**
+3. **Windows Sandbox for the installer** (`tools/sandbox/start.ps1`): the
+   real MSI on a clean Windows, when packaging, the wizard or the tray
+   changed.
+
+Never test against the real server (port 8756), the real index or
+`~/.autorundown` by starting servers on the PC: use a box. Show the user a
+change by giving them the box's admin (or phone) address.
+
+---
+
 ## Commands
 
 ```bash
@@ -68,7 +94,8 @@ wsl -d Ubuntu -- bash tools/container/box.sh up     # test box (Docker in WSL): 
 wsl -d Ubuntu -- bash tools/container/box.sh check <name>  # every CI check inside it (~35 s)
 ```
 
-**Try UI and import changes with `python dev.py`, on the user's PC.** It
+**`python dev.py` is what a test box runs** (use a box, above; on the PC
+only for a quick look when Docker/WSL is unavailable). It
 builds sample data (`make_sample_lemon.py`, `make_sample_corpus.py`; invented
 text) into `.dev/`, runs with its own `AUTORUNDOWN_HOME` there (config,
 accounts, TLS) and serves on localhost:8757, so the real index, spend log and
