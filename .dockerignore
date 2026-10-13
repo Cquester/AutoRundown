@@ -1,0 +1,7 @@
+# The test box image (tools/container/Dockerfile) needs only these; the repo
+# itself is copied into each box at `box.sh up`, never baked into the image.
+*
+!requirements.txt
+!requirements-dev.txt
+!requirements-extractor.txt
+!tools/container/

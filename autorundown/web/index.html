@@ -2616,16 +2616,23 @@ $('#vinInput').addEventListener('keydown', e => {
 // -- import -----------------------------------------------------------------
 // Browsing and importing run on the PC hosting AutoRundown; the server refuses
 // them from other devices, and the dialog says so.
-let impPoll = null, impSeq = 0;
+let impPoll = null, impSeq = 0, impTyped = 0;   // impTyped: edits to #impPath
 async function impBrowse(path) {
   // a big folder takes seconds to check; a reply for a folder the user has
   // already left must not overwrite the one they are looking at now
-  const seq = ++impSeq;
+  const seq = ++impSeq, typed = impTyped;
   $('#impDetected').innerHTML = '<span class="muted">Checking this folder…</span>';
   $('#impStart').disabled = true;
   try {
     const r = await api('/api/browse?path=' + encodeURIComponent(path || ''));
     if (seq !== impSeq) return;
+    // nor may it replace a path typed while it was on its way: opening the
+    // tab asks for the home folder, and a quick typist's path was overwritten
+    // by it, then Enter browsed the home folder (seen in the test box)
+    if (typed !== impTyped) {
+      $('#impDetected').innerHTML = '<span class="muted">Press Enter to check this folder.</span>';
+      return;
+    }
     $('#impPath').value = r.path;
     $('#impUp').dataset.parent = r.parent;
     $('#impDirs').hidden = false; $('#impDetected').hidden = false; $('#impChange').hidden = true;
@@ -2950,6 +2957,7 @@ $('#impChange').onclick = () => {
 };
 $('#impGo').onclick = () => impBrowse($('#impPath').value);
 $('#impPath').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); impBrowse($('#impPath').value); } });
+$('#impPath').addEventListener('input', () => impTyped++);
 $('#impUp').onclick = () => $('#impUp').dataset.parent && impBrowse($('#impUp').dataset.parent);
 // "lemon" is the LEMON tab's folder import (its old radio value), "catalogue" the tree
 const impTab = () => document.querySelector('.srctabs [aria-selected="true"]').dataset.src;

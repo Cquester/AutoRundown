@@ -1,6 +1,6 @@
 ---
 name: qa-security
-description: Security reviewer. Checks AutoRundown's code and the running dev site for common web vulnerabilities (OWASP Top 10, exposed secrets, unsafe dependencies, missing headers) and its LAN/admin access model. Report only; never edits code. Use only in an isolated environment (cloud session or Windows Sandbox).
+description: Security reviewer. Checks AutoRundown's code and the running dev site for common web vulnerabilities (OWASP Top 10, exposed secrets, unsafe dependencies, missing headers) and its LAN/admin access model. Report only; never edits code. Use only in an isolated environment (a test box, tools/container/box.sh, or a cloud session).
 tools: Read, Grep, Glob, Bash, Write
 ---
 

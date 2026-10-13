@@ -4,30 +4,47 @@ Read this first. It is the same for every agent in `.claude/agents/qa-*.md`.
 
 ## Where this runs
 
-In an **isolated environment only**: a Claude Code cloud session or a
-Windows Sandbox. Never on the user's own PC with access to their files.
-If you can see `~/.autorundown/`, `Desktop/Mercedes Documents/` or an
-`index.db` larger than a few MB in the repo root, stop and report that
-instead of testing.
+The app under test runs in a **test box** (`tools/container/box.sh`,
+Docker in WSL): a Linux container holding a copy of the repo at `/work`,
+serving `dev.py`'s sample data, with no outbound network and no API key.
+You run on the PC, as a subagent of a local session, and work on the box
+**from outside only**. The orchestrator starts one box per chat with
+`wsl -d Ubuntu -- bash tools/container/box.sh up` and hands you the
+`BOX name=... admin=... phone=...` line it printed -- several chats test at
+once, so always use **your** box's name and ports, never another's:
+
+- **admin** (e.g. http://localhost:18800): arrives from loopback, so you are
+  "this PC" -- Shop setup, the import pages and `/api/admin/*` are reachable;
+- **phone** (the admin port + 1, e.g. http://localhost:18801): arrives from
+  the network, so you are a mechanic's phone -- no Shop setup, admin pages
+  answer 403, sign-in codes apply. Change something as admin (turn on
+  "require sign-in", issue a code) and see what the phone side gets; test
+  the phone side at 375x812;
+- commands inside the box: `... box.sh exec <name> <command>` (e.g.
+  `python test_records.py`), and `... box.sh check <name>` for every CI
+  check at once;
+- files out of the box: `... box.sh fetch <name> <path>` ->
+  `.dev/box/<name>/`.
+
+Check your box is up before you begin: `curl -s <admin>/api/me`. If it is
+not, say so -- do not start a server on the PC instead, and do not `down`
+a box that isn't yours.
+
+On the PC, touch nothing but the box and your own files under `.dev/qa/`.
+Never open, list or copy `~/.autorundown/`, `Desktop/Mercedes Documents/`,
+`index.db` or anything outside this repo; never run `serve.py`, `dev.py`,
+`ingest.py` or the extractor on the PC. Inside the box anything goes: it
+is thrown away with `box.sh down`.
 
 ## The site under test
 
-`python dev.py --no-browser` — http://localhost:8757, bound to 127.0.0.1.
-It builds invented sample data into `.dev/` (gitignored), uses its own
-`AUTORUNDOWN_HOME=.dev/home`, and removes `ANTHROPIC_API_KEY` from its
-environment. Requests from localhost are **admin** (`autorundown/auth.py`),
-so Settings, the Import dialog and `/api/admin/*` are all reachable.
-
-The orchestrator starts it once; check it is up before you begin:
-
-```bash
-curl -s http://localhost:8757/api/me
-```
-
-If it is not running: `pip install -r requirements.txt -r requirements-dev.txt`,
-then `python dev.py --no-browser &` and wait for `/api/me`. Do not start a
-second copy. `python dev.py --empty --port 8758 --no-browser` gives the
-first-start state if you need it (stop it when done).
+`dev.py` in the box: invented sample data (three LEMON vehicles, one
+imported; a stand-in WIS corpus with variants and VINs), its own
+`AUTORUNDOWN_HOME`, no API key. For the first-start state, start a second,
+empty instance inside the box:
+`box.sh exec qa bash -c 'AUTORUNDOWN_HOME=/tmp/empty python serve.py
+--host 127.0.0.1 --port 8758 &'` and drive it from inside (it is not
+published to the PC).
 
 ## Browser
 

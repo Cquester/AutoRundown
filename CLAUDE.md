@@ -34,6 +34,32 @@ built it.
 
 ---
 
+## Testing a change: start here
+
+Three places to test, each for one job. **All free**; none can spend API
+credit.
+
+1. **Quick checks on the PC**: the free suites (`python test_records.py`
+   etc.) and `eval.py` / `eval_wis.py` against the real index (read-only).
+   No server needed.
+2. **A test box for anything "like a user", and for every agent**:
+   `wsl -d Ubuntu -- bash tools/container/box.sh up` starts your own copy of
+   the app in Docker, with sample data, no network, nothing of the user's.
+   Keep the `BOX name=… admin=… phone=…` line it prints: **admin** is "this
+   PC", **phone** is a mechanic's phone. `box.sh check <name>` runs every
+   CI check inside it; `down <name>` when finished -- your box only,
+   several chats share this PC. Hand agents the `BOX` line; QA agents read
+   `.claude/qa/RUNBOOK.md`. **How-to and rules: `tools/container/README.md`.**
+3. **Windows Sandbox for the installer** (`tools/sandbox/start.ps1`): the
+   real MSI on a clean Windows, when packaging, the wizard or the tray
+   changed.
+
+Never test against the real server (port 8756), the real index or
+`~/.autorundown` by starting servers on the PC: use a box. Show the user a
+change by giving them the box's admin (or phone) address.
+
+---
+
 ## Commands
 
 ```bash
@@ -64,9 +90,12 @@ python extractor/parse_links.py                   # rebuild wis_links.sqlite (of
 python test_citations.py                          # FREE, _verify_citations (<1 s)
 python tools/check_js.py                          # FREE, index.html's JS parses (needs node)
 powershell -File tools/sandbox/start.ps1 [-Source] # fresh install in Windows Sandbox, :18756
+wsl -d Ubuntu -- bash tools/container/box.sh up     # test box (Docker in WSL): admin + phone ports
+wsl -d Ubuntu -- bash tools/container/box.sh check <name>  # every CI check inside it (~35 s)
 ```
 
-**Try UI and import changes with `python dev.py`, on the user's PC.** It
+**`python dev.py` is what a test box runs** (use a box, above; on the PC
+only for a quick look when Docker/WSL is unavailable). It
 builds sample data (`make_sample_lemon.py`, `make_sample_corpus.py`; invented
 text) into `.dev/`, runs with its own `AUTORUNDOWN_HOME` there (config,
 accounts, TLS) and serves on localhost:8757, so the real index, spend log and
@@ -108,6 +137,58 @@ removes any AutoRundown block rule; `start.ps1` checks `/api/me` answers
 as admin through the forwarder and warns if not. Debug a running sandbox
 with `wsb list` / `wsb exec --id <id> -r System -c "<cmd>"` (Windows 11
 24H2+), writing output to `C:\ar\out`.
+
+**Test boxes: the app in a container, tested from outside**
+(`tools/container/`, 2026-10-11/12; the user chose Docker Engine inside
+WSL2 over Docker Desktop -- Ubuntu 26.04, Docker 29.9, the user is in the
+`docker` group so no sudo). **A box is the program, not Claude Code** (the
+user's rule, 2026-10-12: no sign-in per box, nothing of theirs inside).
+`box.sh build` makes the image `autorundown-test` (Python 3.13, the app's
+requirements, ruff, Playwright Chromium, Node for check_js; 2.3 GB, ~2.5
+min). `box.sh up [name] [--port N]` copies the working tree **as it is
+now** (uncommitted too; no .git, indexes, samples, logs, or the other
+sessions' `.claude/worktrees/`) into a new container `ar-<name>` and
+starts it in ~11 s: `init-firewall.sh` drops **all** outbound traffic
+(proves example.com fails), then `dev.py` serves sample data and
+`tools/sandbox/forward.py` makes the published port (`127.0.0.1:N` in WSL,
+`localhost:N` from Windows) arrive from loopback, so **the user's browser
+is admin there**. **Each box has two addresses** (the user's
+request, 2026-10-12): admin on N and **phone on N+1** -- `dev.py --lan`
+binds 0.0.0.0 and Docker publishes 8757 directly, so those requests come
+from Docker's gateway, not loopback: not admin, admin pages 403, paths
+hidden, sign-in applies (checked: sign-in turned on at N locks N+1 out,
+401). **Several chats at once:** `up` takes the next free pair from 18800,
+checked in Docker (label `ar.ports`), WSL (`ss`) and Windows (`netstat`),
+and names an unnamed box after its port (`box-18800`); `docker create`
+with that name is the lock, so simultaneous `up`s can't share a pair, and
+a port that fails at `docker start` moves on to the next pair. Checked:
+three `up`s at the same moment got 18802/04/06, a Windows program on
+18810 was skipped, an existing name is refused. `up` ends with a
+machine-readable `BOX name=… admin=… phone=…` line; `list` shows both
+addresses per box. `check` runs every CI check inside (`check.sh`: ruff,
+check_js, every `test_*.py`, `test_ui_picks.py` on the box's index,
+`ui_check.py` on a second empty instance; ~35 s, all pass); `exec`, `fetch`
+(to `.dev/box/<name>/`), `list`, `down`. **Agents run on the PC** as
+subagents of a local session and work on the box only through its URL and
+`box.sh exec` (`.claude/qa/RUNBOOK.md`). Claude Code inside a box was tried
+and dropped: it needs the CLI's own sign-in (`~/.claude/.credentials.json`,
+separate from the desktop app's, and expired since 2026-10-08), which the
+user did not want per box. **WSL stops its VM a few seconds after the last
+Windows command ends**, and Docker with it -- the user found the box
+"not running" (Exited 255). Boxes are created `--restart unless-stopped`
+(back by themselves in ~1 s when WSL starts; `entrypoint.sh` clears
+`/tmp/ready` first), and while someone is using one, a session keeps WSL
+up with a background `wsl.exe -d Ubuntu --exec sleep infinity`. The
+permanent fix is `vmIdleTimeout=-1` under `[wsl2]` in the user's
+`%USERPROFILE%\.wslconfig` -- their setting to change, not ours.
+A box tests a **snapshot**: after changing code,
+`down` and `up` again. Boxes run from the main folder (the user's
+preference over a separate worktree folder). Python on Windows writes CRLF:
+edit the `.sh` files with the Write/Edit tools, or bash fails on `\r`
+(`.gitattributes` keeps them LF in git). The first `ui_check.py` run in a
+box found a real race (below, "Importing from the site"). Windows Sandbox
+stays for installer/release checks and for the user clicking through the
+real Windows app.
 
 Mercedes WIS, end to end from this one session (VM -> index). The extractor
 is `extractor/` in this repo (the only copy since 2026-10-08); its data --
@@ -1064,6 +1145,14 @@ lands on a "Set up AutoRundown" checklist (add manuals, required; API key
 and phones, optional) and can't enter an empty search screen; a phone gets
 "No manuals yet … check back later". While an import runs, a banner says
 results are partial (`/api/status`, any signed-in device).
+
+**A late folder reply no longer overwrites a typed path** (2026-10-11,
+found by `ui_check.py` in a test box): opening Manuals asks
+`/api/browse` for the home folder; a path typed before that reply landed
+was replaced by it, and Enter then browsed the home folder. `impBrowse()`
+drops a reply when `#impPath` was edited (`impTyped`, an `input` counter)
+after it was requested. Probably also the "two paths run together" glitch
+seen once on Windows.
 
 Shop setup → **Manuals**, and automatically on first start
 when the index is empty. A folder browser plus format detection
