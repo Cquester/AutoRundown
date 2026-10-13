@@ -1,6 +1,6 @@
 """WIS cross-references open the right page -- FREE, no API calls, ~5 s.
 
-    python test_wis_links.py
+    python tests/test_wis_links.py
 
 Builds test_records.py's small WIS corpus, adds a `wis_links.sqlite` the way
 extractor/parse_links.py writes it, and drives the real server in-process
@@ -16,6 +16,7 @@ extractor/parse_links.py writes it, and drives the real server in-process
 """
 from __future__ import annotations
 
+from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import os
 import shutil
 import sqlite3

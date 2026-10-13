@@ -102,7 +102,7 @@ if ($LASTEXITCODE) { throw "pip install failed" }
 
 # 3. the app: the package plus the command-line tools a user may run
 Copy-Item -Recurse (Join-Path $root "autorundown") $app
-foreach ($f in "serve.py", "ingest.py", "ask.py", "rebuild_wis.py", "LICENSE", "README.md") {
+foreach ($f in "serve.py", "ingest.py", "ask.py", "rebuild_wis.py", "remove_manuals.py", "LICENSE", "README.md") {
     Copy-Item (Join-Path $root $f) $app
 }
 Get-ChildItem $app -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force

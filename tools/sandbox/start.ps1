@@ -102,11 +102,11 @@ if ($Source) {
 # -- sample manuals (invented text) to import from Shop setup --------------
 $samples = New-Item -ItemType Directory -Force (Join-Path $in "samples")
 if (-not (Test-Path (Join-Path $root "sample_corpus\manifest.json"))) {
-    python (Join-Path $root "make_sample_corpus.py") | Out-Null
+    python (Join-Path $root "tools/make_sample_corpus.py") | Out-Null
     if ($LASTEXITCODE) { throw "make_sample_corpus.py failed" }
 }
 Copy-Item -Recurse (Join-Path $root "sample_corpus") (Join-Path $samples "Mercedes WIS sample")
-python (Join-Path $root "make_sample_lemon.py") --out (Join-Path $samples "LEMON sample") | Out-Null
+python (Join-Path $root "tools/make_sample_lemon.py") --out (Join-Path $samples "LEMON sample") | Out-Null
 if ($LASTEXITCODE) { throw "make_sample_lemon.py failed" }
 
 Copy-Item (Join-Path $PSScriptRoot "inside.ps1"), (Join-Path $PSScriptRoot "forward.py") $in

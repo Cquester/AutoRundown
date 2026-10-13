@@ -7,14 +7,15 @@ cd /work
 rc=0
 ruff check --select F . > /tmp/ruff.log 2>&1 && echo "ok   ruff" || { echo "FAIL ruff"; cat /tmp/ruff.log; rc=1; }
 python tools/check_js.py > /tmp/js.log 2>&1 && echo "ok   check_js" || { echo "FAIL check_js"; tail -5 /tmp/js.log; rc=1; }
-for t in test_*.py; do
+for p in tests/test_*.py; do
+    t=$(basename "$p")
     [ "$t" = test_ui_picks.py ] && continue
     s=$SECONDS
-    if python "$t" > "/tmp/$t.log" 2>&1; then echo "ok   $t ($((SECONDS - s)) s)"
+    if python "$p" > "/tmp/$t.log" 2>&1; then echo "ok   $t ($((SECONDS - s)) s)"
     else echo "FAIL $t"; tail -8 "/tmp/$t.log"; rc=1; fi
 done
 s=$SECONDS
-python test_ui_picks.py --index .dev/index.db > /tmp/picks.log 2>&1 \
+python tests/test_ui_picks.py --index .dev/index.db > /tmp/picks.log 2>&1 \
     && echo "ok   test_ui_picks ($((SECONDS - s)) s): $(tail -1 /tmp/picks.log)" \
     || { echo "FAIL test_ui_picks"; tail -15 /tmp/picks.log; rc=1; }
 # first start: a second, empty instance, driven in Chromium; screenshots in

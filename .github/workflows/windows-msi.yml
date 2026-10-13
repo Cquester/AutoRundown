@@ -118,7 +118,7 @@ jobs:
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$msi`" /qn /l*v install.log"
           if ($p.ExitCode) { Get-Content install.log -Tail 40; throw "install failed: $($p.ExitCode)" }
           $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
-          foreach ($f in "python\python.exe", "app\ingest.py", "app\autorundown\web\index.html") {
+          foreach ($f in "python\python.exe", "app\ingest.py", "app\rebuild_wis.py", "app\remove_manuals.py", "app\autorundown\web\index.html") {
             if (-not (Test-Path "$inst\$f")) { throw "missing after install: $f" }
           }
           $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
@@ -128,7 +128,7 @@ jobs:
         shell: pwsh
         run: |
           # a new user: no AUTORUNDOWN_HOME, no index, started from the shortcut
-          python make_sample_corpus.py
+          python tools/make_sample_corpus.py
           python -m pip install --disable-pip-version-check -q -r requirements-dev.txt
           $py = "$env:LOCALAPPDATA\Programs\AutoRundown\python\python.exe"
           Start-Process "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"

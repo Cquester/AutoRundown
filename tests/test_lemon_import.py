@@ -1,6 +1,6 @@
 """The LEMON tab's folder import -- FREE, no API calls, ~3 s.
 
-    python test_lemon_import.py
+    python tests/test_lemon_import.py
 
 Builds the sample LEMON archive (make_sample_lemon.py) in a temp folder and
 checks: ingest.py --only imports just the named vehicle; the listing
@@ -11,6 +11,7 @@ Uses a throwaway AUTORUNDOWN_HOME, so nothing real is touched.
 """
 from __future__ import annotations
 
+from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import os
 import sqlite3
 import sys
