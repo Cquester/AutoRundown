@@ -9,6 +9,20 @@ the page it came from, and the diagram — for any vehicle in your archive.
 **AutoRundown ships no manual content.** You point it at documents you already
 have.
 
+![AutoRundown on a PC: a 2005 E 500 4MATIC picked in the car box, a keyword
+search for front-axle tightening torques, and the matching page open beside
+the results with its torque values highlighted](docs/images/search-desktop.png)
+
+<p align="center"><img src="docs/images/search-phone.png" width="300"
+alt="The same search on a phone over the shop wifi"></p>
+
+*Keyword search (free, no API key) over the built-in sample data: the car
+box, the results list and the page view. The manual text in these pictures is
+invented sample data, not from any real manual; `python tools/readme_shots.py`
+retakes them.*
+
+An AI answer reads like this (text output of `ask.py`):
+
 ```
 SPECIFICATION
   Front Brake Caliper Anchor Plate bolts (2 bolts, discard after removal)
@@ -46,8 +60,9 @@ built to prefer it over a plausible guess.
 
 ### Windows: the installer
 
-Download `AutoRundown-<version>.msi` (from the repo's Releases, or the
-`AutoRundown-msi` artifact of the "Windows installer" GitHub Actions run) and
+Download `AutoRundown-<version>.msi` from the repo's
+[Releases](https://github.com/Cquester/AutoRundown/releases) (each new
+version on `main` publishes one, with a `.sha256` beside it) and
 double-click it. It needs no admin rights and no Python. It installs for your
 user only, in `%LOCALAPPDATA%\Programs\AutoRundown`, and adds AutoRundown to
 the Start menu and desktop. The installer asks whether to **start AutoRundown
@@ -59,18 +74,20 @@ turns sign-in start on too; add `AUTOSTART=0` to leave it off.
 Starting AutoRundown opens your browser; the server runs in the background
 with an **AR icon in the tray** (bottom-right, maybe under the ^ arrow):
 click it to open AutoRundown, right-click for *Start when I sign in* and
-*Stop AutoRundown*. The same sign-in option is under Settings (the gear).
+*Stop AutoRundown*. The same option is under **Shop setup → This PC**.
 The first time, Windows Firewall asks whether to allow it on private
 networks: allow it to use AutoRundown from a phone on your wifi, or decline
-to keep it on this PC only. With no manuals indexed yet, the import dialog
-opens by itself. Set your API key under Settings.
+to keep it on this PC only. With no manuals indexed yet, AutoRundown opens a
+short *Set up AutoRundown* checklist: add manuals (required), then an API key
+and phones (both optional). All of it lives under **⚙ Shop setup**
+afterwards: Manuals, AI answers, Phones & mechanics, This PC, Advanced.
 
 **On your phone:** open **http://autorundown.local:8756** (same wifi), then
 *Add to Home Screen* -- it opens like an app. AutoRundown announces that name
 on your network itself (mDNS, like a printer), so it keeps working when the
 PC's IP address changes, with no router setup. iPhones support it; Android
 does in recent versions of Chrome. If the name doesn't open (some guest or
-mesh networks block it), Settings shows the numeric address; to keep that
+mesh networks block it), Shop setup → *Phones & mechanics* shows the numeric address; to keep that
 one from changing, reserve the PC's IP in your router's DHCP settings
 ("address reservation" / "static lease").
 
@@ -86,10 +103,10 @@ files. "Start when I sign in" runs it as you, in the background.
 - **Importing from a Mercedes VM** uses your own copy of the WIS extractor
   (it needs the Mercedes software next to it, so it can't be part of the
   installer). It is found automatically at `Desktop\Mercedes Documents\autorundown_extractor`;
-  anywhere else, set it under Settings (the gear) -> *Mercedes extractor folder*.
+  anywhere else, set it under Shop setup → *Advanced* → *Mercedes extractor folder*.
   The installer includes the Python packages it needs. **If your manuals are
-  already extracted**, skip the VM: choose *From a folder* and pick
-  `Mercedes Documents\autorundown_out\wis_extract`.
+  already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,
+  and pick `Mercedes Documents\autorundown_out\wis_extract`.
 - The command-line tools are installed too:
   `"%LOCALAPPDATA%\Programs\AutoRundown\python\python.exe" "%LOCALAPPDATA%\Programs\AutoRundown\app\ask.py" --usage`.
 
@@ -148,7 +165,8 @@ It prints a `localhost` URL and a LAN URL. The LAN one works from a phone on the
 same wifi — same responsive UI, no app to install, no native build. Add it to
 your home screen and it opens like an app.
 
-Set your API key on the Settings page, or:
+Add manuals and your API key under **⚙ Shop setup** (the first start walks
+you through it), or set the key in the environment:
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -161,7 +179,7 @@ Keys are stored in `~/.autorundown/config.json` (override the location with
 
 ```bash
 python dev.py            # opens http://localhost:8757 with sample data
-python dev.py --empty    # starts with no index: the first-start import dialog
+python dev.py --empty    # starts with no index: the first-start setup checklist
 python dev.py --reset    # throw the dev data away and start over
 ```
 
@@ -173,23 +191,23 @@ so nothing costs money unless you add one.
 
 ### In a shop: who can use it
 
-**The PC running AutoRundown is the admin.** Settings, the API key, imports
-and mechanics' accounts are only available in a browser *on that PC*
-(`http://localhost:8756`). Phones and other computers can search and ask,
-nothing else -- they never see the gear icon, and the server refuses those
-requests from them.
+**The PC running AutoRundown is the admin.** Shop setup -- the API key,
+imports, removing manuals and mechanics' accounts -- is only available in a
+browser *on that PC* (`http://localhost:8756`). Phones and other computers
+can search and ask, nothing else -- they never see Shop setup, and the server
+refuses those requests from them.
 
-**Mechanic accounts are optional.** Settings → *require each mechanic to sign
-in*. Then:
+**Mechanic accounts are optional.** Shop setup → *Phones & mechanics* →
+*Require each mechanic to sign in*. Then:
 
-- Settings → **Mechanics & spend…** → add a name (and, if you like, a monthly
+- On the same page, add a mechanic's name (and, if you like, a monthly
   dollar limit). You get an 8-character code, valid 15 minutes, used once.
 - The mechanic opens AutoRundown on their phone and types the code. That
   phone stays signed in (a year, or until you sign it out).
 - Lost phone or someone leaves: **Sign out devices** or **Disable**. It takes
   effect immediately. A new phone just needs a new code.
 - Every paid question is logged against the mechanic who asked;
-  the same dialog shows each one's spend this month, and `python ask.py
+  the same page shows each one's spend this month, and `python ask.py
   --usage` lists it by user. Over the limit, asking is refused; keyword
   search keeps working.
 
@@ -308,8 +326,8 @@ alongside BM25 — not before.
 ## Choosing a model
 
 Pick it from the toolbar beside the question box; it applies to the next
-question immediately and saves the choice. Also in Settings and via
-`ask.py --model`.
+question immediately and saves the choice on that device. The PC's default
+is under Shop setup → *AI answers*; on the command line, `ask.py --model`.
 
 | Model | Price /M in–out | Per question | Eval |
 |---|---|---|---|
@@ -352,6 +370,17 @@ Run the paid check after changing prompts, retrieval, or models — not routinel
 It has already caught a prompt tweak that fixed one problem while silently
 breaking another.
 
+The rest of the checks are free and need no real manuals -- they build
+their own small corpora:
+
+```bash
+python tests/test_records.py      # any of tests/test_*.py; CI runs them all
+python eval_wis.py                # Mercedes WIS retrieval + wrong-vehicle guards (real index)
+```
+
+Contributors: `tools/container/README.md` starts a throwaway test box (Docker
+in WSL, sample data, no network) and runs every CI check inside it.
+
 **The shipped cases are archive-specific** — they cite page numbers from one
 particular manual set and will not pass against a different archive. Replace
 them with known answers from your own: look a spec up by hand, note its page,
@@ -382,13 +411,20 @@ class MyImporter(Importer):
 
 Indexing, search, the query layer, and the UI need no changes.
 
-Two importers ship:
+Three importers ship:
 
 - **`lemon`** — HTML manual archives (one directory per vehicle, `pages/*.html`
   plus `images/`).
+- **`records`** — a normalized corpus (`records.jsonl` + `manifest.json`, the
+  contract in [`extractor/IMPORT_SPEC.md`](extractor/IMPORT_SPEC.md)). The
+  Mercedes WIS extractor in `extractor/` writes one from your own licensed WIS
+  installation; any other source can do the same and needs no code here.
 - **`folder`** — generic fallback for a plain directory of HTML, text, or PDF,
   inferring what metadata it can from paths. PDF support needs
   `pip install pypdf`.
+
+All three can be run from Shop setup → *Manuals*, which detects which one a
+folder needs.
 
 ---
 
@@ -446,29 +482,43 @@ index, 39 seconds to build.
 ## Project layout
 
 ```
-autorundown/
-  importers/       archive-specific code lives ONLY here
-    base.py          Importer interface + normalized records
-    lemon.py         HTML archive importer
-    folder.py        generic fallback (HTML / text / PDF)
-  extract.py       HTML -> text, tables -> pipe tables
-  index.py         SQLite FTS5 schema, chunking, dedup, connectors, usage log
-  search.py        BM25 retrieval with mandatory vehicle filter
-  query.py         Claude planner + answerer + citation verification
-  server.py        local web server
-  auth.py          the PC is admin; optional mechanic accounts
-  tls.py           local certificate authority for --https
-  web/             the UI (one responsive page)
-ingest.py          build the index
-ask.py             command-line queries
-eval.py            known-answer validation
-test_access.py     who may do what on the network (free)
-test_lemon_import.py  the LEMON tab's folder import (free)
-test_lemon_catalogue.py  the LEMON tab's catalogue tree (free)
-test_remove_manuals.py  removing manuals from the index (free)
-remove_manuals.py  remove a manual (or all Mercedes WIS) from the index
-serve.py           start the server
-dev.py             throwaway local instance with sample data
+autorundown/             the app (everything the installer ships)
+  importers/             archive-specific code lives ONLY here
+    base.py                Importer interface + normalized records
+    lemon.py               LEMON HTML archives
+    records.py             normalized corpus (records.jsonl), e.g. Mercedes WIS
+    folder.py              generic fallback (HTML / text / PDF)
+    data/                  hand-made reference tables (years, engines, LEMON catalogue)
+  extract.py             HTML -> text, tables -> pipe tables
+  index.py               SQLite FTS5 schema, chunking, dedup, connectors, usage log
+  search.py              BM25 retrieval with mandatory vehicle filter
+  synonyms.py            shop words -> the manuals' words ("valve cover")
+  query.py               Claude planner + answerer + citation verification
+  server.py              local web server (FastAPI)
+  auth.py                the PC is admin; optional mechanic accounts
+  tls.py                 local certificate authority for --https
+  importer_jobs.py       imports started from Shop setup
+  lemon_catalogue.py     the LEMON catalogue tree
+  wis_links.py           WIS cross-references, wiring-diagram hotspots, codes, labour
+  wis_original.py        WIS "Original layout" view
+  launcher.py, autostart.py, mdns.py   Windows tray, start at sign-in, autorundown.local
+  web/index.html         the whole UI, one responsive page
+
+serve.py                 start the server
+ingest.py                build / update the index
+ask.py                   command-line questions, keyword search, spend
+rebuild_wis.py           replace the Mercedes WIS part of the index (keeps the spend log)
+remove_manuals.py        remove a manual (or all Mercedes WIS) from the index
+dev.py                   throwaway local instance with sample data (port 8757)
+eval.py, eval_wis.py     retrieval checks against a real index (free)
+
+tests/                   free test suites (python tests/test_<name>.py)
+tools/                   sample-data makers, README screenshots, JS check, catalogue builders
+  container/             test boxes: the app in Docker with sample data, no network
+  sandbox/               a fresh install of the MSI in Windows Sandbox
+extractor/               Mercedes WIS extractor (reads your own licensed install)
+packaging/windows/       the MSI (WiX) and its first-start UI check
+docs/                    setup on a new PC, WIS extraction notes, QA reports, images
 ```
 
 ---

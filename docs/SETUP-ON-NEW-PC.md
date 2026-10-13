@@ -1,5 +1,11 @@
 # Setting up AutoRundown on the other PC
 
+> **Most setups don't need this page.** On Windows, install the MSI from
+> the GitHub Releases; anywhere else, `git clone` and follow the README's
+> quick start, then add manuals in Shop setup. This page is for the older
+> route of carrying the code, a prebuilt `index.db` and the manual zips
+> across in a OneDrive folder.
+
 Everything in this OneDrive folder except your API key, which is deliberately
 not here — see the note at the bottom.
 
