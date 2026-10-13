@@ -23,6 +23,11 @@ PHRASES: dict[str, str] = {
     "lug nuts": "wheel bolts",
     "lug nut": "wheel bolt",
     "lug bolts": "wheel bolts",
+    # WIS's labour texts and procedures say "coolant pump" / "brake linings"
+    # (checked 2026-10-11 on the W211 E 350 labour book)
+    "water pump": "coolant pump",
+    "brake pads": "brake linings",
+    "brake pad": "brake lining",
     "brake rotors": "brake disks",
     "brake rotor": "brake disk",
     "tie rod end": "track rod end",

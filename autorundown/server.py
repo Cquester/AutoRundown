@@ -603,6 +603,42 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             engines = [e for e in engines if e.split(".")[0] in fams]
         return wis_links.oil(Path(vehicle["file_path"]), vehicle.get("model_code") or "", engines)
 
+    @app.get("/api/wis/labour/{doc_id}")
+    def api_wis_labour(doc_id: str, variant: int | None = None,
+                       engine: str | None = Query(None, max_length=64),
+                       book: str | None = Query(None, max_length=32),
+                       q: str = Query("", max_length=200)) -> dict:
+        """Flat-rate labour times from WIS (wis_links.labour_*), for the
+        exact model only: a variant must be picked -- a series has as many
+        times as it has types. When the car is in several books (chassis
+        ranges) and none is chosen, the books come back and no times. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+        finally:
+            conn.close()
+        if not _is_wis(vehicle):
+            raise HTTPException(404, "Labour times come from the Mercedes WIS data.")
+        try:
+            variants = json.loads(vehicle.get("variants") or "[]")
+        except ValueError:
+            variants = []
+        if variant is None or not 0 <= variant < len(variants):
+            return {"books": [], "book": None, "total": 0, "items": [],
+                    "need": "variant"}
+        v = variants[variant]
+        fams = {f.strip() for f in (engine or "").split(",") if f.strip()}
+        engines = [e for e in v.get("engines") or [] if not fams or e.split(".")[0] in fams]
+        corpus = Path(vehicle["file_path"])
+        books = wis_links.labour_books(corpus, list(v.get("baumuster") or []), engines)
+        keys = [b["book"] for b in books]
+        chosen = book if book in keys else (keys[0] if len(keys) == 1 else None)
+        out = {"books": books, "book": chosen, "total": 0, "items": [],
+               "need": None if chosen else ("book" if books else None)}
+        if chosen:
+            out.update(wis_links.labour_times(corpus, chosen, q, alt=synonyms.translate(q) or ""))
+        return out
+
     @app.get("/api/wis/sa/{doc_id}")
     def api_wis_sa(doc_id: str, codes: str = Query(max_length=2000)) -> list[dict]:
         """Option (SA) code descriptions from WIS, for codes off a data card."""

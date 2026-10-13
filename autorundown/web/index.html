@@ -532,6 +532,7 @@
     <select id="variant" aria-label="Variant (optional)" hidden></select>
     <button class="ghost" id="vinBtn" title="Find the vehicle from a VIN">VIN</button>
     <button class="ghost" id="saBtn" title="What the option codes on a data card mean" hidden>Option codes</button>
+    <button class="ghost" id="labBtn" title="Mercedes flat-rate labour times for this model" hidden>Labour times</button>
   </div>
   <button class="ghost" id="acctBtn" title="Your account" hidden></button>
   <a class="btnlink ghostlink" id="settingsBtn" href="#/setup" title="Shop setup" hidden><span aria-hidden="true">&#9881;</span><span class="lbl">Shop setup</span></a>
@@ -813,6 +814,25 @@
   <div id="saOut" style="margin-top:10px"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
     <button class="ghost" id="saClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="labDlg">
+  <h3 style="margin:0 0 4px">Labour times</h3>
+  <div class="muted" id="labCar"></div>
+  <div class="muted" style="font-size:13px; margin-top:4px">Mercedes flat rates from WIS
+    (international), in hours. Extra-work items are not included. The lookup is local.</div>
+  <label for="labBook" id="labBookLbl" hidden>This model is in more than one labour-time book
+    (Mercedes splits them by body style, engine or build date) &mdash; pick yours</label>
+  <select id="labBook" hidden></select>
+  <label for="labQ">Search operations</label>
+  <div class="vinrow">
+    <input id="labQ" type="search" spellcheck="false" placeholder="water pump, brake pads, timing chain">
+    <button id="labFind">Search</button>
+  </div>
+  <div id="labOut" style="margin-top:10px; max-height:55vh; overflow:auto"></div>
+  <div class="row" style="margin-top:16px; justify-content:flex-end">
+    <button class="ghost" id="labClose">Close</button>
   </div>
 </dialog>
 
@@ -1380,12 +1400,24 @@ async function showOil(v) {
   $('#scopeNote').appendChild(span);
 }
 
+// A "Labour times" link at the end of the scope note once the exact model is
+// known; times are per model type, so a whole series has none to show.
+function showLabourLink(v) {
+  $('#labLink')?.remove();
+  if (!WIS_SOURCE.test(v.source_name || '') || variantIdx() === null) return;
+  const b = document.createElement('button');
+  b.type = 'button'; b.id = 'labLink'; b.className = 'xref'; b.textContent = 'Labour times';
+  b.style.marginLeft = '6px';
+  b.onclick = openLabour;
+  $('#scopeNote').appendChild(b);
+}
+
 function showScope() {
   const v = vehicles.find(x => x.doc_id === docId());
   const note = $('#scopeNote');
-  $('#saBtn').hidden = !WIS_SOURCE.test(v?.source_name || '');
+  $('#saBtn').hidden = $('#labBtn').hidden = !WIS_SOURCE.test(v?.source_name || '');
   if (!v || !v._variants.length) { note.hidden = true; return; }
-  setTimeout(() => showOil(v));
+  setTimeout(() => { showLabourLink(v); showOil(v); });
   note.classList.remove('pickhint');
   if (carPick && carPick.engine) {
     note.textContent = `${carPick.label} — ${carPick.sub}. Searches the ${v.model} manual without `
@@ -2500,6 +2532,66 @@ async function saLookup() {
   }
 }
 $('#saFind').onclick = saLookup;
+
+// Labour times (WIS ASRA flat rates) for the exact model picked. A model in
+// several books (build-date splits) shows a chooser and no times until one
+// is picked -- which applies depends on the chassis number.
+let labSeq = 0, labTimer = null;
+function openLabour() {
+  const v = vehicles.find(x => x.doc_id === docId());
+  $('#labCar').textContent = carBoxLabel || v?.model || '';
+  $('#labQ').value = '';
+  $('#labBook').innerHTML = ''; $('#labBook').hidden = $('#labBookLbl').hidden = true;
+  $('#labDlg').showModal();
+  loadLabour();
+  $('#labQ').focus();
+}
+async function loadLabour() {
+  const seq = ++labSeq, n = variantIdx(), eng = engineSel();
+  const out = $('#labOut');
+  if (n === null) {
+    out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
+      + 'Variant): labour times are per model type.</div>';
+    return;
+  }
+  out.innerHTML = '<span class="spinner"></span>';
+  const book = $('#labBook').hidden ? '' : $('#labBook').value;
+  let r;
+  try {
+    r = await api(`/api/wis/labour/${encodeURIComponent(docId())}?variant=${n}`
+      + (eng ? `&engine=${encodeURIComponent(eng)}` : '')
+      + (book ? `&book=${encodeURIComponent(book)}` : '')
+      + `&q=${encodeURIComponent($('#labQ').value.trim())}`);
+  } catch (e) {
+    if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  if (seq !== labSeq) return;
+  if (r.books.length > 1 && $('#labBook').hidden) {
+    $('#labBook').innerHTML = '<option value="">Choose…</option>' + r.books.map(b =>
+      `<option value="${esc(b.book)}">${esc(b.family)} · ${esc(b.type)}</option>`).join('');
+    $('#labBook').hidden = $('#labBookLbl').hidden = false;
+  }
+  if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return; }
+  if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return; }
+  if (!r.items.length) { out.innerHTML = '<div class="muted">No operation matches that search.</div>'; return; }
+  let last = '';
+  out.innerHTML = `<div class="tablewrap"><table><tbody>` + r.items.map(i => {
+    const head = i.group !== last ? `<tr><th colspan="2" style="text-align:left">${esc(i.group)}</th></tr>` : '';
+    last = i.group;
+    return head + `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
+      + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
+      + ` <span class="muted" style="font-size:12px">${i.minutes} min</span></td></tr>`;
+  }).join('') + `</tbody></table></div>`
+    + (r.total > r.items.length
+        ? `<div class="muted" style="margin-top:6px">Showing ${r.items.length} of ${r.total} — search to narrow.</div>` : '');
+}
+$('#labBtn').onclick = openLabour;
+$('#labClose').onclick = () => $('#labDlg').close();
+$('#labFind').onclick = loadLabour;
+$('#labBook').addEventListener('change', loadLabour);
+$('#labQ').addEventListener('input', () => { clearTimeout(labTimer); labTimer = setTimeout(loadLabour, 300); });
+$('#labQ').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); loadLabour(); } });
 $('#saInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saLookup(); } });
 $('#vinFind').onclick = () => {
   const r = vinLookup($('#vinInput').value);

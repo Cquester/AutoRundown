@@ -163,6 +163,71 @@ def main() -> int:
         check("oil: the picked engine family only",
               [(r["engine"], r["litres"]) for r in app.get(f"/api/wis/oil/{c201}?engine=102").json()],
               [("102.983", 5.0)])
+
+        print("labour times")
+        check("no labour tables yet: no books, no 500",
+              app.get(f"/api/wis/labour/{c201}?variant={names.index('190 E 2.3 16')}").json()["books"], [])
+        with sqlite3.connect(cdir / wis_links.NAME) as c:
+            c.executescript("""
+            CREATE TABLE labour_car(baumuster TEXT, engine TEXT, sparte TEXT, pl TEXT, family TEXT, type TEXT);
+            CREATE TABLE labour_book(sparte TEXT, pl TEXT, family TEXT, type TEXT, family_name TEXT, type_name TEXT);
+            CREATE TABLE labour_group(kg TEXT, name TEXT);
+            CREATE TABLE labour_op(sparte TEXT, kg TEXT, op TEXT, entry TEXT, category TEXT, text TEXT);
+            CREATE TABLE labour_time(sparte TEXT, pl TEXT, family TEXT, kg TEXT, op TEXT, typenart TEXT, raw INTEGER);
+            CREATE TABLE labour_formula(region TEXT, sparte TEXT, pl TEXT, family TEXT, kg TEXT, category TEXT, expr TEXT);
+            -- 190 E 2.3 16: one book; 190 E 2.6: two (a build-date split)
+            INSERT INTO labour_car VALUES ('201.034', '102.983', '00', '00', '06', '41'),
+                                          ('201.029', '103.942', '00', '00', '06', '51'),
+                                          ('201.029', '103.942', '00', '00', '07', '51');
+            INSERT INTO labour_book VALUES ('00','00','06','41','201','190 E 2.3-16'),
+                                           ('00','00','06','51','201','190 E 2.6'),
+                                           ('00','00','07','51','201 (as of 06/91)','190 E 2.6');
+            INSERT INTO labour_group VALUES ('15', 'Electrical components, engine'), ('42', 'Brakes');
+            INSERT INTO labour_op VALUES ('00','15','5760','5700','G','Voltage regulator replace'),
+                                         ('00','42','1350','1300','G','Bleed hydraulic brake system'),
+                                         ('00','42','1351','1300','Z','Extra work for: bleeding'),
+                                         ('00','15','5770','5700','V','Not for this type');
+            -- exact type 41, its group 40, and 00 never overlap per operation
+            INSERT INTO labour_time VALUES ('00','00','06','15','5760','41',31),
+                                           ('00','00','06','15','5760','51',99),
+                                           ('00','00','06','42','1350','40',13),
+                                           ('00','00','06','42','1351','00',16),
+                                           ('00','00','06','15','5770','41',0);
+            INSERT INTO labour_formula VALUES
+              ('10','00','00','06','15','G','(0.9883**x*0.3+1.21)*x'),
+              ('10','00','00','06','42','G','(0.9883**x*0.3+1.21)*x'),
+              ('10','00','00','06','15','V','__import__("os").system("echo pwned")'),
+              ('10','00','00','06','16','G','1.2 * (x');
+            INSERT INTO labour_op VALUES ('00','16','1000','1000','G','Malformed formula op');
+            INSERT INTO labour_time VALUES ('00','00','06','16','1000','00',10);
+            """)
+        wis_links._open.clear()
+        v23, v26 = names.index("190 E 2.3 16"), names.index("190 E 2.6")
+        check("labour times need the exact model",
+              app.get(f"/api/wis/labour/{c201}").json()["need"], "variant")
+        r = app.get(f"/api/wis/labour/{c201}?variant={v23}").json()
+        check("one book: chosen without asking", r["book"], "00-00-06-41")
+        check("exact type, else its group; formula applied (44 / 19 min as in WIS)",
+              [(i["op"], i["minutes"], i["hours"]) for i in r["items"]],
+              [("15-5760", 44, 0.7), ("42-1350", 19, 0.3)])
+        check("extra work (no formula), raw zeros and a non-arithmetic formula are left out",
+              [i["op"] for i in r["items"] if i["op"] in ("42-1351", "15-5770")], [])
+        check("search narrows by every word",
+              [i["op"] for i in app.get(f"/api/wis/labour/{c201}?variant={v23}&q=bleed brake").json()["items"]],
+              ["42-1350"])
+        r = app.get(f"/api/wis/labour/{c201}?variant={v26}").json()
+        check("two books: both offered, none picked, no times",
+              ([b["family"] for b in r["books"]], r["book"], r["items"], r["need"]),
+              (["201", "201 (as of 06/91)"], None, [], "book"))
+        r = app.get(f"/api/wis/labour/{c201}?variant={v26}&book=00-00-07-51").json()
+        check("a chosen book is used", r["book"], "00-00-07-51")
+        check("an unknown book is not", app.get(
+            f"/api/wis/labour/{c201}?variant={v26}&book=00-00-99-99").json()["book"], None)
+        try:
+            wis_links._formula('__import__("os").system("x")')
+            check("a formula that is not arithmetic is refused", False, True)
+        except ValueError:
+            check("a formula that is not arithmetic is refused", True, True)
     finally:
         wis_links._open.clear()
         shutil.rmtree(TMP, ignore_errors=True)
