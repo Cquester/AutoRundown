@@ -8,19 +8,27 @@ The app under test runs in a **test box** (`tools/container/box.sh`,
 Docker in WSL): a Linux container holding a copy of the repo at `/work`,
 serving `dev.py`'s sample data, with no outbound network and no API key.
 You run on the PC, as a subagent of a local session, and work on the box
-**from outside only**:
+**from outside only**. The orchestrator starts one box per chat with
+`wsl -d Ubuntu -- bash tools/container/box.sh up` and hands you the
+`BOX name=... admin=... phone=...` line it printed -- several chats test at
+once, so always use **your** box's name and ports, never another's:
 
-- the site: **http://localhost:18800** (or the port the orchestrator gave
-  you). It arrives at the app from loopback, so you are **admin** -- Shop
-  setup, the import pages and `/api/admin/*` are reachable;
-- commands inside the box: `wsl -d Ubuntu -- bash tools/container/box.sh
-  exec qa <command>` (e.g. `... exec qa python test_records.py`), and
-  `... box.sh check qa` for every CI check at once;
-- files out of the box: `... box.sh fetch qa <path>` -> `.dev/box/qa/`.
+- **admin** (e.g. http://localhost:18800): arrives from loopback, so you are
+  "this PC" -- Shop setup, the import pages and `/api/admin/*` are reachable;
+- **phone** (the admin port + 1, e.g. http://localhost:18801): arrives from
+  the network, so you are a mechanic's phone -- no Shop setup, admin pages
+  answer 403, sign-in codes apply. Change something as admin (turn on
+  "require sign-in", issue a code) and see what the phone side gets; test
+  the phone side at 375x812;
+- commands inside the box: `... box.sh exec <name> <command>` (e.g.
+  `python test_records.py`), and `... box.sh check <name>` for every CI
+  check at once;
+- files out of the box: `... box.sh fetch <name> <path>` ->
+  `.dev/box/<name>/`.
 
-The orchestrator starts the box once (`box.sh up qa --port 18800`); check
-it is up before you begin: `curl -s http://localhost:18800/api/me`. If it
-is not, say so -- do not start a server on the PC instead.
+Check your box is up before you begin: `curl -s <admin>/api/me`. If it is
+not, say so -- do not start a server on the PC instead, and do not `down`
+a box that isn't yours.
 
 On the PC, touch nothing but the box and your own files under `.dev/qa/`.
 Never open, list or copy `~/.autorundown/`, `Desktop/Mercedes Documents/`,

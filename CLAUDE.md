@@ -64,8 +64,8 @@ python extractor/parse_links.py                   # rebuild wis_links.sqlite (of
 python test_citations.py                          # FREE, _verify_citations (<1 s)
 python tools/check_js.py                          # FREE, index.html's JS parses (needs node)
 powershell -File tools/sandbox/start.ps1 [-Source] # fresh install in Windows Sandbox, :18756
-wsl -d Ubuntu -- bash tools/container/box.sh up qa  # test box (Docker in WSL), :18800
-wsl -d Ubuntu -- bash tools/container/box.sh check qa  # every CI check inside it (~35 s)
+wsl -d Ubuntu -- bash tools/container/box.sh up     # test box (Docker in WSL): admin + phone ports
+wsl -d Ubuntu -- bash tools/container/box.sh check <name>  # every CI check inside it (~35 s)
 ```
 
 **Try UI and import changes with `python dev.py`, on the user's PC.** It
@@ -118,14 +118,27 @@ WSL2 over Docker Desktop -- Ubuntu 26.04, Docker 29.9, the user is in the
 user's rule, 2026-10-12: no sign-in per box, nothing of theirs inside).
 `box.sh build` makes the image `autorundown-test` (Python 3.13, the app's
 requirements, ruff, Playwright Chromium, Node for check_js; 2.3 GB, ~2.5
-min). `box.sh up <name> [--port N]` copies the working tree **as it is
+min). `box.sh up [name] [--port N]` copies the working tree **as it is
 now** (uncommitted too; no .git, indexes, samples, logs, or the other
 sessions' `.claude/worktrees/`) into a new container `ar-<name>` and
 starts it in ~11 s: `init-firewall.sh` drops **all** outbound traffic
 (proves example.com fails), then `dev.py` serves sample data and
 `tools/sandbox/forward.py` makes the published port (`127.0.0.1:N` in WSL,
 `localhost:N` from Windows) arrive from loopback, so **the user's browser
-is admin there**. `check` runs every CI check inside (`check.sh`: ruff,
+is admin there**. **Each box has two addresses** (the user's
+request, 2026-10-12): admin on N and **phone on N+1** -- `dev.py --lan`
+binds 0.0.0.0 and Docker publishes 8757 directly, so those requests come
+from Docker's gateway, not loopback: not admin, admin pages 403, paths
+hidden, sign-in applies (checked: sign-in turned on at N locks N+1 out,
+401). **Several chats at once:** `up` takes the next free pair from 18800,
+checked in Docker (label `ar.ports`), WSL (`ss`) and Windows (`netstat`),
+and names an unnamed box after its port (`box-18800`); `docker create`
+with that name is the lock, so simultaneous `up`s can't share a pair, and
+a port that fails at `docker start` moves on to the next pair. Checked:
+three `up`s at the same moment got 18802/04/06, a Windows program on
+18810 was skipped, an existing name is refused. `up` ends with a
+machine-readable `BOX name=… admin=… phone=…` line; `list` shows both
+addresses per box. `check` runs every CI check inside (`check.sh`: ruff,
 check_js, every `test_*.py`, `test_ui_picks.py` on the box's index,
 `ui_check.py` on a second empty instance; ~35 s, all pass); `exec`, `fetch`
 (to `.dev/box/<name>/`), `list`, `down`. **Agents run on the PC** as
