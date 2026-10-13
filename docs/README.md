@@ -19,5 +19,5 @@
 - [`qa/`](qa/) — the QA agents' reports from 2026-10-09/10 (`REPORT.md` has
   every finding and its status). File names in them are as they were then
   (before `tests/` and `tools/`).
-- [`images/`](images/) — README screenshots, taken from sample data by
-  `python tools/readme_shots.py`.
+- [`images/`](images/) — README GIFs, recorded from sample data by
+  `python tools/readme_gifs.py`.

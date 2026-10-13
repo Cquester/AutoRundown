@@ -38,7 +38,7 @@ dev.py              throwaway instance with sample data (.dev/, port 8757)
 eval.py eval_wis.py retrieval checks against the real index (free)
 tests/              free test suites, `python tests/test_<name>.py`
                     (tests/_paths.py puts the root and tools/ on sys.path)
-tools/              make_sample_corpus.py, make_sample_lemon.py, readme_shots.py,
+tools/              make_sample_corpus.py, make_sample_lemon.py, readme_gifs.py,
                     check_js.py, build_lemon_catalogue.py, build_us_years.py,
                     sids_render.py; container/ (test boxes); sandbox/
 extractor/          Mercedes WIS extractor (its data stays in ../Mercedes Documents/)
@@ -134,7 +134,7 @@ python tools/check_js.py                          # index.html's JS parses (need
 # sample data and tools
 python tools/make_sample_corpus.py                # stand-in WIS corpus -> sample_corpus/
 python tools/make_sample_lemon.py                 # stand-in LEMON archive -> sample_lemon/
-python tools/readme_shots.py --url <box admin url> # README screenshots -> docs/images/
+python tools/readme_gifs.py --url <box admin url>  # README GIFs -> docs/images/ (free; --answer is PAID)
 python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogue snapshot
 python extractor/parse_links.py                   # rebuild wis_links.sqlite (offline, ~1 min)
 

@@ -9,17 +9,16 @@ the page it came from, and the diagram — for any vehicle in your archive.
 **AutoRundown ships no manual content.** You point it at documents you already
 have.
 
-![AutoRundown on a PC: a 2005 E 500 4MATIC picked in the car box, a keyword
-search for front-axle tightening torques, and the matching page open beside
-the results with its torque values highlighted](docs/images/search-desktop.png)
+![AutoRundown on a PC: picking a 2005 E 500 4MATIC in the car box, a keyword
+search for front-axle tightening torques, and the matching page opening beside
+the results with its torque values highlighted](docs/images/search.gif)
 
-<p align="center"><img src="docs/images/search-phone.png" width="300"
+<p align="center"><img src="docs/images/search-phone.gif" width="300"
 alt="The same search on a phone over the shop wifi"></p>
 
-*Keyword search (free, no API key) over the built-in sample data: the car
-box, the results list and the page view. The manual text in these pictures is
-invented sample data, not from any real manual; `python tools/readme_shots.py`
-retakes them.*
+*Keyword search (free, no API key) over the built-in sample data. The manual
+text in these recordings is invented sample data, not from any real manual;
+`python tools/readme_gifs.py` records them again.*
 
 An AI answer reads like this (text output of `ask.py`):
 
