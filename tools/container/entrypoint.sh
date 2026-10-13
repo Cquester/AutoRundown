@@ -1,7 +1,7 @@
 #!/bin/bash
 # Container start: close the network, then serve the throwaway instance
 # (dev.py: sample data, its own AUTORUNDOWN_HOME, no API key) and keep the
-# box alive for `box.sh exec` / `box.sh claude`.
+# box alive for `box.sh exec`.
 set -euo pipefail
 
 sudo /usr/local/bin/init-firewall.sh

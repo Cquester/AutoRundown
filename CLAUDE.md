@@ -65,6 +65,7 @@ python test_citations.py                          # FREE, _verify_citations (<1 
 python tools/check_js.py                          # FREE, index.html's JS parses (needs node)
 powershell -File tools/sandbox/start.ps1 [-Source] # fresh install in Windows Sandbox, :18756
 wsl -d Ubuntu -- bash tools/container/box.sh up qa  # test box (Docker in WSL), :18800
+wsl -d Ubuntu -- bash tools/container/box.sh check qa  # every CI check inside it (~35 s)
 ```
 
 **Try UI and import changes with `python dev.py`, on the user's PC.** It
@@ -110,38 +111,36 @@ as admin through the forwarder and warns if not. Debug a running sandbox
 with `wsb list` / `wsb exec --id <id> -r System -c "<cmd>"` (Windows 11
 24H2+), writing output to `C:\ar\out`.
 
-**Test boxes: where agents and "test it like a user" runs happen**
-(`tools/container/`, 2026-10-11; the user chose Docker Engine inside WSL2
-over Docker Desktop -- Ubuntu 26.04, Docker 29.9, the user is in the
-`docker` group so no sudo). `box.sh build` makes the image `autorundown-test`
-(Python 3.13, the app's requirements, ruff, Playwright Chromium, Node,
-Claude Code; ~2.5 min). `box.sh up <name> [--port N]` copies the working
-tree **as it is now** (uncommitted too; no .git, indexes, samples) into a
-new container `ar-<name>` and starts it in ~11 s: `init-firewall.sh` limits
-outbound traffic to Anthropic's domains (PyPI, GitHub, the LAN, this PC:
-refused, and the script proves example.com fails), then `dev.py` serves
-sample data and `tools/sandbox/forward.py` makes the published port
-(`127.0.0.1:N` in WSL, reached from Windows as `localhost:N`) arrive from
-loopback, so **the user's browser is admin there**. `exec`, `claude`
-(headless Claude Code, permission prompts off -- that is what the box is
-for), `fetch` (copy results to `.dev/box/<name>/`), `list`, `down`.
-**Claude Code in a box uses the user's own CLI sign-in** (the user's
-rule, 2026-10-11: their credentials stay outside the repo, in their
-default settings): `up` mounts only `%USERPROFILE%\.claude\.credentials.json`
-(or WSL's `~/.claude`, or `CLAUDE_HOME`), read-write so a refreshed token
-reaches both sides, and passes `settings.json`'s `model` as
-`AR_CLAUDE_MODEL`; nothing else of `~/.claude` (other projects, memory,
-plugins -- Serena would try to download) goes in. The Claude desktop app
-keeps its own sign-in: that file is the command-line tool's, and on
-2026-10-11 it had expired (last used 2026-10-08) -- `claude` then `/login`
-in a Windows terminal refreshes it. A box tests a **snapshot**: after
-changing code, `down` and `up` again. Boxes run from the main folder (the
-user's preference over a separate worktree folder). Verified
-2026-10-11: no `/mnt`, 3.3 MB `/work`, no API key; ruff, check_js, all 7
-suites, `test_ui_picks.py` (235 picks) and `ui_check.py` pass inside in
-~1 min. The first `ui_check.py` run in a box found a real race (below,
-"Importing from the site"). Windows Sandbox stays for installer/release
-checks and for the user clicking through the real Windows app.
+**Test boxes: the app in a container, tested from outside**
+(`tools/container/`, 2026-10-11/12; the user chose Docker Engine inside
+WSL2 over Docker Desktop -- Ubuntu 26.04, Docker 29.9, the user is in the
+`docker` group so no sudo). **A box is the program, not Claude Code** (the
+user's rule, 2026-10-12: no sign-in per box, nothing of theirs inside).
+`box.sh build` makes the image `autorundown-test` (Python 3.13, the app's
+requirements, ruff, Playwright Chromium, Node for check_js; 2.3 GB, ~2.5
+min). `box.sh up <name> [--port N]` copies the working tree **as it is
+now** (uncommitted too; no .git, indexes, samples, logs, or the other
+sessions' `.claude/worktrees/`) into a new container `ar-<name>` and
+starts it in ~11 s: `init-firewall.sh` drops **all** outbound traffic
+(proves example.com fails), then `dev.py` serves sample data and
+`tools/sandbox/forward.py` makes the published port (`127.0.0.1:N` in WSL,
+`localhost:N` from Windows) arrive from loopback, so **the user's browser
+is admin there**. `check` runs every CI check inside (`check.sh`: ruff,
+check_js, every `test_*.py`, `test_ui_picks.py` on the box's index,
+`ui_check.py` on a second empty instance; ~35 s, all pass); `exec`, `fetch`
+(to `.dev/box/<name>/`), `list`, `down`. **Agents run on the PC** as
+subagents of a local session and work on the box only through its URL and
+`box.sh exec` (`.claude/qa/RUNBOOK.md`). Claude Code inside a box was tried
+and dropped: it needs the CLI's own sign-in (`~/.claude/.credentials.json`,
+separate from the desktop app's, and expired since 2026-10-08), which the
+user did not want per box. A box tests a **snapshot**: after changing code,
+`down` and `up` again. Boxes run from the main folder (the user's
+preference over a separate worktree folder). Python on Windows writes CRLF:
+edit the `.sh` files with the Write/Edit tools, or bash fails on `\r`
+(`.gitattributes` keeps them LF in git). The first `ui_check.py` run in a
+box found a real race (below, "Importing from the site"). Windows Sandbox
+stays for installer/release checks and for the user clicking through the
+real Windows app.
 
 Mercedes WIS, end to end from this one session (VM -> index). The extractor
 is `extractor/` in this repo (the only copy since 2026-10-08); its data --

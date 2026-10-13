@@ -1,11 +1,10 @@
 # AutoRundown test box: the app's dependencies, Chromium for the browser
-# checks, Node (tools/check_js.py) and Claude Code, so tests AND agents run
-# inside a container that sees only a copy of the repo. Built and driven by
+# checks and Node (tools/check_js.py), so the app and its tests run inside a
+# container that sees only a copy of the repo. Built and driven by
 # tools/container/box.sh (in WSL); see the notes at the top of that file.
 #
-# Everything is installed at build time: at run time the container's
-# outbound network is limited to Anthropic (init-firewall.sh), so nothing
-# can be fetched then.
+# Everything is installed at build time: at run time the container has no
+# outbound network (init-firewall.sh), so nothing can be fetched then.
 FROM python:3.13-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -15,8 +14,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git iptables dnsutils sudo procps less \
-        nodejs npm \
+        ca-certificates curl iptables sudo procps nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # the app and its test tools; requirements first so code changes keep this layer
@@ -26,12 +24,9 @@ RUN pip install --no-cache-dir -r /tmp/req/requirements.txt \
     && python -m playwright install --with-deps chromium \
     && chmod -R a+rX /opt/pw-browsers
 
-RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
-
 # an unprivileged user runs everything; it may only run the firewall as root
 RUN useradd -m -s /bin/bash dev \
-    && mkdir -p /work /home/dev/.claude \
-    && chown dev:dev /work /home/dev/.claude \
+    && mkdir -p /work && chown dev:dev /work \
     && echo "dev ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/firewall \
     && chmod 0440 /etc/sudoers.d/firewall
 COPY tools/container/init-firewall.sh tools/container/entrypoint.sh /usr/local/bin/
