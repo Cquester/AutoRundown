@@ -6,11 +6,14 @@ licensed EWA/EPC install in the VM, into AutoRundown as a third source
 car and the AI can answer "what's the part number for X", from local pinned
 data — same model as the rest of AutoRundown, no live external source.
 
-**Status (2026-10-14):** feasibility proven end to end; one-catalog prototype
-(`extractor/pull_epc.js`) runs → `records.jsonl` → `records` importer → filed
-under the model series → FTS-searchable by part name and exact part number. The
-remaining work is completeness (all catalogs, subgroups, images, SA parts) and
-wiring it into the site's VM import. Not yet merged into the live index.
+**Status (2026-10-14, evening):** `extractor/pull_epc.js` v2 pulls a catalog
+completely -- parts, option (SA) parts, exploded drawings as PNG, formatted part
+numbers, per-baumuster fits and quantities, supersessions -- and resumes across
+catalogs. Catalog 001 (W115): 45 + 254 records, 7,732 + 7,796 part rows, 441
+drawings (11 MB), ~200 s; ingested into a throwaway index it files 299/299
+under MODEL 115 (100% structured agreement, no stray vehicles) and finds parts
+by spaced, compact and bare-digit number, name and option text. Not in the live
+index; all-catalog run and the site VM adapter are next.
 
 ## How EPC is reached (it is NOT the WIS path)
 
@@ -85,22 +88,62 @@ The site runs the extraction; end users should do as little as possible.
   Transbase DB files off the VDI and run `tbserv32.exe` on the host (no guest
   firewall in the path) — a separate, heavier project, deferred.
 
+## What the probes established (2026-10-14, `extractor/probe_epc_parts.js`)
+
+- **Subgroups:** `BM_SUBGRP_V` is complete for 001 (45 = distinct pairs in
+  `BM_PARTS2_V` = `BM_NPG_V`); old catalogs simply have one subgroup per group.
+  The pull still unions in any subgroup seen only in `BM_PARTS2_V`.
+- **Fits and quantity:** `SUBMODS` is the row's list of `SUBBM1` suffixes
+  (3 chars each, blanks allowed) -- the baumuster the part fits; `QUANTBM` is
+  the quantity in the same 3-char slots (`001` = 1, `-` = not stated, the usual
+  form of a superseded number). `REPTYPE`+`REPPNO` is the replacement number.
+  Rendered as `qty 1: 115.000, 115.002; qty 2: 115.114` or `qty 2, all models`.
+- **Part numbers:** `A` + 10 digits written 3-3-2-2 (`A 115 223 14 12`, extra
+  digits = colour code), `N` + 12 digits 6-6. The line carries the spaced form,
+  the compact form and the bare digits, because FTS reads `A1152231412` as one
+  token and shops type all three.
+- **Drawings:** not in ALLTEXT. `BM_NPG_V` rows name them `B` + group(2) +
+  subgroup(3) + `SEQNO`(2) + `RESTIMG` (`B24001000003.940127`); `ARCHIVED=1`
+  ones are in database **`BM_IMAGES_ARC`** (126,567), the others in
+  `BM_IMAGES` (5,002, named catnum+group+subgroup+seqno). SA drawings: `S` +
+  SANUM(6) + SEQNO + RESTIMG in `SA_IMAGES`/`SA_IMAGES_ARC`, rows in `SA_NPG_V`
+  keyed on `SANO`. `PNG_IMAGES*` (in `epc_cfg.xml`) do not exist in this
+  install. `…99999.…` names are the client's "no drawing" placeholder.
+- **Drawing format is FV4**, Snap-on's own run-length bit-plane format (1024 px
+  wide, <=1280 rows, 1/2/4 bpp, ~16 KB each). `extractor/epc_fv4.js` is a line
+  for line port of the client's `ImageExtractorFV4`; checked offline on a saved
+  blob (all rows decode, correct drawing), ~0.5 s per drawing in Nashorn.
+  The annotation overlay holds callout x/y positions (`saveCallouts`) -- usable
+  later for clickable hotspots; not extracted yet.
+- **SA parts:** `BM_SAIDX_V(CATNUM, GROUPNUM) -> SANUM` + option codes
+  (`CODEONE`, 3 chars each). `SANUM` is CHAR(6) and the server pads 5-digit
+  numbers with a leading space -- unpadded queries return nothing. Part rows
+  give `STROKE` and `QUANTSA` as comma lists; a stroke maps to baumuster per
+  model series through `sa_strokes_v` (the same stroke number recurs for
+  different series). An SA is shared by many catalogs, so the pull writes each
+  (SA, subgroup) once, limited to the series pulled in that run.
+- **Scale:** 9.33 M `BM_PARTS2_V` rows, 2.21 M `SA_PARTS_V` rows, 2,740
+  catalogs. Passenger cars = `models_v` class 1: 282 chassis catalogs (`FG`,
+  what `AR_CATNUM=all` pulls), plus 161 engine (`M`), 61 gearbox (`GA`), 24
+  `GM`, 5 `LG` aggregate catalogs (not pulled yet; would file under engine
+  buckets).
+
 ## Remaining build items
 
-1. **Subgroup completeness** — the W115 prototype gave one subgroup per group
-   (45); verify that is real vs under-counting, and if sparse, enumerate
-   subgroups from `BM_NPG_V` (`selSubgroupsFromNPG`) or distinct `BM_PARTS2_V`
-   rather than `BM_SUBGRP_V`.
-2. **Images** — `BM_NPG_V` → `IMAGE_V` blobs → convert → `image_files` +
-   `[diagram:]` markers, so a parts list shows its exploded drawing.
-3. **SA / option parts** (`SA_PARTS_V`).
-4. **Part-number formatting** (`A1152231412` → `A 115 223 14 12`) and the
-   `QUANTBM` per-model quantity decode (one slot per catalog model; `001`=qty 1,
-   `-`=n/a).
-5. **All catalogs** (passenger, class 1), then an EPC adapter in the site's VM
-   import (`importer_jobs.py` / `vm_pipeline.py`) with the clock + DHCP above.
+1. **All catalogs:** `AR_CATNUM=all` (282 chassis catalogs), resumable
+   (`done_catalogs.txt`). Expect hours and tens of thousands of drawings --
+   throttle with `AR_SLEEP_MS` (the host has crashed under heavy I/O before).
+   Then ingest into a throwaway index and check filing across series.
+2. **Footnotes** (`FOOTNOTES` codes on part rows, `SA_FOOTNOTES_V` for SA) --
+   not extracted; they carry "up to chassis …" conditions.
+3. **Aggregate catalogs** (engines, gearboxes) -> engine buckets.
+4. **Site integration:** an EPC adapter in the site's VM import
+   (`importer_jobs.py` / `vm_pipeline.py`) with the clock + DHCP above and the
+   one-time firewall message.
+5. Callout hotspots from the FV4 annotation overlay.
 6. Tests + README/CLAUDE.md updates.
 
 See also the decompiled sources (not committed — Mercedes software): the DAO
 classes and `QueryStrings` were decompiled with CFR during the investigation.
-Never commit `tbjdbc.jar`, the EWA JRE, `epc.jar`, or any extracted part data.
+Never commit `tbjdbc.jar`, the EWA JRE, `epc.jar`, or any extracted part data
+(records, drawings).
