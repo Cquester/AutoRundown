@@ -1,6 +1,7 @@
 #!/bin/bash
 # Container start: close the network, then serve the throwaway instance
-# (dev.py: sample data, its own AUTORUNDOWN_HOME, no API key) and keep the
+# (dev.py: sample data, its own AUTORUNDOWN_HOME, Ask answered by the fake
+# API in tools/fake_anthropic.py, nothing reaches Anthropic) and keep the
 # box alive for `box.sh exec`.
 set -euo pipefail
 
@@ -15,7 +16,7 @@ cd /work
 #        gateway, not loopback = a phone on the shop network
 # --lan also tries to announce autorundown.local; with no outbound network
 # that goes nowhere.
-python dev.py --no-browser --lan > /tmp/dev.log 2>&1 &
+python dev.py --no-browser --lan --fake-api > /tmp/dev.log 2>&1 &
 python tools/sandbox/forward.py --listen 0.0.0.0:18757 --to 127.0.0.1:8757 > /tmp/forward.log 2>&1 &
 
 for _ in $(seq 120); do

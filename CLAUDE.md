@@ -80,6 +80,8 @@ credit.
 2. **A test box for anything "like a user", and for every agent**:
    `wsl -d Ubuntu -- bash tools/container/box.sh up` starts your own copy of
    the app in Docker, with sample data, no network, nothing of the user's.
+   **Ask works there for free**: a fake Anthropic API in the box
+   (`tools/fake_anthropic.py`) answers from the passages the app sends.
    Keep the `BOX name=… admin=… phone=…` line it prints: **admin** is "this
    PC", **phone** is a mechanic's phone. `box.sh check <name>` runs every
    CI check inside it; `down <name>` when finished -- your box only,
@@ -116,6 +118,7 @@ python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder ma
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
 python rebuild_wis.py                             # replace the WIS part (~6 min; keeps spend log)
 python dev.py                                     # FREE, throwaway instance, :8757
+python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py
 python eval.py                                    # FREE retrieval check (F-150)
 python eval.py --answers                          # PAID, prints estimate
 python eval_wis.py                                # FREE, WIS retrieval + wrong-vehicle guards
@@ -128,6 +131,7 @@ python tests/test_lemon_import.py                 # LEMON import source (~3 s)
 python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (~3 s)
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
+python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~45 s, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
@@ -149,7 +153,15 @@ when Docker/WSL is unavailable). It builds sample data (invented text) into
 `.dev/`, runs with its own `AUTORUNDOWN_HOME` there and serves on
 localhost:8757, so the real index, spend log and the real server on 8756 are
 never touched. It drops `ANTHROPIC_API_KEY`, so Ask costs nothing unless
-someone types a key into its Shop setup. One of the three sample LEMON
+someone types a key into its Shop setup. `--fake-api` (what a box runs)
+points the SDK at `tools/fake_anthropic.py` on port+1 via
+`ANTHROPIC_BASE_URL`, so Ask runs its whole real path -- planner, search,
+`_verify_citations`, spend log, UI -- with made-up replies, and even a real
+key typed into Settings goes only to the fake. Words in a question pick the
+rare paths (`fake:badcite`, `fake:steps`, `fake:notfound`, `fake:refusal`,
+`fake:error`, `fake:nocredit`, `fake:slow`). It proves the app's plumbing,
+not the real model's judgement: prompt changes still need one scoped paid
+answer. One of the three sample LEMON
 vehicles is imported, two are left for the import page; `--empty` gives the
 first-start checklist, `--reset` rebuilds. The sample WIS corpus uses the
 real model catalogue when `../Mercedes Documents/autorundown_out/wis_applic/models.jsonl`
@@ -179,9 +191,9 @@ The user pays per API call and has said so directly. Earlier in this project
 - **`python eval.py --answers` costs ~$0.08 (Haiku) to ~$0.36 (Sonnet).**
   Only after changing prompts, the answer schema, or models. Not routinely.
   Scope it: `--case <id> --model claude-haiku-4-5` is ~$0.01.
-- **Prefer testing UI rendering by injecting a payload into `renderAnswer()`
-  via the browser console** rather than asking a real question. Free, and it
-  exercises the same code.
+- **Test Ask in a test box, where the fake API answers it** (or inject a
+  payload into `renderAnswer()` from the console) rather than asking a real
+  question. Free, and it exercises the same code.
 - Every paid call is logged to `usage_log` in the index; `ask.py --usage`
   attributes spend to `web` / `cli` / `eval`.
 
