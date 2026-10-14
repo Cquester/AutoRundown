@@ -98,6 +98,26 @@ _verify_citations(a, PASSAGES)
 check("cited procedure kept", a.found and a.steps == ["Remove the wheel."]
       and a.source_pages == ["12"], f"{a}")
 
+# 7d. the page opened beside the answer must be a returned page too
+a = answer(document_page="40", specs=[spec("Caliper bolt", ["12"])], source_pages=["12"])
+dropped = _verify_citations(a, PASSAGES)
+check("real document page kept and cited", a.document_page == "40"
+      and "40" in a.source_pages and not dropped, f"{a} {dropped}")
+
+a = answer(document_page="999", specs=[spec("Caliper bolt", ["12"])], source_pages=["12"])
+dropped = _verify_citations(a, PASSAGES)
+check("invented document page falls back to a cited one", a.document_page == "12"
+      and any("999" in d for d in dropped), f"{a} {dropped}")
+
+a = answer(specs=[spec("Caliper bolt", ["12"])])
+_verify_citations(a, PASSAGES)
+check("no document page: the spec's page is opened", a.document_page == "12", f"{a}")
+
+# 7e. an invented document page is not a citation that saves an answer
+a = answer(document_page="999", steps=["Remove the wheel."])
+_verify_citations(a, PASSAGES)
+check("only an invented document page -> withheld", not a.found and a.document_page == "", f"{a}")
+
 # 8. an answer that was already "not found" stays as it is
 a = answer(found=False, answer="", caveats="Not in this manual.")
 _verify_citations(a, PASSAGES)

@@ -80,6 +80,8 @@ credit.
 2. **A test box for anything "like a user", and for every agent**:
    `wsl -d Ubuntu -- bash tools/container/box.sh up` starts your own copy of
    the app in Docker, with sample data, no network, nothing of the user's.
+   **Ask works there for free**: a fake Anthropic API in the box
+   (`tools/fake_anthropic.py`) answers from the passages the app sends.
    Keep the `BOX name=… admin=… phone=…` line it prints: **admin** is "this
    PC", **phone** is a mechanic's phone. `box.sh check <name>` runs every
    CI check inside it; `down <name>` when finished -- your box only,
@@ -116,6 +118,7 @@ python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder ma
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
 python rebuild_wis.py                             # replace the WIS part (~6 min; keeps spend log)
 python dev.py                                     # FREE, throwaway instance, :8757
+python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py
 python eval.py                                    # FREE retrieval check (F-150)
 python eval.py --answers                          # PAID, prints estimate
 python eval_wis.py                                # FREE, WIS retrieval + wrong-vehicle guards
@@ -128,6 +131,7 @@ python tests/test_lemon_import.py                 # LEMON import source (~3 s)
 python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (~3 s)
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
+python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~45 s, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
@@ -149,7 +153,15 @@ when Docker/WSL is unavailable). It builds sample data (invented text) into
 `.dev/`, runs with its own `AUTORUNDOWN_HOME` there and serves on
 localhost:8757, so the real index, spend log and the real server on 8756 are
 never touched. It drops `ANTHROPIC_API_KEY`, so Ask costs nothing unless
-someone types a key into its Shop setup. One of the three sample LEMON
+someone types a key into its Shop setup. `--fake-api` (what a box runs)
+points the SDK at `tools/fake_anthropic.py` on port+1 via
+`ANTHROPIC_BASE_URL`, so Ask runs its whole real path -- planner, search,
+`_verify_citations`, spend log, UI -- with made-up replies, and even a real
+key typed into Settings goes only to the fake. Words in a question pick the
+rare paths (`fake:badcite`, `fake:steps`, `fake:notfound`, `fake:refusal`,
+`fake:error`, `fake:nocredit`, `fake:slow`). It proves the app's plumbing,
+not the real model's judgement: prompt changes still need one scoped paid
+answer. One of the three sample LEMON
 vehicles is imported, two are left for the import page; `--empty` gives the
 first-start checklist, `--reset` rebuilds. The sample WIS corpus uses the
 real model catalogue when `../Mercedes Documents/autorundown_out/wis_applic/models.jsonl`
@@ -179,9 +191,9 @@ The user pays per API call and has said so directly. Earlier in this project
 - **`python eval.py --answers` costs ~$0.08 (Haiku) to ~$0.36 (Sonnet).**
   Only after changing prompts, the answer schema, or models. Not routinely.
   Scope it: `--case <id> --model claude-haiku-4-5` is ~$0.01.
-- **Prefer testing UI rendering by injecting a payload into `renderAnswer()`
-  via the browser console** rather than asking a real question. Free, and it
-  exercises the same code.
+- **Test Ask in a test box, where the fake API answers it** (or inject a
+  payload into `renderAnswer()` from the console) rather than asking a real
+  question. Free, and it exercises the same code.
 - Every paid call is logged to `usage_log` in the index; `ask.py --usage`
   attributes spend to `web` / `cli` / `eval`.
 
@@ -263,14 +275,19 @@ the old per-bucket code on that index: 42 searches, identical rows; median
 1.37 s -> 0.80 s, worst 9.8 s -> 1.3 s. Not done: a `doc_id` column inside
 the FTS table (narrows inside FTS5; ~10x more, but rebuilds the FTS table).
 
-**Answer schema is split by shape**: `specs` (values only), `figures`
-(diagrams that *are* the answer, e.g. tightening sequences), `steps` (ordered
-procedure). Without `figures`, the model writes a spec whose value is "see
-Fig 15", which renders in 30px type as though it were a torque.
-
-**The answer reads top-down the way the job is done** (the user's request,
-2026-10-08): Answer, Procedure, Figures, then Specifications, caveats,
-sources. It used to lead with specs.
+**The answer points at the manual page; it does not retell it** (the user,
+2026-10-13: "it gets really messy having AI respond and have a bunch of images
+on the side ... it's more to provide the correct document"). An answer is one
+to three sentences, a table of the values the job uses (`specs`), and
+`document_page` -- the procedure page for "how do I", the spec page for a
+value -- which the UI opens on the right (on a phone: a button, so it does not
+cover the answer). `steps` is left empty by the prompt and not rendered; the
+side panel of "diagrams from cited pages" is gone; `figures` survive only as
+links to a diagram on another page. `document_page` is checked like any
+citation in `_verify_citations` (invented -> dropped, falls back to the first
+real cited page; never counts on its own). A value is never "see Fig 15" --
+that rendered in big type as though it were a torque. **Not yet tried on a
+paid answer.**
 
 **Only the chosen car's values, checked after the model.** The user typed
 "2001 E 320 4MATIC" (W210, M112) and got torque values for every W210

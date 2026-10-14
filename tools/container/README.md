@@ -2,8 +2,11 @@
 
 A test box is AutoRundown running in a throwaway Linux container (Docker
 Engine inside WSL2 on the user's PC): a copy of this repo, serving invented
-sample data, with **no outbound network, no API key and nothing of the
-user's** -- not their files, index, settings, spend log or Claude sign-in.
+sample data, with **no outbound network and nothing of the user's** -- not
+their files, index, settings, spend log or Claude sign-in. Ask works: a fake
+Anthropic API inside the box (`tools/fake_anthropic.py`, via `dev.py
+--fake-api`) answers it from the passages the app sends, so the whole answer
+path runs for free. Its answers start "[fake API]".
 Use one whenever you want to test "like a user", let an agent loose on the
 app, or show the user a change.
 
@@ -51,8 +54,11 @@ code) and look at what the phone side gets; test the phone side at 375x812.
 - **Agents stay on the PC** and work on the box only through its addresses
   and `box.sh exec`; QA agents follow `.claude/qa/RUNBOOK.md`. Give them the
   `BOX …` line.
-- **Free.** Nothing in a box can reach Anthropic, so nothing spends. Don't
-  type an API key into a box's Shop setup.
+- **Free.** Nothing in a box can reach Anthropic, so nothing spends; the
+  "$ this session" figure is the fake's made-up token count. Don't type an
+  API key into a box's Shop setup (it would still go only to the fake).
+- **`entrypoint.sh` and the `Dockerfile` are baked into the image**: after
+  changing either, `box.sh build` before `up`.
 - **WSL sleeps** a few seconds after the last command from Windows, and
   Docker with it; boxes come back by themselves when WSL starts. While you
   (or the user) are using one, keep WSL up with a background
@@ -72,7 +78,7 @@ code) and look at what the phone side gets; test the phone side at 375x812.
 
 ## Files
 
-`Dockerfile` (the image), `entrypoint.sh` (firewall, then `dev.py --lan` +
+`Dockerfile` (the image), `entrypoint.sh` (firewall, then `dev.py --lan --fake-api` +
 `forward.py`), `init-firewall.sh` (drops all outbound traffic, proves it),
 `check.sh` (what `box.sh check` runs), `box.sh` (everything else). The
 design notes and what was measured are in CLAUDE.md, "Test boxes".

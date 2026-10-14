@@ -4,6 +4,7 @@ nothing it does touches your real index, settings, accounts or spend log.
     python dev.py            # sample data, http://localhost:8757
     python dev.py --empty    # no index: the first-start import dialog
     python dev.py --reset    # delete .dev/ and build the samples again
+    python dev.py --fake-api # Ask answers from a fake Anthropic API (free)
 
 Everything lives in `.dev/` in this repo (gitignored): its own
 AUTORUNDOWN_HOME (config, sign-in accounts, TLS), its own index. The samples
@@ -14,7 +15,9 @@ run next to the real one (8756) and isn't on the shop network.
 
 No API key is copied in: Ask stays off unless you add one in Settings, which
 would spend real money -- keyword search, the picker, the page view and
-imports are all free.
+imports are all free. With --fake-api, Ask runs its whole real path against
+tools/fake_anthropic.py on port+1 instead: nothing is sent to Anthropic, even
+if a real key is typed into Settings (the API address is the fake's).
 """
 from __future__ import annotations
 
@@ -71,6 +74,8 @@ def main() -> int:
                     help="also answer on the network (to try it on a phone); this also "
                          "announces autorundown.local, so not while the real one runs")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--fake-api", action="store_true",
+                    help="answer Ask from tools/fake_anthropic.py on port+1 (free)")
     args = ap.parse_args()
 
     if args.reset and DEV.exists():
@@ -80,6 +85,15 @@ def main() -> int:
     env = {**os.environ, "AUTORUNDOWN_HOME": str(home),
            "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
     env.pop("ANTHROPIC_API_KEY", None)   # never spend by accident from here
+    env.pop("ANTHROPIC_BASE_URL", None)
+    if args.fake_api:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import fake_anthropic
+        fake = fake_anthropic.serve(args.port + 1)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        # the SDK reads both; the address is what keeps a real key from spending
+        env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{args.port + 1}"
+        env["ANTHROPIC_API_KEY"] = "sk-fake-dev-not-a-real-key"
 
     if args.empty:
         index = DEV / "empty.db"
@@ -98,7 +112,9 @@ def main() -> int:
 
     host = "0.0.0.0" if args.lan else "127.0.0.1"
     url = f"http://localhost:{args.port}/"
-    print(f"\nDev AutoRundown: {url}   (data in {DEV}; Ctrl+C stops it)\n", flush=True)
+    print(f"\nDev AutoRundown: {url}   (data in {DEV}; Ctrl+C stops it)"
+          + (f"\nAsk answers from the fake API on {env['ANTHROPIC_BASE_URL']}" if args.fake_api else "")
+          + "\n", flush=True)
     if not args.no_browser:
         threading.Thread(target=open_when_up, args=(url,), daemon=True).start()
     try:

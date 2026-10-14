@@ -164,15 +164,19 @@
     padding:16px; margin-bottom:14px;
   }
   .answer{font-size:17px}
-  .spec{
-    background:var(--panel-2); border:1px solid var(--line);
-    border-left:4px solid var(--accent); border-radius:10px;
-    padding:14px; margin:10px 0;
-  }
-  .spec .name{color:var(--muted); font-size:14px; text-transform:uppercase; letter-spacing:.6px}
+  .spectable{width:100%; border-collapse:collapse; margin:12px 0}
+  .spectable th{text-align:left; font-size:12px; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.6px; padding:6px 8px; border-bottom:1px solid var(--line)}
+  .spectable td{padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top}
   /* readable at arm's length, under a truck */
-  .spec .value{font-size:30px; font-weight:800; line-height:1.15; margin:4px 0}
-  .spec .appl{font-size:14px; color:var(--muted)}
+  .spectable td.value{font-size:20px; font-weight:800; line-height:1.2; white-space:nowrap}
+  .spectable .appl{font-size:13px; color:var(--muted); margin-top:2px}
+  .spectable .pagelink{margin:0 4px 4px 0}
+  .docbtn{display:flex; flex-direction:column; gap:2px; width:100%; text-align:left;
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-left:4px solid var(--accent); border-radius:10px; padding:12px 14px;
+    margin:12px 0 4px; cursor:pointer; font-size:16px; white-space:normal}
+  .docbtn:hover{border-color:var(--accent)}
   .pagelink{
     display:inline-block; background:var(--accent-dim); color:var(--pill-text);
     border:0; border-radius:8px; padding:8px 12px; font-size:14px;
@@ -277,20 +281,6 @@
     text-underline-offset:2px; font-weight:600;
   }
   .xref:hover{background:var(--accent-dim); border-radius:4px}
-  .figure{margin:12px 0}
-  .figure .cap{font-size:14px; color:var(--muted); margin-bottom:6px}
-  .figure .cap b{color:var(--text)}
-  ol.steps{margin:8px 0; padding-left:0; list-style:none; counter-reset:s}
-  ol.steps li{
-    counter-increment:s; position:relative; padding-left:38px; margin:12px 0;
-    font-size:15px; line-height:1.5;
-  }
-  ol.steps li::before{
-    content:counter(s); position:absolute; left:0; top:0;
-    width:28px; height:28px; border-radius:50%; background:var(--accent);
-    color:var(--on-accent); font-weight:800; font-size:13px;
-    display:flex; align-items:center; justify-content:center;
-  }
   img.diagram{max-width:100%; border-radius:10px; background:#fff; margin:8px 0; display:block}
   .hit{display:block; width:100%; text-align:left; background:none; color:var(--text);
     border:0; border-bottom:1px solid var(--line); border-radius:0; padding:12px;
@@ -510,7 +500,6 @@
   /* -- a big screen: the reading column stays readable, pages and diagrams get the width */
   .carbox{max-width:760px}
   .answer, .src p{max-width:72ch}
-  .figure img.diagram{width:100%; max-width:720px}
   @media (min-width:1400px){ main{grid-template-columns:minmax(560px,760px) 1fr} }
 </style>
 </head>
@@ -1711,15 +1700,17 @@ async function showConnector(id) {
   }
 }
 
-function specHtml(s) {
-  return `<div class="spec">
-    <div class="name">${esc(s.name)}</div>
-    <div class="value">${esc(s.value)}</div>
-    <div class="appl">${esc(s.applicability)}</div>
-    ${(s.source_pages||[]).map((p, i) =>
-      `<button class="pagelink" ${pageAttrs(p)}>`
-      + `${i === 0 ? 'page' : 'also'} ${esc(p)}</button>`).join('')}
-  </div>`;
+// The values the job needs, one row each, readable at arm's length. The
+// procedure itself is the manual page shown beside the answer.
+function specTable(specs) {
+  return `<table class="spectable"><thead><tr><th>Item</th><th>Value</th><th>Page</th></tr></thead><tbody>`
+    + specs.map(s => `<tr>
+        <td>${esc(s.name)}${s.applicability ? `<div class="appl">${esc(s.applicability)}</div>` : ''}</td>
+        <td class="value">${esc(s.value)}</td>
+        <td>${(s.source_pages || []).map(p =>
+          `<button class="pagelink" ${pageAttrs(p)}>${esc(p)}</button>`).join('')}</td>
+      </tr>`).join('')
+    + `</tbody></table>`;
 }
 
 // citations carry the page's title so you know what you are opening
@@ -1732,11 +1723,9 @@ function srcBtn(p) {
 }
 
 function figureHtml(f) {
-  return `<div class="figure">
-    <div class="cap"><b>${esc(f.caption)}</b>${f.page ? ' — page ' + esc(f.page) : ''}</div>
-    ${imgTag(f.image)}
-    ${f.page ? `<button class="pagelink" ${pageAttrs(f.page)}>open page ${esc(f.page)}</button>` : ''}
-  </div>`;
+  return `<button class="srcbtn" ${pageAttrs(f.page)}>
+    <span class="pno">p${esc(f.page)}</span><span class="ptitle">${esc(f.caption)}</span>
+  </button>`;
 }
 
 function renderAnswer(d, doc = docId(), label = carBoxLabel) {
@@ -1755,32 +1744,26 @@ function drawAnswer(d, label) {
       <div class="muted" style="margin-top:6px">${esc(d.caveats) || 'The manual pages searched did not contain this.'}</div>
     </div></div>`;
   } else {
-    // The answer and the procedure lead, the figures that go with the steps
-    // next, the spec values last -- the user asked for "procedure and AI
-    // description on top, torque specs on the bottom", reading down the way
-    // the job is done.
+    // A short answer and the values; the manual page itself opens beside it
+    // (the user, 2026-10-13: the AI points at the right document instead of
+    // retelling the procedure with pictures around it)
     h += `<div class="card">` + resultsFor(label);
     if (d.answer) {
-      h += `<div class="sechead">Answer</div><div class="answer">`
+      h += `<div class="answer">`
          + esc(d.answer).split(/\n{2,}/)
              .filter(s => s.trim())
              .map(s => `<p style="margin:8px 0">${s.trim()}</p>`).join('')
          + `</div>`;
     }
-    if (d.steps?.length) {
-      h += `<div class="sechead">Procedure</div><ol class="steps">`
-         + d.steps.map(s => `<li>${inline(s)}</li>`).join('')
-         + `</ol>`;
+    if (d.document_page) {
+      const t = pageTitles[String(d.document_page)] || '';
+      h += `<button type="button" class="docbtn" ${pageAttrs(d.document_page)}>`
+         + `<span class="muted">Manual page ${esc(d.document_page)}</span>`
+         + `<b>${esc(t) || 'Open the manual page'}</b></button>`;
     }
-    // for a tightening sequence the picture IS the answer, so it stays in
-    // the answer card, not buried in the source pane
+    if (d.specs.length) h += specTable(d.specs);
     if (d.figures?.length) {
-      h += `<div class="sechead">Figure${d.figures.length > 1 ? 's' : ''}</div>`;
-      h += d.figures.map(figureHtml).join('');
-    }
-    if (d.specs.length) {
-      h += `<div class="sechead">Specification${d.specs.length > 1 ? 's' : ''}</div>`;
-      h += d.specs.map(specHtml).join('');
+      h += `<div class="sechead">See also</div>` + d.figures.map(figureHtml).join('');
     }
     // caveats matter but are usually long; keep them one tap away
     if (d.caveats) {
@@ -1795,8 +1778,8 @@ function drawAnswer(d, label) {
     }
     // shown on every answer: the model can be wrong, the manual page is the
     // authority, and a wrong torque can hurt someone
-    h += `<div class="safety">AI-generated from the pages cited above. Check the
-      original page before you tighten, fill, wire or replace anything.
+    h += `<div class="safety">AI summary of the manual page. The page is the
+      authority: check it before you tighten, fill, wire or replace anything.
       Use at your own risk.</div>`;
     h += `</div>`;
   }
@@ -1819,16 +1802,9 @@ function drawAnswer(d, label) {
   h += `<div class="muted">searched: ${d.queries.map(esc).join(' &middot; ')}</div>`;
   out.innerHTML = h;
 
-  // a diagram already shown as a Figure isn't repeated
-  const figs = new Set((d.figures || []).map(f => f.image));
-  const diagrams = (d.diagrams || []).filter(n => !figs.has(n));
-  if (diagrams.length) {
-    srcout.innerHTML = `<div class="sechead">Diagrams from cited pages</div>`
-      + diagrams.map(imgTag).join('');
-    // on a phone the panel would cover the answer: offer it instead
-    if (narrow()) out.insertAdjacentHTML('beforeend', `<button type="button" class="ghost" id="showDiagrams" `
-      + `style="width:100%; margin-top:6px">Diagrams from cited pages (${diagrams.length})</button>`);
-  }
+  // the cited document opens on the right. On a phone the panel would cover
+  // the answer, so there it waits for a tap on the button above.
+  if (d.found && d.document_page && !narrow()) showPage(d.document_page, viewDoc());
 }
 
 let asking = false;
@@ -2140,7 +2116,6 @@ document.addEventListener('click', e => {
 
 $('#closeRight').onclick = closeRight;
 if (narrow()) $('#q').placeholder = 'Ask about this car…';
-out.addEventListener('click', e => { if (e.target.closest('#showDiagrams')) openRight(); });
 $('#askBtn').onclick = ask;
 $('#searchBtn').onclick = keywordSearch;
 $('#q').addEventListener('keydown', e => {

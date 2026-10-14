@@ -6,7 +6,9 @@ Read this first. It is the same for every agent in `.claude/agents/qa-*.md`.
 
 The app under test runs in a **test box** (`tools/container/box.sh`,
 Docker in WSL): a Linux container holding a copy of the repo at `/work`,
-serving `dev.py`'s sample data, with no outbound network and no API key.
+serving `dev.py`'s sample data, with no outbound network. Ask is answered
+by a fake Anthropic API inside the box (`tools/fake_anthropic.py`), so it is
+free.
 You run on the PC, as a subagent of a local session, and work on the box
 **from outside only**. The orchestrator starts one box per chat with
 `wsl -d Ubuntu -- bash tools/container/box.sh up` and hands you the
@@ -40,10 +42,12 @@ is thrown away with `box.sh down`.
 
 `dev.py` in the box: invented sample data (three LEMON vehicles, one
 imported; a stand-in WIS corpus with variants and VINs), its own
-`AUTORUNDOWN_HOME`, no API key. For the first-start state, start a second,
-empty instance inside the box:
+`AUTORUNDOWN_HOME`, Ask answered by the fake API on :8758 (every answer
+starts "[fake API]"; words like `fake:badcite` or `fake:error` in a question
+drive the rarer paths -- list in `tools/fake_anthropic.py`). For the
+first-start state, start a second, empty instance inside the box:
 `box.sh exec qa bash -c 'AUTORUNDOWN_HOME=/tmp/empty python serve.py
---host 127.0.0.1 --port 8758 &'` and drive it from inside (it is not
+--host 127.0.0.1 --port 8761 &'` and drive it from inside (it is not
 published to the PC).
 
 ## Browser
@@ -71,9 +75,9 @@ Save screenshots to `.dev/qa/<role>/shots/`. Test at 1280x800 and 375x812
 ## Hard rules
 
 - **Report only. Do not edit any tracked file.** Write only under `.dev/qa/`.
-- **Never call `/api/ask` and never enter an API key** in Settings. Block it in
-  Playwright: `page.route("**/api/ask", lambda r: r.abort())`. To see answer
-  rendering, inject a payload into `renderAnswer()` from the console.
+- **Never enter an API key** in Settings. Ask is free only in a box, where
+  the fake API answers it; anywhere else (no box), never call `/api/ask` --
+  inject a payload into `renderAnswer()` from the console instead.
 - Imports, removals and settings changes only ever touch `.dev/`. Do not point
   the folder browser or an import at anything outside the repo.
 - Do not run `extractor/`, `vm_pipeline.py`, `rebuild_wis.py`, or anything that
