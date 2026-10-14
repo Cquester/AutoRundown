@@ -24,6 +24,7 @@ broke:
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
+| the EPC parts source — `extractor/pull_epc.js` (IN PROGRESS, not in the live index) | [`docs/notes/epc-source.md`](docs/notes/epc-source.md) |
 
 ---
 
