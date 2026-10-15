@@ -209,12 +209,57 @@ def main() -> int:
         check("/api/page opens the EPC page through the WIS car",
               r.status_code == 200 and r.json().get("doc_id") == e201["doc_id"], r.status_code)
 
+        print("\n-- Shop setup: EPC is its own group, extracted and replaced whole --")
+        from autorundown import importer_jobs
+        have = importer_jobs.manuals(db)
+        check("manuals() counts EPC as one group", have["epc"]["entries"] == 4, have["epc"])
+        check("EPC cars are not listed one by one in the Folder tab",
+              not [r for r in have["folder"] if r["source"].startswith("mercedes-epc")])
+        jobs, ran = importer_jobs.ImportJobs(), []
+        jobs._run = lambda cmd: ran.append(cmd) or 0          # nothing is executed
+        real_find = importer_jobs.find_extractor
+        importer_jobs.find_extractor = lambda: ROOT / "extractor"
+        try:
+            jobs.start(TMP / "out" / "epc_extract", str(db), "vm_epc", vm="Mercedes_Test")
+            for _ in range(100):
+                if jobs.status()["state"] != "running":
+                    break
+                import time; time.sleep(0.05)
+        finally:
+            importer_jobs.find_extractor = real_find
+        names = [Path(c[2]).name for c in ran]
+        check("vm_epc runs pull, then removes the old EPC, then ingests",
+              names == ["vm_pipeline.py", "remove_manuals.py", "ingest.py"], names)
+        check("... the pull is the epc step for that VM",
+              ran and ran[0][ran[0].index("--steps") + 1] == "epc"
+              and ran[0][ran[0].index("--vm") + 1] == "Mercedes_Test", ran[:1])
+        check("... the removal is the whole EPC source",
+              len(ran) > 1 and ran[1][-2:] == ["--source", "mercedes-epc"], ran[1:2])
+        check("... and the ingest reads epc_extract as records",
+              len(ran) > 2 and ran[2][ran[2].index("--archive") + 1] == str(TMP / "out" / "epc_extract")
+              and ran[2][-2:] == ["--importer", "records"], ran[2:])
+
+        check("this repo's extractor can pull EPC",
+              importer_jobs.epc_problem(ROOT / "extractor") == "",
+              importer_jobs.epc_problem(ROOT / "extractor"))
+        old_ext = TMP / "old_extractor"
+        old_ext.mkdir()
+        (old_ext / "vm_pipeline.py").write_text('STEPS = ("docs", "build")\n', encoding="utf-8")
+        check("an extractor from before EPC is refused with a reason",
+              "older than the parts-catalogue" in importer_jobs.epc_problem(old_ext))
+
         print("\n-- removing the EPC manuals keeps both full-text indexes consistent --")
         import remove_manuals
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc_one = remove_manuals.main(["--index", str(db), "--doc-id", e201["doc_id"]])
+        check("one EPC car cannot be removed on its own", rc_one == 1, rc_one)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc_all = remove_manuals.main(["--index", str(db), "--source", "mercedes-epc"])
+        check("--source mercedes-epc removes it whole", rc_all == 0, rc_all)
         conn = index.connect(db)
-        for v in (e201, e100, e102, e103):
-            remove_manuals.remove(conn, v["doc_id"])
-        conn.commit()
+        check("no EPC vehicle left, WIS untouched",
+              conn.execute("SELECT COUNT(*) FROM vehicles WHERE source_name='mercedes-epc'").fetchone()[0] == 0
+              and conn.execute("SELECT COUNT(*) FROM vehicles WHERE source_name LIKE 'mercedes-wis%'").fetchone()[0] > 0)
         for t in ("chunks_fts", "parts_fts"):
             try:
                 conn.execute(f"INSERT INTO {t}({t}) VALUES ('integrity-check')")

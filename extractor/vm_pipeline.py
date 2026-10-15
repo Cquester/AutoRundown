@@ -17,6 +17,11 @@ in order, each resumable -- a re-run skips what is already pulled:
   offline:          build     parse.py -> apply_applic.py -> parse_vehicles.py
                               -> parse_links.py -> convert_images.py
                               -> apply_images.py
+  EPC (not in the default run; --steps epc):
+                    epc       pull_epc.js      the EPC parts catalogue (port 2034):
+                                               passenger chassis + engine catalogs,
+                                               drawings decoded to PNG, resumable
+                                               per catalog -> <out>/epc_extract
 
 What it will NOT do to the VM: take or restore snapshots, change network
 adapters, or touch the guest's firewall. It only starts it headless, stops
@@ -43,7 +48,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 from wis_paths import home, out_root, check_outside_repo  # noqa: E402
 DEFAULT_OUT = out_root()
-STEPS = ("docs", "applic", "vehicles", "links", "images", "build")
+STEPS = ("docs", "applic", "vehicles", "links", "images", "build")   # the default: WIS
+ALL_STEPS = STEPS + ("epc",)
 BATCH = 15000
 GZIP_MAGIC = bytes((0x1F, 0x8B))     # a SIDS body; anything else is an RTF/XML stub
 
@@ -216,8 +222,10 @@ def stage_scripts(jar: str) -> Path:
     return stage
 
 
-def nashorn(script: str, env: dict) -> int:
-    return run([JAVA, "-cp", "tbjdbc.jar", "jdk.nashorn.tools.Shell", script], env, STAGE)
+def nashorn(script: str, env: dict, heap: str = "") -> int:
+    # the bundled JRE is 32-bit: a heap over ~1.2 GB cannot be reserved
+    jvm = [f"-Xmx{heap}"] if heap else []
+    return run([JAVA, *jvm, "-cp", "tbjdbc.jar", "jdk.nashorn.tools.Shell", script], env, STAGE)
 
 
 def build_image_list(extract: Path, images: Path) -> int:
@@ -280,7 +288,7 @@ def main(argv=None) -> int:
     ap.add_argument("--list-vms", action="store_true")
     ap.add_argument("--out-root", default=str(DEFAULT_OUT))
     ap.add_argument("--steps", default=",".join(STEPS),
-                    help=f"comma list of {', '.join(STEPS)}")
+                    help=f"comma list of {', '.join(ALL_STEPS)} (default: the WIS ones)")
     ap.add_argument("--lang", default="2", help="WIS language code (2 = English)")
     ap.add_argument("--port", type=int, default=2054)
     ap.add_argument("--db", default="wisnet")
@@ -288,6 +296,10 @@ def main(argv=None) -> int:
     ap.add_argument("--wait", type=int, default=600, help="seconds to wait for the database")
     ap.add_argument("--java", default="")
     ap.add_argument("--jar", default="")
+    ap.add_argument("--epc-port", type=int, default=2034,
+                    help="the EPC database (a separate Transbase instance from WIS's)")
+    ap.add_argument("--epc-catalogs", default="all,engines",
+                    help="pull_epc.js AR_CATNUM: all (chassis), engines, or catalog numbers")
     args = ap.parse_args(argv)
 
     VBOX = find_vbox()
@@ -300,7 +312,7 @@ def main(argv=None) -> int:
     if args.vm not in {n for n, _ in list_vms()}:
         die(f"no VM named {args.vm!r}; --list-vms shows them")
     steps = [s for s in args.steps.split(",") if s]
-    bad = [s for s in steps if s not in STEPS]
+    bad = [s for s in steps if s not in ALL_STEPS]
     if bad:
         ap.error(f"unknown step(s) {bad}")
 
@@ -317,23 +329,26 @@ def main(argv=None) -> int:
     if online:
         JAVA, STAGE = find_java(args.java), stage_scripts(find_jar(args.jar))
         log(f"VM {args.vm}; Java {JAVA}; output {out}")
-        ip = vm_up(args.vm, args.port, args.subnet, args.wait)
+        # the database the first step needs: WIS (2054), or EPC (2034) alone
+        port = args.epc_port if online == ["epc"] else args.port
+        ip = vm_up(args.vm, port, args.subnet, args.wait)
         base = {"AR_HOST": ip, "AR_PORT": str(args.port), "AR_DB": args.db, "AR_LANG": args.lang}
 
-        def cycle() -> str:
+        def cycle(port: int = args.port) -> str:
             vm_down(args.vm)
             time.sleep(60)          # let the host settle between heavy runs
-            return vm_up(args.vm, args.port, args.subnet, args.wait)
+            return vm_up(args.vm, port, args.subnet, args.wait)
 
-        def pull(script: str, out_dir: Path, what: str) -> None:
+        def pull(script: str, out_dir: Path, what: str, env: dict | None = None,
+                 port: int = args.port, heap: str = "") -> None:
             """Run a pull; on a dropped connection power-cycle and run it again.
             The in-VM database resets connections under sustained load (the
             first from-scratch run lost it on the last table of pull_applic2)."""
             for attempt in range(6):
-                if nashorn(script, {**base, "AR_OUT": str(out_dir)}) == 0:
+                if nashorn(script, {**base, **(env or {}), "AR_OUT": str(out_dir)}, heap) == 0:
                     return
                 log(f"{what} stopped (attempt {attempt + 1}); power-cycling and resuming")
-                base["AR_HOST"] = cycle()
+                base["AR_HOST"] = cycle(port)
             die(f"{what} kept stopping; re-run to resume")
 
         if "docs" in steps:
@@ -369,7 +384,21 @@ def main(argv=None) -> int:
                     die("three batches in a row pulled nothing; re-run to resume")
                 if pulled_count(images) < total:
                     base["AR_HOST"] = cycle()
-        if started_here or "images" in steps:
+        if "epc" in steps:
+            epc = out / "epc_extract"
+            epc.mkdir(parents=True, exist_ok=True)
+            if online != ["epc"]:      # the WIS steps ran first: find the EPC database
+                base["AR_HOST"] = vm_up(args.vm, args.epc_port, args.subnet, args.wait)
+            log(f"== EPC parts catalogue ({args.epc_catalogs}); resumes per catalog, "
+                f"drawings already on disk are reused")
+            # AR_LANG is EPC's own one-letter code, not WIS's number
+            pull("pull_epc.js", epc, "EPC pull",
+                 env={"AR_PORT": str(args.epc_port), "AR_LANG": "E",
+                      "AR_CATNUM": args.epc_catalogs, "AR_RESUME": "1",
+                      "AR_SLEEP_MS": "20", "AR_TBJDBC": "tbjdbc.jar"},
+                 port=args.epc_port, heap="1024m")
+            log(f"EPC corpus ready: {epc}")
+        if started_here or "images" in steps or "epc" in steps:
             vm_down(args.vm)
 
     if "build" in steps:

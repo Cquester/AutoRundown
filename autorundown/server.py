@@ -96,13 +96,14 @@ class ImportBody(BaseModel):
     # add: ingest.py (resumable, keeps what is there)
     # rebuild_wis: rebuild_wis.py (replace the Mercedes WIS part, keep the rest)
     mode: str = "add"
-    # mode "vm": extract from this VirtualBox VM first (vm_pipeline.py)
+    # mode "vm": extract WIS from this VirtualBox VM first (vm_pipeline.py);
+    # mode "vm_epc": the EPC parts catalogue from it, then replace EPC in the index
     vm: str = ""
     steps: str = ""
     # mode "lemon": the vehicle folders to import, relative to path
     # mode "remove": the doc_ids to remove (LEMON / folder manuals only)
     vehicles: list[str] = []
-    # modes "remove" / "remove_wis": VACUUM afterwards to shrink the file
+    # modes "remove" / "remove_wis" / "remove_epc": VACUUM afterwards to shrink the file
     compact: bool = False
 
 
@@ -876,12 +877,23 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/import")
     def api_import_start(body: ImportBody) -> dict:
-        if body.mode == "vm":
+        if body.mode in ("vm", "vm_epc"):
             info = importer_jobs.list_vms()
             if info.get("error"):
                 raise HTTPException(400, str(info["error"]))
             if body.vm not in {v["name"] for v in info["vms"]}:
                 raise HTTPException(400, f"No VirtualBox VM named {body.vm!r}.")
+        if body.mode == "vm_epc":
+            # the EPC parts catalogue: vm_pipeline.py --steps epc, then re-ingest
+            problem = importer_jobs.epc_problem(importer_jobs.find_extractor())
+            if problem:
+                raise HTTPException(400, problem)
+            try:
+                return jobs.start(Path(info["out_root"]) / "epc_extract", app.state.index_path,
+                                  "vm_epc", vm=body.vm)
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
+        if body.mode == "vm":
             steps = [s for s in body.steps.split(",") if s]
             if any(s not in ("docs", "applic", "vehicles", "images", "build") for s in steps):
                 raise HTTPException(400, f"unknown step in {body.steps!r}")
@@ -890,7 +902,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                                   "vm", vm=body.vm, steps=",".join(steps))
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
-        if body.mode in ("remove", "remove_wis"):
+        if body.mode in ("remove", "remove_wis", "remove_epc"):
             have = importer_jobs.manuals(app.state.index_path)
             if body.mode == "remove":
                 removable = {r["doc_id"] for g in ("lemon", "folder") for r in have[g]}
@@ -899,9 +911,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 unknown = [v for v in body.vehicles if v not in removable]
                 if unknown:
                     raise HTTPException(400, f"Not a removable manual: {unknown[0]} "
-                                             "(Mercedes WIS is removed as a whole)")
-            elif not have["wis"]["entries"]:
+                                             "(Mercedes WIS and EPC are removed as a whole)")
+            elif body.mode == "remove_wis" and not have["wis"]["entries"]:
                 raise HTTPException(400, "There is no Mercedes WIS data in the index.")
+            elif body.mode == "remove_epc" and not have["epc"]["entries"]:
+                raise HTTPException(400, "There is no Mercedes EPC data in the index.")
             try:
                 return jobs.start(Path("."), app.state.index_path, body.mode,
                                   only=body.vehicles if body.mode == "remove" else None,

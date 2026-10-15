@@ -103,8 +103,10 @@ files. "Start when I sign in" runs it as you, in the background.
   (it needs the Mercedes software next to it, so it can't be part of the
   installer). It is found automatically at `Desktop\Mercedes Documents\autorundown_extractor`;
   anywhere else, set it under Shop setup → *Advanced* → *Mercedes extractor folder*.
-  The installer includes the Python packages it needs. **If your manuals are
-  already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,
+  The installer includes the Python packages it needs. The same tab can pull
+  the **EPC parts catalogue** (*What to extract* → *Parts catalogue*): part
+  numbers and exploded drawings then show under each car beside its manual.
+  **If your manuals are already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,
   and pick `Mercedes Documents\autorundown_out\wis_extract`.
 - The command-line tools are installed too:
   `"%LOCALAPPDATA%\Programs\AutoRundown\python\python.exe" "%LOCALAPPDATA%\Programs\AutoRundown\app\ask.py" --usage`.

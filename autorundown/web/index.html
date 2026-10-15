@@ -680,6 +680,19 @@
     <div id="impVmControls">
     <label for="impVm">VirtualBox VM</label>
     <select id="impVm"></select>
+    <label>What to extract</label>
+    <div class="row" id="impVmWhat">
+      <label style="margin:0"><input type="radio" name="vmwhat" value="wis" checked> Workshop manuals (WIS)</label>
+      <label style="margin:0"><input type="radio" name="vmwhat" value="epc"> Parts catalogue (EPC)</label>
+    </div>
+    <div id="impEpcOpts" hidden>
+    <p class="muted" style="margin:10px 0 0">Pulls every passenger-car parts catalogue (chassis and engines)
+      with its exploded drawings, then replaces the parts catalogue in the index. Part numbers then show
+      under each car alongside its manual. A first full run takes several hours; a re-run resumes where it
+      stopped and reuses drawings already pulled. Starts the VM headless, reads the EPC database (read only)
+      and shuts it down; it never takes snapshots or changes the VM's settings.</p>
+    </div>
+    <div id="impWisOpts">
     <label>Steps (each one resumes where it stopped)</label>
     <div class="row" id="impSteps">
       <label style="margin:0"><input type="checkbox" value="docs" checked> Documents</label>
@@ -693,7 +706,9 @@
       the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
       off in between); a re-run skips what is already pulled.</p>
     </div>
+    </div>
     <div class="manuals" id="impWisManuals"></div>
+    <div class="manuals" id="impEpcManuals"></div>
   </div>
             </div>
             <div class="impbar">
@@ -2847,6 +2862,20 @@ function manRender() {
         + 'Getting it back means importing the WIS corpus again (about 6 minutes).')) return;
     manRemove('remove_wis', [], $('#impWisCompact').checked);
   };
+  // the EPC parts catalogue: one corpus, replaced or removed whole
+  const e = manData.epc || {entries: 0, pages: 0}, eb = $('#impEpcManuals');
+  eb.innerHTML = '<h4>Mercedes EPC parts catalogue in the index</h4>' + (e.entries
+    ? `<div style="font-size:14px">${e.pages.toLocaleString()} parts pages in ${e.entries} models and engines,`
+      + ' searched under each car alongside its manual. It is removed as a whole.</div>'
+      + '<div class="rmbar"><button type="button" class="danger" id="impEpcRemove">Remove all Mercedes EPC data</button>'
+      + '<label><input type="checkbox" id="impEpcCompact" checked> shrink the index file afterwards (slower)</label></div>'
+    : '<div class="muted" style="font-size:14px">None.</div>');
+  if (e.entries) $('#impEpcRemove').onclick = () => {
+    if (!confirm(`Remove ALL Mercedes EPC parts data (${e.pages.toLocaleString()} pages) from the index?\n\n`
+        + 'The workshop manuals, the extracted files on disk and the spend log are not touched. '
+        + 'Getting it back means extracting or importing the EPC corpus again.')) return;
+    manRemove('remove_epc', [], $('#impEpcCompact').checked);
+  };
 }
 async function manRemove(mode, ids, compact) {
   try {
@@ -2862,7 +2891,8 @@ let impSawRunning = false;
 const impDur = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`
   : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
 const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'remove_wis'
-  ? 'removing Mercedes WIS' : s.mode === 'vm' ? 'Mercedes VM extract' : 'import';
+  ? 'removing Mercedes WIS' : s.mode === 'remove_epc' ? 'removing Mercedes EPC'
+  : s.mode === 'vm' ? 'Mercedes VM extract' : s.mode === 'vm_epc' ? 'Mercedes EPC extract' : 'import';
 function impShow(s) {
   const log = $('#impLog');
   $('#jobIdle').hidden = s.state !== 'idle';
@@ -2967,6 +2997,12 @@ async function impVms() {
     $('#impStart').disabled = !r.vms.length;
   } catch (e) { noVm(e.message); }
 }
+// Mercedes VM tab: workshop manuals (WIS, with its steps) or the EPC parts catalogue
+const impVmWhat = () => document.querySelector('#impVmWhat input:checked')?.value || 'wis';
+document.querySelectorAll('#impVmWhat input').forEach(r => r.onchange = () => {
+  $('#impWisOpts').hidden = impVmWhat() !== 'wis';
+  $('#impEpcOpts').hidden = impVmWhat() !== 'epc';
+});
 function impShowSource() {
   const tab = impTab(), src = impSource();
   // the folder browser lives in the Folder tab, or inside the LEMON tab's folder section
@@ -3002,6 +3038,16 @@ $('.srctabs').addEventListener('keydown', e => {
   impSelectTab(next.dataset.src); next.focus();
 });
 $('#impStart').onclick = async () => {
+  if (impSource() === 'vm' && impVmWhat() === 'epc') {
+    if (!confirm(`Extract the EPC parts catalogue from ${$('#impVm').value} and replace it in the index? `
+        + 'The VM will be started and shut down by this job.')) return;
+    try {
+      impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: '', mode: 'vm_epc', vm: $('#impVm').value})}));
+      impWatch();
+    } catch (e) { $('#impStatus').textContent = e.message; }
+    return;
+  }
   if (impSource() === 'vm') {
     const steps = [...document.querySelectorAll('#impSteps input:checked')].map(c => c.value);
     if (!steps.length) { $('#impStatus').textContent = 'Pick at least one step.'; return; }

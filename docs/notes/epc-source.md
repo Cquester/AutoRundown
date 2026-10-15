@@ -212,9 +212,15 @@ index / WIS+EPC with the join off / joined:
 3. **Footnotes** (`FOOTNOTES` codes on part rows, `SA_FOOTNOTES_V` for SA) --
    not extracted; they carry "up to chassis …" conditions.
 4. **Gearbox catalogs** -- need a car -> gearbox map first.
-5. **Site integration:** an EPC adapter in the site's VM import
-   (`importer_jobs.py` / `vm_pipeline.py`) with the clock + DHCP above and the
-   one-time firewall message.
+5. **Site integration: built 2026-10-15, not yet run from the site.** The
+   Mercedes VM tab's "Parts catalogue (EPC)" choice (`docs/notes/importing.md`).
+   **No clock or DHCP change after all:** the EPC database answered with the
+   VM's `biossystemtimeoffset` at 0 (2026-10-14) -- the 2008 clock matters to
+   the EPC *program's* licence, not to reading its database -- and the
+   pipeline's standing rule is to start/stop the VM and read, never change its
+   settings or the host network. Unreachable database -> the existing
+   one-time message (start "Mercedes WSM EPC", host-only network, firewall
+   off), the same bar as WIS.
 6. Callout hotspots from the FV4 annotation overlay.
 7. Tests + README/CLAUDE.md updates.
 

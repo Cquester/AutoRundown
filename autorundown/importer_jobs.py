@@ -61,6 +61,20 @@ def find_extractor() -> Path | None:
     return None
 
 
+def epc_problem(ext: Path | None) -> str:
+    """Why this extractor cannot pull the EPC parts catalogue ("" = it can).
+    The installed app uses the user's own copy on the Desktop, which may
+    predate EPC: without this the job died on argparse's "unknown step"."""
+    if ext is None:
+        return "The Mercedes extractor (vm_pipeline.py) was not found."
+    missing = [f for f in ("pull_epc.js", "epc_fv4.js") if not (ext / f).is_file()]
+    if missing or "epc" not in (ext / "vm_pipeline.py").read_text(encoding="utf-8", errors="replace"):
+        return (f"The Mercedes extractor at {ext} is older than the parts-catalogue (EPC) "
+                f"import. Copy a current extractor folder over it, or point Shop setup → "
+                f"Advanced → Mercedes extractor folder at one.")
+    return ""
+
+
 def extractor_out_root(ext: Path) -> Path:
     """Where that extractor writes (autorundown_out) -- outside the repo.
 
@@ -197,7 +211,8 @@ def manuals(index_path: str | Path) -> dict:
     """What is in the index, grouped the way the Import dialog's tabs remove
     it: LEMON and folder manuals one by one, Mercedes WIS as a whole
     (remove_manuals.py says why). Read-only."""
-    out: dict = {"lemon": [], "folder": [], "wis": {"entries": 0, "pages": 0, "sources": []}}
+    out: dict = {"lemon": [], "folder": [], "wis": {"entries": 0, "pages": 0, "sources": []},
+                 "epc": {"entries": 0, "pages": 0}}
     p = Path(index_path)
     if not p.is_file():
         return out
@@ -218,6 +233,11 @@ def manuals(index_path: str | Path) -> dict:
             out["wis"]["entries"] += 1
             out["wis"]["pages"] += n or 0
             wis_sources.add(src)
+            continue
+        if src.startswith("mercedes-epc"):
+            # the EPC parts catalogue: one corpus, replaced and removed whole
+            out["epc"]["entries"] += 1
+            out["epc"]["pages"] += n or 0
             continue
         group = "lemon" if src == "lemon" else "folder"
         label = " ".join(x for x in (year, make, model) if x) or d
@@ -265,6 +285,18 @@ class ImportJobs:
                 if steps:
                     pipe += ["--steps", steps]
                 cmds = [pipe, rebuild if can_rebuild_wis(index_path) else add]
+            elif mode == "vm_epc":
+                # pull the EPC parts catalogue into <out_root>/epc_extract, then
+                # replace the EPC part of the index with it (an older EPC import
+                # is removed first, so the index matches the corpus exactly)
+                ext = find_extractor()
+                cmds = [[*py, str(ext / "vm_pipeline.py"), "--vm", vm,
+                         "--out-root", str(path.parent), "--steps", "epc"]]
+                if manuals(index_path)["epc"]["entries"]:
+                    cmds.append([*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path),
+                                 "--source", "mercedes-epc"])
+                cmds.append([*py, str(ROOT / "ingest.py"), "--archive", str(path),
+                             "--index", str(index_path), "--importer", "records"])
             elif mode == "lemon":
                 # the picked vehicle folders only, read as LEMON whatever else
                 # the folder holds
@@ -273,11 +305,13 @@ class ImportJobs:
                 for o in only or []:
                     cmd += ["--only", o]
                 cmds = [cmd]
-            elif mode in ("remove", "remove_wis"):
-                # remove_manuals.py: LEMON / folder manuals by doc_id, WIS whole
+            elif mode in ("remove", "remove_wis", "remove_epc"):
+                # remove_manuals.py: LEMON / folder manuals by doc_id, WIS and EPC whole
                 cmd = [*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path)]
                 if mode == "remove_wis":
                     cmd += ["--source", "mercedes-wis"]
+                if mode == "remove_epc":
+                    cmd += ["--source", "mercedes-epc"]
                 for o in only or []:
                     cmd += ["--doc-id", o]
                 if compact:
