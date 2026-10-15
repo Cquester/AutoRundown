@@ -326,8 +326,33 @@ class ImportJobs:
             self._log.clear()
             self._job = {"state": "running", "path": str(path), "mode": mode, "vm": vm,
                          "started": time.time(), "finished": None, "returncode": None}
+            self._file_start(mode, vm)
         threading.Thread(target=self._run_all, args=(cmds,), daemon=True).start()
         return self.status()
+
+    # The log is also written to <app dir>/import_job.log as it arrives: the
+    # in-memory one dies with the server. On 2026-10-15 the Claude desktop app
+    # restarted mid-EPC-pull, taking the dev server (started in its terminal)
+    # and the whole job with it, and nothing was left to say how far it got.
+    def _file_start(self, mode: str, vm: str) -> None:
+        from . import config
+        self._file = config.APP_DIR / "import_job.log"
+        try:
+            self._file.parent.mkdir(parents=True, exist_ok=True)
+            self._file.write_text(f"== job {mode}{' ' + vm if vm else ''} started "
+                                  f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n", encoding="utf-8")
+        except OSError:
+            self._file = None
+
+    def _note(self, line: str) -> None:
+        self._log.append(line)
+        f = getattr(self, "_file", None)
+        if f:
+            try:
+                with f.open("a", encoding="utf-8") as w:
+                    w.write(line + "\n")
+            except OSError:
+                pass
 
     def _run_all(self, cmds: list[list[str]]) -> None:
         rc = 0
@@ -339,10 +364,12 @@ class ImportJobs:
             self._job["returncode"] = rc
             self._job["finished"] = time.time()
             self._job["state"] = "done" if rc == 0 else "failed"
+        self._note(f"== job {'done' if rc == 0 else 'failed'} (exit {rc}) "
+                   f"{time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     def _run(self, cmd: list[str]) -> int:
         shown = [Path(cmd[2]).name, *cmd[3:]] if cmd[1:2] == ["-u"] and len(cmd) > 2 else cmd
-        self._log.append("$ " + " ".join(f'"{c}"' if " " in c else c for c in shown))
+        self._note("$ " + " ".join(f'"{c}"' if " " in c else c for c in shown))
         try:
             # a piped child on Windows prints in the ANSI code page and dies on
             # "Coupé"; force UTF-8 both ways
@@ -351,9 +378,9 @@ class ImportJobs:
                                     stderr=subprocess.STDOUT, text=True, env=env,
                                     encoding="utf-8", errors="replace", bufsize=1)
             for line in proc.stdout:
-                self._log.append(line.rstrip("\n"))
+                self._note(line.rstrip("\n"))
             rc = proc.wait()
         except Exception as exc:  # failed to launch
-            self._log.append(f"! could not start: {exc}")
+            self._note(f"! could not start: {exc}")
             rc = -1
         return rc

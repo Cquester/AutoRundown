@@ -202,6 +202,11 @@ Mercedes EPC data", mode `remove_epc`), never listed car by car in the
 Folder tab, and `remove_manuals.py` removes it only whole (`GROUPED`). An
 extractor without `pull_epc.js` -- the installed app's Desktop copy predates
 EPC -- is refused before the job starts (`importer_jobs.epc_problem`).
-**Not tried from the site against the VM yet** (the pull itself was run by
-hand: 282 catalogs, see `epc-source.md`). Tests: `tests/test_epc_join.py`
+**First run from the site (dev.py, 2026-10-15) was cut off** at 23 of 161 engine
+catalogs when the Claude desktop app restarted (09:20:37, its VM service
+stopping) and took down the terminal `dev.py` was started in, and with it the
+job: the VM was left running, the corpus intact (per-catalog appends; 46,269
+records, none partial). Since then the job log is also written to
+`<app dir>/import_job.log` as it arrives. Start long jobs from a server that
+does not live inside another app's terminal. Tests: `tests/test_epc_join.py`
 (groups, job commands, whole-source removal), nothing touching a VM.

@@ -239,6 +239,12 @@ def main() -> int:
               len(ran) > 2 and ran[2][ran[2].index("--archive") + 1] == str(TMP / "out" / "epc_extract")
               and ran[2][-2:] == ["--importer", "records"], ran[2:])
 
+        from autorundown import config as ar_config
+        joblog = ar_config.APP_DIR / "import_job.log"
+        check("the job log is also on disk (it survives the server dying)",
+              joblog.is_file() and "== job vm_epc Mercedes_Test started" in joblog.read_text(encoding="utf-8")
+              and "== job done (exit 0)" in joblog.read_text(encoding="utf-8"),
+              joblog.read_text(encoding="utf-8") if joblog.is_file() else "missing")
         check("this repo's extractor can pull EPC",
               importer_jobs.epc_problem(ROOT / "extractor") == "",
               importer_jobs.epc_problem(ROOT / "extractor"))
