@@ -137,6 +137,42 @@ The site runs the extraction; end users should do as little as possible.
   `GM`, 5 `LG` aggregate catalogs (not pulled yet; would file under engine
   buckets).
 
+## Footnotes (built 2026-10-15)
+
+`extractor/epc_footnotes.js` decodes them (probe step 10 and the decompiled
+`FootnoteRev9Serial`): old-style text ("UP TO CHASSIS: 100,102 126027"),
+and revision-9 serial footnotes -- `ABBR` E + A(from)/B(up to) + unit (A cab,
+F chassis, M engine, G transmission, L steering, V/H front/rear axle, Z
+transfer case, P platform), `TEXT` = ident[0:8] date[8:16] model-year[16:21]
+P[21] M[22] extra idents -- as "up to engine 32946334 (change date
+2015-06-11)", "from engines built 2008-02-28 (plant 3)", "also / not
+engines ...". In old-style text, codes after "MODEL" are often the
+catalog's own variants ("FOR MODEL 970-975" = engines 119.970-975).
+
+**Corpus format 3: the footnote text is on the part line** ("fn 003: up to
+engine ..."; a long one keeps its condition there, its engine lists or
+text table go to a "Footnotes:" list at the end). Format 2 had all texts at
+the page end, and a page is indexed in ~2,400-character chunks: the OM651
+glow plugs sat in chunk 1, their footnotes in chunk 21. A resumed run on an
+older format keeps it as a `.bak` and rebuilds the records (drawings reused).
+
+**A parts result is the page's matching lines** (`search._parts_snippet`):
+BM25 picks the chunk saying the words most often, which on a parts page is
+not the part asked for ("glow plug" on the OM651 page ranked the
+wiring-harness chunk over the four glow plug lines). The answer now gets the
+page header plus every line matching the question's words (minus "part",
+"number" ...), with their footnotes; same page_no, so citations are
+unchanged. The parts tail is ranked best-score-first across the parts
+buckets (one FTS table, comparable scores): round-robin gave a whole-series
+W203 scope's second slot to an engine bucket's weak OR match.
+
+The format-3 run (Shop setup, 34 min for 443 catalogs) finished and then
+ran the 32-bit JRE out of memory reading the 531 MB records file whole for
+the manifest -- and again on every resume, which the pipeline power-cycled
+the VM for six times. Both reads now stream; `vm_pipeline.py` stops at once
+on OutOfMemoryError / SyntaxError instead of rebooting the VM. The manifest
+for that run was written afterwards from the complete records file.
+
 ## Joining WIS (found and built 2026-10-14)
 
 "Files under MODEL 115, the same vehicle WIS uses" was true of the *series
@@ -242,6 +278,7 @@ so in `caveats` rather than guessing.
    not extracted; they carry "up to chassis …" conditions. **Next in value:**
    the first paid answer could not choose between two glow plugs that both fit
    651.911 on the page -- the footnote is what tells them apart.
+   **Built 2026-10-15** (see "Footnotes" below).
 4. **Gearbox catalogs** -- need a car -> gearbox map first.
 5. **Site integration: built 2026-10-15, not yet run from the site.** The
    Mercedes VM tab's "Parts catalogue (EPC)" choice (`docs/notes/importing.md`).

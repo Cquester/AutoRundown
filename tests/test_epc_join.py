@@ -165,6 +165,10 @@ def main() -> int:
         hits = search.search(conn, all201, "oil filter", 10)
         check("W201 search finds the EPC oil filter page",
               "P1002306" in [h["page_no"] for h in hits], [h["page_no"] for h in hits])
+        tail = [h for h in hits if h.get("parts")]
+        check("a parts result carries the page's matching lines, not a raw chunk",
+              tail and "(lines of this page matching: oil, filter)" in tail[0]["body"]
+              and "A 102 180 00 09" in tail[0]["body"], tail[0]["body"] if tail else "no parts row")
         p_epc = search.get_page(conn, all201, "P1002306") or {}
         p_wis = search.get_page(conn, all201, "1002306") or {}
         check("P1002306 opens the EPC page", p_epc.get("doc_id") == e201["doc_id"], p_epc.get("doc_id"))

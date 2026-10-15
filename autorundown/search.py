@@ -247,6 +247,56 @@ def parts_slots(limit: int) -> int:
 
 PARTS_CAP = 4   # parts passages added to an answer's context (Ask)
 _CATALOG_RE = re.compile(r"\(EPC catalog [^)]*\)")
+_TABLE_RE = re.compile(r"^(?:Callout|Item) \| Part number \|")
+# words on every parts line, so they select nothing
+_PARTS_STOP = {"part", "parts", "number", "numbers", "no", "pn", "replacement",
+               "replace", "order", "ordering", "catalogue", "catalog", "epc"}
+SNIPPET_MAX = 4000
+
+
+def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str) -> str:
+    """A parts page as an answer should see it: the header, then every line
+    of the page that names what was asked, with its footnotes.
+
+    A parts page is indexed in ~2,400-character chunks and BM25 picks the
+    chunk that says the words most often, which on a parts page is not the
+    part asked for: "glow plug" on the OM651 page ranked the wiring-harness
+    chunk ("GLOW PLUGS WIRING HARNESS" x8) over the one holding the four glow
+    plug lines. Lines are self-contained (number, name, fits, footnotes), so
+    the matching lines are the useful passage. Same page, same page_no: the
+    citation is unchanged. Falls back to the chunk when no line matches.
+    """
+    page = conn.execute("SELECT text FROM pages WHERE page_uid=?", (row["page_uid"],)).fetchone()
+    if not page:
+        return row["body"]
+    lines = (page[0] or "").split("\n")
+    start = next((i for i, l in enumerate(lines) if _TABLE_RE.match(l)), None)
+    if start is None:
+        return row["body"]
+    head = [l for l in lines[:start + 1]
+            if l.strip() and not l.startswith(("Applies to:", "Noted in the manual:"))]
+    end = next((i for i, l in enumerate(lines) if l == "Footnotes:"), len(lines))
+    table, notes = lines[start + 1:end], lines[end + 1:]
+    terms = [t[:-1] if len(t) > 3 and t.endswith("s") else t
+             for t in tokenize(query) if t not in _PARTS_STOP]
+    if not terms:
+        return row["body"]
+    low = [l.lower() for l in table]
+    hit = [table[i] for i, l in enumerate(low) if all(t in l for t in terms)] or \
+          [table[i] for i, l in enumerate(low) if any(t in l for t in terms)]
+    if not hit:
+        return row["body"]
+    # long footnotes listed at the end of the page, for the lines kept
+    cited = {m for l in hit for m in re.findall(r"fn (\d{3})", l)}
+    notes = [n for n in notes if re.match(r"fn (\d{3}):", n) and n[3:6] in cited]
+    out, size = head + [f"(lines of this page matching: {', '.join(terms)})"], 0
+    for l in hit + (["Footnotes:"] + notes if notes else []):
+        size += len(l) + 1
+        if size > SNIPPET_MAX:
+            out.append("... (more matching lines on the page)")
+            break
+        out.append(l)
+    return "\n".join(out)
 
 
 def scope_ids(vehicle: dict, variant: int | None = None,
@@ -433,14 +483,22 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
         # several times; one per title, over-fetched to fill the slots.
         k = parts_slots(limit) if manual else limit   # a parts car on its own: all of it
         tail, titles = [], set()
-        for r in _interleave(
-                _search_scope(conn, parts, query, k * 12, include_other_variants,
-                              "", "", engines, codes, fts="parts_fts"), k * 12, by_score=True):
+        # Best score first across the parts buckets, not round-robin: they
+        # answer the same query in one FTS table, so scores compare, and a
+        # whole-series scope has ~10 engine buckets -- one slot each per round
+        # gave the W203's second slot to an engine bucket's weak OR match (a
+        # camshaft bolt for "brake pad") over its own FRONT WHEEL BRAKE page.
+        ranked = sorted((r for rows in _search_scope(
+                            conn, parts, query, k * 12, include_other_variants,
+                            "", "", engines, codes, fts="parts_fts") for r in rows),
+                        key=lambda r: r["score"])
+        for r in ranked:
             key = _CATALOG_RE.sub("", r.get("title") or "")
             if key in titles:
                 continue
             titles.add(key)
             r["parts"] = True
+            r["body"] = _parts_snippet(conn, r, query)
             tail.append(r)
             if len(tail) == k:
                 break
