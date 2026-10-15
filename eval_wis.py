@@ -402,8 +402,20 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
         if uid not in texts:
             t = conn.execute("SELECT title, text FROM pages WHERE page_uid=?",
                              (uid,)).fetchone()
-            texts[uid] = f"{t['title']}\n{t['text']}" if t else ""
+            body = t["text"] if t else ""
+            # A parts page (EPC) states what it is for in its header; below the
+            # table header, part lines and footnotes use EPC's shorthand: "FOR
+            # MODEL 970-975" there means engines 119.970-975, not trucks 970/975.
+            cut = re.search(r"\n(?:Callout|Item) \| Part number \|", body)
+            if cut:
+                body = body[:cut.start()]
+            texts[uid] = f"{t['title']}\n{body}" if t else ""
         return texts[uid]
+
+    def full_text(row) -> str:
+        t = conn.execute("SELECT title, text FROM pages WHERE page_uid=?",
+                         (row["page_uid"],)).fetchone()
+        return f"{t['title']}\n{t['text']}" if t else ""
 
     failures = known = 0
     reasons_seen: set[str] = set()
@@ -473,7 +485,7 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
         if case.get("expect_parts") and not any(r["doc_id"] in parts for r in rows):
             problems.append(f"parts: no result from {sorted(parts.values())}")
         for needle in case.get("expect_text", []):
-            if not any(needle in page_text(r) for r in rows):
+            if not any(needle in full_text(r) for r in rows):
                 problems.append(f"expect_text: {needle!r} on none of the top {top_n}")
 
         # engine bucket contributes

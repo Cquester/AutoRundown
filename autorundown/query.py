@@ -192,8 +192,9 @@ Hard rules:
   superseded -- give the replacement. Put each in `specs` (name = the part,
   value = the number as printed). Never take a part number from a repair
   page, and never compose one.
-- A part line's notes may cite footnotes ("fn 003"); their texts are in the
-  page's "Footnotes:" list. Most say from or up to which chassis, engine or
+- A part line's notes may carry footnotes ("fn 003: up to engine 32946334
+  (change date 2015-06-11)"; a long one is listed under "Footnotes:" at the
+  end of the page). Most say from or up to which chassis, engine or
   transmission number (or build date) a part applies: "up to engine 32946334"
   means engines numbered up to 32946334. The car's serial numbers are not
   known here, so when parts differ only by such a footnote, give each with

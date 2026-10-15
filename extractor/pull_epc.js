@@ -193,10 +193,26 @@ function saFootnotes(p6){
     +"where a.SANUM="+q(p6)+" and a.DESCIDX=b.DESCIDX and (b.LANG="+q(LANG)+" or b.LANG='N') order by a.FTNTNUM, b.SEQNUM, b.CONTINUED"));
 }
 // a part's footnote numbers -> its notes entry; collects the texts the page needs
+// A footnote's text goes on the part line itself: a page is indexed in
+// ~2,400-character chunks and an answer sees the matching chunk, so a list at
+// the end of the page was in another chunk than its parts (the OM651 glow
+// plugs: chunk 1, their footnotes: chunk 21). Only long notes (text tables)
+// are listed once at the end and referenced from the line.
+var FN_INLINE=200;
 function fnNote(codes, fn, used){
   var refs=fnRefs(codes); if(!refs.length) return "";
-  refs.forEach(function(c){ if(fn[c]) used[c]=fn[c]; });
-  return "fn "+refs.join(", ");
+  fnCount+=refs.length;
+  return refs.map(function(c){
+    var t=fn[c];
+    if(!t) return "fn "+c;
+    if(t.length<=FN_INLINE) return "fn "+c+": "+t;
+    used[c]=t;
+    // a serial footnote keeps its condition on the line; its long also/not
+    // lists of engine or chassis numbers go below
+    var head=t.split("; ")[0];
+    if(/^(up to|from) /.test(head) && head.length<=FN_INLINE) return "fn "+c+": "+head+" (full list below)";
+    return "fn "+c+" (see footnotes below)";
+  }).join("; ");
 }
 function fnSection(used){
   var ks=Object.keys(used).sort(); if(!ks.length) return [];
@@ -219,9 +235,9 @@ print("catalogs to pull: "+catalogs.length);
 // ------------------------------------------------------------ output + resume
 var REC=OUT+"/records.jsonl", DONE=OUT+"/done_catalogs.txt";
 // The record format. A resumed run only appends to a corpus of the same
-// format; after a change (2: footnotes) the records are rebuilt from scratch
+// format; after a change (2: footnotes, 3: inline) the records are rebuilt from scratch
 // -- the old file is kept as a .bak -- and the drawings on disk are reused.
-var FORMAT=2, FORMAT_LINE="#format "+FORMAT;
+var FORMAT=3, FORMAT_LINE="#format "+FORMAT;   // 3: footnote texts on the part line
 var done={}, dokId=0;
 if(RESUME && new File(DONE).isFile() && new File(REC).isFile()
    && Files.readAllLines(Paths.get(DONE),StandardCharsets.UTF_8).indexOf(FORMAT_LINE)<0){
@@ -305,7 +321,7 @@ catalogs.forEach(function(cat, ci){
       var title="Parts: "+series.map(function(s){return noun+s;}).join(", ")+" (EPC catalog "+cat+"), group "+g.GROUPNUM+(g.TEXT?" "+g.TEXT:"")
         +" / subgroup "+sg.sg+(sg.text?" "+sg.text:"");
       var body=[title, (isEngine?"Engines":"Models")+" in this catalog: "+sales.join(", "), ""];
-      if(n){ body.push("Callout | Part number | Name | Fits | Notes"); body=body.concat(lines).concat(fnSection(used)); fnCount+=Object.keys(used).length; }
+      if(n){ body.push("Callout | Part number | Name | Fits | Notes"); body=body.concat(lines).concat(fnSection(used)); }
       else { body.push("(no parts listed)"); emptyRecs++; }
       recs.push({
         dok_id: ++dokId, lang: "en", title: title, body_text: body.join("\n"), body_format: "sids",
@@ -378,7 +394,6 @@ else if(WANT_SA){
         +" / subgroup "+sg.SUBGRP+(sg.TEXT?" "+sg.TEXT:"");
       var body=[title, "Option: "+(saText||"-"), "Catalog groups: "+groupsTxt, "",
                 "Item | Part number | Name | Fits | Notes"].concat(lines).concat(fnSection(used));
-      fnCount+=Object.keys(used).length;
       saRecs.push(JSON.stringify({
         dok_id: ++dokId, lang: "en", title: title, body_text: body.join("\n"), body_format: "sids",
         model_series: series, baumuster: bms,
@@ -399,7 +414,7 @@ var total=0; Files.readAllLines(Paths.get(REC),StandardCharsets.UTF_8).forEach(f
 // so its page numbers must never equal a WIS DokID
 var manifest={schema_version:"1.3", source_type:"mercedes-epc", source_id:HOST+"/ALLTEXT", page_no_prefix:"P", doc_type:"parts", corpus_format:FORMAT,
   database:"ALLTEXT", language:{iso:"en"}, catalogs:catalogs, record_count:total,
-  this_run:{bm_records:recCount, bm_part_rows:partRows, sa_records:saRecs.length, sa_part_rows:saParts, footnotes_on_pages:fnCount, empty_records:emptyRecs, images:imgStats},
+  this_run:{bm_records:recCount, bm_part_rows:partRows, sa_records:saRecs.length, sa_part_rows:saParts, footnote_citations:fnCount, empty_records:emptyRecs, images:imgStats},
   body_format_counts:{sids:total}, records_file:"records.jsonl", extracted_at:(new Date()).toISOString()};
 var mw=writer(OUT+"/manifest.json",false); mw.write(JSON.stringify(manifest,null,2)); mw.close();
 if(missingLog.length){ appendLines(OUT+"/images_missing.txt", missingLog.slice(0,5000)); }
