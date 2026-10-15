@@ -178,5 +178,36 @@ step("9. SA parts (padded SANUM)", function(){
   print("  SAs for catalog: "+idx.length+" index rows, "+withParts+" with parts, "+total+" SA part rows");
 });
 
+// 10. footnotes: what a part row's FOOTNOTES codes point at (QueryStrings
+// selGeneric_BM_Footnote / selFallback_BM_Footnote / selGeneric_SA_Footnote).
+// AR_FN_CAT / AR_FN_GROUP / AR_FN_SUBGRP pick the example (default: the OM651
+// catalog 69L, group 15, subgroup 105 -- the two glow plugs that both fit 651.911).
+step("10. footnotes", function(){
+  var cat=env("AR_FN_CAT","69L"), g=env("AR_FN_GROUP","15"), sg=env("AR_FN_SUBGRP","105");
+  ["BM_FOOTNOTES_V","BM_FOOTNOTES_V2","BM_FOOTNOTES_DICTIONARY_V","SA_FOOTNOTES_V","SA_FOOTNOTES_DICTIONARY_V"].forEach(function(v){
+    try{ var st=db("ALLTEXT").createStatement(); st.setMaxRows(1); var rs=st.executeQuery("select * from "+v), md=rs.getMetaData(), cols=[];
+      for(var i=1;i<=md.getColumnCount();i++) cols.push(md.getColumnName(i)+":"+md.getColumnTypeName(i)); rs.close(); st.close();
+      print("  "+v+": "+cols.join(", "));
+    }catch(e){ print("  "+v+": ERROR "+(""+e).split("\n").pop()); }
+  });
+  print("  part rows with footnotes in "+cat+" "+g+"/"+sg+":");
+  rows("select CALLOUT, PARTTYPE, PARTNUM, FOOTNOTES, QUANTBM, SUBMODS, NOUNIDX from BM_PARTS2_V where CATNUM="+q(cat)+" and GROUPNUM="+q(g)+" and SUBGRP="+q(sg)+" and FOOTNOTES <> '' order by SEQNUM").slice(0,15)
+    .forEach(function(r){ print("    "+r.CALLOUT+" "+r.PARTTYPE+r.PARTNUM+" fn["+r.FOOTNOTES+"] q["+r.QUANTBM+"] s["+r.SUBMODS+"] noun "+r.NOUNIDX); });
+  print("  footnotes of "+cat+" group "+g+" (lang "+LANG+" or N):");
+  show(rows("select a.FTNTNUM, a.REVVER, a.LISTNUM, a.HAS_WISLINK, b.ABBR, b.LANG, b.SEQNUM, b.CONTINUED, b.TEXT from BM_FOOTNOTES_V a, BM_FOOTNOTES_DICTIONARY_V b "
+    +"where a.CATNUM="+q(cat)+" and a.GROUPNUM="+q(g)+" and a.DESCIDX=b.DESCIDX and (b.LANG="+q(LANG)+" or b.LANG='N') order by a.FTNTNUM, b.SEQNUM, b.CONTINUED").slice(0,60));
+  print("  same through BM_FOOTNOTES_V2 (with KB):");
+  show(rows("select a.FTNTNUM, a.REVVER, a.KB, b.LANG, b.SEQNUM, b.TEXT from BM_FOOTNOTES_V2 a, BM_FOOTNOTES_DICTIONARY_V b "
+    +"where a.CATNUM="+q(cat)+" and a.GROUPNUM="+q(g)+" and a.DESCIDX=b.DESCIDX and (b.LANG="+q(LANG)+" or b.LANG='N') order by a.FTNTNUM, b.SEQNUM").slice(0,20));
+  print("  W115 (001) group 24 footnotes, for a second shape:");
+  show(rows("select a.FTNTNUM, a.REVVER, b.LANG, b.SEQNUM, b.TEXT from BM_FOOTNOTES_V a, BM_FOOTNOTES_DICTIONARY_V b "
+    +"where a.CATNUM='001' and a.GROUPNUM='24' and a.DESCIDX=b.DESCIDX and (b.LANG="+q(LANG)+" or b.LANG='N') order by a.FTNTNUM, b.SEQNUM").slice(0,20));
+  print("  SA 10981 footnotes:");
+  show(rows("select a.FTNTNUM, a.LISTNUM, b.LANG, b.SEQNUM, b.TEXT from SA_FOOTNOTES_V a, SA_FOOTNOTES_DICTIONARY_V b "
+    +"where a.SANUM=' 10981' and a.DESCIDX=b.DESCIDX and (b.LANG="+q(LANG)+" or b.LANG='N') order by a.FTNTNUM, b.SEQNUM").slice(0,12));
+  print("  totals: BM_FOOTNOTES_V "+one("select count(*) from BM_FOOTNOTES_V")+", SA_FOOTNOTES_V "+one("select count(*) from SA_FOOTNOTES_V")
+    +", BM part rows with footnotes "+one("select count(*) from BM_PARTS2_V where FOOTNOTES <> ''"));
+});
+
 for(var k in dbs) dbs[k].close();
 print("\nPROBE DONE");

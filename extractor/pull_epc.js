@@ -7,7 +7,9 @@
 //
 // One record per (catalog, group, subgroup) and one per (SA option, subgroup).
 // Each part line: callout | part number (spaced + compact) | name | which
-// baumuster it fits and how many | supersession. The subgroup's exploded
+// baumuster it fits and how many | supersession and footnote numbers; the
+// page ends with the texts of those footnotes ("fn 003: up to engine
+// 32946334 (change date 2015-06-11)", decoded by epc_footnotes.js). The subgroup's exploded
 // drawings are decoded to PNG under <AR_OUT>/images/epc/ (image_files).
 // Schema facts behind all of this: docs/notes/epc-source.md.
 //
@@ -105,6 +107,7 @@ function fits(pairs, allBm){            // pairs: [[baumuster, qty-label], ...]
 
 // ------------------------------------------------------------- FV4 drawings
 load(__DIR__+"epc_fv4.js");                     // decodeFV4(): the EPC client's own drawing format
+load(__DIR__+"epc_footnotes.js");               // fnDecode() / fnRefs(): part footnotes
 
 // image name -> relative PNG path under images/ (or "" if not found / not decodable)
 var imgStats={written:0, cached:0, missing:0, undecodable:0, partial:0, other:0}, imgMemo={}, missingLog=[];
@@ -173,6 +176,34 @@ print("ALLTEXT open. catalogs="+CATNUM+" lang="+LANG+" out="+OUT+"  ("+nc+" part
 function descSql(alias){ return "coalesce((select description from part_descs_v where descidx="+alias+".descidx and lang="+q(LANG)+"),"
   +" (select description from part_descs_v where descidx="+alias+".descidx and lang='E')) as DESCRIPTION"; }
 
+// footnote rows, TEXT untrimmed at the front (revision-9 fields are positional)
+function fnRows(sql){
+  var st=db("ALLTEXT").createStatement(), rs=st.executeQuery(sql), out=[];
+  while(rs.next()) out.push({FTNTNUM:trim(rs.getString("FTNTNUM")),
+    ABBR:trim(rs.getString("ABBR")), CONTINUED:trim(rs.getString("CONTINUED")), TEXT:rs.getString("TEXT")});
+  rs.close(); st.close(); return out;
+}
+function bmFootnotes(cat,g){
+  return fnDecode(fnRows("select a.FTNTNUM, b.ABBR, b.CONTINUED, b.TEXT from BM_FOOTNOTES_V a, BM_FOOTNOTES_DICTIONARY_V b "
+    +"where a.CATNUM="+q(cat)+" and a.GROUPNUM="+q(g)+" and a.DESCIDX=b.DESCIDX and (b.LANG="+q(LANG)+" or b.LANG='N') "
+    +"order by a.FTNTNUM, b.SEQNUM, b.CONTINUED"));
+}
+function saFootnotes(p6){
+  return fnDecode(fnRows("select a.FTNTNUM, b.ABBR, b.CONTINUED, b.TEXT from SA_FOOTNOTES_V a, SA_FOOTNOTES_DICTIONARY_V b "
+    +"where a.SANUM="+q(p6)+" and a.DESCIDX=b.DESCIDX and (b.LANG="+q(LANG)+" or b.LANG='N') order by a.FTNTNUM, b.SEQNUM, b.CONTINUED"));
+}
+// a part's footnote numbers -> its notes entry; collects the texts the page needs
+function fnNote(codes, fn, used){
+  var refs=fnRefs(codes); if(!refs.length) return "";
+  refs.forEach(function(c){ if(fn[c]) used[c]=fn[c]; });
+  return "fn "+refs.join(", ");
+}
+function fnSection(used){
+  var ks=Object.keys(used).sort(); if(!ks.length) return [];
+  return ["", "Footnotes:"].concat(ks.map(function(k){ return "fn "+k+": "+used[k]; }));
+}
+var fnCount=0;
+
 // ------------------------------------------------------------ catalog list
 // Gearbox (GA) and other aggregate catalogs are left out: there is no
 // car -> gearbox map, and "MODEL 722" would make a gearbox look like a car.
@@ -187,13 +218,24 @@ print("catalogs to pull: "+catalogs.length);
 
 // ------------------------------------------------------------ output + resume
 var REC=OUT+"/records.jsonl", DONE=OUT+"/done_catalogs.txt";
+// The record format. A resumed run only appends to a corpus of the same
+// format; after a change (2: footnotes) the records are rebuilt from scratch
+// -- the old file is kept as a .bak -- and the drawings on disk are reused.
+var FORMAT=2, FORMAT_LINE="#format "+FORMAT;
 var done={}, dokId=0;
+if(RESUME && new File(DONE).isFile() && new File(REC).isFile()
+   && Files.readAllLines(Paths.get(DONE),StandardCharsets.UTF_8).indexOf(FORMAT_LINE)<0){
+  var bak=OUT+"/records.before-format"+FORMAT+"."+(new Date()).toISOString().replace(/[^0-9]/g,"").substr(0,14)+".jsonl.bak";
+  Files.move(Paths.get(REC),Paths.get(bak));
+  print("corpus is an older format: kept as "+bak+"; rebuilding the records (drawings on disk are reused)");
+  RESUME=false;
+}
 if(RESUME && new File(DONE).isFile() && new File(REC).isFile()){
   Files.readAllLines(Paths.get(DONE),StandardCharsets.UTF_8).forEach(function(l){ l=trim(l); if(l) done[l]=1; });
   // a crash mid-SA-phase leaves no SA lines (they are appended in one go), so the file is clean
   Files.readAllLines(Paths.get(REC),StandardCharsets.UTF_8).forEach(function(l){ var m=/"dok_id":(\d+)/.exec(l); if(m && +m[1]>dokId) dokId=+m[1]; });
   print("resume: "+Object.keys(done).length+" catalogs already done, last dok_id "+dokId);
-} else { writer(REC,false).close(); writer(DONE,false).close(); }
+} else { writer(REC,false).close(); var dw=writer(DONE,false); dw.write(FORMAT_LINE+"\n"); dw.close(); }
 // always UTF-8: FileWriter would use the Windows code page (cp1252) and the
 // importer reads UTF-8 (part texts carry Ü, Ø, ° ...)
 function writer(path,append){ return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(path,append),StandardCharsets.UTF_8)); }
@@ -235,14 +277,15 @@ catalogs.forEach(function(cat, ci){
       .forEach(function(r){ if(!seen[r.SUBGRP]){ seen[r.SUBGRP]=1; subs.push({sg:r.SUBGRP, text:r.TEXT}); } });
     rows("select unique SUBGRP from BM_PARTS2_V where CATNUM="+q(cat)+" and GROUPNUM="+q(g.GROUPNUM))
       .forEach(function(r){ if(!seen[r.SUBGRP]){ seen[r.SUBGRP]=1; subs.push({sg:r.SUBGRP, text:""}); } });
+    var fn=bmFootnotes(cat,g.GROUPNUM);
     // drawings, by subgroup
     var npg={};
     if(WANT_IMAGES) rows("select IMGTYPE, SEQNO, RESTIMG, SUBGRP, ARCHIVED, GROUPNUM from BM_NPG_V where CATNUM="+q(cat)+" and GROUPNUM="+q(g.GROUPNUM)+" order by SEQNUM")
       .forEach(function(r){ (npg[r.SUBGRP]=npg[r.SUBGRP]||[]).push(r); });
 
     subs.forEach(function(sg){
-      var lines=[], n=0;
-      rows("select CALLOUT, PARTTYPE, PARTNUM, QUANTBM, SUBMODS, NOUNIDX, PARTREM, REPTYPE, REPPNO, "+descSql("a")
+      var lines=[], n=0, used={};
+      rows("select CALLOUT, PARTTYPE, PARTNUM, QUANTBM, SUBMODS, NOUNIDX, PARTREM, REPTYPE, REPPNO, FOOTNOTES, "+descSql("a")
         +" from BM_PARTS2_V a where CATNUM="+q(cat)+" and GROUPNUM="+q(g.GROUPNUM)+" and SUBGRP="+q(sg.sg)+" order by SEQNUM")
       .forEach(function(r){
         if(isPlaceholder(r.PARTTYPE,r.PARTNUM)) return;
@@ -252,6 +295,7 @@ catalogs.forEach(function(cat, ci){
         var label=name && desc && desc!=name ? name+", "+desc : (name||desc);
         var notes=[]; if(r.PARTREM) notes.push(r.PARTREM);
         if(r.REPPNO) notes.push("replaced by "+partNo(r.REPTYPE,r.REPPNO));
+        var f=fnNote(r.FOOTNOTES,fn,used); if(f) notes.push(f);
         lines.push((r.CALLOUT||"-")+" | "+partNo(r.PARTTYPE,r.PARTNUM)+" | "+label+" | "+(fits(pairs,bm)||"-")+" | "+notes.join("; "));
         n++;
       });
@@ -261,7 +305,7 @@ catalogs.forEach(function(cat, ci){
       var title="Parts: "+series.map(function(s){return noun+s;}).join(", ")+" (EPC catalog "+cat+"), group "+g.GROUPNUM+(g.TEXT?" "+g.TEXT:"")
         +" / subgroup "+sg.sg+(sg.text?" "+sg.text:"");
       var body=[title, (isEngine?"Engines":"Models")+" in this catalog: "+sales.join(", "), ""];
-      if(n){ body.push("Callout | Part number | Name | Fits | Notes"); body=body.concat(lines); }
+      if(n){ body.push("Callout | Part number | Name | Fits | Notes"); body=body.concat(lines).concat(fnSection(used)); fnCount+=Object.keys(used).length; }
       else { body.push("(no parts listed)"); emptyRecs++; }
       recs.push({
         dok_id: ++dokId, lang: "en", title: title, body_text: body.join("\n"), body_format: "sids",
@@ -307,9 +351,10 @@ else if(WANT_SA){
     if(WANT_IMAGES) rows("select IMGTYPE, SEQNO, RESTIMG, SUBGRP, ARCHIVED from SA_NPG_V where SANO="+q(p6)+" order by SEQNUM")
       .forEach(function(r){ (npg[r.SUBGRP]=npg[r.SUBGRP]||[]).push(r); });
     var codes=Object.keys(info.codes), groupsTxt=Object.keys(info.groups).sort().join(", ");
+    var fn=saFootnotes(p6);
     subs.forEach(function(sg){
-      var lines=[], seriesSeen={}, bmSeen={};
-      rows("select ITEMNO, PARTTYP, PARTNUM, QUANTSA, STROKE, NOUNIDX, PARTREM, REPTYPE, REPPNO, "+descSql("a")
+      var lines=[], seriesSeen={}, bmSeen={}, used={};
+      rows("select ITEMNO, PARTTYP, PARTNUM, QUANTSA, STROKE, NOUNIDX, PARTREM, REPTYPE, REPPNO, FOOTNOT, "+descSql("a")
         +" from SA_PARTS_V a where SANUM="+q(p6)+" and SUBGRP="+q(sg.SUBGRP)+" order by SEQNO")
       .forEach(function(r){
         if(isPlaceholder(r.PARTTYP,r.PARTNUM)) return;
@@ -321,6 +366,7 @@ else if(WANT_SA){
         var label=name && desc && desc!=name ? name+", "+desc : (name||desc);
         var notes=[]; if(r.PARTREM) notes.push(r.PARTREM);
         if(r.REPPNO) notes.push("replaced by "+partNo(r.REPTYPE,r.REPPNO));
+        var f=fnNote(r.FOOTNOT,fn,used); if(f) notes.push(f);
         lines.push((r.ITEMNO||"-")+" | "+partNo(r.PARTTYP,r.PARTNUM)+" | "+label+" | "+fits(pairs,[])+" | "+notes.join("; "));
       });
       if(!lines.length) return;
@@ -331,7 +377,8 @@ else if(WANT_SA){
       var title="Parts: option SA "+sa+(codes.length?" (code "+codes.join(", ")+")":"")+", "+series.map(function(s){return "model "+s;}).join(", ")
         +" / subgroup "+sg.SUBGRP+(sg.TEXT?" "+sg.TEXT:"");
       var body=[title, "Option: "+(saText||"-"), "Catalog groups: "+groupsTxt, "",
-                "Item | Part number | Name | Fits | Notes"].concat(lines);
+                "Item | Part number | Name | Fits | Notes"].concat(lines).concat(fnSection(used));
+      fnCount+=Object.keys(used).length;
       saRecs.push(JSON.stringify({
         dok_id: ++dokId, lang: "en", title: title, body_text: body.join("\n"), body_format: "sids",
         model_series: series, baumuster: bms,
@@ -350,9 +397,9 @@ else if(WANT_SA){
 var total=0; Files.readAllLines(Paths.get(REC),StandardCharsets.UTF_8).forEach(function(l){ if(trim(l)) total++; });
 // page_no_prefix / doc_type: EPC is searched inside WIS cars' scopes (index.link_sources),
 // so its page numbers must never equal a WIS DokID
-var manifest={schema_version:"1.3", source_type:"mercedes-epc", source_id:HOST+"/ALLTEXT", page_no_prefix:"P", doc_type:"parts",
+var manifest={schema_version:"1.3", source_type:"mercedes-epc", source_id:HOST+"/ALLTEXT", page_no_prefix:"P", doc_type:"parts", corpus_format:FORMAT,
   database:"ALLTEXT", language:{iso:"en"}, catalogs:catalogs, record_count:total,
-  this_run:{bm_records:recCount, bm_part_rows:partRows, sa_records:saRecs.length, sa_part_rows:saParts, empty_records:emptyRecs, images:imgStats},
+  this_run:{bm_records:recCount, bm_part_rows:partRows, sa_records:saRecs.length, sa_part_rows:saParts, footnotes_on_pages:fnCount, empty_records:emptyRecs, images:imgStats},
   body_format_counts:{sids:total}, records_file:"records.jsonl", extracted_at:(new Date()).toISOString()};
 var mw=writer(OUT+"/manifest.json",false); mw.write(JSON.stringify(manifest,null,2)); mw.close();
 if(missingLog.length){ appendLines(OUT+"/images_missing.txt", missingLog.slice(0,5000)); }
