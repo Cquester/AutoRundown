@@ -112,6 +112,21 @@ def main() -> int:
             "SELECT page_no FROM pages WHERE doc_id LIKE 'mercedes-wis%'")}
         check("no EPC page number equals a WIS one", not (wis_pages & {r["page_no"] for r in rows}))
 
+        print("\n-- parts have their own full-text index --")
+        def count(sql):
+            return conn.execute(sql).fetchone()[0]
+        n_parts = count("SELECT COUNT(*) FROM chunks WHERE doc_id LIKE 'mercedes-epc%'")
+        check("EPC chunks are flagged parts",
+              n_parts > 0 and count("SELECT COUNT(*) FROM chunks WHERE parts=1") == n_parts)
+        check("chunks_fts holds no EPC chunk (WIS BM25 statistics untouched)",
+              count("SELECT COUNT(*) FROM chunks_fts WHERE chunks_fts MATCH 'filter OR gasket OR pads' "
+                    "AND rowid IN (SELECT id FROM chunks WHERE parts=1)") == 0)
+        check("parts_fts finds the EPC chunks",
+              count("SELECT COUNT(*) FROM parts_fts WHERE parts_fts MATCH 'gasket'") == 2)
+        check("parts_fts holds no WIS chunk",
+              count("SELECT COUNT(*) FROM parts_fts WHERE parts_fts MATCH 'oil OR engine OR brake' "
+                    "AND rowid IN (SELECT id FROM chunks WHERE parts=0)") == 0)
+
         print("\n-- vehicles: joined, hidden, engine joins --")
         vs = {v["doc_id"]: v for v in index.vehicles(conn)}
         w201 = next(v for v in vs.values() if v["model_code"] == "201" and v["source_name"].startswith("mercedes-wis"))
@@ -154,6 +169,9 @@ def main() -> int:
         p_wis = search.get_page(conn, all201, "1002306") or {}
         check("P1002306 opens the EPC page", p_epc.get("doc_id") == e201["doc_id"], p_epc.get("doc_id"))
         check("1002306 still opens the WIS page", p_wis.get("doc_id") == w201["doc_id"], p_wis.get("doc_id"))
+        alone = search.search(conn, search.scope_ids(e100), "brake pads", 10)
+        check("an EPC-only car (W100) searches its own parts",
+              [h["page_no"] for h in alone] == ["P4"], [h["page_no"] for h in alone])
 
         print("\n-- citations and the answer model's view --")
         passages = [dict(h) for h in hits if h["page_no"] == "P1002306"]
@@ -190,6 +208,60 @@ def main() -> int:
         r = c.get(f"/api/page/{w201['doc_id']}/P1002306")
         check("/api/page opens the EPC page through the WIS car",
               r.status_code == 200 and r.json().get("doc_id") == e201["doc_id"], r.status_code)
+
+        print("\n-- removing the EPC manuals keeps both full-text indexes consistent --")
+        import remove_manuals
+        conn = index.connect(db)
+        for v in (e201, e100, e102, e103):
+            remove_manuals.remove(conn, v["doc_id"])
+        conn.commit()
+        for t in ("chunks_fts", "parts_fts"):
+            try:
+                conn.execute(f"INSERT INTO {t}({t}) VALUES ('integrity-check')")
+                ok = True
+            except sqlite3.DatabaseError as e:
+                ok = str(e)
+            check(f"{t} integrity-check after removal", ok is True, ok)
+        check("parts_fts is empty again",
+              conn.execute("SELECT COUNT(*) FROM parts_fts WHERE parts_fts MATCH 'gasket OR filter'").fetchone()[0] == 0)
+        conn.close()
+
+        print("\n-- an index from before parts_fts migrates --")
+        old = TMP / "old.db"
+        o = sqlite3.connect(old)
+        o.executescript("""
+            CREATE TABLE chunks(id INTEGER PRIMARY KEY, page_uid TEXT NOT NULL, doc_id TEXT NOT NULL,
+                                ord INTEGER, title TEXT, section_path TEXT, body TEXT);
+            CREATE TABLE pages(page_uid TEXT PRIMARY KEY, doc_id TEXT NOT NULL, page_no TEXT NOT NULL,
+                               file_path TEXT, title TEXT, section_path TEXT, system TEXT, doc_type TEXT,
+                               images TEXT, links TEXT, text TEXT, text_hash TEXT, canonical_uid TEXT,
+                               applicability TEXT DEFAULT 'this_vehicle');
+            CREATE VIRTUAL TABLE chunks_fts USING fts5(title, section_path, body,
+                content='chunks', content_rowid='id', tokenize='porter unicode61');
+            CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
+                INSERT INTO chunks_fts(rowid, title, section_path, body)
+                VALUES (new.id, new.title, new.section_path, new.body); END;
+            CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
+                INSERT INTO chunks_fts(chunks_fts, rowid, title, section_path, body)
+                VALUES ('delete', old.id, old.title, old.section_path, old.body); END;
+            INSERT INTO pages(page_uid, doc_id, page_no, doc_type) VALUES
+                ('w:1', 'wis', '1', 'manual'), ('e:P1', 'epc', 'P1', 'parts');
+            INSERT INTO chunks(page_uid, doc_id, ord, title, body) VALUES
+                ('w:1', 'wis', 0, 'Oil filter change', 'oil filter torque 25 Nm'),
+                ('e:P1', 'epc', 0, 'Parts', 'A 102 180 00 09 OIL FILTER');
+        """)
+        o.commit()
+        o.close()
+        m = index.connect(old)
+        hits = lambda t: m.execute(f"SELECT COUNT(*) FROM {t} WHERE {t} MATCH 'filter'").fetchone()[0]
+        check("old index: the parts chunk moved out of chunks_fts", hits("chunks_fts") == 1, hits("chunks_fts"))
+        check("old index: ... and into parts_fts", hits("parts_fts") == 1, hits("parts_fts"))
+        for t in ("chunks_fts", "parts_fts"):
+            m.execute(f"INSERT INTO {t}({t}) VALUES ('integrity-check')")
+        m.close()
+        m = index.connect(old)            # a second start changes nothing
+        check("migration runs once", hits("chunks_fts") == 1 and hits("parts_fts") == 1)
+        m.close()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print(f"\n{fails} failure(s)")

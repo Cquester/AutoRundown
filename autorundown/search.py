@@ -105,11 +105,16 @@ def _filters(include_other_variants: bool, engines: tuple[str, ...] = (),
     return variant_clause + type_clause, type_args, boost_sql, boost_args
 
 
+FTS_TABLES = ("chunks_fts", "parts_fts")   # see index.SCHEMA: parts in their own
+
+
 def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
          include_other_variants: bool, types: str = "",
-         engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> list[dict]:
+         engines: tuple[str, ...] = (), codes: tuple = ((), ()),
+         fts: str = "chunks_fts") -> list[dict]:
     if not match:
         return []
+    assert fts in FTS_TABLES
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
     tclause, targs = _types_clause(types)
     if tclause:
@@ -118,11 +123,11 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
     sql = f"""
         SELECT c.page_uid, c.doc_id, c.ord, c.title, c.section_path, c.body,
                p.page_no, p.system, p.doc_type, p.images, p.applicability,
-               bm25(chunks_fts, ?, ?, ?){boost_sql} AS score
-        FROM chunks_fts
-        JOIN chunks c ON c.id = chunks_fts.rowid
+               bm25({fts}, ?, ?, ?){boost_sql} AS score
+        FROM {fts}
+        JOIN chunks c ON c.id = {fts}.rowid
         JOIN pages  p ON p.page_uid = c.page_uid
-        WHERE chunks_fts MATCH ? AND c.doc_id = ?{where}
+        WHERE {fts} MATCH ? AND c.doc_id = ?{where}
         ORDER BY score
         LIMIT ?
     """
@@ -136,7 +141,8 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
 
 def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: int,
                include_other_variants: bool, types: str = "", general: str = "",
-               engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> dict[str, list[dict]]:
+               engines: tuple[str, ...] = (), codes: tuple = ((), ()),
+               fts: str = "chunks_fts") -> dict[str, list[dict]]:
     """`_run` for several doc_ids at once: the best `limit` rows of each.
 
     FTS5 finds and scores every match in the whole index before the doc_id
@@ -148,6 +154,7 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
     """
     if not match or not doc_ids:
         return {}
+    assert fts in FTS_TABLES
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
     tclause, targs = _types_clause(types)
     if tclause and general in doc_ids:
@@ -160,11 +167,11 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
             FROM (
                 SELECT c.page_uid, c.doc_id, c.ord, c.title, c.section_path, c.body,
                        p.page_no, p.system, p.doc_type, p.images, p.applicability,
-                       bm25(chunks_fts, ?, ?, ?){boost_sql} AS score
-                FROM chunks_fts
-                JOIN chunks c ON c.id = chunks_fts.rowid
+                       bm25({fts}, ?, ?, ?){boost_sql} AS score
+                FROM {fts}
+                JOIN chunks c ON c.id = {fts}.rowid
                 JOIN pages  p ON p.page_uid = c.page_uid
-                WHERE chunks_fts MATCH ? AND c.doc_id IN ({marks}){where}
+                WHERE {fts} MATCH ? AND c.doc_id IN ({marks}){where}
             ) x
         ) WHERE rn <= ?
         ORDER BY doc_id, score
@@ -183,16 +190,17 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
 
 def _search_scope(conn: sqlite3.Connection, doc_ids: list[str], query: str, limit: int,
                   include_other_variants: bool, types: str = "", general: str = "",
-                  engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> list[list[dict]]:
+                  engines: tuple[str, ...] = (), codes: tuple = ((), ()),
+                  fts: str = "chunks_fts") -> list[list[dict]]:
     """`_search_one` for every doc_id of a scope, in two statements: AND
     first, then OR only for the doc_ids that came up short. Returns the lists
     in `doc_ids` order, exactly as one `_search_one` per doc_id would."""
     lists = _run_scope(conn, doc_ids, build_match(query, "and"), limit,
-                       include_other_variants, types, general, engines, codes)
+                       include_other_variants, types, general, engines, codes, fts)
     short = [d for d in doc_ids if len(lists.get(d, [])) < limit]
     if short:
         more = _run_scope(conn, short, build_match(query, "or"), limit * 2,
-                          include_other_variants, types, general, engines, codes)
+                          include_other_variants, types, general, engines, codes, fts)
         for d in short:
             results = lists.setdefault(d, [])
             seen = {r["page_uid"] + str(r["ord"]) for r in results}
@@ -296,7 +304,8 @@ def scope_ids(vehicle: dict, variant: int | None = None,
     # page numbers are prefixed ("P123"), so no citation can cross sources.
     # They stay in the list (a cited parts page must open through the car) and
     # are named in `scope.parts`, which `search` ranks as a separate group.
-    parts: list[str] = []
+    # a parts vehicle chosen on its own (an EPC series with no WIS car)
+    parts: list[str] = [vehicle["doc_id"]] if vehicle.get("doc_type") == "parts" else []
     for pid in vehicle.get("joined_ids") or []:
         if pid not in scope:
             scope.append(pid)
@@ -422,11 +431,11 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
         # A series has one EPC catalog per market and period (the W124: 4,178
         # parts pages, 582 distinct titles), so the same subgroup comes back
         # several times; one per title, over-fetched to fill the slots.
-        k = parts_slots(limit)
+        k = parts_slots(limit) if manual else limit   # a parts car on its own: all of it
         tail, titles = [], set()
         for r in _interleave(
                 _search_scope(conn, parts, query, k * 12, include_other_variants,
-                              "", "", engines, codes), k * 12, by_score=True):
+                              "", "", engines, codes, fts="parts_fts"), k * 12, by_score=True):
             key = _CATALOG_RE.sub("", r.get("title") or "")
             if key in titles:
                 continue

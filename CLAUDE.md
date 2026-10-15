@@ -313,7 +313,9 @@ its page numbers are prefixed** (2026-10-14). EPC builds its own vehicles;
 `model_code` (`joined_ids`) and the EPC engine buckets of its variants'
 engines (`engine_joins`), and `scope_ids` adds them after the car's own
 engine buckets, searched as a separate group appended after the manual's
-results (the manual's top N never changes); the joined EPC vehicle is
+results (the manual's top N never changes) and held in their own FTS
+table (`parts_fts`; BM25 statistics are index-wide, and in `chunks_fts`
+EPC shifted WIS rankings even with no join); the joined EPC vehicle is
 left out of `/api/vehicles`.
 Only `doc_type "parts"` vehicles are ever joined in. **EPC page numbers
 are `P<dok_id>`** (`SOURCE_PAGE_STYLE` / manifest `page_no_prefix`):

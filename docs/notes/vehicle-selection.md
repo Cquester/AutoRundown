@@ -325,7 +325,8 @@ them after the car's own engine buckets (named in `Scope.parts`); `search`
 ranks them as a separate group appended after the manual's results, so
 the manual's top N is unchanged (`parts_slots`, `PARTS_CAP`). A variant
 or engine choice narrows the parts engine buckets exactly as it narrows
-the WIS ones. A
+the WIS ones. Parts chunks live in their own full-text table (`parts_fts`)
+so their BM25 statistics never shift the manual's rankings. A
 joined parts vehicle carries `joined_into` and is not listed by
 `/api/vehicles` (lookups by doc_id still find it); one with no manual
 counterpart is listed on its own. `/api/image` falls back to a joined

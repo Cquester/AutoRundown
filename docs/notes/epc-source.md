@@ -184,13 +184,20 @@ index / WIS+EPC with the join off / joined:
 - One title per parts result: a series has one catalog per market/period (W124:
   4,178 parts pages, 582 distinct titles), so the tail is de-duplicated on the
   title without "(EPC catalog …)", over-fetching x12.
-- **Open, the user's call:** EPC in the *same FTS table* shifts WIS BM25 scores
-  even with the join off (statistics are index-wide). `w204-c220cdi-glow-plugs`
-  then gets one more general-pool offender (foreign 2 vs ceiling 1; a W207
-  transmission page at #3) -- it passes on the WIS-only index. Options: accept
-  and record it, or keep parts chunks in their own FTS table.
+- **Parts have their own FTS table (`parts_fts`), the user's choice.** In the
+  shared `chunks_fts`, EPC shifted WIS BM25 scores even with the join off
+  (statistics are index-wide): `w204-c220cdi-glow-plugs` gained a W207 page
+  at #3 and failed. Now `chunks.parts` routes each chunk to one table (the
+  triggers in `index.FTS_TRIGGERS`), search uses `parts_fts` for the parts
+  group and for an EPC-only car, and **all 19 WIS cases on WIS+EPC match the
+  live WIS-only index exactly** (W204 back at rank 1). An older index migrates
+  once at start-up (`index._migrate_fts`: new triggers; parts chunks already
+  in `chunks_fts` are moved -- 213,761 in 30 s on the combined index, both
+  tables pass FTS5 `integrity-check` after).
 - Parts cases `epc-w124-part-number` (exact number, spaced) and
-  `epc-w203-brake-pads` (FRONT WHEEL BRAKE) pass; skipped without EPC.
+  `epc-w203-brake-pads` (FRONT WHEEL BRAKE) pass; skipped without EPC. Their
+  `foreign` ceilings (1 and 3) are WIS engine-bucket pages, the known
+  [engine-bucket] pattern, not EPC results.
   Engine parts (oil filter, glow plugs, thermostat, water pump) are in the
   engine catalogs -- not measurable until they are pulled.
 
