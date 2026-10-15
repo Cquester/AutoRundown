@@ -321,8 +321,11 @@ prefixes its page numbers (`P123`), so they never equal a WIS DokID.
 `model_code`, "210" or an engine bucket "E112") and `engine_joins`
 (engine family -> parts engine buckets, for every engine its variants
 use, whether or not WIS has a bucket for that engine). `scope_ids` adds
-them after the car's own engine buckets; a variant or engine choice
-narrows the parts engine buckets exactly as it narrows the WIS ones. A
+them after the car's own engine buckets (named in `Scope.parts`); `search`
+ranks them as a separate group appended after the manual's results, so
+the manual's top N is unchanged (`parts_slots`, `PARTS_CAP`). A variant
+or engine choice narrows the parts engine buckets exactly as it narrows
+the WIS ones. A
 joined parts vehicle carries `joined_into` and is not listed by
 `/api/vehicles` (lookups by doc_id still find it); one with no manual
 counterpart is listed on its own. `/api/image` falls back to a joined

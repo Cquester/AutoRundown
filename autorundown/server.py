@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from . import auth, config, index, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
-from .search import get_page, scope_ids, search
+from .search import get_page, parts_slots, scope_ids, search
 
 jobs = importer_jobs.ImportJobs()
 
@@ -498,13 +498,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     rows.append(r)
             # one row per page: a page whose two chunks both match is still
             # one result, and the keyword list showed it twice
-            seen, out = set(), []
+            seen, out, parts = set(), [], []
             for r in rows:
                 if r["page_no"] not in seen:
                     seen.add(r["page_no"])
                     r.pop("body", None)
-                    out.append(r)
-            return out[:limit]
+                    (parts if r.get("parts") else out).append(r)
+            # a joined parts catalogue's rows follow the manual's (search.parts_slots)
+            return out[:limit] + parts[:parts_slots(limit)]
         finally:
             conn.close()
 

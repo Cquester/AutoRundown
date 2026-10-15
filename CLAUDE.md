@@ -312,7 +312,9 @@ its page numbers are prefixed** (2026-10-14). EPC builds its own vehicles;
 `index.link_sources` gives a WIS car the EPC vehicles of the same
 `model_code` (`joined_ids`) and the EPC engine buckets of its variants'
 engines (`engine_joins`), and `scope_ids` adds them after the car's own
-engine buckets; the joined EPC vehicle is left out of `/api/vehicles`.
+engine buckets, searched as a separate group appended after the manual's
+results (the manual's top N never changes); the joined EPC vehicle is
+left out of `/api/vehicles`.
 Only `doc_type "parts"` vehicles are ever joined in. **EPC page numbers
 are `P<dok_id>`** (`SOURCE_PAGE_STYLE` / manifest `page_no_prefix`):
 page_no is the citation key, and an unprefixed EPC number could equal a

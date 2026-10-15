@@ -73,6 +73,7 @@ import time
 from pathlib import Path
 
 from autorundown import config
+from autorundown.index import link_sources
 from autorundown.search import scope_ids, search
 
 PREFIX = "mercedes-wis-virtualbox-en-"
@@ -304,9 +305,17 @@ CASES: list[dict] = [
          #   MODEL 906; ENGINE 642 -- a Sprinter page, reachable only through
          #   the OM642 engine bucket.
          expect=["18088069"], forbid=["18090614"]),
+    # --- EPC parts joined into the WIS car (skipped without EPC in the index).
+    # Text, not page numbers: EPC page numbers follow the pull's dok_id order.
+    dict(id="epc-w124-part-number", series="124", query="A 000 420 99 20",
+         # "TS BRAKE PAD, PARTS KIT" on the W124 FRONT WHEEL BRAKE parts page
+         parts=True, expect_parts=True, expect_text=["A 000 420 99 20"]),
+    dict(id="epc-w203-brake-pads", series="203", query="brake pad",
+         # group 42 BRAKES / subgroup 030 FRONT WHEEL BRAKE, read by hand
+         parts=True, expect_parts=True, expect_text=["FRONT WHEEL BRAKE"]),
 ]
 
-GUARDS = ("commercial", "wrong", "foreign")
+GUARDS =("commercial", "wrong", "foreign")
 CEILING_TOP = 10  # known-bad ceilings below were measured at --top 10
 
 # Why a guard is known-bad. Measured 2026-10-01; ceilings re-set on the schema 1.2
@@ -340,13 +349,16 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     ("w204-c220cdi-glow-plugs", "foreign"): (1, "general-engine+general-untied"),
     ("w211-e320cdi-manual-trans", "wrong"): (1, "general-untied"),
     ("w211-e320cdi-manual-trans", "foreign"): (1, "general-untied+engine-bucket"),
+    # WIS pages (brake-light switch, ME-SFI) via the whole-series engine
+    # buckets E111/E112/E113 -- not EPC results (measured 2026-10-14)
+    ("epc-w203-brake-pads", "foreign"): (3, "engine-bucket"),
 }
 
 
-def _vehicle(conn, code: str) -> dict | None:
-    row = conn.execute("SELECT * FROM vehicles WHERE doc_id=?",
-                       (PREFIX + code,)).fetchone()
-    return dict(row) if row else None
+def _vehicles(conn) -> dict[str, dict]:
+    """Every vehicle, with the parts-catalogue join (EPC) the app makes."""
+    return {v["doc_id"]: v for v in link_sources(
+        [dict(r) for r in conn.execute("SELECT * FROM vehicles")])}
 
 
 def _short(doc_id: str) -> str:
@@ -374,9 +386,14 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
     print("WIS retrieval check -- no API calls, index opened read-only")
     print(f"(top {top_n} per case)\n")
 
+    allv = _vehicles(conn)
+    has_parts = any(v.get("doc_type") == "parts" for v in allv.values())
     for case in cases:
         cid = case["id"]
-        vehicle = _vehicle(conn, case["series"])
+        if case.get("parts") and not has_parts:
+            print(f"  SKIP  {cid:<30} no parts catalogue (EPC) in this index")
+            continue
+        vehicle = allv.get(PREFIX + case["series"])
         if vehicle is None:
             failures += 1
             print(f"  FAIL  {cid:<30} vehicle {PREFIX}{case['series']} not indexed")
@@ -389,10 +406,15 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
             print(f"  FAIL  {cid:<30} variant {var} is no longer "
                   f"{case['variant_name']!r} -- variants list changed")
             continue
-        scope = scope_ids(vehicle, var)
+        scope = scope_ids(vehicle, var, case.get("engine"))
         series = case["series"]
-        engine_ids = [d for d in scope if d not in (vehicle["doc_id"], scope.general)]
-        engines = {_short(d).lstrip("e") for d in engine_ids}
+        # joined parts catalogue buckets (EPC): doc_id -> "210" or "E102"
+        parts = {d: allv[d]["model_code"] for d in scope
+                 if allv.get(d, {}).get("doc_type") == "parts"}
+        engine_ids = [d for d in scope
+                      if d not in (vehicle["doc_id"], scope.general) and d not in parts]
+        engines = ({_short(d).lstrip("e") for d in engine_ids}
+                   | {c[1:] for c in parts.values() if c.startswith("E")})
         compatible = {series} | engines
 
         t0 = time.time()
@@ -420,6 +442,14 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
             problems.append(f"forbid: {bad} returned (ranks "
                             f"{[pages.index(p) + 1 for p in bad]})")
 
+        # parts: a joined catalogue bucket contributes, and the text sought
+        # (a part number read by hand) is on a returned page
+        if case.get("expect_parts") and not any(r["doc_id"] in parts for r in rows):
+            problems.append(f"parts: no result from {sorted(parts.values())}")
+        for needle in case.get("expect_text", []):
+            if not any(needle in page_text(r) for r in rows):
+                problems.append(f"expect_text: {needle!r} on none of the top {top_n}")
+
         # engine bucket contributes
         if case.get("expect_engine") and not any(r["doc_id"] in engine_ids for r in rows):
             problems.append(f"engine: no result from {[_short(d) for d in engine_ids]}")
@@ -432,6 +462,12 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
             if r["doc_id"] == vehicle["doc_id"] and series not in named:
                 problems.append(f"filing: {tag} is in {series}'s bucket but "
                                 f"names {sorted(named) or 'nothing'}")
+            elif r["doc_id"] in parts:
+                code = parts[r["doc_id"]]
+                need = code[1:] if code.startswith("E") else code
+                if need not in named:
+                    problems.append(f"filing: {tag} is in parts bucket {code} but "
+                                    f"names {sorted(named) or 'nothing'}")
             elif r["doc_id"] in engine_ids:
                 eng = _short(r["doc_id"]).lstrip("e")
                 if eng not in named:

@@ -226,6 +226,19 @@ class Scope(list):
     general: str = ""
     engines: tuple = ()     # engine families chosen ("272",); () = any
     codes: tuple = ((), ())  # (model codes, engine codes) of the chosen car
+    parts: tuple = ()       # joined parts catalogue doc_ids (EPC); searched apart
+
+
+# Joined parts catalogues are searched as their own group and their results
+# appended after the manual's, so the manual's top N is exactly what it is
+# without them. Interleaved, the extra buckets cost manual pages a rank or two
+# (eval_wis on WIS + EPC: W124 brake pads 5 -> 7, W211 manual trans 6 -> 7).
+def parts_slots(limit: int) -> int:
+    return max(2, limit // 4)
+
+
+PARTS_CAP = 4   # parts passages added to an answer's context (Ask)
+_CATALOG_RE = re.compile(r"\(EPC catalog [^)]*\)")
 
 
 def scope_ids(vehicle: dict, variant: int | None = None,
@@ -281,9 +294,13 @@ def scope_ids(vehicle: dict, variant: int | None = None,
     # engines -- the same engine choice narrows them. Each is still its own
     # doc_id, filtered in SQL before ranking like every other bucket, and its
     # page numbers are prefixed ("P123"), so no citation can cross sources.
+    # They stay in the list (a cited parts page must open through the car) and
+    # are named in `scope.parts`, which `search` ranks as a separate group.
+    parts: list[str] = []
     for pid in vehicle.get("joined_ids") or []:
         if pid not in scope:
             scope.append(pid)
+            parts.append(pid)
     joins = vehicle.get("engine_joins") or {}
     for fam in sorted({str(e)[:3] for v in chosen for e in v.get("engines", [])}):
         if fams and fam not in fams:
@@ -291,6 +308,8 @@ def scope_ids(vehicle: dict, variant: int | None = None,
         for pid in joins.get(fam, []):
             if pid not in scope:
                 scope.append(pid)
+                parts.append(pid)
+    scope.parts = tuple(parts)
     general = (vehicle.get("general_doc_id") or "").strip()
     if general and general not in scope:
         scope.append(general)
@@ -392,6 +411,31 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
     general = getattr(doc_ids, "general", "")
     engines = getattr(doc_ids, "engines", ())
     codes = getattr(doc_ids, "codes", ((), ()))
+    parts = [i for i in getattr(doc_ids, "parts", ()) if i in ids]
+    if parts:
+        # the manual exactly as without a parts catalogue, then the parts
+        # (see parts_slots), each row marked so callers can keep them apart
+        manual = Scope(i for i in ids if i not in parts)
+        manual.types, manual.general = types, general     # same narrowing as before
+        manual.engines, manual.codes = engines, codes
+        head = search(conn, manual, query, limit, include_other_variants) if manual else []
+        # A series has one EPC catalog per market and period (the W124: 4,178
+        # parts pages, 582 distinct titles), so the same subgroup comes back
+        # several times; one per title, over-fetched to fill the slots.
+        k = parts_slots(limit)
+        tail, titles = [], set()
+        for r in _interleave(
+                _search_scope(conn, parts, query, k * 12, include_other_variants,
+                              "", "", engines, codes), k * 12, by_score=True):
+            key = _CATALOG_RE.sub("", r.get("title") or "")
+            if key in titles:
+                continue
+            titles.add(key)
+            r["parts"] = True
+            tail.append(r)
+            if len(tail) == k:
+                break
+        return head + tail
     if len(ids) == 1:
         return _search_one(conn, ids[0], query, limit, include_other_variants,
                            engines=engines, codes=codes)
@@ -414,10 +458,14 @@ def multi_search(conn: sqlite3.Connection, doc_ids: str | Iterable[str],
     context, while ranking still orders within each query.
     """
     ranked_lists: list[list[dict]] = []
+    parts_lists: list[list[dict]] = []
     for q in queries:
         rows = search(conn, doc_ids, q, per_query, include_other_variants)
-        ranked_lists.append(sorted(rows, key=lambda r: r["score"]))
-    return _interleave(ranked_lists, cap)
+        ranked_lists.append(sorted((r for r in rows if not r.get("parts")),
+                                   key=lambda r: r["score"]))
+        parts_lists.append([r for r in rows if r.get("parts")])
+    # a joined parts catalogue gets its own small share after the manual's
+    return _interleave(ranked_lists, cap) + _interleave(parts_lists, PARTS_CAP)
 
 
 def get_page(conn: sqlite3.Connection, doc_ids: str | Iterable[str],
