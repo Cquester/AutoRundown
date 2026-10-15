@@ -132,7 +132,7 @@ function image(candidates){            // candidates: [[db, name], ...] tried in
   for(var i=0;i<candidates.length && !rel;i++){
     var dbname=candidates[i][0], name=candidates[i][1], base=fileSafe(name);
     var exts=["png","gif","jpg"];
-    for(var e=0;e<exts.length;e++) if(new File(IMG_DIR+"/"+base+"."+exts[e]).isFile()){ rel="epc/"+base+"."+exts[e]; imgStats.cached++; break; }
+    for(var e=0;e<exts.length;e++) if(new File(IMG_DIR+"/"+base+"."+exts[e]).isFile()){ rel="epc/"+base+"."+exts[e]; imgStats.cached++; found=true; break; }   // on disk from an earlier run: found, not missing
     if(rel) break;
     var b=blob(dbname,name); if(b==null) continue;
     found=true; var kind=magic(b);
