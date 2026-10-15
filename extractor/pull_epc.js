@@ -21,7 +21,10 @@
 // Env: AR_HOST (192.168.56.101), AR_PORT (2034), AR_LANG (E), AR_TBJDBC (tbjdbc.jar),
 //      AR_OUT (output dir, default epc_extract),
 //      AR_CATNUM  "001" | "001,002" | "all" (= every passenger-car chassis
-//                 catalog: models_v class 1, aggtype FG),
+//                 catalog: models_v class 1, aggtype FG) | "engines" (class 1,
+//                 aggtype M; filed under the engine buckets, "ENGINE 112"),
+//                 tokens may be mixed: "all,engines",
+//      AR_LIMIT   pull at most this many catalogs not yet done (for a trial),
 //      AR_IMAGES  1 (default) / 0,  AR_SA 1 (default) / 0,
 //      AR_RESUME  1 = keep finished catalogs in AR_OUT and carry on (default 1),
 //      AR_SLEEP_MS pause between subgroups (default 0; the VM and host stay calm).
@@ -41,7 +44,7 @@ var LANG=env("AR_LANG","E");                         // EPC single-char language
 var CATNUM=env("AR_CATNUM","001");
 var OUT=env("AR_OUT","epc_extract").replace(/\\/g,"/");
 var WANT_IMAGES=env("AR_IMAGES","1")!="0", WANT_SA=env("AR_SA","1")!="0", RESUME=env("AR_RESUME","1")!="0";
-var SLEEP=+env("AR_SLEEP_MS","0");
+var SLEEP=+env("AR_SLEEP_MS","0"), LIMIT=+env("AR_LIMIT","0");
 var IMG_DIR=OUT+"/images/epc";
 new File(IMG_DIR).mkdirs();
 
@@ -171,10 +174,15 @@ function descSql(alias){ return "coalesce((select description from part_descs_v 
   +" (select description from part_descs_v where descidx="+alias+".descidx and lang='E')) as DESCRIPTION"; }
 
 // ------------------------------------------------------------ catalog list
-var catalogs;
-if(CATNUM.toLowerCase()=="all")
-  catalogs=rows("select unique CATNUM from models_v where class='1' and aggtype='FG' and catnum<>'598' order by CATNUM").map(function(r){return r.CATNUM;});
-else catalogs=CATNUM.split(",").map(trim).filter(function(s){return s;});
+// Gearbox (GA) and other aggregate catalogs are left out: there is no
+// car -> gearbox map, and "MODEL 722" would make a gearbox look like a car.
+var catalogs=[];
+function byAgg(agg){ return rows("select unique CATNUM from models_v where class='1' and aggtype="+q(agg)+" and catnum<>'598' order by CATNUM").map(function(r){return r.CATNUM;}); }
+CATNUM.split(",").map(trim).filter(function(s){return s;}).forEach(function(tok){
+  var add = tok.toLowerCase()=="all" ? byAgg("FG") : tok.toLowerCase()=="engines" ? byAgg("M") : [tok];
+  add.forEach(function(c){ if(catalogs.indexOf(c)<0) catalogs.push(c); });
+});
+var started=0;
 print("catalogs to pull: "+catalogs.length);
 
 // ------------------------------------------------------------ output + resume
@@ -197,16 +205,22 @@ function pause(){ if(SLEEP>0) Thread.sleep(SLEEP); }
 // ------------------------------------------------------------ BM catalogs
 catalogs.forEach(function(cat, ci){
   // models: series, baumuster, sales names (catalog order)
-  var models=rows("select TYPE, SUBBM1, SALESDES from models_v where catnum="+q(cat));
+  var models=rows("select TYPE, SUBBM1, SALESDES, AGGTYPE from models_v where catnum="+q(cat));
+  // an engine catalog (aggtype M): TYPE is the engine series, filed as "ENGINE 112"
+  var isEngine=models.length>0 && models.every(function(m){ return m.AGGTYPE=="M"; });
+  var ROLE=isEngine?"ENGINE ":"MODEL ", noun=isEngine?"engine ":"model ";
   var seriesSet={}, bm=[], sales=[];
   models.forEach(function(m){ if(!m.TYPE) return; seriesSet[m.TYPE]=1; var b=m.TYPE+(m.SUBBM1?"."+m.SUBBM1:"");
     if(bm.indexOf(b)<0) bm.push(b); var sd=b+(m.SALESDES?" "+m.SALESDES:""); if(sales.indexOf(sd)<0) sales.push(sd); });
-  var series=Object.keys(seriesSet); series.forEach(function(s){ pulledSeries[s]=1; });
-  // SA options this catalog offers (kept even for resumed catalogs: the SA phase needs them)
-  if(WANT_SA) rows("select SANUM, GROUPNUM, CODEONE, CODETWO from BM_SAIDX_V where CATNUM="+q(cat)).forEach(function(r){
+  var series=Object.keys(seriesSet); if(!isEngine) series.forEach(function(s){ pulledSeries[s]=1; });
+  // SA options this catalog offers (kept even for resumed catalogs: the SA phase
+  // needs them). Not for engine catalogs: SA strokes name car series.
+  if(WANT_SA && !isEngine) rows("select SANUM, GROUPNUM, CODEONE, CODETWO from BM_SAIDX_V where CATNUM="+q(cat)).forEach(function(r){
     var k=trim(r.SANUM), e=saIndex[k]||(saIndex[k]={groups:{}, codes:{}});
     e.groups[r.GROUPNUM]=1; slots3(r.CODEONE+r.CODETWO).forEach(function(c){ if(c) e.codes[c]=1; }); });
   if(done[cat]){ return; }
+  if(LIMIT && started>=LIMIT) return;
+  started++;
   if(!series.length){ print("catalog "+cat+": no models_v rows, skipped"); appendLines(DONE,[cat]); return; }
   // SUBMODS are SUBBM1 suffixes; map each back to its series (a catalog can hold several)
   var subSeries={}; models.forEach(function(m){ if(m.TYPE && m.SUBBM1 && !subSeries[m.SUBBM1]) subSeries[m.SUBBM1]=m.TYPE; });
@@ -244,15 +258,15 @@ catalogs.forEach(function(cat, ci){
       partRows+=n; catParts+=n;
       var imgs=[];
       (npg[sg.sg]||[]).forEach(function(r){ var f=bmImage(cat,r); if(f && imgs.indexOf(f)<0) imgs.push(f); });
-      var title="Parts: "+series.map(function(s){return "model "+s;}).join(", ")+" (EPC catalog "+cat+"), group "+g.GROUPNUM+(g.TEXT?" "+g.TEXT:"")
+      var title="Parts: "+series.map(function(s){return noun+s;}).join(", ")+" (EPC catalog "+cat+"), group "+g.GROUPNUM+(g.TEXT?" "+g.TEXT:"")
         +" / subgroup "+sg.sg+(sg.text?" "+sg.text:"");
-      var body=[title, "Models in this catalog: "+sales.join(", "), ""];
+      var body=[title, (isEngine?"Engines":"Models")+" in this catalog: "+sales.join(", "), ""];
       if(n){ body.push("Callout | Part number | Name | Fits | Notes"); body=body.concat(lines); }
       else { body.push("(no parts listed)"); emptyRecs++; }
       recs.push({
         dok_id: ++dokId, lang: "en", title: title, body_text: body.join("\n"), body_format: "sids",
-        model_series: series, baumuster: bm,
-        applicability_notes: series.map(function(s){return "MODEL "+s;}).concat(bm.map(function(b){return "MODEL "+b;})),
+        model_series: isEngine?[]:series, baumuster: isEngine?[]:bm, engine_series: isEngine?series:[],
+        applicability_notes: series.map(function(s){return ROLE+s;}).concat(bm.map(function(b){return ROLE+b;})),
         cross_refs: [], image_refs: [], figures: [], image_files: imgs,
         source_type: "mercedes-epc", catnum: cat, group: g.GROUPNUM, subgroup: sg.sg
       });

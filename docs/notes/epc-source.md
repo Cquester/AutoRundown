@@ -15,6 +15,15 @@ under MODEL 115 (100% structured agreement, no stray vehicles) and finds parts
 by spaced, compact and bare-digit number, name and option text. Not in the live
 index; all-catalog run and the site VM adapter are next.
 
+**All 282 chassis catalogs pulled (2026-10-14):** 45,639 records (44,480
+catalog + 1,159 SA), ~2.65 M part lines, 44,963 drawings, 1.6 GB, in
+`Mercedes Documents/autorundown_out/epc_extract/`. Throwaway ingest: 72 series,
+100% structured agreement, no stray vehicles, 1.3 GB index. The run crashed
+at the manifest step on a cp1252 records file (fixed: UTF-8 writer; the file
+was re-encoded losslessly, original kept as `records.cp1252.jsonl.bak`).
+Engine catalogs (`AR_CATNUM=engines`) work in a 3-catalog trial but are not
+in the corpus yet -- see "Joining WIS" for why they would be dropped today.
+
 ## How EPC is reached (it is NOT the WIS path)
 
 EPC had been written off as "access-protected". It isn't — it was just a
@@ -128,20 +137,44 @@ The site runs the extraction; end users should do as little as possible.
   `GM`, 5 `LG` aggregate catalogs (not pulled yet; would file under engine
   buckets).
 
+## Joining WIS: the open design problem (found 2026-10-14)
+
+"Files under MODEL 115, the same vehicle WIS uses" was true of the *series
+code* only. `search.scope_ids` searches the chosen vehicle's own doc_id, its
+source's general pool and the engine buckets its variants link to -- all from
+one source. The records importer builds vehicles per corpus, so:
+
+- EPC's `MODEL 210` becomes its own vehicle (`mercedes-epc-en-210`), a second
+  W210 in the picker; the WIS W210 a shop picks never searches EPC parts.
+- Engine buckets are kept only if a passenger variant lists that engine, and
+  variants (with engines) come from the corpus's own `models.jsonl`. EPC has
+  none, so every EPC engine bucket is dropped as "commercial-only" (seen in
+  the trial: "leaving out 3 ... engine buckets").
+- Chassis catalogs hold no engine internals (W210 "oil filter" finds springs),
+  so engine catalogs matter for the most common parts questions.
+
+Needed: a cross-source join -- a vehicle of one source also searches another
+source's documents for the same series (and the same engine buckets), and
+the second source's vehicle is not listed separately. Touches
+`search.scope_ids`, the vehicles table and the picker
+(`docs/notes/vehicle-selection.md` first), so it is a design decision, not
+an extractor change. Engine catalogs can be pulled now; they become
+reachable once the join exists.
+
 ## Remaining build items
 
-1. **All catalogs:** `AR_CATNUM=all` (282 chassis catalogs), resumable
-   (`done_catalogs.txt`). Expect hours and tens of thousands of drawings --
-   throttle with `AR_SLEEP_MS` (the host has crashed under heavy I/O before).
-   Then ingest into a throwaway index and check filing across series.
-2. **Footnotes** (`FOOTNOTES` codes on part rows, `SA_FOOTNOTES_V` for SA) --
+1. **Cross-source join with WIS** (above) -- without it EPC is a parallel
+   set of vehicles and its engine catalogs are unreachable.
+2. **Engine catalogs into the corpus:** `AR_CATNUM=engines` into the same
+   `AR_OUT` (resumes; the 282 chassis catalogs are skipped).
+3. **Footnotes** (`FOOTNOTES` codes on part rows, `SA_FOOTNOTES_V` for SA) --
    not extracted; they carry "up to chassis …" conditions.
-3. **Aggregate catalogs** (engines, gearboxes) -> engine buckets.
-4. **Site integration:** an EPC adapter in the site's VM import
+4. **Gearbox catalogs** -- need a car -> gearbox map first.
+5. **Site integration:** an EPC adapter in the site's VM import
    (`importer_jobs.py` / `vm_pipeline.py`) with the clock + DHCP above and the
    one-time firewall message.
-5. Callout hotspots from the FV4 annotation overlay.
-6. Tests + README/CLAUDE.md updates.
+6. Callout hotspots from the FV4 annotation overlay.
+7. Tests + README/CLAUDE.md updates.
 
 See also the decompiled sources (not committed — Mercedes software): the DAO
 classes and `QueryStrings` were decompiled with CFR during the investigation.
