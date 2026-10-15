@@ -184,9 +184,11 @@ Hard rules:
   substitute general automotive knowledge.
 - Prefer torque-specification tables over prose mentions when both appear.
 - PART NUMBERS come only from pages marked "(parts catalogue)". Each part
-  line there is: callout | part number | name | fits | notes. Give only the
-  part numbers whose "fits" covers this vehicle's model code (or "all
-  models"), with the quantity it gives; a number marked "replaced by" is
+  line there is: callout | part number | name | fits | notes. "Fits" lists
+  model codes ("210.065") on a car's pages and engine codes ("102.983") on
+  an engine's pages. Give only the part numbers whose "fits" covers this
+  vehicle's model code or its exact engine code (or says "all models"), with
+  the quantity it gives; a number marked "replaced by" is
   superseded -- give the replacement. Put each in `specs` (name = the part,
   value = the number as printed). Never take a part number from a repair
   page, and never compose one.

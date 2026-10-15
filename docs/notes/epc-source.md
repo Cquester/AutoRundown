@@ -199,7 +199,24 @@ index / WIS+EPC with the join off / joined:
   `foreign` ceilings (1 and 3) are WIS engine-bucket pages, the known
   [engine-bucket] pattern, not EPC results.
   Engine parts (oil filter, glow plugs, thermostat, water pump) are in the
-  engine catalogs -- not measurable until they are pulled.
+  engine catalogs.
+
+**Engine catalogs in (2026-10-15).** The 161 passenger engine catalogs were
+pulled from Shop setup (`vm_epc` in a dev.py instance, 42 min including
+the ingest, after a first attempt was cut off by a Claude-app update): the
+corpus is 443 catalogs, 50,759 records, 46,000-odd drawings. On WIS + all of
+EPC: 146 EPC vehicles (72 series, 74 engines), 120 joined into WIS cars or
+engine buckets, 26 old series WIS lacks listed on their own; 50 WIS cars
+reach engine parts (W210: 12 engine families, W204: 8). Read by hand and now
+eval cases: W210 "E 320" (M104 + M112) oil filter -> both engines' filter
+pages, M112 element A 000 180 26 09 with its supersession; W201 190 E 2.3-16
+thermostat -> M102 cooling system; W204 C 220 CDI glow plugs -> OM651 GLOW
+PLUG qty 4, A 001 159 66 01; W211 E 320 CDI fuel filter -> OM642 and OM648.
+No wrong engine in any parts tail with a variant chosen. eval_wis on that
+index: 25/25, 18 known-bad guards within ceilings (the new EPC cases' guard
+offenders are WIS general-pool or engine-bucket pages, not EPC rows).
+An engine page's "Fits" lists engine codes (102.990 vs the 2.3-16's 102.983),
+so the answer rule now says model code *or exact engine code*.
 
 ## Remaining build items
 
@@ -207,8 +224,7 @@ index / WIS+EPC with the join off / joined:
    eval cases such as "W210 oil filter part number" (engine parts reached,
    other engines excluded) and the crowding of repair searches; then one
    scoped paid answer (ask first).
-2. **Engine catalogs into the corpus:** `AR_CATNUM=engines` into the same
-   `AR_OUT` (resumes; the 282 chassis catalogs are skipped).
+2. ~~Engine catalogs into the corpus~~ -- done 2026-10-15 (above).
 3. **Footnotes** (`FOOTNOTES` codes on part rows, `SA_FOOTNOTES_V` for SA) --
    not extracted; they carry "up to chassis …" conditions.
 4. **Gearbox catalogs** -- need a car -> gearbox map first.

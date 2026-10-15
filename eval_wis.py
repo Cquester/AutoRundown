@@ -313,6 +313,25 @@ CASES: list[dict] = [
     dict(id="epc-w203-brake-pads", series="203", query="brake pad",
          # group 42 BRAKES / subgroup 030 FRONT WHEEL BRAKE, read by hand
          parts=True, expect_parts=True, expect_text=["FRONT WHEEL BRAKE"]),
+    # engine parts, reached through the chosen variant's engines (read by hand
+    # 2026-10-15 on WIS + all 443 EPC catalogs)
+    dict(id="epc-w210-e320-oil-filter", series="210", variant=30, variant_name="E 320",
+         query="oil filter",
+         # M112 group 18 / 060: "TS OIL FILTER ELEMENT" A 000 180 26 09 (the
+         # current number; 31 09 is replaced by it). E 320 spans M104 and M112.
+         parts=True, expect_parts=True, expect_text=["A 000 180 26 09"]),
+    dict(id="epc-w201-2316-thermostat", series="201", variant=8,
+         variant_name="190 E 2.3 16", query="thermostat",
+         # M102 group 20 ENGINE COOLING SYSTEM (thermostat seal, housing cover)
+         parts=True, expect_parts=True, expect_text=["THERMOSTAT HOUSING COVER"]),
+    dict(id="epc-w204-c220cdi-glow-plugs", series="204", variant=22,
+         variant_name="C 220 CDI Lim.", query="glow plug",
+         # OM651 group 15 / 105: GLOW PLUG qty 4, A 001 159 66 01
+         parts=True, expect_parts=True, expect_text=["A 001 159 66 01"]),
+    dict(id="epc-w211-e320cdi-fuel-filter", series="211", variant=15,
+         variant_name="E 320 CDI", query="fuel filter",
+         # OM642 group 07 FUEL INJECTION / subgroup 110 FUEL FILTER, LINES
+         parts=True, expect_parts=True, expect_text=["FUEL FILTER, LINES"]),
 ]
 
 GUARDS =("commercial", "wrong", "foreign")
@@ -354,6 +373,11 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     ("epc-w203-brake-pads", "foreign"): (3, "engine-bucket"),
     # the part number's digits match an OM605 end-cover page loosely
     ("epc-w124-part-number", "foreign"): (1, "engine-bucket"),
+    # WIS general-pool W207 pages (oil filter cover, transmission oil change),
+    # not EPC results (measured 2026-10-15, WIS + all 443 EPC catalogs)
+    ("epc-w210-e320-oil-filter", "wrong"): (1, "general-untied"),
+    ("epc-w210-e320-oil-filter", "foreign"): (1, "general-untied"),
+    ("epc-w204-c220cdi-glow-plugs", "foreign"): (1, "general-untied"),
 }
 
 
