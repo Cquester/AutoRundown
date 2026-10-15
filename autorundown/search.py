@@ -254,6 +254,104 @@ _PARTS_STOP = {"part", "parts", "number", "numbers", "no", "pn", "replacement",
 SNIPPET_MAX = 4000
 
 
+def split_scope(scope) -> tuple["Scope", "Scope"]:
+    """(the manual's part, the parts catalogue's part) of a scope, each with
+    the same narrowing, for the UI's Workshop and Parts tabs."""
+    ids = as_ids(scope)
+    parts = [i for i in getattr(scope, "parts", ()) if i in ids]
+    manual = Scope(i for i in ids if i not in parts)
+    only = Scope(parts)
+    for s in (manual, only):
+        s.types, s.general = getattr(scope, "types", ""), getattr(scope, "general", "")
+        s.engines, s.codes = getattr(scope, "engines", ()), getattr(scope, "codes", ((), ()))
+    only.parts = tuple(parts)
+    if only.general not in only:
+        only.general = ""
+    return manual, only
+
+
+# Values a mechanic looks up by kind -- the Torque specs and Capacities tabs
+# list the lines of the car's own manual pages that print one.
+VALUE_RES = {
+    # "25 Nm", "50-60 Nm", "18 lb-ft", and WIS's own tables: "Stage 2 Nm 50"
+    "torque": re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:-\s*\d+(?:[.,]\d+)?\s*)?"
+                         r"(?:N\s?·?\s?m|Nm|lb[.\- ]?ft|ft[.\- ]?lbs?|lb[.\- ]?in|in[.\- ]?lbs?)\b"
+                         r"|\bNm\s+\d+(?:[.,]\d+)?\b", re.I),
+    # "6.5 l", "1,2 L", "5 liters", "6 qts" -- a bare "L" only after a decimal:
+    # "Model 218 L" is a long-wheelbase model, not a volume -- and WIS's own
+    # tables: "Engine oil Capacity (oil and filter change) Liter 6,5 7,0".
+    # [\s\xa0\xc2]: some pages still carry "5\xc2\xa0l" from a double decode
+    "capacity": re.compile(r"\b\d+[.,]\d+[\s\xa0\xc2]*[lL]\b"
+                           r"|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:ltr|litres?|liters?|qts?|quarts?|ml|cm3|gal)\b"
+                           r"|\b(?:liters?|litres?|ltr|qts?|quarts?)[\s\xa0\xc2]+\d+(?:[.,]\d+)?\b"
+                           r"|(?-i:\b\d+[\s\xa0\xc2]*l\b)", re.I),   # "5 l": lowercase only
+}
+
+
+def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
+                cap: int = 8, other_engine=None) -> list[str]:
+    """The lines of one page that print a value of `kind` and name one of
+    the question's words. Text only; the page itself is one click away.
+
+    `other_engine(line)` is True for a line that names only other engines or
+    models than the chosen car's (query.mentioned_codes, as the answer check
+    uses): WIS tables print a row per engine ("Engine 612.962/967 Glow plug to
+    cylinder head Stage 1 Nm 20"), and a 651's tab must not list a 612's
+    value."""
+    rx = VALUE_RES[kind]
+    row = conn.execute("SELECT title, text FROM pages WHERE page_uid=?", (page_uid,)).fetchone()
+    if not row:
+        return []
+    terms = [t[:-1] if len(t) > 3 and t.endswith("s") else t for t in tokenize(query)
+             if t not in ("torque", "torques", "tightening", "capacity", "capacities",
+                          "specs", "spec", "specification", "specifications")]
+
+    def is_value(line: str) -> bool:
+        if rx.search(line):
+            return True
+        # WIS puts the unit in a header ("Oil capactiy in liters") and prints
+        # bare numbers in the rows: "Capacity of engine when changing oil and
+        # filter 5.0"
+        return kind == "capacity" and bool(_CAP_ROW_RE.search(line)) and bool(_DECIMAL_RE.search(line))
+
+    lines = []
+    for raw in (row[1] or "").split("\n"):
+        line = " ".join(raw.split())
+        if not line or line.startswith(("Applies to:", "Noted in the manual:", "Validity:",
+                                        "Diagram labels:", "Figures:", "Refer to:")):
+            continue
+        if is_value(line) and line not in lines and not (other_engine and other_engine(line)):
+            lines.append(line)
+    # only the lines about what was asked: "glow plug" also found the
+    # transmission oil-change page through its "torque converter" lines. A
+    # page whose title names it keeps all its lines ("coolant" -> "Draining,
+    # filling coolant", whose rows say "cooling system").
+    if terms and not any(t in (row[0] or "").lower() for t in terms):
+        lines = [l for l in lines if any(t in l.lower() for t in terms)]
+    return lines[:cap]
+
+
+_CAP_ROW_RE = re.compile(r"capa(?:c|ct)i?t?i?y|capacit|filling|fill(?:ing)? quantit", re.I)
+# a volume, not a model or engine code ("201.024", "102.983"): at most two
+# digits before the point
+_DECIMAL_RE = re.compile(r"(?<![\d.,])\d{1,2}[.,]\d{1,2}\b(?![.,]?\d)")
+
+
+def part_lines(snippet: str) -> list[str]:
+    """The part lines of a parts snippet (`_parts_snippet`), without its header."""
+    out, on = [], False
+    for line in snippet.split("\n"):
+        if line.startswith("(lines of this page matching"):
+            on = True
+            continue
+        if on and line and line != "Footnotes:" and "|" in line:
+            out.append(line)
+    if not on:     # no line matched: the chunk itself, table rows only
+        out = [l for l in snippet.split("\n") if l.count("|") >= 4
+               and not l.startswith(("Callout |", "Item |"))]
+    return out
+
+
 def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str) -> str:
     """A parts page as an answer should see it: the header, then every line
     of the page that names what was asked, with its footnotes.

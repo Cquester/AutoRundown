@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from . import auth, config, index, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
-from .search import get_page, parts_slots, scope_ids, search
+from .search import get_page, part_lines, scope_ids, search, split_scope, value_lines
 
 jobs = importer_jobs.ImportJobs()
 
@@ -483,30 +483,58 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                    limit: int = Query(12, ge=1, le=50),
                    include_other_variants: bool = False,
                    variant: int | None = None,
-                   engine: str | None = Query(None, max_length=64)) -> list[dict]:
+                   engine: str | None = Query(None, max_length=64),
+                   tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$")) -> list[dict]:
+        """Keyword search for one of the UI's tabs, always within the car.
+
+        workshop: the manual's pages only (as before the parts catalogue);
+        parts: the joined parts catalogue only, each row with the page's
+        matching part lines; torque / capacity: manual pages that print such
+        a value, each row with those lines."""
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            scope = scope_ids(vehicle, variant, engine)
+            full = scope_ids(vehicle, variant, engine)
+            manual, parts = split_scope(full)
+            scope = parts if tab == "parts" else manual
+            # value lines naming only another engine or model are left out
+            codes = query.vehicle_codes(vehicle, full)
+
+            def other_engine(line: str) -> bool:
+                if not codes:
+                    return False
+                engs, models = query.mentioned_codes(line, codes["families"], codes["series"])
+                return bool((codes["engines"] and engs and not engs & codes["engines"])
+                            or (codes["models"] and models and not models & codes["models"]))
+            if not scope:
+                return []
             # the manual's wording first ("valve cover" -> "cylinder head
             # cover"), then the user's own words
             alt = synonyms.translate(q)
+            extra = {"torque": " torque", "capacity": " capacity"}.get(tab, "")
             rows = []
             for query_text in ([alt, q] if alt else [q]):
-                for r in search(conn, scope, query_text, limit * 2,
+                for r in search(conn, scope, query_text + extra, limit * 2,
                                 include_other_variants=include_other_variants):
                     r["query"] = query_text
                     rows.append(r)
             # one row per page: a page whose two chunks both match is still
             # one result, and the keyword list showed it twice
-            seen, out, parts = set(), [], []
+            seen, out = set(), []
             for r in rows:
-                if r["page_no"] not in seen:
-                    seen.add(r["page_no"])
-                    r.pop("body", None)
-                    (parts if r.get("parts") else out).append(r)
-            # a joined parts catalogue's rows follow the manual's (search.parts_slots)
-            return out[:limit] + parts[:parts_slots(limit)]
+                if r["page_no"] in seen:
+                    continue
+                seen.add(r["page_no"])
+                if tab == "parts":
+                    r["lines"] = part_lines(r.get("body") or "")
+                elif tab in ("torque", "capacity"):
+                    r["lines"] = value_lines(conn, r["page_uid"], tab, r["query"],
+                                             other_engine=other_engine)
+                    if not r["lines"]:
+                        continue
+                r.pop("body", None)
+                out.append(r)
+            return out[:limit]
         finally:
             conn.close()
 

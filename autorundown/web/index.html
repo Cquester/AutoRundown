@@ -314,6 +314,28 @@
   /* import sources as folder tabs */
   .srctabs{display:flex; gap:4px; margin-top:14px; border-bottom:1px solid var(--line);
     overflow-x:auto; scrollbar-width:none}
+  /* the results' tabs: Workshop, Parts, Labour times, Capacities, Torque specs.
+     The look of .srctabs, but its own class: the Shop setup import code binds
+     every ".srctabs button" to its own tab handler, which took these over. */
+  .restabs{display:flex; gap:4px; margin:0 0 12px; border-bottom:1px solid var(--line);
+    overflow-x:auto; scrollbar-width:none}
+  .restabs button{flex:none; min-height:40px; background:transparent; color:var(--muted);
+    border:1px solid transparent; border-bottom:0; border-radius:10px 10px 0 0; padding:0 16px;
+    font-weight:600; margin-bottom:-1px}
+  .restabs button[aria-selected="true"]{background:var(--panel-2); color:var(--text);
+    border-color:var(--line); border-bottom:1px solid var(--panel-2)}
+  .restabs button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  @media (max-width:420px){ .restabs button{padding:0 12px} }
+  .plines{width:100%; border-collapse:collapse; font-size:14px; margin-top:6px}
+  .plines td{padding:4px 8px 4px 0; vertical-align:top; border-top:1px solid var(--line)}
+  .plines .pn{white-space:nowrap; font-weight:700}
+  .plines .nt{color:var(--muted); font-size:13px}
+  .vlines{margin:6px 0 0; padding-left:18px; font-size:14px}
+  .vlines li{margin:3px 0}
+  .tabhit{padding:10px 14px; border-top:1px solid var(--line)}
+  .tabhit:first-child{border-top:0}
+  @media (max-width:700px){ .plines .nt{display:block} .plines td{display:block; border-top:0; padding:2px 0}
+    .plines tr{display:block; border-top:1px solid var(--line); padding:6px 0} }
   .srctabs button{flex:none}
   @media (max-width:420px){ .srctabs button{padding:0 12px} }
   #impLemList .lemrow > .nm{white-space:normal; overflow-wrap:anywhere}
@@ -549,7 +571,31 @@
       </div>
     </details>
     <div class="muted" id="scopeNote" hidden style="margin:-6px 0 12px; font-size:14px"></div>
+    <!-- what to look up: the manual, the parts catalogue, labour times and two
+         kinds of value, each its own list (the parts catalogue's pages mixed
+         into the manual's results made both hard to read) -->
+    <div class="restabs" id="resTabs" role="tablist" aria-label="What to look up">
+      <button type="button" role="tab" data-tab="workshop" aria-selected="true">Workshop</button>
+      <button type="button" role="tab" data-tab="parts" aria-selected="false" tabindex="-1">Parts</button>
+      <button type="button" role="tab" data-tab="labour" aria-selected="false" tabindex="-1">Labour times</button>
+      <button type="button" role="tab" data-tab="capacity" aria-selected="false" tabindex="-1">Capacities</button>
+      <button type="button" role="tab" data-tab="torque" aria-selected="false" tabindex="-1">Torque specs</button>
+    </div>
     <div id="out"></div>
+    <div id="tabLabour" hidden>
+      <div class="muted" id="labCar"></div>
+      <div class="muted" style="font-size:13px; margin-top:4px">Mercedes flat rates from WIS
+        (international), in hours. Extra-work items are not included. The lookup is local.</div>
+      <label for="labBook" id="labBookLbl" hidden>This model is in more than one labour-time book
+        (Mercedes splits them by body style, engine or build date) &mdash; pick yours</label>
+      <select id="labBook" hidden></select>
+      <label for="labQ">Search operations</label>
+      <div class="vinrow">
+        <input id="labQ" type="search" spellcheck="false" placeholder="water pump, brake pads, timing chain">
+        <button id="labFind">Search</button>
+      </div>
+      <div id="labOut" style="margin-top:10px"></div>
+    </div>
   </section>
 
   <section class="pane" id="right">
@@ -821,24 +867,6 @@
   </div>
 </dialog>
 
-<dialog id="labDlg">
-  <h3 style="margin:0 0 4px">Labour times</h3>
-  <div class="muted" id="labCar"></div>
-  <div class="muted" style="font-size:13px; margin-top:4px">Mercedes flat rates from WIS
-    (international), in hours. Extra-work items are not included. The lookup is local.</div>
-  <label for="labBook" id="labBookLbl" hidden>This model is in more than one labour-time book
-    (Mercedes splits them by body style, engine or build date) &mdash; pick yours</label>
-  <select id="labBook" hidden></select>
-  <label for="labQ">Search operations</label>
-  <div class="vinrow">
-    <input id="labQ" type="search" spellcheck="false" placeholder="water pump, brake pads, timing chain">
-    <button id="labFind">Search</button>
-  </div>
-  <div id="labOut" style="margin-top:10px; max-height:55vh; overflow:auto"></div>
-  <div class="row" style="margin-top:16px; justify-content:flex-end">
-    <button class="ghost" id="labClose">Close</button>
-  </div>
-</dialog>
 
 
 
@@ -1202,7 +1230,8 @@ function carBoxMatches() {
 function carChanged() {
   if (docId() === shownDoc) return;
   shownDoc = docId();
-  out.innerHTML = emptyState();
+  tabHtml = {};                       // each tab's results were for the old car
+  out.innerHTML = curTab === 'workshop' ? emptyState() : '';
   srcout.innerHTML = '<p class="muted">Cited pages and diagrams appear here.</p>';
   $('#right').classList.remove('open');
 }
@@ -1419,6 +1448,12 @@ function showLabourLink(v) {
 function showScope() {
   const v = vehicles.find(x => x.doc_id === docId());
   const note = $('#scopeNote');
+  syncTabs();
+  // the open tab follows a new variant / engine: labour times and the oil
+  // figure are per model and engine
+  if (curTab === 'labour') showLabourTab();
+  else if (curTab === 'capacity') { if (!out.innerHTML.trim()) out.innerHTML = tabEmpty('capacity'); showOilCard(); }
+  else if (!out.innerHTML.trim()) out.innerHTML = tabEmpty(curTab);
   $('#saBtn').hidden = $('#labBtn').hidden = !WIS_SOURCE.test(v?.source_name || '');
   if (!v || !v._variants.length) { note.hidden = true; return; }
   setTimeout(() => { showLabourLink(v); showOil(v); });
@@ -2064,7 +2099,10 @@ async function showPage(pageNo, doc) {
     // up the vehicle that owns it, falling back to the selected one
     const owner = vehicles.find(x => x.doc_id === p.doc_id)
                || vehicles.find(x => x.doc_id === doc);
-    const wis = WIS_SOURCE.test(owner?.source_name || '');
+    // A parts catalogue page is never a WIS page, though its vehicle (joined
+    // into the WIS car, so not in `vehicles`) falls back to the WIS car here:
+    // it has no original layout, and offering one showed an error page.
+    const wis = p.doc_type !== 'parts' && WIS_SOURCE.test(owner?.source_name || '');
     // WIS pages end with the text read out of their diagrams ("Diagram
     // labels: N26/15 X63/4 ...") and the figure numbers. That is there to be
     // searched, not read -- the diagram itself is on the page.
@@ -2130,11 +2168,156 @@ document.addEventListener('click', e => {
 });
 
 $('#closeRight').onclick = closeRight;
-if (narrow()) $('#q').placeholder = 'Ask about this car…';
-$('#askBtn').onclick = ask;
-$('#searchBtn').onclick = keywordSearch;
+if (narrow()) $('#q').placeholder = 'Ask about this car…';   // the Workshop tab's; setTab sets the others
+// -- result tabs: Workshop, Parts, Labour times, Capacities, Torque specs -----
+// One results area; each tab keeps what it last showed, so switching back
+// does not lose it. The question box is shared: Ask answers on Workshop,
+// Search searches the open tab. Every tab searches within the chosen car.
+let curTab = 'workshop', tabHtml = {};
+const TAB_HINT = {
+  workshop: 'Torque for the front caliper anchor plate bolts?',
+  parts: 'A part — e.g. glow plug, oil filter, front brake pads',
+  labour: 'An operation — e.g. water pump, brake pads',
+  capacity: 'What to fill — e.g. engine oil, coolant, transmission',
+  torque: "What's being tightened — e.g. cylinder head, wheel bolts",
+};
+// which tabs this car has: parts only with a parts catalogue joined (or a
+// parts-only car), labour times and the oil figure only from WIS
+function tabsFor(v) {
+  const partsOnly = v?.doc_type === 'parts';
+  const hasParts = partsOnly || !!(v?.joined_ids?.length || Object.keys(v?.engine_joins || {}).length);
+  const wis = WIS_SOURCE.test(v?.source_name || '');
+  return {workshop: !partsOnly, parts: hasParts, labour: wis, capacity: !partsOnly, torque: !partsOnly};
+}
+function syncTabs() {
+  const v = vehicles.find(x => x.doc_id === docId());
+  const have = tabsFor(v);
+  document.querySelectorAll('#resTabs [data-tab]').forEach(b => { b.hidden = !have[b.dataset.tab]; });
+  $('#resTabs').hidden = !v || Object.values(have).filter(Boolean).length < 2;
+  if (v && !have[curTab]) setTab(have.workshop ? 'workshop' : 'parts');
+}
+function tabEmpty(t) {
+  const label = carBoxLabel || currentCarLabel();
+  if (!docId() || !label) return '';
+  if (t === 'workshop') return emptyState();
+  const what = {parts: 'the parts catalogue (part numbers, which models they fit, quantities)',
+                capacity: 'capacities (litres, quarts) printed in the manual',
+                torque: 'torque values printed in the manual'}[t];
+  return `<div class="empty">Search ${what} for <b>${esc(label)}</b>.</div>`;
+}
+function setTab(t) {
+  if (t === curTab && !$('#resTabs').hidden) { if (t === 'labour') showLabourTab(); return; }
+  if (curTab !== 'labour') tabHtml[curTab] = out.innerHTML;
+  curTab = t;
+  document.querySelectorAll('#resTabs [data-tab]').forEach(b => {
+    b.setAttribute('aria-selected', b.dataset.tab === t);
+    b.tabIndex = b.dataset.tab === t ? 0 : -1;
+  });
+  $('#tabLabour').hidden = t !== 'labour';
+  out.hidden = t === 'labour';
+  $('#q').placeholder = narrow() && t === 'workshop' ? 'Ask about this car…' : TAB_HINT[t];
+  if (t === 'labour') { showLabourTab(); return; }
+  out.innerHTML = tabHtml[t] || tabEmpty(t);
+  if (t === 'capacity') showOilCard();
+}
+document.querySelectorAll('#resTabs [data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+$('#resTabs').addEventListener('keydown', e => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const tabs = [...document.querySelectorAll('#resTabs [data-tab]')].filter(b => !b.hidden);
+  const i = tabs.findIndex(b => b.dataset.tab === curTab);
+  const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+  setTab(next.dataset.tab); next.focus();
+});
+
+// a parts line: "callout | A 001 159 66 01 (A0011596601, ...) | NAME | fits | notes"
+const PART_LINE = /^([^|]*)\|\s*([A-Z][^(|]*?)\s*\(([^)]*)\)\s*\|\s*([^|]*)\|\s*([^|]*)\|(.*)$/;
+function partLinesHtml(lines) {
+  return `<table class="plines"><tbody>` + lines.map(l => {
+    const m = PART_LINE.exec(l);
+    if (!m) return `<tr><td colspan="4">${esc(l)}</td></tr>`;
+    return `<tr><td class="pn">${esc(m[2].trim())}</td><td>${esc(m[4].trim())}</td>`
+      + `<td>${esc(m[5].trim())}</td><td class="nt">${esc(m[6].trim().replace(/^;\s*/, ''))}</td></tr>`;
+  }).join('') + `</tbody></table>`;
+}
+// the value in a torque / capacity line, made to stand out like the manual's
+const VALUE_HL = {
+  torque: /\b\d+(?:[.,]\d+)?\s*(?:-\s*\d+(?:[.,]\d+)?\s*)?(?:N\s?·?\s?m|Nm|lb[.\- ]?ft|ft[.\- ]?lbs?)\b|\bNm\s+\d+(?:[.,]\d+)?\b/gi,
+  capacity: /\b\d+[.,]\d+[\s\xa0\xc2]*[lL]\b|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:ltr|litres?|liters?|qts?|quarts?|ml|cm3|gal)\b|\b(?:liters?|litres?|ltr|qts?|quarts?)[\s\xa0\xc2]+\d+(?:[.,]\d+)?(?:\s+\d+(?:[.,]\d+)?)*\b/gi,
+};
+const valueLinesHtml = (lines, kind) => `<ul class="vlines">` + lines.map(l =>
+  `<li>${esc(l).replace(VALUE_HL[kind], '<span class="torque">$&</span>')}</li>`).join('') + `</ul>`;
+
+let tabSeq = 0;
+async function tabSearch(tab) {
+  const q = $('#q').value.trim();
+  if (!q) { $('#q').focus(); $('#q').placeholder = TAB_HINT[tab]; return; }
+  if (!carBoxMatches()) return;
+  const seq = ++tabSeq, doc = docId(), label = carBoxLabel;
+  out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
+  try {
+    const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}&tab=${tab}`
+      + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
+      + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
+      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+    if (seq !== tabSeq || curTab !== tab) return;
+    const none = {parts: 'No part in this car’s parts catalogue matches.',
+                  torque: 'No torque value found for that in this car’s manual pages.',
+                  capacity: 'No capacity found for that in this car’s manual pages.'}[tab];
+    out.innerHTML = withDoc(doc, () => resultsFor(label)
+      + (tab !== 'parts' && rows.length ? `<div class="muted" style="margin:0 0 8px">Lines from the
+          manual pages below; tables often list several engines or models &mdash; open the page to
+          check the row is yours.</div>` : '')
+      + (rows.length ? `<div class="card" style="padding:0">` + rows.map(r =>
+          `<div class="tabhit"><button type="button" class="hit" style="padding:0" ${pageAttrs(r.page_no)}>
+             <div class="t">${esc(r.title)}</div><div class="s">${esc(r.section_path)}</div></button>`
+          + (r.lines?.length ? (tab === 'parts' ? partLinesHtml(r.lines) : valueLinesHtml(r.lines, tab)) : '')
+          + `</div>`).join('') + `</div>`
+        : `<div class="card"><div class="notfound">${none}</div></div>`));
+    if (tab === 'capacity') showOilCard();
+  } catch (e) {
+    if (seq === tabSeq) out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
+  }
+}
+// Capacities: WIS's own engine oil figure for the chosen engine, on top
+let oilCardSeq = 0;
+async function showOilCard() {
+  const seq = ++oilCardSeq, v = vehicles.find(x => x.doc_id === docId());
+  $('#oilCard')?.remove();
+  if (!v || !WIS_SOURCE.test(v.source_name || '')) return;
+  const n = variantIdx(), eng = engineSel();
+  let html;
+  if (n === null && !eng) {
+    html = 'Pick your exact model or engine above for its engine oil capacity.';
+  } else {
+    let rows = [];
+    try {
+      rows = await api(`/api/wis/oil/${encodeURIComponent(v.doc_id)}?`
+        + (n === null ? '' : `variant=${n}&`) + (eng ? `engine=${encodeURIComponent(eng)}` : ''));
+    } catch { return; }
+    if (!rows.length) return;
+    const many = new Set(rows.map(r => r.engine)).size > 1;
+    html = '<b>Engine oil capacity</b> (WIS service data): ' + rows.map(r =>
+      `<span class="torque">${esc(String(r.litres).replace(/\.0$/, ''))} ${esc(r.unit)}</span>`
+      + (many ? ` (${esc(r.engine)})` : '') + (r.note ? ` ${esc(r.note)}` : '')).join('; ');
+  }
+  if (seq !== oilCardSeq || curTab !== 'capacity') return;
+  $('#oilCard')?.remove();
+  out.insertAdjacentHTML('afterbegin', `<div class="card" id="oilCard">${html}</div>`);
+}
+function runSearch() {
+  if (curTab === 'workshop') return keywordSearch();
+  if (curTab === 'labour') { $('#labQ').value = $('#q').value.trim(); return loadLabour(); }
+  return tabSearch(curTab);
+}
+
+$('#askBtn').onclick = () => { if (curTab !== 'workshop') setTab('workshop'); ask(); };
+$('#searchBtn').onclick = runSearch;
 $('#q').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+  // Enter asks on Workshop; on the other tabs it searches the tab
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (curTab === 'workshop') ask(); else runSearch();
+  }
 });
 
 function showModelPrice() {
@@ -2527,15 +2710,20 @@ $('#saFind').onclick = saLookup;
 // several books (build-date splits) shows a chooser and no times until one
 // is picked -- which applies depends on the chassis number.
 let labSeq = 0, labTimer = null;
-function openLabour() {
+// Labour times are a tab now (they were a dialog): the button and the scope
+// note's link open it
+function openLabour() { setTab('labour'); $('#labQ').focus(); }
+function showLabourTab() {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
-  $('#labQ').value = '';
-  $('#labBook').innerHTML = ''; $('#labBook').hidden = $('#labBookLbl').hidden = true;
-  $('#labDlg').showModal();
+  if (labFor !== docId() + '::' + variantIdx()) {     // a different car: start over
+    labFor = docId() + '::' + variantIdx();
+    $('#labQ').value = '';
+    $('#labBook').innerHTML = ''; $('#labBook').hidden = $('#labBookLbl').hidden = true;
+  }
   loadLabour();
-  $('#labQ').focus();
 }
+let labFor = '';
 async function loadLabour() {
   const seq = ++labSeq, n = variantIdx(), eng = engineSel();
   const out = $('#labOut');
@@ -2577,7 +2765,6 @@ async function loadLabour() {
         ? `<div class="muted" style="margin-top:6px">Showing ${r.items.length} of ${r.total} — search to narrow.</div>` : '');
 }
 $('#labBtn').onclick = openLabour;
-$('#labClose').onclick = () => $('#labDlg').close();
 $('#labFind').onclick = loadLabour;
 $('#labBook').addEventListener('change', loadLabour);
 $('#labQ').addEventListener('input', () => { clearTimeout(labTimer); labTimer = setTimeout(loadLabour, 300); });
