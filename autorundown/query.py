@@ -188,7 +188,10 @@ Hard rules:
   model codes ("210.065") on a car's pages and engine codes ("102.983") on
   an engine's pages. Give only the part numbers whose "fits" covers this
   vehicle's model code or its exact engine code (or says "all models"), with
-  the quantity it gives; a number marked "replaced by" is
+  the quantity it gives. When several current numbers fit -- different
+  types or versions of the part (a standard and a heavy-duty version, two
+  designs) -- list every one with its name; do not pick one. A number marked
+  "replaced by" is
   superseded -- give the replacement. Put each in `specs` (name = the part,
   value = the number as printed). Never take a part number from a repair
   page, and never compose one.

@@ -499,6 +499,9 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
             titles.add(key)
             r["parts"] = True
             r["body"] = _parts_snippet(conn, r, query)
+            # the body is now the page's lines, not chunk `ord`: one passage per
+            # page (several Ask queries found the same page under three chunks)
+            r["ord"] = 0
             tail.append(r)
             if len(tail) == k:
                 break
