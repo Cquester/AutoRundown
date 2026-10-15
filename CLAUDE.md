@@ -323,6 +323,18 @@ page_no is the citation key, and an unprefixed EPC number could equal a
 WIS DokID and verify a citation against the wrong page. Do not drop the
 prefix. Tests: `tests/test_epc_join.py`. Details: `epc-source.md`.
 
+**Parts the answer left out are added, checked after the model**
+(2026-10-15). Two paid answers gave only the pencil-type glow plug for a
+C 220 CDI and left out the standard one (A 001 159 66 01, "all models")
+that the passage showed -- the second despite a prompt line to list every
+current number. `query._add_omitted_parts()`, like the two checks above:
+on parts pages the answer cites, every current line (no "replaced by")
+that fits the chosen car ("all models", or its exact model/engine code)
+and is not named in the answer is added as a spec citing that page, said
+in `caveats`, and listed in `added_parts`. Only when a car or engine is
+chosen. Tests: `tests/test_citations.py`, and end to end through the fake
+API (`fake:onepart`) in `tests/test_epc_join.py`.
+
 **Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert
 units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part

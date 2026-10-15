@@ -260,6 +260,8 @@ class Result:
     dropped_citations: list[str] = field(default_factory=list)
     # specs the model gave for another engine / model of the series
     other_vehicle_specs: list[dict] = field(default_factory=list)
+    # current parts for this car the model left out, added by _add_omitted_parts
+    added_parts: list[dict] = field(default_factory=list)
 
     @property
     def page_titles(self) -> dict[str, str]:
@@ -286,6 +288,7 @@ class Result:
             "queries": self.queries,
             "dropped_citations": self.dropped_citations,
             "other_vehicle_specs": self.other_vehicle_specs,
+            "added_parts": self.added_parts,
             "usage": self.usage.as_dict(),
             "passages": [
                 {"page_no": p["page_no"], "title": p["title"],
@@ -613,6 +616,77 @@ def _drop_other_vehicles(answer: AnswerModel, codes: dict | None) -> list[dict]:
     return gone
 
 
+_PART_LINE_RE = _re.compile(
+    r"^[^|\n]*\|\s*(?P<spaced>[A-Z]\s?[0-9][0-9 ]*[0-9])\s*\((?P<compact>[A-Z][0-9]+)[^)]*\)\s*\|"
+    r"\s*(?P<name>[^|]*)\|\s*(?P<fits>[^|]*)\|(?P<notes>.*)$")
+_CODE_RE = _re.compile(r"\b\d{3}\.\d{3}\b")
+MAX_ADDED_PARTS = 6
+
+
+def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope) -> list[dict]:
+    """Add current part numbers that fit this car and that the answer left out.
+
+    Two paid answers (2026-10-15) gave only the pencil-type glow plug for a
+    C 220 CDI and left out the standard one, A 001 159 66 01 ("qty 4, all
+    models"), which the passage showed -- the second time despite a prompt
+    line saying to list every current number. Like the citation and
+    other-vehicle checks, code makes sure.
+
+    Looks only at parts pages the answer cites (their passage is already the
+    page's lines matching the question), and only once a car or engine is
+    chosen. A line counts when it is current (no "replaced by") and fits this
+    car: "all models", or one of its exact model or engine codes (or, with
+    only an engine chosen, a code of that engine). Each one added cites the
+    page it is on, a page retrieval returned, so the citation rule holds.
+    """
+    model_codes = set((getattr(scope, "codes", ((), ())) or ((), ()))[0])
+    engine_codes = set((getattr(scope, "codes", ((), ())) or ((), ()))[1])
+    families = set(getattr(scope, "engines", ()) or ())
+    if not (model_codes or engine_codes or families):
+        return []
+    cited = {str(p) for p in answer.source_pages} | {str(answer.document_page)}
+    for sp in answer.specs:
+        cited.update(str(x) for x in sp.source_pages)
+    said = _re.sub(r"\s+", "", " ".join(
+        [answer.answer, answer.caveats] + [f"{s.name} {s.value}" for s in answer.specs])).upper()
+
+    def fits_car(fits: str) -> bool:
+        if "all models" in fits.lower():
+            return True
+        codes = set(_CODE_RE.findall(fits))
+        if codes & (model_codes | engine_codes):
+            return True
+        # only an engine family chosen (no exact variant): a code of that engine
+        return not (model_codes or engine_codes) and any(c[:3] in families for c in codes)
+
+    added: list[dict] = []
+    for p in passages:
+        page = str(p["page_no"])
+        if p.get("doc_type") != "parts" or page not in cited:
+            continue
+        for line in (p.get("body") or "").split("\n"):
+            m = _PART_LINE_RE.match(line.strip())
+            if not m or "replaced by" in m["notes"].lower() or not fits_car(m["fits"]):
+                continue
+            compact, digits = m["compact"].upper(), m["compact"][1:]
+            if compact in said or digits in said or any(a["compact"] == compact for a in added):
+                continue
+            added.append({"compact": compact, "page": page, "spec": SpecItem(
+                name=f"{m['name'].strip()} (also listed for this car)",
+                value=f"{m['spaced'].strip()} ({compact})",
+                applicability=" ".join(x for x in (m["fits"].strip(), m["notes"].strip().strip("; ")) if x),
+                source_pages=[page])})
+            if len(added) >= MAX_ADDED_PARTS:
+                break
+    if added:
+        answer.specs.extend(a["spec"] for a in added)
+        listed = "; ".join(f"{a['spec'].value} {a['spec'].name.replace(' (also listed for this car)', '')}"
+                           f" (page {a['page']})" for a in added)
+        answer.caveats = (f"{answer.caveats} The parts catalogue also lists for this car, "
+                          f"not given above: {listed}. Check which one your car takes.").strip()
+    return [{**a["spec"].model_dump(), "page": a["page"]} for a in added]
+
+
 def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         per_query: int = 8, cap: int = 18,
         include_other_variants: bool = False,
@@ -697,6 +771,7 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         found=False, answer="", caveats="The model returned no parsable answer.")
     dropped = _verify_citations(answer, passages)
     other = _drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
+    added = _add_omitted_parts(answer, passages, scope) if answer.found else []
 
     # surface diagrams that belong to the pages actually cited
     cited = set(answer.source_pages)
@@ -709,4 +784,5 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     answer.diagrams = list(dict.fromkeys(diagrams))[:12]
 
     return Result(answer=answer, passages=passages, queries=queries,
-                  usage=usage, dropped_citations=dropped, other_vehicle_specs=other)
+                  usage=usage, dropped_citations=dropped, other_vehicle_specs=other,
+                  added_parts=added)

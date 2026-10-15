@@ -181,9 +181,14 @@ footnote correctly (73 01 up to engine 32946334, replaced by 80 01; check
 the engine number). Both answers **left out the standard glow plug
 A 001 159 66 01 ("qty 4, all models")**, which the passage showed -- answer
 3 even after a prompt line "list every current number that fits; do not
-pick one". Prompt wording is not enough here; a free post-check (like
-`_drop_other_vehicles`) that adds omitted current lines fitting this car
-from the cited parts pages is the proposed next step. Duplicate parts
+pick one". Prompt wording is not enough here, so **`query._add_omitted_parts()`**
+(built the same day, the user's choice) adds them after the model: on the
+parts pages the answer cites, each current line fitting the chosen car and
+not named in the answer becomes a spec citing that page, plus a caveat;
+`added_parts` in the result says what code added. Tested free: unit tests
+on the real OM651 lines, and Ask end to end through the fake API
+(`fake:onepart` gives one plug, the other is added). Not yet seen on a paid
+answer. Duplicate parts
 passages (one page under three chunk numbers) are fixed.
 
 ## Joining WIS (found and built 2026-10-14)

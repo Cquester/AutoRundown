@@ -66,6 +66,13 @@ EPC_RECORDS = [
     epc(2, "Parts: engine 102 (EPC catalog 300), group 01 / subgroup 010 CYLINDER HEAD GASKET",
         ["020 | A 102 016 13 20 (A1020161320, 1020161320) | CYLINDER HEAD GASKET | qty 1, all models |"],
         engines=["102"]),
+    # two current spark plugs for every M102 and one superseded: an answer that
+    # gives only one gets the other added (query._add_omitted_parts)
+    epc(5, "Parts: engine 102 (EPC catalog 300), group 15 / subgroup 020 SPARK PLUGS",
+        ["010 | A 003 159 01 03 (A0031590103, 0031590103) | SPARK PLUG | qty 4: 102.983 | replaced by A 004 159 51 03 (A0041595103, 0041595103)",
+         "010 | A 004 159 51 03 (A0041595103, 0041595103) | SPARK PLUG | qty 4, all models | ",
+         "010 | A 004 159 52 03 (A0041595203, 0041595203) | SPARK PLUG, PLATINUM | qty 4, all models | fn 003: up to engine 12345678 (change date 1990-01-01)"],
+        engines=["102"]),
     epc(3, "Parts: engine 103 (EPC catalog 301), group 01 / subgroup 010 CYLINDER HEAD GASKET",
         ["020 | A 103 016 03 20 (A1030160320, 1030160320) | CYLINDER HEAD GASKET | qty 1, all models |"],
         engines=["103"]),
@@ -196,6 +203,37 @@ def main() -> int:
         check("passages say which pages are a parts catalogue",
               "[page P1002306] (parts catalogue)" in format_passages(
                   [{**p, "body": p.get("body") or ""} for p in passages]))
+
+        print("\n-- Ask end to end (fake API): an omitted fitting part is added --")
+        import fake_anthropic   # tools/, via _paths
+        import threading
+        from autorundown import query
+        fake = fake_anthropic.serve(0)
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        old_base = os.environ.get("ANTHROPIC_BASE_URL")
+        os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{fake.server_address[1]}"
+        try:
+            i2316 = next(i for i, x in enumerate(variants) if x["name"] == "190 E 2.3 16")
+            res = query.ask(conn, w201, "spark plug part number fake:onepart",
+                            "sk-fake-test-not-a-real-key", model="claude-haiku-4-5",
+                            source="eval", variant=i2316).as_dict()
+        finally:
+            fake.shutdown()
+            if old_base is None:
+                os.environ.pop("ANTHROPIC_BASE_URL", None)
+            else:
+                os.environ["ANTHROPIC_BASE_URL"] = old_base
+        vals = [s["value"] for s in res["specs"]]
+        check("the fake gave one current plug and cited the M102 parts page",
+              res["found"] and res["document_page"].startswith("P") and vals[:1] == ["A 004 159 51 03"], res)
+        check("the other current plug (52 03) was added, citing the same page",
+              any("A0041595203" in v for v in vals)
+              and all(p == [res["document_page"]] for p in (s["source_pages"] for s in res["specs"])), vals)
+        check("... with its footnote condition", any("12345678" in s["applicability"] for s in res["specs"]), res["specs"])
+        check("the superseded plug (01 03) was not added", not any("A0031590103" in v for v in vals), vals)
+        check("added_parts says what the check added",
+              [a["value"] for a in res["added_parts"]] == ["A 004 159 52 03 (A0041595203)"], res["added_parts"])
+        check("the caveat tells the mechanic", "also lists for this car" in res["caveats"], res["caveats"])
         conn.close()
 
         print("\n-- server: listing and drawings --")
