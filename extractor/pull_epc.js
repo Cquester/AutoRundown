@@ -27,7 +27,7 @@
 //      AR_SLEEP_MS pause between subgroups (default 0; the VM and host stay calm).
 
 var System=Java.type("java.lang.System"), File=Java.type("java.io.File"), Thread=Java.type("java.lang.Thread");
-var FileWriter=Java.type("java.io.FileWriter"), BufferedWriter=Java.type("java.io.BufferedWriter");
+var BufferedWriter=Java.type("java.io.BufferedWriter"), OutputStreamWriter=Java.type("java.io.OutputStreamWriter");
 var FileOutputStream=Java.type("java.io.FileOutputStream"), ByteArrayOutputStream=Java.type("java.io.ByteArrayOutputStream");
 var Files=Java.type("java.nio.file.Files"), Paths=Java.type("java.nio.file.Paths"), StandardCharsets=Java.type("java.nio.charset.StandardCharsets");
 var URLClassLoader=Java.type("java.net.URLClassLoader"), Properties=Java.type("java.util.Properties");
@@ -185,8 +185,11 @@ if(RESUME && new File(DONE).isFile() && new File(REC).isFile()){
   // a crash mid-SA-phase leaves no SA lines (they are appended in one go), so the file is clean
   Files.readAllLines(Paths.get(REC),StandardCharsets.UTF_8).forEach(function(l){ var m=/"dok_id":(\d+)/.exec(l); if(m && +m[1]>dokId) dokId=+m[1]; });
   print("resume: "+Object.keys(done).length+" catalogs already done, last dok_id "+dokId);
-} else { new FileWriter(REC).close(); new FileWriter(DONE).close(); }
-function appendLines(path,lines){ var w=new BufferedWriter(new FileWriter(path,true)); lines.forEach(function(l){ w.write(l); w.write("\n"); }); w.close(); }
+} else { writer(REC,false).close(); writer(DONE,false).close(); }
+// always UTF-8: FileWriter would use the Windows code page (cp1252) and the
+// importer reads UTF-8 (part texts carry Ü, Ø, ° ...)
+function writer(path,append){ return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(path,append),StandardCharsets.UTF_8)); }
+function appendLines(path,lines){ var w=writer(path,true); lines.forEach(function(l){ w.write(l); w.write("\n"); }); w.close(); }
 
 var partRows=0, recCount=0, emptyRecs=0, saIndex={}, pulledSeries={}, t0=Date.now();
 function pause(){ if(SLEEP>0) Thread.sleep(SLEEP); }
@@ -268,7 +271,9 @@ catalogs.forEach(function(cat, ci){
 // maps to baumuster per model series via sa_strokes_v. Only the series pulled
 // in this run are kept, so a one-catalog run does not file stray models.
 var saRecs=[], saParts=0;
-if(WANT_SA){
+var SA_DONE="#sa-done";                         // in done_catalogs.txt once the SA records are appended
+if(WANT_SA && done[SA_DONE]) print("SA options: already written (resume)");
+else if(WANT_SA){
   var sas=Object.keys(saIndex).sort();
   print("SA options: "+sas.length);
   sas.forEach(function(sa, si){
@@ -324,6 +329,7 @@ if(WANT_SA){
     if((si+1)%200==0) print("  SA "+(si+1)+"/"+sas.length+": "+saRecs.length+" records so far");
   });
   appendLines(REC, saRecs);                      // in one go, so a crash above leaves records.jsonl clean
+  appendLines(DONE,[SA_DONE]);                  // a resumed run must not append them again
 }
 
 // ------------------------------------------------------------ manifest
@@ -332,7 +338,7 @@ var manifest={schema_version:"1.3", source_type:"mercedes-epc", source_id:HOST+"
   database:"ALLTEXT", language:{iso:"en"}, catalogs:catalogs, record_count:total,
   this_run:{bm_records:recCount, bm_part_rows:partRows, sa_records:saRecs.length, sa_part_rows:saParts, empty_records:emptyRecs, images:imgStats},
   body_format_counts:{sids:total}, records_file:"records.jsonl", extracted_at:(new Date()).toISOString()};
-var mw=new FileWriter(OUT+"/manifest.json"); mw.write(JSON.stringify(manifest,null,2)); mw.close();
+var mw=writer(OUT+"/manifest.json",false); mw.write(JSON.stringify(manifest,null,2)); mw.close();
 if(missingLog.length){ appendLines(OUT+"/images_missing.txt", missingLog.slice(0,5000)); }
 for(var k in dbs) if(dbs[k]) dbs[k].close();
 print("\nDONE: "+total+" records in "+REC+" (this run: "+recCount+" catalog records / "+partRows+" parts, "
