@@ -183,6 +183,13 @@ Hard rules:
   empty. Saying "not in the archive" is a correct and useful response. Do not
   substitute general automotive knowledge.
 - Prefer torque-specification tables over prose mentions when both appear.
+- PART NUMBERS come only from pages marked "(parts catalogue)". Each part
+  line there is: callout | part number | name | fits | notes. Give only the
+  part numbers whose "fits" covers this vehicle's model code (or "all
+  models"), with the quantity it gives; a number marked "replaced by" is
+  superseded -- give the replacement. Put each in `specs` (name = the part,
+  value = the number as printed). Never take a part number from a repair
+  page, and never compose one.
 - Keep `answer` to one to three sentences. You are pointing the mechanic at
   the right manual page, not retelling it: the page in `document_page` is
   shown in full next to your answer.
@@ -416,7 +423,8 @@ def format_passages(passages: list[dict], max_chars: int = 60000) -> str:
     """Render retrieved chunks for the model, tagged with their page numbers."""
     blocks, total = [], 0
     for p in passages:
-        header = (f"[page {p['page_no']}] {p['title']}\n"
+        kind = " (parts catalogue)" if p.get("doc_type") == "parts" else ""
+        header = (f"[page {p['page_no']}]{kind} {p['title']}\n"
                   f"section: {p['section_path']}")
         if p.get("applicability") != "this_vehicle":
             header += "\nWARNING: this page documents a different variant/trim"

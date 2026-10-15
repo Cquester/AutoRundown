@@ -348,7 +348,9 @@ else if(WANT_SA){
 
 // ------------------------------------------------------------ manifest
 var total=0; Files.readAllLines(Paths.get(REC),StandardCharsets.UTF_8).forEach(function(l){ if(trim(l)) total++; });
-var manifest={schema_version:"1.3", source_type:"mercedes-epc", source_id:HOST+"/ALLTEXT",
+// page_no_prefix / doc_type: EPC is searched inside WIS cars' scopes (index.link_sources),
+// so its page numbers must never equal a WIS DokID
+var manifest={schema_version:"1.3", source_type:"mercedes-epc", source_id:HOST+"/ALLTEXT", page_no_prefix:"P", doc_type:"parts",
   database:"ALLTEXT", language:{iso:"en"}, catalogs:catalogs, record_count:total,
   this_run:{bm_records:recCount, bm_part_rows:partRows, sa_records:saRecs.length, sa_part_rows:saParts, empty_records:emptyRecs, images:imgStats},
   body_format_counts:{sids:total}, records_file:"records.jsonl", extracted_at:(new Date()).toISOString()};

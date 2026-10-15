@@ -403,8 +403,61 @@ def recent_usage(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
 
 
 def vehicles(conn: sqlite3.Connection) -> list[dict]:
-    return [dict(r) for r in conn.execute(
-        "SELECT * FROM vehicles ORDER BY year_range, make, model")]
+    return link_sources([dict(r) for r in conn.execute(
+        "SELECT * FROM vehicles ORDER BY year_range, make, model")])
+
+
+def _maker(v: dict) -> str:
+    # "mercedes-wis-virtualbox", "mercedes-epc" -> "mercedes"
+    return (v.get("source_name") or "").split("-")[0]
+
+
+def link_sources(rows: list[dict]) -> list[dict]:
+    """Join a parts catalogue's vehicles to the manual's cars of the same series.
+
+    Each source builds its own vehicles, so EPC's W210 parts would be a second
+    "W210" beside the WIS one, and the W210 a shop picks would never search
+    them. The join is made here, at query time, so each source stays
+    independently rebuildable and removable:
+
+    - a manual vehicle gets `joined_ids`: the parts vehicles of the same maker
+      and `model_code` ("210", or an engine bucket "E112");
+    - a car gets `engine_joins`: engine family -> parts engine buckets, for
+      every engine its variants use, so its engines' parts are reachable even
+      when the manual has no bucket for that engine;
+    - a parts vehicle that a manual vehicle covers gets `joined_into` and is
+      left out of the picker (`/api/vehicles`). One with no manual counterpart
+      stays listed on its own.
+
+    Only `doc_type == "parts"` vehicles are ever joined in: a manual is never
+    mixed into another manual's scope (two languages of WIS share codes).
+    """
+    for v in rows:
+        v["joined_ids"], v["joined_into"], v["engine_joins"] = [], "", {}
+    parts: dict[tuple[str, str], list[dict]] = {}
+    for v in rows:
+        code = (v.get("model_code") or "").strip()
+        if code and v.get("doc_type") == "parts":
+            parts.setdefault((_maker(v), code), []).append(v)
+    if not parts:
+        return rows
+    for v in rows:
+        if v.get("doc_type") == "parts":
+            continue
+        maker, code = _maker(v), (v.get("model_code") or "").strip()
+        for p in parts.get((maker, code), []) if code else []:
+            v["joined_ids"].append(p["doc_id"])
+            p["joined_into"] = p["joined_into"] or v["doc_id"]
+        try:
+            variants = json.loads(v.get("variants") or "[]")
+        except ValueError:
+            variants = []
+        for fam in sorted({str(e)[:3] for x in variants for e in x.get("engines", [])
+                           if str(e)[:3].isdigit()}):
+            ids = [p["doc_id"] for p in parts.get((maker, "E" + fam), [])]
+            if ids:
+                v["engine_joins"][fam] = ids
+    return rows
 
 
 def stats(conn: sqlite3.Connection) -> dict:

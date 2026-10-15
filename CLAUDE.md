@@ -24,7 +24,7 @@ broke:
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
-| the EPC parts source — `extractor/pull_epc.js` (IN PROGRESS, not in the live index) | [`docs/notes/epc-source.md`](docs/notes/epc-source.md) |
+| the EPC parts source — `extractor/pull_epc.js`, `epc_fv4.js`, the EPC↔WIS join (`index.link_sources`) (not in the live index yet) | [`docs/notes/epc-source.md`](docs/notes/epc-source.md) |
 
 ---
 
@@ -133,6 +133,7 @@ python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
+python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~45 s, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
@@ -305,6 +306,18 @@ collapsed ("2 values for other engines or models — not your car, hidden");
 if nothing else is left the answer becomes not-found. Tests in
 `tests/test_records.py` ("answers keep only the chosen car's values"). **Not yet
 tried on a paid answer.**
+
+**A parts catalogue is joined into the manual's car at query time, and
+its page numbers are prefixed** (2026-10-14). EPC builds its own vehicles;
+`index.link_sources` gives a WIS car the EPC vehicles of the same
+`model_code` (`joined_ids`) and the EPC engine buckets of its variants'
+engines (`engine_joins`), and `scope_ids` adds them after the car's own
+engine buckets; the joined EPC vehicle is left out of `/api/vehicles`.
+Only `doc_type "parts"` vehicles are ever joined in. **EPC page numbers
+are `P<dok_id>`** (`SOURCE_PAGE_STYLE` / manifest `page_no_prefix`):
+page_no is the citation key, and an unprefixed EPC number could equal a
+WIS DokID and verify a citation against the wrong page. Do not drop the
+prefix. Tests: `tests/test_epc_join.py`. Details: `epc-source.md`.
 
 **Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert
 units; one entry per fastener; a conflict is only *same unit, different

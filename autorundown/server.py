@@ -465,7 +465,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def vehicles(request: Request) -> Response:
         conn = db()
         try:
-            rows = index.vehicles(conn)
+            # a parts catalogue joined into a manual's car (EPC into WIS) is
+            # searched through that car, so it is not listed a second time;
+            # lookups by doc_id still find it
+            rows = [v for v in index.vehicles(conn) if not v.get("joined_into")]
         finally:
             conn.close()
         if not request.state.who.admin:   # this PC's folders are its own business
@@ -721,8 +724,24 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
+            # the UI asks through the selected car; a drawing on a joined
+            # parts page (EPC with WIS) lives in that catalogue's corpus
+            joined = {*vehicle.get("joined_ids", []),
+                      *(i for ids in vehicle.get("engine_joins", {}).values() for i in ids)}
+            extra = [v["file_path"] for v in index.vehicles(conn)
+                     if v["doc_id"] in joined and v.get("file_path")]
         finally:
             conn.close()
+        for fp in dict.fromkeys(extra):
+            other = (Path(fp) / "images").resolve()
+            hit = (other / name).resolve()
+            try:
+                hit.relative_to(other)      # never outside that images directory
+            except ValueError:
+                continue
+            if hit.is_file() and hit.suffix.lower() in IMAGE_TYPES \
+                    and not (Path(vehicle["file_path"]) / "images" / name).is_file():
+                return FileResponse(hit, headers=IMAGE_HEADERS)
         images_dir = (Path(vehicle["file_path"]) / "images").resolve()
         if not images_dir.is_dir():
             if not request.state.who.admin:

@@ -137,7 +137,7 @@ The site runs the extraction; end users should do as little as possible.
   `GM`, 5 `LG` aggregate catalogs (not pulled yet; would file under engine
   buckets).
 
-## Joining WIS: the open design problem (found 2026-10-14)
+## Joining WIS (found and built 2026-10-14)
 
 "Files under MODEL 115, the same vehicle WIS uses" was true of the *series
 code* only. `search.scope_ids` searches the chosen vehicle's own doc_id, its
@@ -153,18 +153,34 @@ one source. The records importer builds vehicles per corpus, so:
 - Chassis catalogs hold no engine internals (W210 "oil filter" finds springs),
   so engine catalogs matter for the most common parts questions.
 
-Needed: a cross-source join -- a vehicle of one source also searches another
-source's documents for the same series (and the same engine buckets), and
-the second source's vehicle is not listed separately. Touches
-`search.scope_ids`, the vehicles table and the picker
-(`docs/notes/vehicle-selection.md` first), so it is a design decision, not
-an extractor change. Engine catalogs can be pulled now; they become
-reachable once the join exists.
+**Built (the user approved the design 2026-10-14), at query time so each
+source stays independently rebuildable and removable:**
+- `index.link_sources()` (run by `index.vehicles()`): WIS car ->
+  `joined_ids` (EPC vehicles of the same maker + `model_code`) and
+  `engine_joins` (engine family -> EPC `E<nnn>` buckets); the EPC vehicle
+  gets `joined_into` and `/api/vehicles` leaves it out. Only `doc_type
+  "parts"` vehicles are joined in.
+- `search.scope_ids` adds them after the car's engine buckets; variant and
+  engine choices narrow the EPC engine buckets like the WIS ones.
+- **Page numbers `P<dok_id>`** (`records.SOURCE_PAGE_STYLE`, manifest
+  `page_no_prefix`; `pull_epc.js` writes it): page_no is the citation key
+  and EPC dok_ids overlap WIS DokIDs. `tests/test_epc_join.py` fails 17
+  checks with the prefix removed.
+- The records importer keeps engine buckets for a corpus with no variants.
+- `/api/image` falls back to the joined corpora's `images/`.
+- Answer side: passages from parts pages are headed `(parts catalogue)`,
+  and `ANSWER_SYSTEM` says part numbers come only from those pages, for
+  this car's fits, superseded numbers replaced. **Not yet tried on a
+  paid answer.**
+Not measured yet: how much the joined buckets crowd repair searches (each
+gets a slot per interleave round) -- needs WIS + EPC in one index.
 
 ## Remaining build items
 
-1. **Cross-source join with WIS** (above) -- without it EPC is a parallel
-   set of vehicles and its engine catalogs are unreachable.
+1. **Combined check:** WIS + EPC (with engines) in one throwaway index;
+   eval cases such as "W210 oil filter part number" (engine parts reached,
+   other engines excluded) and the crowding of repair searches; then one
+   scoped paid answer (ask first).
 2. **Engine catalogs into the corpus:** `AR_CATNUM=engines` into the same
    `AR_OUT` (resumes; the 282 chassis catalogs are skipped).
 3. **Footnotes** (`FOOTNOTES` codes on part rows, `SA_FOOTNOTES_V` for SA) --

@@ -276,6 +276,21 @@ def scope_ids(vehicle: dict, variant: int | None = None,
                 continue
             if eid not in scope:
                 scope.append(eid)
+    # A parts catalogue of another source (EPC with WIS), joined by
+    # index.link_sources: the series' parts, then the parts of the chosen
+    # engines -- the same engine choice narrows them. Each is still its own
+    # doc_id, filtered in SQL before ranking like every other bucket, and its
+    # page numbers are prefixed ("P123"), so no citation can cross sources.
+    for pid in vehicle.get("joined_ids") or []:
+        if pid not in scope:
+            scope.append(pid)
+    joins = vehicle.get("engine_joins") or {}
+    for fam in sorted({str(e)[:3] for v in chosen for e in v.get("engines", [])}):
+        if fams and fam not in fams:
+            continue
+        for pid in joins.get(fam, []):
+            if pid not in scope:
+                scope.append(pid)
     general = (vehicle.get("general_doc_id") or "").strip()
     if general and general not in scope:
         scope.append(general)
@@ -343,8 +358,9 @@ def _interleave(ranked_lists: Sequence[list[dict]], cap: int,
         for row in round_rows:
             # by page_no, not page_uid: a WIS document naming both a model and
             # an engine is filed in both buckets, and a scope holding both
-            # must show it once. A scope never mixes sources, so page_no is
-            # unique within it.
+            # must show it once. page_no is unique within a scope: the one
+            # source joined into another's scope (a parts catalogue) prefixes
+            # its page numbers ("P123"), see importers/records.py.
             key = f"{row['page_no']}#{row['ord']}"
             if key in seen:
                 continue
