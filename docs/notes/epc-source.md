@@ -173,6 +173,19 @@ the VM for six times. Both reads now stream; `vm_pipeline.py` stops at once
 on OutOfMemoryError / SyntaxError instead of rebooting the VM. The manifest
 for that run was written afterwards from the complete records file.
 
+**Paid answers 2 and 3 (2026-10-15, the user's OK; Haiku, $0.0198 and
+$0.0161, throwaway index).** Same question (W204 C 220 CDI glow plug
+number). With footnotes inline and the parts snippet, the model saw the
+four glow-plug lines with fn 003 on the pencil-type one. Answer 2 used the
+footnote correctly (73 01 up to engine 32946334, replaced by 80 01; check
+the engine number). Both answers **left out the standard glow plug
+A 001 159 66 01 ("qty 4, all models")**, which the passage showed -- answer
+3 even after a prompt line "list every current number that fits; do not
+pick one". Prompt wording is not enough here; a free post-check (like
+`_drop_other_vehicles`) that adds omitted current lines fitting this car
+from the cited parts pages is the proposed next step. Duplicate parts
+passages (one page under three chunk numbers) are fixed.
+
 ## Joining WIS (found and built 2026-10-14)
 
 "Files under MODEL 115, the same vehicle WIS uses" was true of the *series
