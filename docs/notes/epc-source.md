@@ -218,6 +218,19 @@ offenders are WIS general-pool or engine-bucket pages, not EPC rows).
 An engine page's "Fits" lists engine codes (102.990 vs the 2.3-16's 102.983),
 so the answer rule now says model code *or exact engine code*.
 
+**First paid answer over EPC (2026-10-15, the user's OK; Haiku, $0.0217, 2
+calls, 18.9k in / 0.6k out; logged in the throwaway index only).** "What is
+the glow plug part number?" for a W204 C 220 CDI (651.911) on WIS + EPC:
+A 001 159 66 01, qty 4, replacing 58 01, plus the pencil-type A 001 159 80 01
+(replacing 73 01) -- every number, quantity, supersession and fits list
+matches page P49767 exactly; cited only P49767, `document_page` P49767, no
+dropped citation; years from the curated table, not recalled. Two notes:
+it listed the superseded numbers as their own (labelled) entries, though the
+rule says to give the replacement; and it could not say whether the car
+takes the standard or the pencil-type plug -- both fit 651.911 on the page,
+and EPC's footnotes (not extracted yet) are what usually decide it. It said
+so in `caveats` rather than guessing.
+
 ## Remaining build items
 
 1. **Combined check:** WIS + EPC (with engines) in one throwaway index;
@@ -226,7 +239,9 @@ so the answer rule now says model code *or exact engine code*.
    scoped paid answer (ask first).
 2. ~~Engine catalogs into the corpus~~ -- done 2026-10-15 (above).
 3. **Footnotes** (`FOOTNOTES` codes on part rows, `SA_FOOTNOTES_V` for SA) --
-   not extracted; they carry "up to chassis …" conditions.
+   not extracted; they carry "up to chassis …" conditions. **Next in value:**
+   the first paid answer could not choose between two glow plugs that both fit
+   651.911 on the page -- the footnote is what tells them apart.
 4. **Gearbox catalogs** -- need a car -> gearbox map first.
 5. **Site integration: built 2026-10-15, not yet run from the site.** The
    Mercedes VM tab's "Parts catalogue (EPC)" choice (`docs/notes/importing.md`).
