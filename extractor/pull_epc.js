@@ -249,9 +249,16 @@ if(RESUME && new File(DONE).isFile() && new File(REC).isFile()
 if(RESUME && new File(DONE).isFile() && new File(REC).isFile()){
   Files.readAllLines(Paths.get(DONE),StandardCharsets.UTF_8).forEach(function(l){ l=trim(l); if(l) done[l]=1; });
   // a crash mid-SA-phase leaves no SA lines (they are appended in one go), so the file is clean
-  Files.readAllLines(Paths.get(REC),StandardCharsets.UTF_8).forEach(function(l){ var m=/"dok_id":(\d+)/.exec(l); if(m && +m[1]>dokId) dokId=+m[1]; });
+  eachLine(REC, function(l){ var m=/"dok_id":(\d+)/.exec(l); if(m && +m[1]>dokId) dokId=+m[1]; });
   print("resume: "+Object.keys(done).length+" catalogs already done, last dok_id "+dokId);
 } else { writer(REC,false).close(); var dw=writer(DONE,false); dw.write(FORMAT_LINE+"\n"); dw.close(); }
+// records.jsonl is read a line at a time: the whole file (531 MB with inline
+// footnotes) does not fit the 32-bit JRE's 1 GB heap -- readAllLines here ran
+// out of memory at the manifest step, and again on every resume.
+function eachLine(path, fn){
+  var r=Files.newBufferedReader(Paths.get(path),StandardCharsets.UTF_8), l;
+  try{ while((l=r.readLine())!=null) fn(String(l)); } finally{ r.close(); }
+}
 // always UTF-8: FileWriter would use the Windows code page (cp1252) and the
 // importer reads UTF-8 (part texts carry Ü, Ø, ° ...)
 function writer(path,append){ return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(path,append),StandardCharsets.UTF_8)); }
@@ -409,7 +416,7 @@ else if(WANT_SA){
 }
 
 // ------------------------------------------------------------ manifest
-var total=0; Files.readAllLines(Paths.get(REC),StandardCharsets.UTF_8).forEach(function(l){ if(trim(l)) total++; });
+var total=0; eachLine(REC, function(l){ if(trim(l)) total++; });
 // page_no_prefix / doc_type: EPC is searched inside WIS cars' scopes (index.link_sources),
 // so its page numbers must never equal a WIS DokID
 var manifest={schema_version:"1.3", source_type:"mercedes-epc", source_id:HOST+"/ALLTEXT", page_no_prefix:"P", doc_type:"parts", corpus_format:FORMAT,
