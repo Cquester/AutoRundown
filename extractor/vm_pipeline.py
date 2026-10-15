@@ -198,7 +198,16 @@ def vm_down(vm: str) -> None:
 
 # -- running the pieces ----------------------------------------------------------
 
+# Errors that a power-cycle cannot fix: the pull itself is wrong, not the
+# database. On 2026-10-15 an OutOfMemoryError in pull_epc.js was retried six
+# times, the VM rebooted each time.
+FATAL_MARKERS = ("OutOfMemoryError", "SyntaxError")   # never a dropped connection
+LAST_FATAL = ""
+
+
 def run(cmd: list[str], env: dict, cwd: Path) -> int:
+    global LAST_FATAL
+    LAST_FATAL = ""
     log("$ " + " ".join(Path(c).name if i == 0 else c for i, c in enumerate(cmd)))
     p = subprocess.Popen(cmd, cwd=cwd, env={**os.environ, **env, "PYTHONIOENCODING": "utf-8"},
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -208,6 +217,8 @@ def run(cmd: list[str], env: dict, cwd: Path) -> int:
         # Nashorn stack traces are dozens of lines of noise; keep the message
         if line.startswith(("\tat ", "Caused by")) or line.startswith("at "):
             continue
+        if not LAST_FATAL:
+            LAST_FATAL = next((m for m in FATAL_MARKERS if m in line), "")
         print("    " + line, flush=True)
     return p.wait()
 
@@ -347,6 +358,10 @@ def main(argv=None) -> int:
             for attempt in range(6):
                 if nashorn(script, {**base, **(env or {}), "AR_OUT": str(out_dir)}, heap) == 0:
                     return
+                if LAST_FATAL:
+                    die(f"{what} failed with {LAST_FATAL} -- a problem in the pull itself, "
+                        f"not the database, so restarting the VM would not help. What it "
+                        f"saved so far is kept; a re-run after the fix resumes.")
                 log(f"{what} stopped (attempt {attempt + 1}); power-cycling and resuming")
                 base["AR_HOST"] = cycle(port)
             die(f"{what} kept stopping; re-run to resume")
