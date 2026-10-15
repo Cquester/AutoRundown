@@ -360,12 +360,14 @@ class ImportJobs:
             rc = self._run(cmd)
             if rc != 0:
                 break
+        # the closing line first: once the state says finished, a reader of the
+        # file (or a test) must find it complete
+        self._note(f"== job {'done' if rc == 0 else 'failed'} (exit {rc}) "
+                   f"{time.strftime('%Y-%m-%d %H:%M:%S')}")
         with self._lock:
             self._job["returncode"] = rc
             self._job["finished"] = time.time()
             self._job["state"] = "done" if rc == 0 else "failed"
-        self._note(f"== job {'done' if rc == 0 else 'failed'} (exit {rc}) "
-                   f"{time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     def _run(self, cmd: list[str]) -> int:
         shown = [Path(cmd[2]).name, *cmd[3:]] if cmd[1:2] == ["-u"] and len(cmd) > 2 else cmd
