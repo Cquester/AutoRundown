@@ -1362,12 +1362,15 @@ function carFromVin(raw) {
   const r = vinLookup(raw);
   if (r.error) return {error: r.error};
   const x = r.variant !== null ? r.vehicle._variants[r.variant] : null;
-  const fams = x && r.bm ? famsOf(x, [r.bm]) : [];
+  // the engine(s) of the Baumuster the VIN names (r.bms: several when it
+  // could not be pinned -- then every one of them, as "M272 or M276")
+  const fams = x ? famsOf(x, r.bms || (r.bm ? [r.bm] : [])) : [];
   const make = r.vehicle.make || '';
   return {label: `${r.year || ''} ${make} ${x ? x.name : r.vehicle.model}`.trim(),
           sub: `from the VIN · ${r.vehicle.model}` + (fams.length
                ? ` · ${fams.map(f => (x.engine_families || {})[f] || 'Engine ' + f).join(' or ')}` : ''),
-          doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year};
+          doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year,
+          bm: r.bm || null, how: r.how};
 }
 // A VIN is one token of 10-17 VIN characters with several digits. Spaces
 // used to be removed first, so "mercedes 190" (11 letters and digits) was
@@ -2650,16 +2653,28 @@ function vinLookup(raw) {
   }
 
   // US VIN, exact: Mercedes' AW_VIN2FIN maps the first 9 characters (check
-  // digit included) to the Baumuster, so it names the variant itself
+  // digit included) to the Baumuster, so it names the variant itself -- and
+  // the exact Baumuster (vin9_bm), whose engine is the car's. A variant's
+  // Baumuster can have different engines (E 320: 210.055 M104, 210.065
+  // M112); taking its first one sent the wrong engine for 320 prefixes.
   if (vin.length >= 9) {
     const vin9 = vin.slice(0, 9);
     for (const x of vehicles) {
       const n = (x._variants || []).findIndex(y => (y.vin9 || []).includes(vin9));
-      if (n >= 0) {
-        const bm = x._variants[n].baumuster.find(b => b.startsWith(x.model_code)) || '';
-        return {vehicle: x, variant: n, year: vinYear(vin, x), bm,
-                how: `Mercedes' VIN table (${vin9} = Baumuster ${bm}, ${x._variants[n].name})`};
+      if (n < 0) continue;
+      const y = x._variants[n], year = vinYear(vin, x);
+      let bms = (y.vin9_bm || {})[vin9] ? [y.vin9_bm[vin9]] : [];
+      if (!bms.length) {
+        // no exact map (its corpus file is gone): the VIN's year picks among
+        // the variant's Baumuster; still several (or none) = all of them,
+        // never just the first
+        const own = y.baumuster || [];
+        const byYear = year ? own.filter(b => yearsIn((y.us_years || {})[b]).includes(year)) : [];
+        bms = byYear.length ? byYear : own;
       }
+      const bm = bms.length === 1 ? bms[0] : null;
+      return {vehicle: x, variant: n, year, bm, bms,
+              how: `Mercedes' VIN table (${vin9} = ${bm ? `Baumuster ${bm}, ` : ''}${y.name})`};
     }
   }
 
@@ -2770,21 +2785,14 @@ $('#labBook').addEventListener('change', loadLabour);
 $('#labQ').addEventListener('input', () => { clearTimeout(labTimer); labTimer = setTimeout(loadLabour, 300); });
 $('#labQ').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); loadLabour(); } });
 $('#saInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saLookup(); } });
+// The dialog picks the car exactly as a VIN typed in the car box does
+// (carFromVin + applyCar): same variant, same engine, same year. It used to
+// set the dropdowns itself and send no engine at all.
 $('#vinFind').onclick = () => {
-  const r = vinLookup($('#vinInput').value);
-  if (r.error) { $('#vinNote').textContent = r.error; return; }
-  // set the year the VIN states (if we could pin one) and clear make, so the
-  // matched vehicle is definitely in the list
-  const hasYear = r.year && [...$('#year').options].some(o => +o.value === r.year);
-  $('#year').value = hasYear ? String(r.year) : '';
-  $('#make').value = '';
-  refreshPicker(r.variant !== null ? `${r.vehicle.doc_id}::${r.variant}`
-                                   : r.vehicle.doc_id);
-  // the box follows the pick (it kept showing the previous car)
-  clearCarPick();
-  loadConnectors();
-  $('#vinNote').textContent = `Found by ${r.how}`
-    + (hasYear ? `, model year ${r.year}.` : '.');
+  const e = carFromVin($('#vinInput').value);
+  if (e.error) { $('#vinNote').textContent = e.error; return; }
+  applyCar(e);
+  $('#vinNote').textContent = `Found by ${e.how}` + (e.year ? `, model year ${e.year}.` : '.');
   setTimeout(() => $('#vinDlg').close(), 1600);
 };
 $('#vinInput').addEventListener('keydown', e => {

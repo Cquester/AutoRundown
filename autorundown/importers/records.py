@@ -741,6 +741,64 @@ def record_images(rec: dict, corpus_dir: Path) -> list[str]:
     return out
 
 
+def vin_prefixes_by_bm(cdir: Path, manifest: dict | None = None,
+                       strict: bool = False) -> dict[str, list[str]]:
+    """`vin2fin.json` (AW_VIN2FIN, prefix -> Baumuster) as Baumuster -> [prefixes].
+
+    {} when the file is missing; an unreadable file raises with `strict`,
+    else gives {} too (the server reads it at runtime, see server.py)."""
+    if manifest is None:
+        try:
+            manifest = json.loads((cdir / "manifest.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            manifest = {}
+    path = cdir / (manifest.get("vin2fin_file") or "vin2fin.json")
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        if strict:
+            raise
+        return {}
+    out: dict[str, list[str]] = {}
+    for vin9, bm in raw.items():
+        out.setdefault(str(bm), []).append(str(vin9).upper())
+    return out
+
+
+def with_vin9(variant: dict, vin9_by_bm: dict[str, list[str]]) -> dict:
+    """Attach the US VIN prefixes that decode to this variant's Baumuster:
+    `vin9` (the prefixes) and `vin9_bm` (prefix -> the Baumuster it decodes to).
+
+    A variant has several Baumuster, often with different engines ("E 320":
+    210.055 = M104, 210.065 = M112). Until 2026-10-16 only the flat `vin9`
+    list was kept, and the page sent the variant's *first* Baumuster's engine
+    for every one of its VINs -- WDBJF65J0 (210.065, M112) searched the M104.
+    `vin9_bm` keeps the exact Baumuster each prefix names."""
+    exact = {p: bm for bm in variant.get("baumuster", []) for p in vin9_by_bm.get(bm, [])}
+    if not exact:
+        return variant
+    return {**variant, "vin9": sorted(exact), "vin9_bm": dict(sorted(exact.items()))}
+
+
+def add_vin9_bm(variants: list[dict], vin9_by_bm: dict[str, list[str]]) -> list[dict]:
+    """`vin9_bm` for variants stored before it existed (an index built before
+    2026-10-16): the same mapping, rebuilt from the corpus's vin2fin.json.
+    Variants that already carry it, or have no VIN prefixes, are unchanged;
+    a prefix the file no longer names is left out (the page then falls back
+    to the VIN's year, then to all the variant's engines)."""
+    out = []
+    for x in variants:
+        if x.get("vin9") and "vin9_bm" not in x and vin9_by_bm:
+            own = set(x["vin9"])
+            m = {p: bm for bm in x.get("baumuster", []) for p in vin9_by_bm.get(bm, [])
+                 if p in own}
+            x = {**x, "vin9_bm": dict(sorted(m.items()))}
+        out.append(x)
+    return out
+
+
 @register
 class RecordsImporter(Importer):
     name = "records"
@@ -1084,25 +1142,19 @@ class RecordsImporter(Importer):
         included) name the exact Baumuster, so a US VIN can pick the variant,
         not just the series. Optional; without it US VINs resolve to a series.
         """
-        path = cdir / (manifest.get("vin2fin_file") or "vin2fin.json")
-        if not path.is_file():
-            return {}
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            out = vin_prefixes_by_bm(cdir, manifest, strict=True)
         except (OSError, ValueError) as exc:
-            print(f"  ! {path.name} could not be read ({exc}); US VINs pin the series only")
+            print(f"  ! vin2fin could not be read ({exc}); US VINs pin the series only")
             return {}
-        out: dict[str, list[str]] = {}
-        for vin9, bm in raw.items():
-            out.setdefault(str(bm), []).append(str(vin9).upper())
-        print(f"  {len(raw)} US VIN prefixes -> {len(out)} Baumuster from {path.name}")
+        if out:
+            print(f"  {sum(map(len, out.values()))} US VIN prefixes -> {len(out)} "
+                  f"Baumuster from {manifest.get('vin2fin_file') or 'vin2fin.json'}")
         return out
 
     @staticmethod
     def _with_vin9(variant: dict, vin9_by_bm: dict[str, list[str]]) -> dict:
-        """Attach the US VIN prefixes that decode to this variant's Baumuster."""
-        vins = sorted({v for bm in variant.get("baumuster", []) for v in vin9_by_bm.get(bm, [])})
-        return {**variant, "vin9": vins} if vins else variant
+        return with_vin9(variant, vin9_by_bm)
 
     @staticmethod
     def _vin_codes(cdir: Path, manifest: dict) -> dict[str, str]:

@@ -24,7 +24,13 @@ not from the page:
     (`carIndex`) through `applyCar`, the function its click handler calls;
   - Browse: every option of every generation's Variant menu, picked with a
     real `change` event, plus "Any <engine>" options;
-  - the VIN dialog, and one VIN prefix per variant that has one;
+  - the VIN dialog, which must send what the box sends (car, engine, year);
+  - EVERY US VIN prefix of every variant (`vin9`), checked against the
+    Baumuster Mercedes' own table names for that prefix (vin2fin.json in the
+    corpus, read here, not by the server): the variant, the Baumuster and the
+    engine sent. Testing only each variant's first prefix hid that the page
+    sent the variant's FIRST Baumuster's engine for all of them (E 320
+    WDBJF65J0 = 210.065, M112, searched the M104; 2026-10-16);
   - a reload: the remembered pick (`autorundown.vehicle.v3`) still names
     the same car.
 
@@ -75,6 +81,20 @@ def years_in(s):
     return out
 
 
+YEAR_CODES = "ABCDEFGHJKLMNPRSTVWXY"
+
+
+def year_char(y):
+    """VIN position 10 for a model year (1980 = A, 2001 = 1 ... 2010 = A)."""
+    return str(y - 2000) if 2001 <= y <= 2009 else YEAR_CODES[(y - 1980) % 30]
+
+
+def engine_fams(x, bm):
+    """The engine families of one Baumuster ("112"), as the page sends them."""
+    return sorted({str(e)[:3] for e in (x.get("engine_by_bm") or {}).get(bm, [])
+                   if str(e)[:3].isdigit()})
+
+
 def start_server(index_path):
     import uvicorn
     from autorundown import server
@@ -101,6 +121,34 @@ class Truth:
         conn.close()
         self.variants = {d: json.loads(v.get("variants") or "[]")
                          for d, v in self.vehicles.items()}
+        # VIN prefix -> Baumuster, straight from each corpus's vin2fin.json
+        # (the source of truth), else what the index stored per variant
+        self.vin_bm = {}
+        for d, v in self.vehicles.items():
+            f = Path(v.get("file_path") or "") / "vin2fin.json"
+            if v.get("file_path") and f.is_file():
+                self.vin_bm.update(json.loads(f.read_text(encoding="utf-8")))
+        for vs in self.variants.values():
+            for x in vs:
+                for k, b in (x.get("vin9_bm") or {}).items():
+                    self.vin_bm.setdefault(k, b)
+
+    def vin_cases(self):
+        """(vin, doc, variant index, Baumuster, engine families) for every US
+        VIN prefix of every variant. Position 10 is the model year of the
+        Baumuster's first US year when known (so the label's year is real)."""
+        out = []
+        for d, vs in self.variants.items():
+            for i, x in enumerate(vs):
+                for k in x.get("vin9") or []:
+                    bm = self.vin_bm.get(k)
+                    if not bm:
+                        fail(f"VIN prefix {k} ({x['name']}): not in vin2fin.json")
+                        continue
+                    ys = sorted(years_in((x.get("us_years") or {}).get(bm)))
+                    out.append((k + (year_char(ys[0]) if ys else "H") + "F123456", d, i, bm,
+                                engine_fams(x, bm)))
+        return out
 
     def variant(self, doc, params, what):
         """The stored variant the request's `variant=` names, or None + FAIL."""
@@ -182,19 +230,17 @@ JS_BROWSE = """async () => {
   return out;
 }"""
 
-JS_VIN = """async () => {
+JS_VIN = """async vins => {
   const out = []; let k = 0;
-  for (const v of vehicles) for (const x of v._variants) {
-    const vin9 = (x.vin9 || [])[0];
-    if (!vin9) continue;
-    const vin = vin9 + 'H' + 'F123456';          // position 10 'H': 1987 / 2017
+  for (const vin of vins) {
     const e = carFromVin(vin);
     if (e.error) { out.push({vin, error: e.error}); continue; }
     applyCar(e);
     const tag = 'vin-' + (k++);
     $('#q').value = tag;
     await keywordSearch();
-    out.push({tag, vin, label: e.label, doc: e.doc, year: e.year, shown: $('#carInput').value});
+    out.push({tag, vin, label: e.label, doc: e.doc, year: e.year, bm: e.bm,
+              shown: $('#carInput').value});
   }
   return out;
 }"""
@@ -323,17 +369,35 @@ def main(argv=None):
         # 2. VINs typed into the same box, and through the VIN dialog
         print("\n2. VINs")
         page.click("#browseBtn")            # the VIN button sits in the Browse row
-        for vin, bm, name in [("WDBDA34D4HF123456", "201.034", "190 E 2.3 16"),
-                              ("WDB2010341F123456", "201.034", "190 E 2.3 16")]:
+        vin_cases = truth.vin_cases()
+        two = [("WDBDA34D4HF123456", "201.034", "190 E 2.3 16"),
+               ("WDB2010341F123456", "201.034", "190 E 2.3 16")]
+        # and one whose Baumuster is not its variant's first and has another
+        # engine: the case the page got wrong
+        for vin, d, i, bm, fams in vin_cases:
+            x = truth.variants[d][i]
+            first = x["baumuster"][0]
+            if bm != first and fams and fams != engine_fams(x, first):
+                two.append((vin, bm, x["name"]))
+                break
+        else:
+            fail("no VIN prefix names a variant's later Baumuster with another engine "
+                 "(the sample corpus has WDDHF5AA2 = 212.059, M276)")
+        for vin, bm, name in two:
             page.wait_for_timeout(200)
             page.fill("#carInput", "")
             page.type("#carInput", vin)
             page.wait_for_selector("#carList:not([hidden])")
             page.keyboard.press("Enter")
             p = search(f"vinbox-{vin}")
+            box = p
             if p:
                 expect_variant(p, f"VIN box {vin}", name=name, bm=bm,
                                label=page.input_value("#carInput"))
+                x = truth.variant(p["doc_id"], p, f"VIN box {vin}")
+                want = engine_fams(x, bm) if x else []
+                if want and sorted((p.get("engine") or "").split(",")) != want:
+                    fail(f"VIN box {vin}: engine={p.get('engine')}, Baumuster {bm} has {want}")
             if page.is_hidden("#picker"):   # choosing a car closes the Browse row
                 page.click("#browseBtn")
             page.click("#vinBtn")
@@ -343,7 +407,12 @@ def main(argv=None):
             p = search(f"vindlg-{vin}")
             if p:
                 expect_variant(p, f"VIN dialog {vin}", name=name, bm=bm)
-        print("   2 VINs x (box, dialog)")
+                if box:
+                    diff = {k: (box.get(k), p.get(k)) for k in ("doc_id", "variant", "engine", "year")
+                            if box.get(k) != p.get(k)}
+                    if diff:
+                        fail(f"VIN dialog {vin} sends another car than the box: {diff} (box, dialog)")
+        print(f"   {len(two)} VINs x (box, dialog): {', '.join(v for v, _, _ in two)}")
 
         # 3. Browse dropdowns with real select_option, then a reload: the
         #    remembered pick must still name the same car
@@ -439,10 +508,12 @@ def main(argv=None):
         print(f"   {n_var} variant options, {n_eng} 'Any <engine>' options "
               f"({time.time() - t0:.0f} s)")
 
-        # 6. exhaustive, in-page: one US VIN prefix per variant that has one
-        print("\n6. one VIN per variant with a VIN prefix (carFromVin)")
-        rows = page.evaluate(JS_VIN)
-        for r in rows:
+        # 6. exhaustive, in-page: every US VIN prefix of every variant
+        print("\n6. every US VIN prefix of every variant (carFromVin)")
+        t0 = time.time()
+        rows = page.evaluate(JS_VIN, [c[0] for c in vin_cases])
+        n_eng = 0
+        for r, (vin, doc, i, bm, fams) in zip(rows, vin_cases):
             if "error" in r:
                 fail(f"VIN {r['vin']}: {r['error']}")
                 continue
@@ -458,7 +529,17 @@ def main(argv=None):
                      f"prefixes don't include {r['vin'][:9]}")
             if not r["label"].endswith(x["name"]) or r["shown"] != r["label"]:
                 fail(f"VIN {r['vin']}: shows {r['shown']!r}, sent {x['name']!r}")
-        print(f"   {len(rows)} VINs")
+            if bm not in x["baumuster"]:
+                fail(f"VIN {vin}: sent {x['name']!r} {x['baumuster']}, the VIN is {bm}")
+            if r.get("bm") != bm:
+                fail(f"VIN {vin} ({x['name']}): decoded as Baumuster {r.get('bm')}, the VIN is {bm}")
+            sent_fams = sorted(f for f in (p.get("engine") or "").split(",") if f)
+            if sent_fams != fams:
+                fail(f"VIN {vin} ({x['name']}, {bm}): engine={p.get('engine')}, its engine is "
+                     f"{','.join(fams) or 'unknown (send none)'}")
+            n_eng += bool(fams)
+            check_scope(truth, p["doc_id"], p, f"VIN {vin}")
+        print(f"   {len(rows)} VINs, {n_eng} with a known engine ({time.time() - t0:.0f} s)")
 
         browser.close()
     srv.should_exit = True

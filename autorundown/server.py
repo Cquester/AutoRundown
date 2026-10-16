@@ -300,8 +300,58 @@ def _extractor_error(raw: str) -> str | None:
     return None
 
 
+_VIN2FIN_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def _vin_prefixes(corpus: str) -> dict[str, list[str]]:
+    """The corpus's vin2fin.json as Baumuster -> [VIN prefixes], read-only and
+    cached until the file changes. {} when it is missing or unreadable."""
+    from .importers.records import vin_prefixes_by_bm
+    path = Path(corpus)
+    try:
+        stamp = max((path / n).stat().st_mtime for n in ("vin2fin.json", "manifest.json")
+                    if (path / n).is_file())
+    except (OSError, ValueError):     # ValueError: no file at all
+        return {}
+    hit = _VIN2FIN_CACHE.get(corpus)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    data = vin_prefixes_by_bm(path)
+    _VIN2FIN_CACHE[corpus] = (stamp, data)
+    return data
+
+
+def _with_vin9_bm(rows: list[dict]) -> list[dict]:
+    """Give every variant with US VIN prefixes the exact prefix -> Baumuster map.
+
+    An index built before 2026-10-16 stored only a flat `vin9` list per
+    variant, and the page sent the variant's first Baumuster's engine for all
+    of them (WDBJF65J0 = 210.065, M112, searched the M104 of 210.055). The
+    importer now stores `vin9_bm`; for an older index it is rebuilt here from
+    the corpus's own vin2fin.json (`file_path`), so no rebuild is needed.
+    Without that file the page falls back to the VIN's year, then to every
+    engine of the variant."""
+    from .importers.records import add_vin9_bm
+    out = []
+    for v in rows:
+        raw = v.get("variants")
+        if raw and '"vin9"' in raw and '"vin9_bm"' not in raw and v.get("file_path"):
+            by_bm = _vin_prefixes(v["file_path"])
+            if by_bm:
+                try:
+                    v = {**v, "variants": json.dumps(add_vin9_bm(json.loads(raw), by_bm),
+                                                     ensure_ascii=False, separators=(",", ":"))}
+                except ValueError:
+                    pass
+        out.append(v)
+    return out
+
+
 def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
-    app = FastAPI(title="AutoRundown")
+    # no /docs, /redoc or /openapi.json: every device on the LAN could read
+    # the whole API map, and /docs pulled Swagger's script from a CDN onto
+    # this app's origin (QA, 2026-10-15)
+    app = FastAPI(title="AutoRundown", docs_url=None, redoc_url=None, openapi_url=None)
     # vehicles.json is ~750 KB at full size; a phone on slow wifi waited 4.7 s
     app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
     app.add_middleware(BodyLimit)      # added last = runs first
@@ -472,6 +522,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             rows = [v for v in index.vehicles(conn) if not v.get("joined_into")]
         finally:
             conn.close()
+        rows = _with_vin9_bm(rows)
         if not request.state.who.admin:   # this PC's folders are its own business
             for v in rows:
                 v.pop("file_path", None)
@@ -751,6 +802,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # images/IMP49Q313/euro210/551068321.png
     @app.get("/api/image/{doc_id}/{name:path}")
     def api_image(request: Request, doc_id: str, name: str) -> FileResponse:
+        # a NUL (x.png%00.db) made Path.resolve() raise: an unhandled 500,
+        # without the security headers. No picture is named that way.
+        if "\x00" in name or "\x00" in doc_id:
+            raise HTTPException(404, "image not found")
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
@@ -763,11 +818,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
         for fp in dict.fromkeys(extra):
-            other = (Path(fp) / "images").resolve()
-            hit = (other / name).resolve()
             try:
+                other = (Path(fp) / "images").resolve()
+                hit = (other / name).resolve()
                 hit.relative_to(other)      # never outside that images directory
-            except ValueError:
+            except (OSError, ValueError):
                 continue
             if hit.is_file() and hit.suffix.lower() in IMAGE_TYPES \
                     and not (Path(vehicle["file_path"]) / "images" / name).is_file():
@@ -782,11 +837,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 f"Archive not found at {vehicle['file_path']}. Diagrams are "
                 f"served from the extracted archive, not the index. Extract "
                 f"it and run: python ingest.py --archive <path> --repath")
-        target = (images_dir / name).resolve()
-        # never serve outside the vehicle's own images directory
+        # never serve outside the vehicle's own images directory; a name the
+        # OS can't even resolve is not one of its pictures either
         try:
+            target = (images_dir / name).resolve()
             target.relative_to(images_dir)
-        except ValueError:
+        except (OSError, ValueError):
             raise HTTPException(404, "image not found")
         if not target.is_file() or target.suffix.lower() not in IMAGE_TYPES:
             raise HTTPException(404, "image not found")
