@@ -191,6 +191,27 @@ on the real OM651 lines, and Ask end to end through the fake API
 answer. Duplicate parts
 passages (one page under three chunk numbers) are fixed.
 
+## Result tabs (2026-10-15, the user's request)
+
+Parts pages in the manual's result list made it hard to read, and a parts
+page in the reader offered "Original layout", which it cannot have (its
+vehicle is joined into the WIS car, so the UI took it for a WIS page). Now
+`/api/search?tab=` and a tab bar: **Workshop** (manual pages only, as
+before EPC), **Parts** (the joined catalogue, each row with its matching
+part lines, `search.part_lines`), **Labour times** (the dialog moved into a
+tab), **Capacities** (WIS's oil figure + capacity lines), **Torque specs**
+(torque lines). Value lines come from `search.value_lines`: WIS prints
+"Nm 50" and "Liter 6,5" unit-first, and capacity rows often unit-less under
+a header ("Oil capactiy in liters ... changing oil and filter 5.0"); a line
+must name one of the question's words (or its page title must), and a line
+naming only another engine/model of the series is dropped
+(`query.mentioned_codes`, as for answers). The tab bar has its own class:
+`.srctabs` buttons are all bound by the Shop setup import code. A parts
+page opens without the Reading/Original toggle; WIS pages keep it.
+Checked on WIS + EPC in a browser (desktop and 375 px), `test_ui_picks.py`
+(4,610 picks), and `test_epc_join.py` (each tab's kind; a bus page's
+capacity never reaching a car).
+
 ## Joining WIS (found and built 2026-10-14)
 
 "Files under MODEL 115, the same vehicle WIS uses" was true of the *series

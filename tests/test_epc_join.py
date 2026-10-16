@@ -101,7 +101,19 @@ def build_epc(root: Path) -> None:
 def main() -> int:
     try:
         archive = TMP / "archive"
-        test_records.build_corpus(archive)
+        wis = test_records.build_corpus(archive)
+        # one W201 capacity page in WIS's own style -- the unit in the header,
+        # bare numbers in the rows -- for the Capacities tab
+        cap = test_records.rec(
+            1002400, "Removal and installation of the engine (oil capacity) Engine 102 in model 201",
+            "Oil capactiy in liters\nEngine (total capacity when refilling) 5.5 "
+            "Capacity of engine when changing oil and filter 5.0",
+            series=["201"], baumuster=["201.034"])
+        with (wis / "records.jsonl").open("a", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps(cap) + "\n")
+        man = json.loads((wis / "manifest.json").read_text(encoding="utf-8"))
+        man["record_count"] += 1
+        (wis / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
         build_epc(archive)
         db = TMP / "index.db"
         with contextlib.redirect_stdout(io.StringIO()):
@@ -250,6 +262,32 @@ def main() -> int:
         r = c.get(f"/api/page/{w201['doc_id']}/P1002306")
         check("/api/page opens the EPC page through the WIS car",
               r.status_code == 200 and r.json().get("doc_id") == e201["doc_id"], r.status_code)
+
+        print("\n-- the UI's tabs: one kind of result each, always within the car --")
+        def tab(t, q):
+            return c.get(f"/api/search?doc_id={w201['doc_id']}&q={q}&tab={t}").json()
+        ws = tab("workshop", "cylinder head")
+        check("Workshop: the manual's page, no parts pages",
+              "1002306" in [r["page_no"] for r in ws] and not any(r["page_no"].startswith("P") for r in ws),
+              [r["page_no"] for r in ws])
+        pt = tab("parts", "oil filter")
+        check("Parts: the parts page with its matching part lines",
+              [r["page_no"] for r in pt][:1] == ["P1002306"]
+              and any("A 102 180 00 09" in l for l in pt[0].get("lines", [])), pt)
+        check("Parts: no manual pages", all(r["page_no"].startswith("P") for r in pt), [r["page_no"] for r in pt])
+        tq = tab("torque", "cylinder head")
+        check("Torque specs: the page with its torque line",
+              any(r["page_no"] == "1002306" and any("55 Nm" in l for l in r["lines"]) for r in tq), tq)
+        cp = tab("capacity", "engine oil")
+        check("Capacities: the car's own capacity rows (unit only in the header)",
+              any(r["page_no"] == "1002400" and any("changing oil and filter 5.0" in l for l in r["lines"])
+                  for r in cp), cp)
+        check("Capacities: a bus page's 28 litres never reach this car",
+              cp and "1002307" not in [r["page_no"] for r in cp], [r["page_no"] for r in cp])
+        check("an unknown tab is refused", c.get(
+            f"/api/search?doc_id={w201['doc_id']}&q=x&tab=everything").status_code == 422)
+        check("Workshop is the default (no tab given)", [r["page_no"] for r in c.get(
+            f"/api/search?doc_id={w201['doc_id']}&q=cylinder%20head").json()] == [r["page_no"] for r in ws])
 
         print("\n-- Shop setup: EPC is its own group, extracted and replaced whole --")
         from autorundown import importer_jobs

@@ -258,6 +258,24 @@ python ask.py --list
 
 ---
 
+## What you can look up
+
+Under the question box, tabs pick what to search -- always within the car you
+chose:
+
+| Tab | Shows |
+|---|---|
+| **Workshop** | The manual's pages. *Ask* answers here. |
+| **Parts** | The Mercedes parts catalogue (EPC), when imported: each page's matching part lines -- number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334"). |
+| **Labour times** | Mercedes flat-rate times for the exact model (WIS). |
+| **Capacities** | The engine oil figure for your engine (WIS), and capacity lines from the car's pages. |
+| **Torque specs** | Torque lines from the car's pages, each linked to its page. |
+
+Lines that name only another engine or model are left out, and every line
+links to the page it came from: tables often list several engines, so the page
+is where you confirm the row is yours. A WIS page opens in **Reading view** or
+**Original layout** (the page redrawn from WIS); a parts page opens as its list.
+
 ## How it answers
 
 1. Claude rewrites your question into manual terminology
