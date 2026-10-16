@@ -187,3 +187,26 @@ the connection on its last table; a failed run always shuts the VM down
 second cold boot before giving up — one boot after 12 clean batches never
 brought the DB up in 10 min. Conversion sorts largest-first, so its ETA
 reads ~3 h while on the DXF/SVG diagrams and then drops; ~40 min in total.
+
+**The EPC parts catalogue from the same tab** (2026-10-15). The Mercedes VM
+tab asks "What to extract": Workshop manuals (WIS, with its steps) or Parts
+catalogue (EPC). EPC is job mode `vm_epc`: `vm_pipeline.py --steps epc`
+(`pull_epc.js` on the EPC database, port 2034, `AR_CATNUM=all,engines`,
+resumable per catalog, the same power-cycle-and-resume as the WIS pulls,
+32-bit JRE heap 1 GB) into `<out_root>/epc_extract`; then, if EPC is already
+in the index, `remove_manuals.py --source mercedes-epc`; then `ingest.py
+--importer records` on it -- so the index matches the corpus exactly. The
+`epc` step is not in the default (WIS) run. EPC is a group of its own in
+`importer_jobs.manuals()` (an "EPC in the index" card with "Remove all
+Mercedes EPC data", mode `remove_epc`), never listed car by car in the
+Folder tab, and `remove_manuals.py` removes it only whole (`GROUPED`). An
+extractor without `pull_epc.js` -- the installed app's Desktop copy predates
+EPC -- is refused before the job starts (`importer_jobs.epc_problem`).
+**First run from the site (dev.py, 2026-10-15) was cut off** at 23 of 161 engine
+catalogs when the Claude desktop app restarted (09:20:37, its VM service
+stopping) and took down the terminal `dev.py` was started in, and with it the
+job: the VM was left running, the corpus intact (per-catalog appends; 46,269
+records, none partial). Since then the job log is also written to
+`<app dir>/import_job.log` as it arrives. Start long jobs from a server that
+does not live inside another app's terminal. Tests: `tests/test_epc_join.py`
+(groups, job commands, whole-source removal), nothing touching a VM.

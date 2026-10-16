@@ -27,7 +27,9 @@ from pathlib import Path
 
 from autorundown import config, index
 
-GROUPED = ("mercedes-wis",)   # sources removed only as a whole
+# sources removed only as a whole: WIS models share engine and general
+# pages; EPC is one corpus that a re-import replaces in full
+GROUPED = ("mercedes-wis", "mercedes-epc")
 
 
 def grouped(source: str) -> bool:
@@ -78,8 +80,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         bad = [d for d in targets if grouped(rows[d][0])]
         if bad:
-            print(f"! {bad[0]} is Mercedes WIS data, which is only removed as a whole "
-                  "(--source mercedes-wis): its models share engine and general pages")
+            src = next(g for g in GROUPED if (rows[bad[0]][0] or "").startswith(g))
+            print(f"! {bad[0]} is {src} data, which is only removed as a whole "
+                  f"(--source {src})")
             return 1
 
     usage_before = conn.execute("SELECT COUNT(*) FROM usage_log").fetchone()[0]

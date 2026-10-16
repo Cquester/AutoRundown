@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from . import auth, config, index, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
-from .search import get_page, scope_ids, search
+from .search import get_page, part_lines, scope_ids, search, split_scope, value_lines
 
 jobs = importer_jobs.ImportJobs()
 
@@ -96,13 +96,14 @@ class ImportBody(BaseModel):
     # add: ingest.py (resumable, keeps what is there)
     # rebuild_wis: rebuild_wis.py (replace the Mercedes WIS part, keep the rest)
     mode: str = "add"
-    # mode "vm": extract from this VirtualBox VM first (vm_pipeline.py)
+    # mode "vm": extract WIS from this VirtualBox VM first (vm_pipeline.py);
+    # mode "vm_epc": the EPC parts catalogue from it, then replace EPC in the index
     vm: str = ""
     steps: str = ""
     # mode "lemon": the vehicle folders to import, relative to path
     # mode "remove": the doc_ids to remove (LEMON / folder manuals only)
     vehicles: list[str] = []
-    # modes "remove" / "remove_wis": VACUUM afterwards to shrink the file
+    # modes "remove" / "remove_wis" / "remove_epc": VACUUM afterwards to shrink the file
     compact: bool = False
 
 
@@ -465,7 +466,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def vehicles(request: Request) -> Response:
         conn = db()
         try:
-            rows = index.vehicles(conn)
+            # a parts catalogue joined into a manual's car (EPC into WIS) is
+            # searched through that car, so it is not listed a second time;
+            # lookups by doc_id still find it
+            rows = [v for v in index.vehicles(conn) if not v.get("joined_into")]
         finally:
             conn.close()
         if not request.state.who.admin:   # this PC's folders are its own business
@@ -479,17 +483,38 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                    limit: int = Query(12, ge=1, le=50),
                    include_other_variants: bool = False,
                    variant: int | None = None,
-                   engine: str | None = Query(None, max_length=64)) -> list[dict]:
+                   engine: str | None = Query(None, max_length=64),
+                   tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$")) -> list[dict]:
+        """Keyword search for one of the UI's tabs, always within the car.
+
+        workshop: the manual's pages only (as before the parts catalogue);
+        parts: the joined parts catalogue only, each row with the page's
+        matching part lines; torque / capacity: manual pages that print such
+        a value, each row with those lines."""
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            scope = scope_ids(vehicle, variant, engine)
+            full = scope_ids(vehicle, variant, engine)
+            manual, parts = split_scope(full)
+            scope = parts if tab == "parts" else manual
+            # value lines naming only another engine or model are left out
+            codes = query.vehicle_codes(vehicle, full)
+
+            def other_engine(line: str) -> bool:
+                if not codes:
+                    return False
+                engs, models = query.mentioned_codes(line, codes["families"], codes["series"])
+                return bool((codes["engines"] and engs and not engs & codes["engines"])
+                            or (codes["models"] and models and not models & codes["models"]))
+            if not scope:
+                return []
             # the manual's wording first ("valve cover" -> "cylinder head
             # cover"), then the user's own words
             alt = synonyms.translate(q)
+            extra = {"torque": " torque", "capacity": " capacity"}.get(tab, "")
             rows = []
             for query_text in ([alt, q] if alt else [q]):
-                for r in search(conn, scope, query_text, limit * 2,
+                for r in search(conn, scope, query_text + extra, limit * 2,
                                 include_other_variants=include_other_variants):
                     r["query"] = query_text
                     rows.append(r)
@@ -497,10 +522,18 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # one result, and the keyword list showed it twice
             seen, out = set(), []
             for r in rows:
-                if r["page_no"] not in seen:
-                    seen.add(r["page_no"])
-                    r.pop("body", None)
-                    out.append(r)
+                if r["page_no"] in seen:
+                    continue
+                seen.add(r["page_no"])
+                if tab == "parts":
+                    r["lines"] = part_lines(r.get("body") or "")
+                elif tab in ("torque", "capacity"):
+                    r["lines"] = value_lines(conn, r["page_uid"], tab, r["query"],
+                                             other_engine=other_engine)
+                    if not r["lines"]:
+                        continue
+                r.pop("body", None)
+                out.append(r)
             return out[:limit]
         finally:
             conn.close()
@@ -721,8 +754,24 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
+            # the UI asks through the selected car; a drawing on a joined
+            # parts page (EPC with WIS) lives in that catalogue's corpus
+            joined = {*vehicle.get("joined_ids", []),
+                      *(i for ids in vehicle.get("engine_joins", {}).values() for i in ids)}
+            extra = [v["file_path"] for v in index.vehicles(conn)
+                     if v["doc_id"] in joined and v.get("file_path")]
         finally:
             conn.close()
+        for fp in dict.fromkeys(extra):
+            other = (Path(fp) / "images").resolve()
+            hit = (other / name).resolve()
+            try:
+                hit.relative_to(other)      # never outside that images directory
+            except ValueError:
+                continue
+            if hit.is_file() and hit.suffix.lower() in IMAGE_TYPES \
+                    and not (Path(vehicle["file_path"]) / "images" / name).is_file():
+                return FileResponse(hit, headers=IMAGE_HEADERS)
         images_dir = (Path(vehicle["file_path"]) / "images").resolve()
         if not images_dir.is_dir():
             if not request.state.who.admin:
@@ -856,12 +905,23 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/import")
     def api_import_start(body: ImportBody) -> dict:
-        if body.mode == "vm":
+        if body.mode in ("vm", "vm_epc"):
             info = importer_jobs.list_vms()
             if info.get("error"):
                 raise HTTPException(400, str(info["error"]))
             if body.vm not in {v["name"] for v in info["vms"]}:
                 raise HTTPException(400, f"No VirtualBox VM named {body.vm!r}.")
+        if body.mode == "vm_epc":
+            # the EPC parts catalogue: vm_pipeline.py --steps epc, then re-ingest
+            problem = importer_jobs.epc_problem(importer_jobs.find_extractor())
+            if problem:
+                raise HTTPException(400, problem)
+            try:
+                return jobs.start(Path(info["out_root"]) / "epc_extract", app.state.index_path,
+                                  "vm_epc", vm=body.vm)
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
+        if body.mode == "vm":
             steps = [s for s in body.steps.split(",") if s]
             if any(s not in ("docs", "applic", "vehicles", "images", "build") for s in steps):
                 raise HTTPException(400, f"unknown step in {body.steps!r}")
@@ -870,7 +930,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                                   "vm", vm=body.vm, steps=",".join(steps))
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
-        if body.mode in ("remove", "remove_wis"):
+        if body.mode in ("remove", "remove_wis", "remove_epc"):
             have = importer_jobs.manuals(app.state.index_path)
             if body.mode == "remove":
                 removable = {r["doc_id"] for g in ("lemon", "folder") for r in have[g]}
@@ -879,9 +939,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 unknown = [v for v in body.vehicles if v not in removable]
                 if unknown:
                     raise HTTPException(400, f"Not a removable manual: {unknown[0]} "
-                                             "(Mercedes WIS is removed as a whole)")
-            elif not have["wis"]["entries"]:
+                                             "(Mercedes WIS and EPC are removed as a whole)")
+            elif body.mode == "remove_wis" and not have["wis"]["entries"]:
                 raise HTTPException(400, "There is no Mercedes WIS data in the index.")
+            elif body.mode == "remove_epc" and not have["epc"]["entries"]:
+                raise HTTPException(400, "There is no Mercedes EPC data in the index.")
             try:
                 return jobs.start(Path("."), app.state.index_path, body.mode,
                                   only=body.vehicles if body.mode == "remove" else None,

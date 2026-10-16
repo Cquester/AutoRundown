@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS chunks(
     ord          INTEGER,
     title        TEXT,
     section_path TEXT,
-    body         TEXT
+    body         TEXT,
+    parts        INTEGER DEFAULT 0   -- 1: a parts catalogue's chunk, in parts_fts
 );
 CREATE INDEX IF NOT EXISTS chunks_page ON chunks(page_uid);
 CREATE INDEX IF NOT EXISTS chunks_doc ON chunks(doc_id);
@@ -103,12 +104,36 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     content='chunks', content_rowid='id', tokenize='porter unicode61'
 );
 
-CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+-- A parts catalogue (EPC) gets its own full-text index. BM25 statistics are
+-- index-wide, so 213k EPC chunks in chunks_fts shifted WIS rankings even for
+-- searches that never touch EPC (eval_wis: w204-c220cdi-glow-plugs gained a
+-- wrong-model page). In their own table they cannot. The triggers that route
+-- each chunk by `chunks.parts` are made in _migrate (FTS_TRIGGERS).
+CREATE VIRTUAL TABLE IF NOT EXISTS parts_fts USING fts5(
+    title, section_path, body,
+    content='chunks', content_rowid='id', tokenize='porter unicode61'
+);
+"""
+
+# Each chunk is indexed in exactly one FTS table, chosen by `chunks.parts`;
+# the delete triggers use the same flag, so removing a manual keeps both
+# tables consistent (an external-content FTS5 table must be told the old
+# values of exactly the rows it holds).
+FTS_TRIGGERS = """
+CREATE TRIGGER chunks_ai AFTER INSERT ON chunks WHEN new.parts IS NOT 1 BEGIN
     INSERT INTO chunks_fts(rowid, title, section_path, body)
     VALUES (new.id, new.title, new.section_path, new.body);
 END;
-CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+CREATE TRIGGER chunks_ad AFTER DELETE ON chunks WHEN old.parts IS NOT 1 BEGIN
     INSERT INTO chunks_fts(chunks_fts, rowid, title, section_path, body)
+    VALUES ('delete', old.id, old.title, old.section_path, old.body);
+END;
+CREATE TRIGGER chunks_ai_parts AFTER INSERT ON chunks WHEN new.parts = 1 BEGIN
+    INSERT INTO parts_fts(rowid, title, section_path, body)
+    VALUES (new.id, new.title, new.section_path, new.body);
+END;
+CREATE TRIGGER chunks_ad_parts AFTER DELETE ON chunks WHEN old.parts = 1 BEGIN
+    INSERT INTO parts_fts(parts_fts, rowid, title, section_path, body)
     VALUES ('delete', old.id, old.title, old.section_path, old.body);
 END;
 """
@@ -124,6 +149,9 @@ ADDED_COLUMNS = {
         "vehicle_types": "TEXT",
         "variants": "TEXT",      # JSON list, see VehicleRecord.variants
         "vin_codes": "TEXT",
+    },
+    "chunks": {
+        "parts": "INTEGER DEFAULT 0",  # see parts_fts
     },
     "pages": {
         "vehicle_types": "TEXT",
@@ -146,6 +174,38 @@ def _migrate(conn: sqlite3.Connection) -> None:
         for name, decl in columns.items():
             if name not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    _migrate_fts(conn)
+
+
+def _migrate_fts(conn: sqlite3.Connection) -> None:
+    """Install the routing triggers once; move parts chunks already indexed.
+
+    An index from before parts_fts has unconditional triggers and, if it ever
+    took a parts catalogue, those chunks in chunks_fts. Done once: afterwards
+    every trigger exists and this returns after one sqlite_master read.
+    """
+    have = {r[0]: r[1] or "" for r in conn.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type='trigger'")}
+    if "chunks_ai_parts" in have and "parts" in have.get("chunks_ai", ""):
+        return
+    with conn:
+        for name in ("chunks_ai", "chunks_ad", "chunks_ai_parts", "chunks_ad_parts"):
+            conn.execute(f"DROP TRIGGER IF EXISTS {name}")
+        for stmt in FTS_TRIGGERS.split("END;"):
+            if stmt.strip():
+                conn.execute(stmt + "END;")
+        # parts chunks indexed by the old triggers: out of chunks_fts, into parts_fts
+        conn.execute("""CREATE TEMP TABLE IF NOT EXISTS _move AS
+                        SELECT c.id FROM chunks c JOIN pages p ON p.page_uid = c.page_uid
+                        WHERE p.doc_type = 'parts' AND c.parts IS NOT 1""")
+        conn.execute("""INSERT INTO chunks_fts(chunks_fts, rowid, title, section_path, body)
+                        SELECT 'delete', id, title, section_path, body FROM chunks
+                        WHERE id IN (SELECT id FROM _move)""")
+        conn.execute("UPDATE chunks SET parts = 1 WHERE id IN (SELECT id FROM _move)")
+        conn.execute("""INSERT INTO parts_fts(rowid, title, section_path, body)
+                        SELECT id, title, section_path, body FROM chunks
+                        WHERE id IN (SELECT id FROM _move)""")
+        conn.execute("DROP TABLE _move")
 
 
 def connect(path: str | Path, setup: bool = True) -> sqlite3.Connection:
@@ -282,13 +342,14 @@ def add_page(conn: sqlite3.Connection, page: PageRecord) -> int:
     if canonical:
         return 0  # duplicate of an already-chunked page
 
+    parts = 1 if page.doc_type == "parts" else 0     # -> parts_fts, see SCHEMA
     rows = [
-        (uid, page.doc_id, n, page.title, section, body)
+        (uid, page.doc_id, n, page.title, section, body, parts)
         for n, body in enumerate(chunk_text(page.text))
     ]
     conn.executemany(
-        """INSERT INTO chunks (page_uid, doc_id, ord, title, section_path, body)
-           VALUES (?,?,?,?,?,?)""", rows)
+        """INSERT INTO chunks (page_uid, doc_id, ord, title, section_path, body, parts)
+           VALUES (?,?,?,?,?,?,?)""", rows)
     return len(rows)
 
 
@@ -403,8 +464,61 @@ def recent_usage(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
 
 
 def vehicles(conn: sqlite3.Connection) -> list[dict]:
-    return [dict(r) for r in conn.execute(
-        "SELECT * FROM vehicles ORDER BY year_range, make, model")]
+    return link_sources([dict(r) for r in conn.execute(
+        "SELECT * FROM vehicles ORDER BY year_range, make, model")])
+
+
+def _maker(v: dict) -> str:
+    # "mercedes-wis-virtualbox", "mercedes-epc" -> "mercedes"
+    return (v.get("source_name") or "").split("-")[0]
+
+
+def link_sources(rows: list[dict]) -> list[dict]:
+    """Join a parts catalogue's vehicles to the manual's cars of the same series.
+
+    Each source builds its own vehicles, so EPC's W210 parts would be a second
+    "W210" beside the WIS one, and the W210 a shop picks would never search
+    them. The join is made here, at query time, so each source stays
+    independently rebuildable and removable:
+
+    - a manual vehicle gets `joined_ids`: the parts vehicles of the same maker
+      and `model_code` ("210", or an engine bucket "E112");
+    - a car gets `engine_joins`: engine family -> parts engine buckets, for
+      every engine its variants use, so its engines' parts are reachable even
+      when the manual has no bucket for that engine;
+    - a parts vehicle that a manual vehicle covers gets `joined_into` and is
+      left out of the picker (`/api/vehicles`). One with no manual counterpart
+      stays listed on its own.
+
+    Only `doc_type == "parts"` vehicles are ever joined in: a manual is never
+    mixed into another manual's scope (two languages of WIS share codes).
+    """
+    for v in rows:
+        v["joined_ids"], v["joined_into"], v["engine_joins"] = [], "", {}
+    parts: dict[tuple[str, str], list[dict]] = {}
+    for v in rows:
+        code = (v.get("model_code") or "").strip()
+        if code and v.get("doc_type") == "parts":
+            parts.setdefault((_maker(v), code), []).append(v)
+    if not parts:
+        return rows
+    for v in rows:
+        if v.get("doc_type") == "parts":
+            continue
+        maker, code = _maker(v), (v.get("model_code") or "").strip()
+        for p in parts.get((maker, code), []) if code else []:
+            v["joined_ids"].append(p["doc_id"])
+            p["joined_into"] = p["joined_into"] or v["doc_id"]
+        try:
+            variants = json.loads(v.get("variants") or "[]")
+        except ValueError:
+            variants = []
+        for fam in sorted({str(e)[:3] for x in variants for e in x.get("engines", [])
+                           if str(e)[:3].isdigit()}):
+            ids = [p["doc_id"] for p in parts.get((maker, "E" + fam), [])]
+            if ids:
+                v["engine_joins"][fam] = ids
+    return rows
 
 
 def stats(conn: sqlite3.Connection) -> dict:

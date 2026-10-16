@@ -24,6 +24,7 @@ broke:
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
+| the EPC parts source — `extractor/pull_epc.js`, `epc_fv4.js`, the EPC↔WIS join (`index.link_sources`) (not in the live index yet) | [`docs/notes/epc-source.md`](docs/notes/epc-source.md) |
 
 ---
 
@@ -132,6 +133,7 @@ python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
+python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~45 s, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
@@ -304,6 +306,34 @@ collapsed ("2 values for other engines or models — not your car, hidden");
 if nothing else is left the answer becomes not-found. Tests in
 `tests/test_records.py` ("answers keep only the chosen car's values"). **Not yet
 tried on a paid answer.**
+
+**A parts catalogue is joined into the manual's car at query time, and
+its page numbers are prefixed** (2026-10-14). EPC builds its own vehicles;
+`index.link_sources` gives a WIS car the EPC vehicles of the same
+`model_code` (`joined_ids`) and the EPC engine buckets of its variants'
+engines (`engine_joins`), and `scope_ids` adds them after the car's own
+engine buckets, searched as a separate group appended after the manual's
+results (the manual's top N never changes) and held in their own FTS
+table (`parts_fts`; BM25 statistics are index-wide, and in `chunks_fts`
+EPC shifted WIS rankings even with no join); the joined EPC vehicle is
+left out of `/api/vehicles`.
+Only `doc_type "parts"` vehicles are ever joined in. **EPC page numbers
+are `P<dok_id>`** (`SOURCE_PAGE_STYLE` / manifest `page_no_prefix`):
+page_no is the citation key, and an unprefixed EPC number could equal a
+WIS DokID and verify a citation against the wrong page. Do not drop the
+prefix. Tests: `tests/test_epc_join.py`. Details: `epc-source.md`.
+
+**Parts the answer left out are added, checked after the model**
+(2026-10-15). Two paid answers gave only the pencil-type glow plug for a
+C 220 CDI and left out the standard one (A 001 159 66 01, "all models")
+that the passage showed -- the second despite a prompt line to list every
+current number. `query._add_omitted_parts()`, like the two checks above:
+on parts pages the answer cites, every current line (no "replaced by")
+that fits the chosen car ("all models", or its exact model/engine code)
+and is not named in the answer is added as a spec citing that page, said
+in `caveats`, and listed in `added_parts`. Only when a car or engine is
+chosen. Tests: `tests/test_citations.py`, and end to end through the fake
+API (`fake:onepart`) in `tests/test_epc_join.py`.
 
 **Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert
 units; one entry per fastener; a conflict is only *same unit, different

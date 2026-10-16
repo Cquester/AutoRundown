@@ -128,5 +128,72 @@ a = answer(specs=[spec("Caliper bolt", ["12"])], source_pages=["12"])
 _verify_citations(a, [])
 check("empty retrieval withholds", not a.found and not a.specs, f"{a}")
 
+# 10. parts: current numbers that fit this car and that the answer left out
+# are added (query._add_omitted_parts). The passage is the real OM651 glow plug
+# snippet; the answer is the one Haiku gave (2026-10-15), without 66 01.
+from autorundown.query import _add_omitted_parts  # noqa: E402
+
+GLOW = "\n".join([
+    "Parts: engine 651 (EPC catalog 69L), group 15 / subgroup 105",
+    "Callout | Part number | Name | Fits | Notes",
+    "(lines of this page matching: glow, plug)",
+    "005 | A 001 159 58 01 (A0011595801, 0011595801) | GLOW PLUG | qty 4: 651.911, 651.912, 651.925 | replaced by A 001 159 66 01 (A0011596601, 0011596601)",
+    "005 | A 001 159 66 01 (A0011596601, 0011596601) | GLOW PLUG | qty 4, all models | ",
+    "005 | A 001 159 73 01 (A0011597301, 0011597301) | PENCIL-TYPE GLOW PLUG | qty 4: 651.911, 651.912, 651.916 | replaced by A 001 159 80 01 (A0011598001, 0011598001); fn 003: up to engine 32946334 (change date 2015-06-11)",
+    "005 | A 001 159 80 01 (A0011598001, 0011598001) | PENCIL-TYPE GLOW PLUG | qty 4: 651.911, 651.912, 651.916 | ",
+    "006 | A 001 159 99 01 (A0011599901, 0011599901) | GLOW PLUG, HIGH OUTPUT | qty 4: 651.960 | ",
+])
+PARTS = [{"page_no": "P48608", "doc_type": "parts", "body": GLOW, "images": ""},
+         {"page_no": "P9", "doc_type": "parts", "images": "",
+          "body": "Callout | Part number | Name | Fits | Notes\n"
+                  "001 | A 642 159 01 01 (A6421590101, 6421590101) | GLOW PLUG | qty 6, all models | "}]
+
+
+class _Scope(list):
+    def __init__(self, codes=((), ()), engines=()):
+        super().__init__()
+        self.codes, self.engines = codes, engines
+
+
+C220 = _Scope(codes=(("204.008",), ("651.911",)), engines=("651",))
+
+
+def pencil_answer(**kw) -> AnswerModel:
+    base = {"found": True, "answer": "It is A 001 159 80 01 (pencil-type), qty 4.",
+            "document_page": "P48608", "source_pages": ["P48608"],
+            "specs": [{"name": "Glow plug", "value": "A 001 159 80 01 (A0011598001)",
+                       "applicability": "651.911", "source_pages": ["P48608"]}]}
+    base.update(kw)
+    return AnswerModel.model_validate(base)
+
+
+a = pencil_answer()
+added = _add_omitted_parts(a, PARTS, C220)
+check("the omitted standard plug 66 01 is added", [x["value"] for x in added]
+      == ["A 001 159 66 01 (A0011596601)"], f"{added}")
+check("... as a spec citing the page it is on",
+      a.specs[-1].source_pages == ["P48608"] and "also listed for this car" in a.specs[-1].name, f"{a.specs}")
+check("... and said in caveats", "A 001 159 66 01" in a.caveats, a.caveats)
+check("superseded numbers (58 01, 73 01) are not added",
+      not any(x in str(added) for x in ("A0011595801", "A0011597301")), f"{added}")
+check("another engine variant's part (651.960 only) is not added", "A0011599901" not in str(added), f"{added}")
+check("a parts page the answer does not cite is not mined", "A6421590101" not in str(added), f"{added}")
+dropped = _verify_citations(a, PARTS)
+check("the added spec survives the citation check", not dropped and len(a.specs) == 2, f"{dropped}")
+
+a = pencil_answer(answer="A 001 159 80 01 or the standard A 001 159 66 01, qty 4.")
+check("nothing added when the answer already names it (spaced)", _add_omitted_parts(a, PARTS, C220) == [])
+a = pencil_answer(caveats="Also 0011596601.")
+check("... or names it as bare digits", _add_omitted_parts(a, PARTS, C220) == [])
+a = pencil_answer()
+check("nothing added with no car or engine chosen", _add_omitted_parts(a, PARTS, _Scope()) == [])
+a = pencil_answer()
+only_engine = _Scope(engines=("651",))
+got = [x["value"] for x in _add_omitted_parts(a, PARTS, only_engine)]
+check("only an engine chosen: its variants' parts count (66 01 and 99 01)",
+      got == ["A 001 159 66 01 (A0011596601)", "A 001 159 99 01 (A0011599901)"], f"{got}")
+a = pencil_answer(found=False, answer="", specs=[], source_pages=[], document_page="")
+check("a not-found answer gets nothing added", _add_omitted_parts(a, PARTS, C220) == [])
+
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

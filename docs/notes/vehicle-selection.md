@@ -300,8 +300,8 @@ number means nothing. Names are as stored: `Verkaufsbezeichnung` is char(18),
 so some arrive clipped ("300 SD, S 350 Turb").
 
 **A search scope is a set of doc_ids, not one.** `search.scope_ids(vehicle,
-variant)` returns the selected vehicle, then its engine buckets, then the
-general pool (`general_doc_id`). **The core property is intact** — each query
+variant)` returns the selected vehicle, then its engine buckets, then any
+joined parts catalogue buckets, then the general pool (`general_doc_id`). **The core property is intact** — each query
 is still filtered to one doc_id before ranking; the scope only decides which
 doc_ids are queried, so a wrong-model spec is still never a candidate.
 
@@ -311,8 +311,28 @@ universal.
 
 **Duplicates are removed by `page_no`, not `page_uid`.** A document naming
 both a model and an engine is filed in both buckets, so a scope holding both
-would show it twice. A scope never mixes sources, so `page_no` (the WIS
-DokID) is unique within it.
+would show it twice. `page_no` is unique within a scope: the one source
+joined into another's scope -- the EPC parts catalogue, see below --
+prefixes its page numbers (`P123`), so they never equal a WIS DokID.
+
+**A parts catalogue joins the manual's car (2026-10-14).**
+`index.vehicles()` runs `link_sources()`: a manual vehicle gets
+`joined_ids` (the `doc_type "parts"` vehicles of the same maker and
+`model_code`, "210" or an engine bucket "E112") and `engine_joins`
+(engine family -> parts engine buckets, for every engine its variants
+use, whether or not WIS has a bucket for that engine). `scope_ids` adds
+them after the car's own engine buckets (named in `Scope.parts`); `search`
+ranks them as a separate group appended after the manual's results, so
+the manual's top N is unchanged (`parts_slots`, `PARTS_CAP`). A variant
+or engine choice narrows the parts engine buckets exactly as it narrows
+the WIS ones. Parts chunks live in their own full-text table (`parts_fts`)
+so their BM25 statistics never shift the manual's rankings. A
+joined parts vehicle carries `joined_into` and is not listed by
+`/api/vehicles` (lookups by doc_id still find it); one with no manual
+counterpart is listed on its own. `/api/image` falls back to a joined
+corpus's `images/` for a name the car's own corpus lacks, because the UI
+asks for every image through the selected car. A manual is never joined
+into another manual. `tests/test_epc_join.py`.
 
 **Results are interleaved, and the round is ordered by score.** The general
 bucket is far larger, so ranking the two together would bury the model's own

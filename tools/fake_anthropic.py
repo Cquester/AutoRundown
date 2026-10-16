@@ -26,6 +26,7 @@ model only takes now and then:
     fake:error      HTTP 529 overloaded
     fake:nocredit   HTTP 400 "credit balance is too low"
     fake:slow       waits 8 s before answering
+    fake:onepart    cites a parts page but gives only one of its current part numbers
 
 The request is checked like the real API checks it: `thinking` or an
 `effort` on a model that doesn't take them is a 400 (query.MODELS).
@@ -105,6 +106,20 @@ def answer(prompt: str) -> dict:
         return {"found": True, "answer": "[fake API] A procedure citing an invented page.",
                 "steps": ["Remove the wheel.", "Remove the caliper."],
                 "source_pages": ["999999"], "document_page": "999999"}
+    if "fake:onepart" in q:
+        # what a real answer did (2026-10-15): cite a parts page and give only
+        # one of the current part numbers that fit, leaving the others out
+        parts = [p for p in ps if p["title"].startswith("(parts catalogue)")]
+        for p in parts:
+            for line in p["text"].splitlines():
+                m = re.match(r"^[^|]*\|\s*([A-Z] [0-9 ]+?)\s*\(([A-Z][0-9]+)[^)]*\)\s*\|\s*([^|]*)\|\s*([^|]*)\|(.*)$", line)
+                if m and "replaced by" not in m.group(5):
+                    return {"found": True, "answer": f"[fake API] The part is {m.group(1)}.",
+                            "document_page": p["page"], "source_pages": [p["page"]],
+                            "specs": [{"name": m.group(3).strip(), "value": m.group(1).strip(),
+                                       "applicability": m.group(4).strip(), "source_pages": [p["page"]]}],
+                            "steps": [], "figures": [], "caveats": ""}
+        return {"found": False, "answer": "", "caveats": "[fake API] No parts page."}
     qw = words(q)
     best = max(ps, key=lambda p: (len(qw & words(p["title"])) * 3
                                   + len(qw & words(p["text"])) + bool(specs_on(p))))

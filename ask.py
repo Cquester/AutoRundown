@@ -43,7 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     conn = index.connect(args.index)
-    vehicles = index.vehicles(conn)
+    # a parts catalogue joined into a manual's car is searched through that car
+    vehicles = [v for v in index.vehicles(conn) if not v.get("joined_into")]
 
     if args.usage:
         s = index.usage_summary(conn)

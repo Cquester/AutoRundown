@@ -105,11 +105,16 @@ def _filters(include_other_variants: bool, engines: tuple[str, ...] = (),
     return variant_clause + type_clause, type_args, boost_sql, boost_args
 
 
+FTS_TABLES = ("chunks_fts", "parts_fts")   # see index.SCHEMA: parts in their own
+
+
 def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
          include_other_variants: bool, types: str = "",
-         engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> list[dict]:
+         engines: tuple[str, ...] = (), codes: tuple = ((), ()),
+         fts: str = "chunks_fts") -> list[dict]:
     if not match:
         return []
+    assert fts in FTS_TABLES
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
     tclause, targs = _types_clause(types)
     if tclause:
@@ -118,11 +123,11 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
     sql = f"""
         SELECT c.page_uid, c.doc_id, c.ord, c.title, c.section_path, c.body,
                p.page_no, p.system, p.doc_type, p.images, p.applicability,
-               bm25(chunks_fts, ?, ?, ?){boost_sql} AS score
-        FROM chunks_fts
-        JOIN chunks c ON c.id = chunks_fts.rowid
+               bm25({fts}, ?, ?, ?){boost_sql} AS score
+        FROM {fts}
+        JOIN chunks c ON c.id = {fts}.rowid
         JOIN pages  p ON p.page_uid = c.page_uid
-        WHERE chunks_fts MATCH ? AND c.doc_id = ?{where}
+        WHERE {fts} MATCH ? AND c.doc_id = ?{where}
         ORDER BY score
         LIMIT ?
     """
@@ -136,7 +141,8 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
 
 def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: int,
                include_other_variants: bool, types: str = "", general: str = "",
-               engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> dict[str, list[dict]]:
+               engines: tuple[str, ...] = (), codes: tuple = ((), ()),
+               fts: str = "chunks_fts") -> dict[str, list[dict]]:
     """`_run` for several doc_ids at once: the best `limit` rows of each.
 
     FTS5 finds and scores every match in the whole index before the doc_id
@@ -148,6 +154,7 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
     """
     if not match or not doc_ids:
         return {}
+    assert fts in FTS_TABLES
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
     tclause, targs = _types_clause(types)
     if tclause and general in doc_ids:
@@ -160,11 +167,11 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
             FROM (
                 SELECT c.page_uid, c.doc_id, c.ord, c.title, c.section_path, c.body,
                        p.page_no, p.system, p.doc_type, p.images, p.applicability,
-                       bm25(chunks_fts, ?, ?, ?){boost_sql} AS score
-                FROM chunks_fts
-                JOIN chunks c ON c.id = chunks_fts.rowid
+                       bm25({fts}, ?, ?, ?){boost_sql} AS score
+                FROM {fts}
+                JOIN chunks c ON c.id = {fts}.rowid
                 JOIN pages  p ON p.page_uid = c.page_uid
-                WHERE chunks_fts MATCH ? AND c.doc_id IN ({marks}){where}
+                WHERE {fts} MATCH ? AND c.doc_id IN ({marks}){where}
             ) x
         ) WHERE rn <= ?
         ORDER BY doc_id, score
@@ -183,16 +190,17 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
 
 def _search_scope(conn: sqlite3.Connection, doc_ids: list[str], query: str, limit: int,
                   include_other_variants: bool, types: str = "", general: str = "",
-                  engines: tuple[str, ...] = (), codes: tuple = ((), ())) -> list[list[dict]]:
+                  engines: tuple[str, ...] = (), codes: tuple = ((), ()),
+                  fts: str = "chunks_fts") -> list[list[dict]]:
     """`_search_one` for every doc_id of a scope, in two statements: AND
     first, then OR only for the doc_ids that came up short. Returns the lists
     in `doc_ids` order, exactly as one `_search_one` per doc_id would."""
     lists = _run_scope(conn, doc_ids, build_match(query, "and"), limit,
-                       include_other_variants, types, general, engines, codes)
+                       include_other_variants, types, general, engines, codes, fts)
     short = [d for d in doc_ids if len(lists.get(d, [])) < limit]
     if short:
         more = _run_scope(conn, short, build_match(query, "or"), limit * 2,
-                          include_other_variants, types, general, engines, codes)
+                          include_other_variants, types, general, engines, codes, fts)
         for d in short:
             results = lists.setdefault(d, [])
             seen = {r["page_uid"] + str(r["ord"]) for r in results}
@@ -226,6 +234,167 @@ class Scope(list):
     general: str = ""
     engines: tuple = ()     # engine families chosen ("272",); () = any
     codes: tuple = ((), ())  # (model codes, engine codes) of the chosen car
+    parts: tuple = ()       # joined parts catalogue doc_ids (EPC); searched apart
+
+
+# Joined parts catalogues are searched as their own group and their results
+# appended after the manual's, so the manual's top N is exactly what it is
+# without them. Interleaved, the extra buckets cost manual pages a rank or two
+# (eval_wis on WIS + EPC: W124 brake pads 5 -> 7, W211 manual trans 6 -> 7).
+def parts_slots(limit: int) -> int:
+    return max(2, limit // 4)
+
+
+PARTS_CAP = 4   # parts passages added to an answer's context (Ask)
+_CATALOG_RE = re.compile(r"\(EPC catalog [^)]*\)")
+_TABLE_RE = re.compile(r"^(?:Callout|Item) \| Part number \|")
+# words on every parts line, so they select nothing
+_PARTS_STOP = {"part", "parts", "number", "numbers", "no", "pn", "replacement",
+               "replace", "order", "ordering", "catalogue", "catalog", "epc"}
+SNIPPET_MAX = 4000
+
+
+def split_scope(scope) -> tuple["Scope", "Scope"]:
+    """(the manual's part, the parts catalogue's part) of a scope, each with
+    the same narrowing, for the UI's Workshop and Parts tabs."""
+    ids = as_ids(scope)
+    parts = [i for i in getattr(scope, "parts", ()) if i in ids]
+    manual = Scope(i for i in ids if i not in parts)
+    only = Scope(parts)
+    for s in (manual, only):
+        s.types, s.general = getattr(scope, "types", ""), getattr(scope, "general", "")
+        s.engines, s.codes = getattr(scope, "engines", ()), getattr(scope, "codes", ((), ()))
+    only.parts = tuple(parts)
+    if only.general not in only:
+        only.general = ""
+    return manual, only
+
+
+# Values a mechanic looks up by kind -- the Torque specs and Capacities tabs
+# list the lines of the car's own manual pages that print one.
+VALUE_RES = {
+    # "25 Nm", "50-60 Nm", "18 lb-ft", and WIS's own tables: "Stage 2 Nm 50"
+    "torque": re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:-\s*\d+(?:[.,]\d+)?\s*)?"
+                         r"(?:N\s?·?\s?m|Nm|lb[.\- ]?ft|ft[.\- ]?lbs?|lb[.\- ]?in|in[.\- ]?lbs?)\b"
+                         r"|\bNm\s+\d+(?:[.,]\d+)?\b", re.I),
+    # "6.5 l", "1,2 L", "5 liters", "6 qts" -- a bare "L" only after a decimal:
+    # "Model 218 L" is a long-wheelbase model, not a volume -- and WIS's own
+    # tables: "Engine oil Capacity (oil and filter change) Liter 6,5 7,0".
+    # [\s\xa0\xc2]: some pages still carry "5\xc2\xa0l" from a double decode
+    "capacity": re.compile(r"\b\d+[.,]\d+[\s\xa0\xc2]*[lL]\b"
+                           r"|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:ltr|litres?|liters?|qts?|quarts?|ml|cm3|gal)\b"
+                           r"|\b(?:liters?|litres?|ltr|qts?|quarts?)[\s\xa0\xc2]+\d+(?:[.,]\d+)?\b"
+                           r"|(?-i:\b\d+[\s\xa0\xc2]*l\b)", re.I),   # "5 l": lowercase only
+}
+
+
+def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
+                cap: int = 8, other_engine=None) -> list[str]:
+    """The lines of one page that print a value of `kind` and name one of
+    the question's words. Text only; the page itself is one click away.
+
+    `other_engine(line)` is True for a line that names only other engines or
+    models than the chosen car's (query.mentioned_codes, as the answer check
+    uses): WIS tables print a row per engine ("Engine 612.962/967 Glow plug to
+    cylinder head Stage 1 Nm 20"), and a 651's tab must not list a 612's
+    value."""
+    rx = VALUE_RES[kind]
+    row = conn.execute("SELECT title, text FROM pages WHERE page_uid=?", (page_uid,)).fetchone()
+    if not row:
+        return []
+    terms = [t[:-1] if len(t) > 3 and t.endswith("s") else t for t in tokenize(query)
+             if t not in ("torque", "torques", "tightening", "capacity", "capacities",
+                          "specs", "spec", "specification", "specifications")]
+
+    def is_value(line: str) -> bool:
+        if rx.search(line):
+            return True
+        # WIS puts the unit in a header ("Oil capactiy in liters") and prints
+        # bare numbers in the rows: "Capacity of engine when changing oil and
+        # filter 5.0"
+        return kind == "capacity" and bool(_CAP_ROW_RE.search(line)) and bool(_DECIMAL_RE.search(line))
+
+    lines = []
+    for raw in (row[1] or "").split("\n"):
+        line = " ".join(raw.split())
+        if not line or line.startswith(("Applies to:", "Noted in the manual:", "Validity:",
+                                        "Diagram labels:", "Figures:", "Refer to:")):
+            continue
+        if is_value(line) and line not in lines and not (other_engine and other_engine(line)):
+            lines.append(line)
+    # only the lines about what was asked: "glow plug" also found the
+    # transmission oil-change page through its "torque converter" lines. A
+    # page whose title names it keeps all its lines ("coolant" -> "Draining,
+    # filling coolant", whose rows say "cooling system").
+    if terms and not any(t in (row[0] or "").lower() for t in terms):
+        lines = [l for l in lines if any(t in l.lower() for t in terms)]
+    return lines[:cap]
+
+
+_CAP_ROW_RE = re.compile(r"capa(?:c|ct)i?t?i?y|capacit|filling|fill(?:ing)? quantit", re.I)
+# a volume, not a model or engine code ("201.024", "102.983"): at most two
+# digits before the point
+_DECIMAL_RE = re.compile(r"(?<![\d.,])\d{1,2}[.,]\d{1,2}\b(?![.,]?\d)")
+
+
+def part_lines(snippet: str) -> list[str]:
+    """The part lines of a parts snippet (`_parts_snippet`), without its header."""
+    out, on = [], False
+    for line in snippet.split("\n"):
+        if line.startswith("(lines of this page matching"):
+            on = True
+            continue
+        if on and line and line != "Footnotes:" and "|" in line:
+            out.append(line)
+    if not on:     # no line matched: the chunk itself, table rows only
+        out = [l for l in snippet.split("\n") if l.count("|") >= 4
+               and not l.startswith(("Callout |", "Item |"))]
+    return out
+
+
+def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str) -> str:
+    """A parts page as an answer should see it: the header, then every line
+    of the page that names what was asked, with its footnotes.
+
+    A parts page is indexed in ~2,400-character chunks and BM25 picks the
+    chunk that says the words most often, which on a parts page is not the
+    part asked for: "glow plug" on the OM651 page ranked the wiring-harness
+    chunk ("GLOW PLUGS WIRING HARNESS" x8) over the one holding the four glow
+    plug lines. Lines are self-contained (number, name, fits, footnotes), so
+    the matching lines are the useful passage. Same page, same page_no: the
+    citation is unchanged. Falls back to the chunk when no line matches.
+    """
+    page = conn.execute("SELECT text FROM pages WHERE page_uid=?", (row["page_uid"],)).fetchone()
+    if not page:
+        return row["body"]
+    lines = (page[0] or "").split("\n")
+    start = next((i for i, l in enumerate(lines) if _TABLE_RE.match(l)), None)
+    if start is None:
+        return row["body"]
+    head = [l for l in lines[:start + 1]
+            if l.strip() and not l.startswith(("Applies to:", "Noted in the manual:"))]
+    end = next((i for i, l in enumerate(lines) if l == "Footnotes:"), len(lines))
+    table, notes = lines[start + 1:end], lines[end + 1:]
+    terms = [t[:-1] if len(t) > 3 and t.endswith("s") else t
+             for t in tokenize(query) if t not in _PARTS_STOP]
+    if not terms:
+        return row["body"]
+    low = [l.lower() for l in table]
+    hit = [table[i] for i, l in enumerate(low) if all(t in l for t in terms)] or \
+          [table[i] for i, l in enumerate(low) if any(t in l for t in terms)]
+    if not hit:
+        return row["body"]
+    # long footnotes listed at the end of the page, for the lines kept
+    cited = {m for l in hit for m in re.findall(r"fn (\d{3})", l)}
+    notes = [n for n in notes if re.match(r"fn (\d{3}):", n) and n[3:6] in cited]
+    out, size = head + [f"(lines of this page matching: {', '.join(terms)})"], 0
+    for l in hit + (["Footnotes:"] + notes if notes else []):
+        size += len(l) + 1
+        if size > SNIPPET_MAX:
+            out.append("... (more matching lines on the page)")
+            break
+        out.append(l)
+    return "\n".join(out)
 
 
 def scope_ids(vehicle: dict, variant: int | None = None,
@@ -276,6 +445,28 @@ def scope_ids(vehicle: dict, variant: int | None = None,
                 continue
             if eid not in scope:
                 scope.append(eid)
+    # A parts catalogue of another source (EPC with WIS), joined by
+    # index.link_sources: the series' parts, then the parts of the chosen
+    # engines -- the same engine choice narrows them. Each is still its own
+    # doc_id, filtered in SQL before ranking like every other bucket, and its
+    # page numbers are prefixed ("P123"), so no citation can cross sources.
+    # They stay in the list (a cited parts page must open through the car) and
+    # are named in `scope.parts`, which `search` ranks as a separate group.
+    # a parts vehicle chosen on its own (an EPC series with no WIS car)
+    parts: list[str] = [vehicle["doc_id"]] if vehicle.get("doc_type") == "parts" else []
+    for pid in vehicle.get("joined_ids") or []:
+        if pid not in scope:
+            scope.append(pid)
+            parts.append(pid)
+    joins = vehicle.get("engine_joins") or {}
+    for fam in sorted({str(e)[:3] for v in chosen for e in v.get("engines", [])}):
+        if fams and fam not in fams:
+            continue
+        for pid in joins.get(fam, []):
+            if pid not in scope:
+                scope.append(pid)
+                parts.append(pid)
+    scope.parts = tuple(parts)
     general = (vehicle.get("general_doc_id") or "").strip()
     if general and general not in scope:
         scope.append(general)
@@ -343,8 +534,9 @@ def _interleave(ranked_lists: Sequence[list[dict]], cap: int,
         for row in round_rows:
             # by page_no, not page_uid: a WIS document naming both a model and
             # an engine is filed in both buckets, and a scope holding both
-            # must show it once. A scope never mixes sources, so page_no is
-            # unique within it.
+            # must show it once. page_no is unique within a scope: the one
+            # source joined into another's scope (a parts catalogue) prefixes
+            # its page numbers ("P123"), see importers/records.py.
             key = f"{row['page_no']}#{row['ord']}"
             if key in seen:
                 continue
@@ -376,6 +568,42 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
     general = getattr(doc_ids, "general", "")
     engines = getattr(doc_ids, "engines", ())
     codes = getattr(doc_ids, "codes", ((), ()))
+    parts = [i for i in getattr(doc_ids, "parts", ()) if i in ids]
+    if parts:
+        # the manual exactly as without a parts catalogue, then the parts
+        # (see parts_slots), each row marked so callers can keep them apart
+        manual = Scope(i for i in ids if i not in parts)
+        manual.types, manual.general = types, general     # same narrowing as before
+        manual.engines, manual.codes = engines, codes
+        head = search(conn, manual, query, limit, include_other_variants) if manual else []
+        # A series has one EPC catalog per market and period (the W124: 4,178
+        # parts pages, 582 distinct titles), so the same subgroup comes back
+        # several times; one per title, over-fetched to fill the slots.
+        k = parts_slots(limit) if manual else limit   # a parts car on its own: all of it
+        tail, titles = [], set()
+        # Best score first across the parts buckets, not round-robin: they
+        # answer the same query in one FTS table, so scores compare, and a
+        # whole-series scope has ~10 engine buckets -- one slot each per round
+        # gave the W203's second slot to an engine bucket's weak OR match (a
+        # camshaft bolt for "brake pad") over its own FRONT WHEEL BRAKE page.
+        ranked = sorted((r for rows in _search_scope(
+                            conn, parts, query, k * 12, include_other_variants,
+                            "", "", engines, codes, fts="parts_fts") for r in rows),
+                        key=lambda r: r["score"])
+        for r in ranked:
+            key = _CATALOG_RE.sub("", r.get("title") or "")
+            if key in titles:
+                continue
+            titles.add(key)
+            r["parts"] = True
+            r["body"] = _parts_snippet(conn, r, query)
+            # the body is now the page's lines, not chunk `ord`: one passage per
+            # page (several Ask queries found the same page under three chunks)
+            r["ord"] = 0
+            tail.append(r)
+            if len(tail) == k:
+                break
+        return head + tail
     if len(ids) == 1:
         return _search_one(conn, ids[0], query, limit, include_other_variants,
                            engines=engines, codes=codes)
@@ -398,10 +626,14 @@ def multi_search(conn: sqlite3.Connection, doc_ids: str | Iterable[str],
     context, while ranking still orders within each query.
     """
     ranked_lists: list[list[dict]] = []
+    parts_lists: list[list[dict]] = []
     for q in queries:
         rows = search(conn, doc_ids, q, per_query, include_other_variants)
-        ranked_lists.append(sorted(rows, key=lambda r: r["score"]))
-    return _interleave(ranked_lists, cap)
+        ranked_lists.append(sorted((r for r in rows if not r.get("parts")),
+                                   key=lambda r: r["score"]))
+        parts_lists.append([r for r in rows if r.get("parts")])
+    # a joined parts catalogue gets its own small share after the manual's
+    return _interleave(ranked_lists, cap) + _interleave(parts_lists, PARTS_CAP)
 
 
 def get_page(conn: sqlite3.Connection, doc_ids: str | Iterable[str],

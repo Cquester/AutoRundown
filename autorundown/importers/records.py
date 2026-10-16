@@ -45,7 +45,11 @@ SUPPORTED_SCHEMA_MAJOR = "1"
 
 # The source_type in the manifest is a stable adapter id; the make is the only
 # knowledge this side has to hold, and only for display.
-SOURCE_MAKES = {"mercedes-wis-virtualbox": "Mercedes-Benz"}
+SOURCE_MAKES = {"mercedes-wis-virtualbox": "Mercedes-Benz",
+                "mercedes-epc": "Mercedes-Benz"}
+# (page_no prefix, doc_type) of a source joined into another's search scope
+# (index.link_sources); the manifest may say so itself. See _page_style.
+SOURCE_PAGE_STYLE = {"mercedes-epc": ("P", "parts")}
 
 # Mercedes' own vehicle type (FzgArt, via variants.jsonl) -> the Make shown in
 # the picker. WIS covers cars, vans, trucks, buses and Unimogs in one corpus;
@@ -68,6 +72,8 @@ DIVISION_MAKES = {"car": "Mercedes-Benz", "commercial": "Mercedes-Benz Commercia
 # picker's years come from this table. A series with no entry gets no year and
 # is shown under every year -- never hidden. Add a row when a model is added.
 SOURCE_YEARS = {"mercedes-wis-virtualbox":
+                Path(__file__).parent / "data" / "mercedes_years.csv",
+                "mercedes-epc":
                 Path(__file__).parent / "data" / "mercedes_years.csv"}
 
 
@@ -752,6 +758,8 @@ class RecordsImporter(Importer):
         self._plan: dict[str, tuple[Path, array | None]] = {}
         # records.jsonl path -> the manifest's record_count, for the audit
         self._expected: dict[Path, int] = {}
+        # records.jsonl path -> (page_no prefix, page doc_type) from the manifest
+        self._page_style: dict[Path, tuple[str, str]] = {}
         # series in the corpus's models.jsonl; empty when there is none
         self._catalogue: set[str] = set()
         # whether this corpus's model_series links are trusted (see
@@ -858,6 +866,18 @@ class RecordsImporter(Importer):
             if manifest is None:
                 continue
             source = manifest.get("source_type") or "unknown-source"
+            # Page numbers are citation keys, unique only within a source.
+            # A source searched alongside another (EPC parts with WIS, see
+            # search.scope_ids) prefixes its own ("P123") so a cited number
+            # can never resolve to the other source's page. `doc_type`
+            # "parts" marks a parts catalogue for the answer model.
+            # A known source's style is the default, so a corpus whose manifest
+            # predates these fields still cannot collide.
+            dflt_prefix, dflt_type = SOURCE_PAGE_STYLE.get(source, ("", ""))
+            self._page_style[cdir / "records.jsonl"] = (
+                str(manifest.get("page_no_prefix") or dflt_prefix),
+                str(manifest.get("doc_type") or dflt_type))
+            corpus_type = str(manifest.get("doc_type") or dflt_type or "manual")
             lang = (manifest.get("language") or {}).get("iso") or "und"
             make = SOURCE_MAKES.get(source, "")
             base = f"{_slug(source)}-{_slug(lang)}"
@@ -941,8 +961,12 @@ class RecordsImporter(Importer):
                 car_engines = {e[:3] for s, vs in variants.items() if s not in skip
                                for v in vs for e in v.get("engines", [])}
                 skip |= engine_series - car_engines
-                skip |= {f for f in ids if is_engine_family(f)
-                         and f[len(ENGINE_PREFIX):] not in car_engines}
+                # A corpus with no variants (EPC) cannot say which cars use an
+                # engine, so it keeps its engine buckets: search.scope_ids
+                # reaches them from the cars of another source.
+                if variants:
+                    skip |= {f for f in ids if is_engine_family(f)
+                             and f[len(ENGINE_PREFIX):] not in car_engines}
                 print(f"  passenger vehicles only: leaving out "
                       f"{sum(1 for s in skip if s in ids)} commercial series and "
                       f"commercial-only engine buckets")
@@ -982,7 +1006,7 @@ class RecordsImporter(Importer):
                     # catalogue's span
                     year_range=(years.get(family, "") if years
                                 else year_range(entry)),
-                    doc_type="manual",
+                    doc_type=corpus_type,
                     page_count=len(offsets),
                     # the general bucket is nobody's companion, least of all
                     # its own
@@ -1247,6 +1271,7 @@ class RecordsImporter(Importer):
         # nothing, so it is counted and dropped. Since schema 1.3 most
         # figure-only records (wiring diagrams, tightening sequences, scanned
         # manual pages) carry converted graphics and become real pages.
+        prefix, page_type = self._page_style.get(path, ("", ""))
         images = record_images(rec, path.parent)
         if not (rec.get("body_text") or "").strip() and not images:
             self.skipped_empty += 1
@@ -1254,12 +1279,12 @@ class RecordsImporter(Importer):
 
         return PageRecord(
             doc_id=vehicle.doc_id,
-            page_no=str(rec.get("dok_id", "")),
+            page_no=prefix + str(rec.get("dok_id", "")),
             file_path=str(path),
             title=fix_mojibake((rec.get("title") or "").strip()),
             section_path=applicability(rec, self._catalogue, self._trust),
             system="",           # the corpus carries no system taxonomy
-            doc_type=_classify(rec.get("title", ""), rec.get("body_format", "")),
+            doc_type=page_type or _classify(rec.get("title", ""), rec.get("body_format", "")),
             text=_page_text(rec, self._catalogue, self._trust, images),
             # only files that exist under <corpus>/images/, which is where the
             # server looks (vehicle.file_path is the corpus dir) -- so a cited

@@ -372,9 +372,10 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   is known**: a variant's engines, narrowed by the car box's year-picked
   family (an E 350 that is M272 or M276 by year showed both before that fix).
   Only 359 English rows / 35 series.
-- **Labour times** (`/api/wis/labour`, `wis_links.labour_*`; a "Labour
-  times" button beside Option codes and a link in the scope note once a
-  variant is picked). WIS ships Mercedes' ASRA flat rates. The chain:
+- **Labour times** (`/api/wis/labour`, `wis_links.labour_*`; the "Labour
+  times" tab -- a dialog until 2026-10-15 -- opened by its tab, the button
+  beside Option codes or the link in the scope note once a variant is
+  picked). WIS ships Mercedes' ASRA flat rates. The chain:
   Baumuster (+ engine) -> `ASRA_Fahrzeug` -> family + type code ("book");
   a time is the row for the exact type code, else its group (`40` = 4x),
   else `00` -- never overlapping (all 478,402 operation x family cases);

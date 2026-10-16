@@ -73,6 +73,7 @@ import time
 from pathlib import Path
 
 from autorundown import config
+from autorundown.index import link_sources
 from autorundown.search import scope_ids, search
 
 PREFIX = "mercedes-wis-virtualbox-en-"
@@ -304,9 +305,36 @@ CASES: list[dict] = [
          #   MODEL 906; ENGINE 642 -- a Sprinter page, reachable only through
          #   the OM642 engine bucket.
          expect=["18088069"], forbid=["18090614"]),
+    # --- EPC parts joined into the WIS car (skipped without EPC in the index).
+    # Text, not page numbers: EPC page numbers follow the pull's dok_id order.
+    dict(id="epc-w124-part-number", series="124", query="A 000 420 99 20",
+         # "TS BRAKE PAD, PARTS KIT" on the W124 FRONT WHEEL BRAKE parts page
+         parts=True, expect_parts=True, expect_text=["A 000 420 99 20"]),
+    dict(id="epc-w203-brake-pads", series="203", query="brake pad",
+         # group 42 BRAKES / subgroup 030 FRONT WHEEL BRAKE, read by hand
+         parts=True, expect_parts=True, expect_text=["FRONT WHEEL BRAKE"]),
+    # engine parts, reached through the chosen variant's engines (read by hand
+    # 2026-10-15 on WIS + all 443 EPC catalogs)
+    dict(id="epc-w210-e320-oil-filter", series="210", variant=30, variant_name="E 320",
+         query="oil filter",
+         # M112 group 18 / 060: "TS OIL FILTER ELEMENT" A 000 180 26 09 (the
+         # current number; 31 09 is replaced by it). E 320 spans M104 and M112.
+         parts=True, expect_parts=True, expect_text=["A 000 180 26 09"]),
+    dict(id="epc-w201-2316-thermostat", series="201", variant=8,
+         variant_name="190 E 2.3 16", query="thermostat",
+         # M102 group 20 ENGINE COOLING SYSTEM (thermostat seal, housing cover)
+         parts=True, expect_parts=True, expect_text=["THERMOSTAT HOUSING COVER"]),
+    dict(id="epc-w204-c220cdi-glow-plugs", series="204", variant=22,
+         variant_name="C 220 CDI Lim.", query="glow plug",
+         # OM651 group 15 / 105: GLOW PLUG qty 4, A 001 159 66 01
+         parts=True, expect_parts=True, expect_text=["A 001 159 66 01"]),
+    dict(id="epc-w211-e320cdi-fuel-filter", series="211", variant=15,
+         variant_name="E 320 CDI", query="fuel filter",
+         # OM642 group 07 FUEL INJECTION / subgroup 110 FUEL FILTER, LINES
+         parts=True, expect_parts=True, expect_text=["FUEL FILTER, LINES"]),
 ]
 
-GUARDS = ("commercial", "wrong", "foreign")
+GUARDS =("commercial", "wrong", "foreign")
 CEILING_TOP = 10  # known-bad ceilings below were measured at --top 10
 
 # Why a guard is known-bad. Measured 2026-10-01; ceilings re-set on the schema 1.2
@@ -340,13 +368,23 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     ("w204-c220cdi-glow-plugs", "foreign"): (1, "general-engine+general-untied"),
     ("w211-e320cdi-manual-trans", "wrong"): (1, "general-untied"),
     ("w211-e320cdi-manual-trans", "foreign"): (1, "general-untied+engine-bucket"),
+    # WIS pages (brake-light switch, ME-SFI) via the whole-series engine
+    # buckets E111/E112/E113 -- not EPC results (measured 2026-10-14)
+    ("epc-w203-brake-pads", "foreign"): (3, "engine-bucket"),
+    # the part number's digits match an OM605 end-cover page loosely
+    ("epc-w124-part-number", "foreign"): (1, "engine-bucket"),
+    # WIS general-pool W207 pages (oil filter cover, transmission oil change),
+    # not EPC results (measured 2026-10-15, WIS + all 443 EPC catalogs)
+    ("epc-w210-e320-oil-filter", "wrong"): (1, "general-untied"),
+    ("epc-w210-e320-oil-filter", "foreign"): (1, "general-untied"),
+    ("epc-w204-c220cdi-glow-plugs", "foreign"): (1, "general-untied"),
 }
 
 
-def _vehicle(conn, code: str) -> dict | None:
-    row = conn.execute("SELECT * FROM vehicles WHERE doc_id=?",
-                       (PREFIX + code,)).fetchone()
-    return dict(row) if row else None
+def _vehicles(conn) -> dict[str, dict]:
+    """Every vehicle, with the parts-catalogue join (EPC) the app makes."""
+    return {v["doc_id"]: v for v in link_sources(
+        [dict(r) for r in conn.execute("SELECT * FROM vehicles")])}
 
 
 def _short(doc_id: str) -> str:
@@ -364,8 +402,20 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
         if uid not in texts:
             t = conn.execute("SELECT title, text FROM pages WHERE page_uid=?",
                              (uid,)).fetchone()
-            texts[uid] = f"{t['title']}\n{t['text']}" if t else ""
+            body = t["text"] if t else ""
+            # A parts page (EPC) states what it is for in its header; below the
+            # table header, part lines and footnotes use EPC's shorthand: "FOR
+            # MODEL 970-975" there means engines 119.970-975, not trucks 970/975.
+            cut = re.search(r"\n(?:Callout|Item) \| Part number \|", body)
+            if cut:
+                body = body[:cut.start()]
+            texts[uid] = f"{t['title']}\n{body}" if t else ""
         return texts[uid]
+
+    def full_text(row) -> str:
+        t = conn.execute("SELECT title, text FROM pages WHERE page_uid=?",
+                         (row["page_uid"],)).fetchone()
+        return f"{t['title']}\n{t['text']}" if t else ""
 
     failures = known = 0
     reasons_seen: set[str] = set()
@@ -374,9 +424,14 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
     print("WIS retrieval check -- no API calls, index opened read-only")
     print(f"(top {top_n} per case)\n")
 
+    allv = _vehicles(conn)
+    has_parts = any(v.get("doc_type") == "parts" for v in allv.values())
     for case in cases:
         cid = case["id"]
-        vehicle = _vehicle(conn, case["series"])
+        if case.get("parts") and not has_parts:
+            print(f"  SKIP  {cid:<30} no parts catalogue (EPC) in this index")
+            continue
+        vehicle = allv.get(PREFIX + case["series"])
         if vehicle is None:
             failures += 1
             print(f"  FAIL  {cid:<30} vehicle {PREFIX}{case['series']} not indexed")
@@ -389,10 +444,15 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
             print(f"  FAIL  {cid:<30} variant {var} is no longer "
                   f"{case['variant_name']!r} -- variants list changed")
             continue
-        scope = scope_ids(vehicle, var)
+        scope = scope_ids(vehicle, var, case.get("engine"))
         series = case["series"]
-        engine_ids = [d for d in scope if d not in (vehicle["doc_id"], scope.general)]
-        engines = {_short(d).lstrip("e") for d in engine_ids}
+        # joined parts catalogue buckets (EPC): doc_id -> "210" or "E102"
+        parts = {d: allv[d]["model_code"] for d in scope
+                 if allv.get(d, {}).get("doc_type") == "parts"}
+        engine_ids = [d for d in scope
+                      if d not in (vehicle["doc_id"], scope.general) and d not in parts]
+        engines = ({_short(d).lstrip("e") for d in engine_ids}
+                   | {c[1:] for c in parts.values() if c.startswith("E")})
         compatible = {series} | engines
 
         t0 = time.time()
@@ -420,6 +480,14 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
             problems.append(f"forbid: {bad} returned (ranks "
                             f"{[pages.index(p) + 1 for p in bad]})")
 
+        # parts: a joined catalogue bucket contributes, and the text sought
+        # (a part number read by hand) is on a returned page
+        if case.get("expect_parts") and not any(r["doc_id"] in parts for r in rows):
+            problems.append(f"parts: no result from {sorted(parts.values())}")
+        for needle in case.get("expect_text", []):
+            if not any(needle in full_text(r) for r in rows):
+                problems.append(f"expect_text: {needle!r} on none of the top {top_n}")
+
         # engine bucket contributes
         if case.get("expect_engine") and not any(r["doc_id"] in engine_ids for r in rows):
             problems.append(f"engine: no result from {[_short(d) for d in engine_ids]}")
@@ -432,6 +500,12 @@ def run(cases: list[dict], index_path: str, top_n: int, verbose: bool) -> int:
             if r["doc_id"] == vehicle["doc_id"] and series not in named:
                 problems.append(f"filing: {tag} is in {series}'s bucket but "
                                 f"names {sorted(named) or 'nothing'}")
+            elif r["doc_id"] in parts:
+                code = parts[r["doc_id"]]
+                need = code[1:] if code.startswith("E") else code
+                if need not in named:
+                    problems.append(f"filing: {tag} is in parts bucket {code} but "
+                                    f"names {sorted(named) or 'nothing'}")
             elif r["doc_id"] in engine_ids:
                 eng = _short(r["doc_id"]).lstrip("e")
                 if eng not in named:

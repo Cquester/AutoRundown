@@ -1,0 +1,337 @@
+# EPC parts catalogue — third source (in progress)
+
+Mercedes **EPC** (electronic parts catalogue) extracted from the user's own
+licensed EWA/EPC install in the VM, into AutoRundown as a third source
+(`source_type: mercedes-epc`) alongside WIS and LEMON. Goal: a shop picks their
+car and the AI can answer "what's the part number for X", from local pinned
+data — same model as the rest of AutoRundown, no live external source.
+
+**Status (2026-10-14, evening):** `extractor/pull_epc.js` v2 pulls a catalog
+completely -- parts, option (SA) parts, exploded drawings as PNG, formatted part
+numbers, per-baumuster fits and quantities, supersessions -- and resumes across
+catalogs. Catalog 001 (W115): 45 + 254 records, 7,732 + 7,796 part rows, 441
+drawings (11 MB), ~200 s; ingested into a throwaway index it files 299/299
+under MODEL 115 (100% structured agreement, no stray vehicles) and finds parts
+by spaced, compact and bare-digit number, name and option text. Not in the live
+index; all-catalog run and the site VM adapter are next.
+
+**All 282 chassis catalogs pulled (2026-10-14):** 45,639 records (44,480
+catalog + 1,159 SA), ~2.65 M part lines, 44,963 drawings, 1.6 GB, in
+`Mercedes Documents/autorundown_out/epc_extract/`. Throwaway ingest: 72 series,
+100% structured agreement, no stray vehicles, 1.3 GB index. The run crashed
+at the manifest step on a cp1252 records file (fixed: UTF-8 writer; the file
+was re-encoded losslessly, original kept as `records.cp1252.jsonl.bak`).
+Engine catalogs (`AR_CATNUM=engines`) work in a 3-catalog trial but are not
+in the corpus yet -- see "Joining WIS" for why they would be dropped today.
+
+## How EPC is reached (it is NOT the WIS path)
+
+EPC had been written off as "access-protected". It isn't — it was just a
+different shape:
+
+- EPC's UI is a Java Web Start **fat client** (`epc.jar`, Snap-on), not a web
+  page; its server classes live in the VM webapp `EPC-net/WEB-INF/classes`
+  (`com.snapon.sbs.epc.server.*`). We pulled `epc.jar` and the server DAO
+  classes and decompiled them (CFR) to learn the data access.
+- The catalogue lives in Transbase DBs **ALLTEXT** and **COMM** on **port
+  2034** (a separate instance from WIS's 2054). The DB login: open
+  `SPECIALFILES` as **tbuser** (empty password — already granted), read `PWORD`
+  from `PWORD_V`, **ROT13** it (`EPCConfigManager.decyptPW` is a plain
+  Caesar-13 — the DES/`DesEncrypter` in the jar only obfuscates part *names* in
+  transit, not the DB password), then open ALLTEXT/COMM as tbuser with that
+  password. `pull_epc.js` does exactly this; the password is never printed.
+- The earlier survey's "ALLTEXT/COMM refuse tbuser" was a blank-password
+  attempt; the real password is the ROT13 of PWORD.
+
+## The schema / query chain (from the decompiled `QueryStrings`)
+
+Parts are in **`BM_PARTS2_V`** (not `BM_PARTS_V`). `PARTNUM` values of all
+`XXXXX`/`YYYYY` are **known placeholders the server itself skips**
+(`PartBL`: `if (partNum.indexOf("XXXXX")!=-1 || …YYYYY…) continue;`) — not
+masking; the real rows alongside them are genuine part numbers.
+
+- catalogs: `select CATNUM, MARKETS, MODEL_YEAR, DATE_FROM, DATE_TO … from APPL_CAT_BASE_V`
+- catalog → vehicle: `select type, subbm1, subbm2, class, salesdes from models_v where catnum=?`
+  — `type`(+`subbm1`) is the **series / baumuster** (e.g. catnum 001 → type 115 =
+  W115), `salesdes` is the sales name (220/230/240 D …), `class 1` = passenger car.
+- groups: `select GROUPNUM, TEXT from bm_group_v join BM_DICTIONARY_V using(DESCIDX) where LANG=? and CATNUM=?`
+- subgroups: `select GROUPNUM, SUBGRP, TEXT from BM_SUBGRP_V where CATNUM=? and GROUPNUM=? and LANG=?`
+- parts: `select …CALLOUT,PARTTYPE,PARTNUM,QUANTBM,NOUNIDX,DESCIDX… from BM_PARTS2_V where CATNUM=? and GROUPNUM=? and SUBGRP=? order by SEQNUM`
+  (`selBMPartsAndDescs` also coalesces `part_descs_v` for the description)
+- part name: `select NOUNIDX, NOUN from part_nouns_v where LANG=?` (NOUNIDX → name)
+- images: `select IMGTYPE,SEQNO,RESTIMG,CALLOUT,SUBGRP,GROUPNUM,SEQNUM from BM_NPG_V where CATNUM=? and GROUPNUM=?`
+  then the blob `select IMAGE from IMAGE_V where IMAGE_NAME=?`
+- reverse (have a part number, want vehicles): `BM_PARCAT_SEARCH_V where PARTTYPE=? and PARTNUM=?`
+- SA / option parts mirror via `SA_PARTS_V` / `SA_NPG_V`, keyed on `SANUM`.
+- `DB_LANGS_V` lives in SPECIALFILES, not ALLTEXT (single-char lang codes; `E`=English).
+
+## Filing into AutoRundown (the records importer)
+
+One record per `(catalog, group, subgroup)`; `body_text` is the parts list
+(callout | part number | name). **Applicability must be the real series +
+baumuster as `MODEL 115` / `MODEL 115.xxx`** — NOT the sales designations.
+Emitting `"MODEL 220"` (a /8 engine-size sales name) made the importer build
+four fake vehicles; with the series/baumuster the structured links agree 100%
+and it files under MODEL 115, the same vehicle WIS uses. Sales names go on a
+non-`MODEL` line. No importer change needed.
+
+## VM setup for site-driven extraction (shops just point at their VM)
+
+The site runs the extraction; end users should do as little as possible.
+
+- **Clock → 2008** (keeps the EWA/EPC licence valid): fully host-side — set
+  `VBoxManage modifyvm <vm> --biossystemtimeoffset <(2008 − hostNow) ms>` before
+  boot. Guest Additions time-sync is already off. No guest interaction.
+- **IP** (the 169.254 APIPA seen after a host reboot): enable the host-only
+  **DHCP server** host-side (`VBoxManage dhcpserver`); guests then auto-get a
+  192.168.56.x address. No guest static-IP setup.
+- **Firewall**: the one guest-side thing, and it cannot be scripted host-side
+  here — `guestcontrol` needs a guest Windows logon, and this VM's account
+  (`EMO`) has a **blank password**, which Windows refuses for the logon type
+  `guestcontrol` uses (tested: "user was not able to logon"). So the old
+  `extract.ps1 -GuestUser/-GuestPassword` firewall step can't run unattended.
+  Plan: these appliance VMs usually ship firewall-off; the pipeline connects
+  and, if blocked, shows a one-time "turn Windows Firewall off in the VM"
+  message (the same bar WIS is at today — `vm_pipeline.py` doesn't touch the
+  firewall). **True zero-touch** would need the offline route: read the
+  Transbase DB files off the VDI and run `tbserv32.exe` on the host (no guest
+  firewall in the path) — a separate, heavier project, deferred.
+
+## What the probes established (2026-10-14, `extractor/probe_epc_parts.js`)
+
+- **Subgroups:** `BM_SUBGRP_V` is complete for 001 (45 = distinct pairs in
+  `BM_PARTS2_V` = `BM_NPG_V`); old catalogs simply have one subgroup per group.
+  The pull still unions in any subgroup seen only in `BM_PARTS2_V`.
+- **Fits and quantity:** `SUBMODS` is the row's list of `SUBBM1` suffixes
+  (3 chars each, blanks allowed) -- the baumuster the part fits; `QUANTBM` is
+  the quantity in the same 3-char slots (`001` = 1, `-` = not stated, the usual
+  form of a superseded number). `REPTYPE`+`REPPNO` is the replacement number.
+  Rendered as `qty 1: 115.000, 115.002; qty 2: 115.114` or `qty 2, all models`.
+- **Part numbers:** `A` + 10 digits written 3-3-2-2 (`A 115 223 14 12`, extra
+  digits = colour code), `N` + 12 digits 6-6. The line carries the spaced form,
+  the compact form and the bare digits, because FTS reads `A1152231412` as one
+  token and shops type all three.
+- **Drawings:** not in ALLTEXT. `BM_NPG_V` rows name them `B` + group(2) +
+  subgroup(3) + `SEQNO`(2) + `RESTIMG` (`B24001000003.940127`); `ARCHIVED=1`
+  ones are in database **`BM_IMAGES_ARC`** (126,567), the others in
+  `BM_IMAGES` (5,002, named catnum+group+subgroup+seqno). SA drawings: `S` +
+  SANUM(6) + SEQNO + RESTIMG in `SA_IMAGES`/`SA_IMAGES_ARC`, rows in `SA_NPG_V`
+  keyed on `SANO`. `PNG_IMAGES*` (in `epc_cfg.xml`) do not exist in this
+  install. `…99999.…` names are the client's "no drawing" placeholder.
+- **Drawing format is FV4**, Snap-on's own run-length bit-plane format (1024 px
+  wide, <=1280 rows, 1/2/4 bpp, ~16 KB each). `extractor/epc_fv4.js` is a line
+  for line port of the client's `ImageExtractorFV4`; checked offline on a saved
+  blob (all rows decode, correct drawing), ~0.5 s per drawing in Nashorn.
+  The annotation overlay holds callout x/y positions (`saveCallouts`) -- usable
+  later for clickable hotspots; not extracted yet.
+- **SA parts:** `BM_SAIDX_V(CATNUM, GROUPNUM) -> SANUM` + option codes
+  (`CODEONE`, 3 chars each). `SANUM` is CHAR(6) and the server pads 5-digit
+  numbers with a leading space -- unpadded queries return nothing. Part rows
+  give `STROKE` and `QUANTSA` as comma lists; a stroke maps to baumuster per
+  model series through `sa_strokes_v` (the same stroke number recurs for
+  different series). An SA is shared by many catalogs, so the pull writes each
+  (SA, subgroup) once, limited to the series pulled in that run.
+- **Scale:** 9.33 M `BM_PARTS2_V` rows, 2.21 M `SA_PARTS_V` rows, 2,740
+  catalogs. Passenger cars = `models_v` class 1: 282 chassis catalogs (`FG`,
+  what `AR_CATNUM=all` pulls), plus 161 engine (`M`), 61 gearbox (`GA`), 24
+  `GM`, 5 `LG` aggregate catalogs (not pulled yet; would file under engine
+  buckets).
+
+## Footnotes (built 2026-10-15)
+
+`extractor/epc_footnotes.js` decodes them (probe step 10 and the decompiled
+`FootnoteRev9Serial`): old-style text ("UP TO CHASSIS: 100,102 126027"),
+and revision-9 serial footnotes -- `ABBR` E + A(from)/B(up to) + unit (A cab,
+F chassis, M engine, G transmission, L steering, V/H front/rear axle, Z
+transfer case, P platform), `TEXT` = ident[0:8] date[8:16] model-year[16:21]
+P[21] M[22] extra idents -- as "up to engine 32946334 (change date
+2015-06-11)", "from engines built 2008-02-28 (plant 3)", "also / not
+engines ...". In old-style text, codes after "MODEL" are often the
+catalog's own variants ("FOR MODEL 970-975" = engines 119.970-975).
+
+**Corpus format 3: the footnote text is on the part line** ("fn 003: up to
+engine ..."; a long one keeps its condition there, its engine lists or
+text table go to a "Footnotes:" list at the end). Format 2 had all texts at
+the page end, and a page is indexed in ~2,400-character chunks: the OM651
+glow plugs sat in chunk 1, their footnotes in chunk 21. A resumed run on an
+older format keeps it as a `.bak` and rebuilds the records (drawings reused).
+
+**A parts result is the page's matching lines** (`search._parts_snippet`):
+BM25 picks the chunk saying the words most often, which on a parts page is
+not the part asked for ("glow plug" on the OM651 page ranked the
+wiring-harness chunk over the four glow plug lines). The answer now gets the
+page header plus every line matching the question's words (minus "part",
+"number" ...), with their footnotes; same page_no, so citations are
+unchanged. The parts tail is ranked best-score-first across the parts
+buckets (one FTS table, comparable scores): round-robin gave a whole-series
+W203 scope's second slot to an engine bucket's weak OR match.
+
+The format-3 run (Shop setup, 34 min for 443 catalogs) finished and then
+ran the 32-bit JRE out of memory reading the 531 MB records file whole for
+the manifest -- and again on every resume, which the pipeline power-cycled
+the VM for six times. Both reads now stream; `vm_pipeline.py` stops at once
+on OutOfMemoryError / SyntaxError instead of rebooting the VM. The manifest
+for that run was written afterwards from the complete records file.
+
+**Paid answers 2 and 3 (2026-10-15, the user's OK; Haiku, $0.0198 and
+$0.0161, throwaway index).** Same question (W204 C 220 CDI glow plug
+number). With footnotes inline and the parts snippet, the model saw the
+four glow-plug lines with fn 003 on the pencil-type one. Answer 2 used the
+footnote correctly (73 01 up to engine 32946334, replaced by 80 01; check
+the engine number). Both answers **left out the standard glow plug
+A 001 159 66 01 ("qty 4, all models")**, which the passage showed -- answer
+3 even after a prompt line "list every current number that fits; do not
+pick one". Prompt wording is not enough here, so **`query._add_omitted_parts()`**
+(built the same day, the user's choice) adds them after the model: on the
+parts pages the answer cites, each current line fitting the chosen car and
+not named in the answer becomes a spec citing that page, plus a caveat;
+`added_parts` in the result says what code added. Tested free: unit tests
+on the real OM651 lines, and Ask end to end through the fake API
+(`fake:onepart` gives one plug, the other is added). Not yet seen on a paid
+answer. Duplicate parts
+passages (one page under three chunk numbers) are fixed.
+
+## Result tabs (2026-10-15, the user's request)
+
+Parts pages in the manual's result list made it hard to read, and a parts
+page in the reader offered "Original layout", which it cannot have (its
+vehicle is joined into the WIS car, so the UI took it for a WIS page). Now
+`/api/search?tab=` and a tab bar: **Workshop** (manual pages only, as
+before EPC), **Parts** (the joined catalogue, each row with its matching
+part lines, `search.part_lines`), **Labour times** (the dialog moved into a
+tab), **Capacities** (WIS's oil figure + capacity lines), **Torque specs**
+(torque lines). Value lines come from `search.value_lines`: WIS prints
+"Nm 50" and "Liter 6,5" unit-first, and capacity rows often unit-less under
+a header ("Oil capactiy in liters ... changing oil and filter 5.0"); a line
+must name one of the question's words (or its page title must), and a line
+naming only another engine/model of the series is dropped
+(`query.mentioned_codes`, as for answers). The tab bar has its own class:
+`.srctabs` buttons are all bound by the Shop setup import code. A parts
+page opens without the Reading/Original toggle; WIS pages keep it.
+Checked on WIS + EPC in a browser (desktop and 375 px), `test_ui_picks.py`
+(4,610 picks), and `test_epc_join.py` (each tab's kind; a bus page's
+capacity never reaching a car).
+
+## Joining WIS (found and built 2026-10-14)
+
+"Files under MODEL 115, the same vehicle WIS uses" was true of the *series
+code* only. `search.scope_ids` searches the chosen vehicle's own doc_id, its
+source's general pool and the engine buckets its variants link to -- all from
+one source. The records importer builds vehicles per corpus, so:
+
+- EPC's `MODEL 210` becomes its own vehicle (`mercedes-epc-en-210`), a second
+  W210 in the picker; the WIS W210 a shop picks never searches EPC parts.
+- Engine buckets are kept only if a passenger variant lists that engine, and
+  variants (with engines) come from the corpus's own `models.jsonl`. EPC has
+  none, so every EPC engine bucket is dropped as "commercial-only" (seen in
+  the trial: "leaving out 3 ... engine buckets").
+- Chassis catalogs hold no engine internals (W210 "oil filter" finds springs),
+  so engine catalogs matter for the most common parts questions.
+
+**Built (the user approved the design 2026-10-14), at query time so each
+source stays independently rebuildable and removable:**
+- `index.link_sources()` (run by `index.vehicles()`): WIS car ->
+  `joined_ids` (EPC vehicles of the same maker + `model_code`) and
+  `engine_joins` (engine family -> EPC `E<nnn>` buckets); the EPC vehicle
+  gets `joined_into` and `/api/vehicles` leaves it out. Only `doc_type
+  "parts"` vehicles are joined in.
+- `search.scope_ids` adds them after the car's engine buckets; variant and
+  engine choices narrow the EPC engine buckets like the WIS ones.
+- **Page numbers `P<dok_id>`** (`records.SOURCE_PAGE_STYLE`, manifest
+  `page_no_prefix`; `pull_epc.js` writes it): page_no is the citation key
+  and EPC dok_ids overlap WIS DokIDs. `tests/test_epc_join.py` fails 17
+  checks with the prefix removed.
+- The records importer keeps engine buckets for a corpus with no variants.
+- `/api/image` falls back to the joined corpora's `images/`.
+- Answer side: passages from parts pages are headed `(parts catalogue)`,
+  and `ANSWER_SYSTEM` says part numbers come only from those pages, for
+  this car's fits, superseded numbers replaced. **Not yet tried on a
+  paid answer.**
+**Combined check (2026-10-14; WIS + the 282 chassis catalogs in one
+throwaway index, engines not pulled yet).** `eval_wis.py` ranks, live WIS
+index / WIS+EPC with the join off / joined:
+- Interleaved, the join cost manual pages a rank or two (W124 brake pads
+  5 -> 7, wheel bolts 4 -> 5, W140 pads 4 -> 5, W211 manual trans 6 -> 7). So
+  parts are now **searched as their own group and appended** after the
+  manual's results (`Scope.parts`, `search.parts_slots`: max(2, limit//4) rows
+  in keyword search; `PARTS_CAP` 4 passages in Ask, ~2.5k tokens): the
+  manual's top N is identical with and without the join.
+- One title per parts result: a series has one catalog per market/period (W124:
+  4,178 parts pages, 582 distinct titles), so the tail is de-duplicated on the
+  title without "(EPC catalog …)", over-fetching x12.
+- **Parts have their own FTS table (`parts_fts`), the user's choice.** In the
+  shared `chunks_fts`, EPC shifted WIS BM25 scores even with the join off
+  (statistics are index-wide): `w204-c220cdi-glow-plugs` gained a W207 page
+  at #3 and failed. Now `chunks.parts` routes each chunk to one table (the
+  triggers in `index.FTS_TRIGGERS`), search uses `parts_fts` for the parts
+  group and for an EPC-only car, and **all 19 WIS cases on WIS+EPC match the
+  live WIS-only index exactly** (W204 back at rank 1). An older index migrates
+  once at start-up (`index._migrate_fts`: new triggers; parts chunks already
+  in `chunks_fts` are moved -- 213,761 in 30 s on the combined index, both
+  tables pass FTS5 `integrity-check` after).
+- Parts cases `epc-w124-part-number` (exact number, spaced) and
+  `epc-w203-brake-pads` (FRONT WHEEL BRAKE) pass; skipped without EPC. Their
+  `foreign` ceilings (1 and 3) are WIS engine-bucket pages, the known
+  [engine-bucket] pattern, not EPC results.
+  Engine parts (oil filter, glow plugs, thermostat, water pump) are in the
+  engine catalogs.
+
+**Engine catalogs in (2026-10-15).** The 161 passenger engine catalogs were
+pulled from Shop setup (`vm_epc` in a dev.py instance, 42 min including
+the ingest, after a first attempt was cut off by a Claude-app update): the
+corpus is 443 catalogs, 50,759 records, 46,000-odd drawings. On WIS + all of
+EPC: 146 EPC vehicles (72 series, 74 engines), 120 joined into WIS cars or
+engine buckets, 26 old series WIS lacks listed on their own; 50 WIS cars
+reach engine parts (W210: 12 engine families, W204: 8). Read by hand and now
+eval cases: W210 "E 320" (M104 + M112) oil filter -> both engines' filter
+pages, M112 element A 000 180 26 09 with its supersession; W201 190 E 2.3-16
+thermostat -> M102 cooling system; W204 C 220 CDI glow plugs -> OM651 GLOW
+PLUG qty 4, A 001 159 66 01; W211 E 320 CDI fuel filter -> OM642 and OM648.
+No wrong engine in any parts tail with a variant chosen. eval_wis on that
+index: 25/25, 18 known-bad guards within ceilings (the new EPC cases' guard
+offenders are WIS general-pool or engine-bucket pages, not EPC rows).
+An engine page's "Fits" lists engine codes (102.990 vs the 2.3-16's 102.983),
+so the answer rule now says model code *or exact engine code*.
+
+**First paid answer over EPC (2026-10-15, the user's OK; Haiku, $0.0217, 2
+calls, 18.9k in / 0.6k out; logged in the throwaway index only).** "What is
+the glow plug part number?" for a W204 C 220 CDI (651.911) on WIS + EPC:
+A 001 159 66 01, qty 4, replacing 58 01, plus the pencil-type A 001 159 80 01
+(replacing 73 01) -- every number, quantity, supersession and fits list
+matches page P49767 exactly; cited only P49767, `document_page` P49767, no
+dropped citation; years from the curated table, not recalled. Two notes:
+it listed the superseded numbers as their own (labelled) entries, though the
+rule says to give the replacement; and it could not say whether the car
+takes the standard or the pencil-type plug -- both fit 651.911 on the page,
+and EPC's footnotes (not extracted yet) are what usually decide it. It said
+so in `caveats` rather than guessing.
+
+## Remaining build items
+
+1. **Combined check:** WIS + EPC (with engines) in one throwaway index;
+   eval cases such as "W210 oil filter part number" (engine parts reached,
+   other engines excluded) and the crowding of repair searches; then one
+   scoped paid answer (ask first).
+2. ~~Engine catalogs into the corpus~~ -- done 2026-10-15 (above).
+3. **Footnotes** (`FOOTNOTES` codes on part rows, `SA_FOOTNOTES_V` for SA) --
+   not extracted; they carry "up to chassis …" conditions. **Next in value:**
+   the first paid answer could not choose between two glow plugs that both fit
+   651.911 on the page -- the footnote is what tells them apart.
+   **Built 2026-10-15** (see "Footnotes" below).
+4. **Gearbox catalogs** -- need a car -> gearbox map first.
+5. **Site integration: built 2026-10-15, not yet run from the site.** The
+   Mercedes VM tab's "Parts catalogue (EPC)" choice (`docs/notes/importing.md`).
+   **No clock or DHCP change after all:** the EPC database answered with the
+   VM's `biossystemtimeoffset` at 0 (2026-10-14) -- the 2008 clock matters to
+   the EPC *program's* licence, not to reading its database -- and the
+   pipeline's standing rule is to start/stop the VM and read, never change its
+   settings or the host network. Unreachable database -> the existing
+   one-time message (start "Mercedes WSM EPC", host-only network, firewall
+   off), the same bar as WIS.
+6. Callout hotspots from the FV4 annotation overlay.
+7. Tests + README/CLAUDE.md updates.
+
+See also the decompiled sources (not committed — Mercedes software): the DAO
+classes and `QueryStrings` were decompiled with CFR during the investigation.
+Never commit `tbjdbc.jar`, the EWA JRE, `epc.jar`, or any extracted part data
+(records, drawings).
