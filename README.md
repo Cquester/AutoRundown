@@ -316,6 +316,13 @@ screen), **Answer | Document** under it, the question docked at the bottom with
 **Document** (a dot says one is waiting) and opens with *Open manual page*;
 the phone's Back, or a swipe to the right, returns to the answer.
 
+**Recent cars.** Clicking into the car box (on a phone: tapping **Change**)
+lists the last ten cars picked on that device, newest first -- one tap, or the
+arrow keys and Enter, picks one again with the same model, engine and year it
+had. Each row has a **×** to drop it, and **Clear history** empties the list.
+The list is kept in that browser only, so each phone in the shop has its own;
+typing in the box replaces it with the usual suggestions.
+
 Citations name the page rather than just numbering it — `p6706 · Front Brake
 Caliper Anchor Plate: Removal`. Titles are resolved locally from the index, so
 they cost no tokens and cannot be invented.

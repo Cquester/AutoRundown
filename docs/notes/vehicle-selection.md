@@ -222,6 +222,30 @@ M276" for a 2012-13 E 350) + `year`; the answer model is told all three. A
 VIN in the same box resolves the same way. Non-US variants are listed by
 name ("not a US model") under their generation's years.
 
+**Recent cars on this device (2026-10-16).** Focusing the box while it is
+empty or still says the selected car (on a phone: opening the car sheet,
+without focusing the box, so no keyboard) lists the last 10 picks, newest
+first; typing replaces them with the normal suggestions. Kept per browser in
+`localStorage` `autorundown.carHistory.v1` (every access in try/catch:
+blocked storage simply means no list). Each entry is the structured pick --
+`doc`, `variant` (index) **and `vname`** (its name), `engine`, `year`,
+`label`, `sub`, `vin` when it came from a VIN, `src` (box / browse) -- not
+text. Every `applyCar` records one (box, VIN box, VIN dialog); Browse records
+on a Model or Variant change, and its next step of the same car replaces the
+entry before (one entry, not one per dropdown). The same car (doc, variant,
+engine, year) moves to the top instead of repeating.
+Re-selecting (`applyCarHistory`) checks the entry against the vehicles
+`/api/vehicles` returned at load: the manual must still be there (else the
+entry is dropped, with a note in the list), the variant at that index must
+still have that name and the engine families must still be the variant's
+(else the whole series is picked and a note says so -- a re-ingest can shift
+positions, see "Body style" above), and then it goes through `applyCar`, so
+it sends exactly what the first pick sent. Arrow keys / Enter as for
+suggestions (nothing highlighted at first: Enter keeps the car); Tab reaches
+"Clear history" and each row's ×. Rows are 44 px on a phone, and the list
+spans the sheet's width. `tests/test_car_history.py` (sample index, built in
+a temp dir; in CI and `box.sh check`).
+
 **Body style: one model per body (2026-10-08).** WIS sells the W210 sedan
 (210.082) and wagon (210.282) under one name, "E 320 4MATIC", so the user
 could not pick their wagon. `parse_vehicles.py` now writes `body_by_bm` from

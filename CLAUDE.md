@@ -135,6 +135,7 @@ python tests/test_wis_links.py                    # WIS cross-refs/diagrams/code
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
+python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends the same car (~10 s, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
 # sample data and tools
@@ -371,6 +372,12 @@ in `docs/notes/`. The ones most likely to be undone by accident:
 - **`_variants` order is the server's order — never sort it in place** (the
   E 500 → E 63 AMG bug); `tests/test_ui_picks.py` guards it.
   (`vehicle-selection.md`)
+- **Recent cars store the structured pick, re-checked on use** (2026-10-16):
+  `autorundown.carHistory.v1` keeps doc, variant index *and name*, engine,
+  year, label, VIN; a re-select whose variant name no longer sits at that
+  index falls back to the whole series and says so, and always goes
+  through `applyCar`. Never re-pick from the stored label text.
+  `tests/test_car_history.py`. (`vehicle-selection.md`)
 - **A VIN sends the engine of the Baumuster it names** (`vin9_bm`), never
   the variant's first (320 prefixes sent a wrong engine until 2026-10-16);
   a Baumuster sold under several names gets all their engines. The live
@@ -418,7 +425,8 @@ predates the end-view format. Features here degrade quietly by design.
 3. For UI work: drive a test box with the browser tools, and inject
    payloads into `renderAnswer()` rather than paying for answers.
    After any change to the vehicle picker (`#carInput`, Browse, VIN, the
-   variant menu, `loadVehicles`): `python tests/test_ui_picks.py` — free,
+   variant menu, `loadVehicles`, the recent-cars list -- that one also
+   `python tests/test_car_history.py`): `python tests/test_ui_picks.py` — free,
    ~3 min, needs `pip install -r requirements-dev.txt` (Playwright; it drives
    the installed Edge/Chrome). It loads the real page against the index
    (opened `mode=ro`; `--index` to point elsewhere), makes every pick the UI
