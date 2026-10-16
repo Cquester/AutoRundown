@@ -98,6 +98,7 @@ class ImportBody(BaseModel):
     mode: str = "add"
     # mode "vm": extract WIS from this VirtualBox VM first (vm_pipeline.py);
     # mode "vm_epc": the EPC parts catalogue from it, then replace EPC in the index
+    # mode "vm_both": "vm" then "vm_epc" as one job; EPC only if WIS succeeded
     vm: str = ""
     steps: str = ""
     # mode "lemon": the vehicle folders to import, relative to path
@@ -905,12 +906,27 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/import")
     def api_import_start(body: ImportBody) -> dict:
-        if body.mode in ("vm", "vm_epc"):
+        if body.mode in ("vm", "vm_epc", "vm_both"):
             info = importer_jobs.list_vms()
             if info.get("error"):
                 raise HTTPException(400, str(info["error"]))
             if body.vm not in {v["name"] for v in info["vms"]}:
                 raise HTTPException(400, f"No VirtualBox VM named {body.vm!r}.")
+        if body.mode in ("vm", "vm_both"):
+            steps = [s for s in body.steps.split(",") if s]
+            if any(s not in ("docs", "applic", "vehicles", "images", "build") for s in steps):
+                raise HTTPException(400, f"unknown step in {body.steps!r}")
+        if body.mode == "vm_both":
+            # WIS, then EPC, as one job: refused up front if the EPC half could
+            # not run, rather than failing hours later after the WIS half
+            problem = importer_jobs.epc_problem(importer_jobs.find_extractor())
+            if problem:
+                raise HTTPException(400, problem)
+            try:
+                return jobs.start(Path(info["out_root"]) / "wis_extract", app.state.index_path,
+                                  "vm_both", vm=body.vm, steps=",".join(steps))
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
         if body.mode == "vm_epc":
             # the EPC parts catalogue: vm_pipeline.py --steps epc, then re-ingest
             problem = importer_jobs.epc_problem(importer_jobs.find_extractor())
@@ -922,9 +938,6 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
         if body.mode == "vm":
-            steps = [s for s in body.steps.split(",") if s]
-            if any(s not in ("docs", "applic", "vehicles", "images", "build") for s in steps):
-                raise HTTPException(400, f"unknown step in {body.steps!r}")
             try:
                 return jobs.start(Path(info["out_root"]) / "wis_extract", app.state.index_path,
                                   "vm", vm=body.vm, steps=",".join(steps))
