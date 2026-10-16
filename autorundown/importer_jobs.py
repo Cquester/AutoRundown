@@ -429,8 +429,9 @@ class Progress:
 class ImportJobs:
     # seconds between the two parts of a "both" run: the WIS part ends with
     # rebuilding the index (heavy disk), and this PC has crashed under
-    # sustained I/O -- vm_pipeline.py pauses 60 s between heavy runs too
-    PART_PAUSE = 60
+    # sustained I/O -- vm_pipeline.py pauses 60 s between heavy runs too.
+    # `dev.py --fake-vm` shortens it (AUTORUNDOWN_PART_PAUSE) for test runs.
+    PART_PAUSE = float(os.environ.get("AUTORUNDOWN_PART_PAUSE") or 60)
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -581,9 +582,9 @@ class ImportJobs:
         for i, cmds in enumerate(parts):
             label = self._job["parts"][i]["label"]
             if many and i:
-                self._note(f"== waiting {self.PART_PAUSE} s before step {i + 1} of {len(parts)} "
+                self._note(f"== waiting {self.PART_PAUSE:g} s before step {i + 1} of {len(parts)} "
                            f"({label}): letting the PC settle after the index rebuild")
-                self._progress.reset(f"Waiting {self.PART_PAUSE} s before starting")
+                self._progress.reset(f"Waiting {self.PART_PAUSE:g} s before starting")
                 time.sleep(self.PART_PAUSE)
             if many:
                 self._note(f"== step {i + 1} of {len(parts)}: {label}")

@@ -301,6 +301,36 @@
   #sec-manuals label:has(> input[type=radio]), #sec-manuals label:has(> input[type=checkbox]){
     display:inline-flex; align-items:center; color:var(--text)}
   #impSteps{gap:6px 16px}
+  /* Mercedes VM: WIS / EPC / Both as one segmented toggle */
+  .seg{display:inline-flex; border:1px solid var(--field-line); border-radius:10px; overflow:hidden; margin-top:4px}
+  #sec-manuals #impVmWhat label{display:flex; margin:0; position:relative; cursor:pointer}
+  #sec-manuals #impVmWhat input{position:absolute; opacity:0; width:1px; height:1px; margin:0}
+  .seg span{display:flex; align-items:center; min-height:44px; padding:0 22px; font-weight:600;
+    color:var(--muted); background:var(--panel-2); border-left:1px solid var(--line)}
+  .seg label:first-child span{border-left:0}
+  .seg input:checked + span{background:var(--accent); color:var(--on-accent)}
+  .seg input:focus-visible + span{outline:2px solid var(--text); outline-offset:-3px}
+  .seg label:hover input:not(:checked) + span{color:var(--text)}
+  /* extraction progress at the bottom of the Mercedes VM tab */
+  .vmprog{margin-top:16px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2)}
+  .vp-head{font-weight:600; overflow-wrap:anywhere}
+  .vp-track{position:relative; height:10px; margin:10px 0 8px; border-radius:5px; overflow:hidden; background:var(--line)}
+  .vp-fill{height:100%; width:0; border-radius:5px; background:var(--accent); transition:width .4s ease}
+  .vp-track.indet .vp-fill{position:absolute; width:30%; animation:vpslide 1.6s ease-in-out infinite}
+  .vp-track.done .vp-fill{background:var(--good)}
+  .vp-track.bad .vp-fill{background:var(--bad)}
+  @keyframes vpslide{from{left:-30%} to{left:100%}}
+  @media (prefers-reduced-motion:reduce){
+    .vp-track.indet .vp-fill{animation:none; left:0; width:100%; opacity:.45}
+    .vp-fill{transition:none}
+  }
+  .vp-sub{font-size:14px; color:var(--muted); overflow-wrap:anywhere}
+  .vp-sub .err{color:var(--bad); font-weight:600}
+  .vp-parts{margin:8px 0 0; padding-left:20px; font-size:14px}
+  .vp-parts li{margin:2px 0}
+  .vp-parts .st{color:var(--muted)}
+  .vp-parts .st.done{color:var(--good)} .vp-parts .st.failed{color:var(--bad); font-weight:600}
+  .vp-parts .st.running{color:var(--accent)}
   .dirlist{max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px}
   .dirlist button{display:block; width:100%; text-align:left; background:none; border:0;
     border-bottom:1px solid var(--line); color:var(--text); padding:7px 10px; font:inherit; cursor:pointer}
@@ -726,11 +756,13 @@
     <div id="impVmControls">
     <label for="impVm">VirtualBox VM</label>
     <select id="impVm"></select>
-    <label>What to extract</label>
-    <div class="row" id="impVmWhat">
-      <label style="margin:0"><input type="radio" name="vmwhat" value="wis" checked> Workshop manuals (WIS)</label>
-      <label style="margin:0"><input type="radio" name="vmwhat" value="epc"> Parts catalogue (EPC)</label>
+    <label id="impVmWhatLbl">What to extract</label>
+    <div class="seg" id="impVmWhat" role="radiogroup" aria-labelledby="impVmWhatLbl">
+      <label><input type="radio" name="vmwhat" value="wis" checked><span>WIS</span></label>
+      <label><input type="radio" name="vmwhat" value="epc"><span>EPC</span></label>
+      <label><input type="radio" name="vmwhat" value="both"><span>Both</span></label>
     </div>
+    <p class="muted" id="impVmWhatHelp" style="margin:6px 0 0"></p>
     <div id="impEpcOpts" hidden>
     <p class="muted" style="margin:10px 0 0">Pulls every passenger-car parts catalogue (chassis and engines)
       with its exploded drawings, then replaces the parts catalogue in the index. Part numbers then show
@@ -755,6 +787,13 @@
     </div>
     <div class="manuals" id="impWisManuals"></div>
     <div class="manuals" id="impEpcManuals"></div>
+    <!-- extraction progress, read from the job on the server (survives a reload) -->
+    <div class="vmprog" id="impVmProg" hidden>
+      <div class="vp-head" id="vpHead"></div>
+      <div class="vp-track" id="vpBar" role="progressbar" aria-labelledby="vpHead"><div class="vp-fill"></div></div>
+      <div class="vp-sub" id="vpSub"></div>
+      <ol class="vp-parts" id="vpParts" hidden></ol>
+    </div>
   </div>
             </div>
             <div class="impbar">
@@ -3079,11 +3118,12 @@ const impDur = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600
   : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
 const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'remove_wis'
   ? 'removing Mercedes WIS' : s.mode === 'remove_epc' ? 'removing Mercedes EPC'
-  : s.mode === 'vm' ? 'Mercedes VM extract' : s.mode === 'vm_epc' ? 'Mercedes EPC extract' : 'import';
+  : s.mode === 'vm' ? 'Mercedes VM extract' : s.mode === 'vm_epc' ? 'Mercedes EPC extract'
+  : s.mode === 'vm_both' ? 'Mercedes WIS + EPC extract' : 'import';
 function impShow(s) {
   const log = $('#impLog');
   $('#jobIdle').hidden = s.state !== 'idle';
-  if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; $('#impFail').hidden = true; return; }
+  if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; $('#impFail').hidden = true; impProg(s); return; }
   if (s.state === 'running') impSawRunning = true;
   log.textContent = (s.log || []).join('\n');
   const t = impDur(s.elapsed);
@@ -3105,7 +3145,15 @@ function impShow(s) {
   $('#impStatus').classList.toggle('bad', failed);
   const last = (s.log || []).filter(l => l.trim()).slice(-1)[0] || '';
   $('#impFail').hidden = !(failed && impSawRunning);
-  if (failed && impSawRunning) $('#impFail').textContent = `The ${impJobName(s)} failed: ${last}`;
+  if (failed && impSawRunning) {
+    // a two-part job says which part failed and what it did not start
+    const ps = s.parts || [], fi = s.failed_part;
+    const where = ps.length > 1 && fi != null ? ` in step ${fi + 1} of ${ps.length} (${ps[fi].label})` : '';
+    const rest = ps.length > 1 && fi != null ? ps.slice(fi + 1).map(x => x.label) : [];
+    $('#impFail').textContent = `The ${impJobName(s)} failed${where}: ${last}`
+      + (rest.length ? ` — ${rest.join(', ')} was not started.` : '');
+  }
+  impProg(s);
   $('#impStart').disabled = s.state === 'running' || (impSource() === 'lemon' && !lemPicked().length);
 }
 async function impWatch() {
@@ -3184,12 +3232,84 @@ async function impVms() {
     $('#impStart').disabled = !r.vms.length;
   } catch (e) { noVm(e.message); }
 }
-// Mercedes VM tab: workshop manuals (WIS, with its steps) or the EPC parts catalogue
+// Mercedes VM tab: workshop manuals (WIS, with its steps), the EPC parts
+// catalogue, or both -- WIS then EPC as one job (mode vm_both)
 const impVmWhat = () => document.querySelector('#impVmWhat input:checked')?.value || 'wis';
-document.querySelectorAll('#impVmWhat input').forEach(r => r.onchange = () => {
-  $('#impWisOpts').hidden = impVmWhat() !== 'wis';
-  $('#impEpcOpts').hidden = impVmWhat() !== 'epc';
-});
+const VM_WHAT_HELP = {
+  wis: 'Workshop manuals (WIS): documents, model links, vehicles, images.',
+  epc: 'Parts catalogue (EPC): part numbers and exploded drawings.',
+  both: 'WIS first, then the EPC parts catalogue, as one job. If the WIS part fails, EPC is not started.'};
+function impVmWhatShow() {
+  const w = impVmWhat();
+  $('#impWisOpts').hidden = w === 'epc';
+  $('#impEpcOpts').hidden = w === 'wis';
+  $('#impVmWhatHelp').textContent = VM_WHAT_HELP[w];
+}
+document.querySelectorAll('#impVmWhat input').forEach(r => r.onchange = impVmWhatShow);
+impVmWhatShow();
+// The progress bar at the bottom of the Mercedes VM tab. Everything comes
+// from the job on the server (importer_jobs.Progress reads the pipeline's own
+// log lines), so a reload shows the same. A phase with no known total gets a
+// moving (indeterminate) bar and its counts, never a made-up percentage.
+const VP_STATE = {pending: 'waiting', running: 'running', done: 'done ✓', failed: 'failed',
+                  'not started': 'not started'};
+function impProg(s) {
+  const box = $('#impVmProg');
+  if (!s || s.state === 'idle' || !/^vm/.test(s.mode || '') || (s.state !== 'running' && !impSawRunning)) {
+    box.hidden = true; return;
+  }
+  box.hidden = false;
+  const parts = s.parts && s.parts.length ? s.parts : [{label: '', state: s.state}];
+  const n = parts.length, i = Math.min(s.part || 0, n - 1);
+  const name = lb => lb || (s.mode === 'vm_epc' ? 'EPC parts' : 'WIS');
+  const step = n > 1 ? `Step ${i + 1} of ${n}: ${name(parts[i].label)}` : name(parts[0].label);
+  const p = s.progress || {};
+  const bar = $('#vpBar'), fill = bar.firstElementChild;
+  bar.classList.remove('indet', 'done', 'bad');
+  const fmt = x => Number(x).toLocaleString();
+  let sub = [];
+  if (s.state === 'running') {
+    $('#vpHead').textContent = `${step} — ${p.phase || 'starting'}`;
+    if (p.total) {
+      const pct = Math.min(100, Math.floor(100 * (p.done || 0) / p.total));
+      fill.style.width = pct + '%';
+      bar.setAttribute('aria-valuenow', pct);
+      bar.setAttribute('aria-valuetext', `${fmt(p.done || 0)} of ${fmt(p.total)} ${p.unit}`);
+      sub.push(`${fmt(p.done || 0)} / ${fmt(p.total)} ${esc(p.unit || '')} (${pct}%)`);
+    } else {
+      bar.classList.add('indet');
+      fill.style.width = '';
+      bar.removeAttribute('aria-valuenow');
+      bar.setAttribute('aria-valuetext', p.phase || 'working');
+      if (p.done != null) sub.push(`${fmt(p.done)} ${esc(p.unit || '')}`);
+    }
+    if (p.detail) sub.push(esc(p.detail));
+    if (p.activity) sub.push(esc(p.activity));
+    sub.push(impDur(s.elapsed || 0));
+  } else {
+    const failed = s.state !== 'done';
+    const fi = s.failed_part != null ? s.failed_part : i;
+    bar.classList.add(failed ? 'bad' : 'done');
+    bar.removeAttribute('aria-valuenow');
+    fill.style.width = '100%';
+    if (failed) {
+      const fstep = n > 1 ? `Step ${fi + 1} of ${n}: ${name(parts[fi].label)}` : name(parts[0].label);
+      $('#vpHead').textContent = `${fstep} failed` + (p.phase ? ` (${p.phase})` : '');
+      bar.setAttribute('aria-valuetext', 'failed');
+      if (p.error) sub.push(`<span class="err">${esc(p.error)}</span>`);
+      const rest = parts.slice(fi + 1).map(x => name(x.label));
+      if (rest.length) sub.push(`${esc(rest.join(', '))} was not started.`);
+    } else {
+      $('#vpHead').textContent = `Finished: ${parts.map(x => name(x.label)).join(' and ')}`;
+      bar.setAttribute('aria-valuetext', 'finished');
+      sub.push(`in ${impDur(s.elapsed || 0)}`);
+    }
+  }
+  $('#vpSub').innerHTML = sub.join(' · ');
+  $('#vpParts').hidden = n < 2;
+  $('#vpParts').innerHTML = n < 2 ? '' : parts.map(x =>
+    `<li>${esc(name(x.label))} — <span class="st ${x.state.replace(' ', '-')}">${VP_STATE[x.state] || esc(x.state)}</span></li>`).join('');
+}
 function impShowSource() {
   const tab = impTab(), src = impSource();
   // the folder browser lives in the Folder tab, or inside the LEMON tab's folder section
@@ -3238,11 +3358,17 @@ $('#impStart').onclick = async () => {
   if (impSource() === 'vm') {
     const steps = [...document.querySelectorAll('#impSteps input:checked')].map(c => c.value);
     if (!steps.length) { $('#impStatus').textContent = 'Pick at least one step.'; return; }
-    if (!confirm(`Extract from ${$('#impVm').value} and rebuild the Mercedes data? `
-        + 'The VM will be started and shut down by this job.')) return;
+    const both = impVmWhat() === 'both';
+    if (!confirm(both
+        ? `Extract the workshop manuals (WIS) and then the EPC parts catalogue from ${$('#impVm').value}, `
+          + 'and replace both in the index? One job: if the WIS part fails, EPC is not started. '
+          + 'The VM will be started and shut down by this job.'
+        : `Extract from ${$('#impVm').value} and rebuild the Mercedes data? `
+          + 'The VM will be started and shut down by this job.')) return;
     try {
       impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: '', mode: 'vm', vm: $('#impVm').value, steps: steps.join(',')})}));
+        body: JSON.stringify({path: '', mode: both ? 'vm_both' : 'vm', vm: $('#impVm').value,
+                              steps: steps.join(',')})}));
       impWatch();
     } catch (e) { $('#impStatus').textContent = e.message; }
     return;
