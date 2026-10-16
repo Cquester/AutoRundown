@@ -170,6 +170,16 @@ created 0600, never written then chmod'ed.
   route for any device, and `/docs` loaded Swagger's script from a CDN on
   this origin. A NUL in an `/api/image` name (`x.png%00.db`) is a 404 -- it
   was an unhandled 500 without the security headers.
+- **Scan VIN adds no upload route** (2026-10-16). The photo is read in the
+  phone's browser (zxing-wasm + tesseract.js) and never sent; the 256 KB
+  body cap is unchanged. The only new route is `GET /vendor/<path>`: the
+  vendored libraries in `autorundown/web/vendor/`, read-only, not public
+  (sign-in rules as for any other path -- signed-out phones get 401), only
+  `.js .wasm .gz .txt .md`, resolved inside that folder (`..` and `%2e%2e`
+  are 404), `Cache-Control: private, max-age=1 year, immutable` (the version
+  is in the folder name). A file input with `capture` is used, not the live
+  camera: `getUserMedia` needs a secure context, which plain-http LAN
+  access is not. Tests: `tests/test_access.py` ("Scan VIN's libraries").
 - On Linux/macOS the app folder is created 0700 and `auth.db` 0600 (sqlite
   made them 0644; an older 0644 `auth.db` is tightened). Windows unchanged.
 - Phones get no `file_path` (vehicles, page, image/original errors); Settings

@@ -19,7 +19,7 @@ broke:
 | Before you touch… | read |
 |---|---|
 | the WIS extractor, `importers/records.py`, WIS page rendering, images, "Original layout", `wis_links.py` (cross-refs, diagrams, option codes, oil, labour) | [`docs/notes/wis-source.md`](docs/notes/wis-source.md) |
-| the car box, Browse, Variant menu, VIN, years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
+| the car box, Browse, Variant menu, VIN (check digit, Scan VIN, `web/vendor/`), years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
 | `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
@@ -139,6 +139,8 @@ python tests/test_providers.py                    # Ask on all 4 AI providers vs
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
+python tests/test_vin.py                          # VIN check digit, I/O/Q, typos (~5 s)
+python tests/test_vin_scan.py [--n 8]             # Scan VIN on generated barcodes/labels (~1 min, Playwright)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
 python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends the same car (~10 s, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
@@ -311,6 +313,18 @@ citation in `_verify_citations` (invented -> dropped, falls back to the first
 real cited page; never counts on its own). A value is never "see Fig 15" --
 that rendered in big type as though it were a torque. **Not yet tried on a
 paid answer.**
+
+**A VIN is checked before it is decoded; a scanned one is never searched
+by itself** (2026-10-16). `vinCheck()` (index.html, `vin-check` block):
+I/O/Q refused with the fix offered; every 17-character VIN that is not a
+FIN must pass its ISO 3779 check digit, else only the series is used (no
+variant, engine or year) -- one-character typos named other cars with
+other engines. Do not narrow it to WMIs starting 1/4/5: Mercedes' US VINs
+start W. Scan VIN reads the photo in the browser (vendored zxing-wasm +
+tesseract.js under `web/vendor/`, served by `GET /vendor/`, no CDN, no
+upload route, no AI) and only fills the box; Find picks the car. Tests:
+`tests/test_vin.py`, `tests/test_vin_scan.py`, `test_ui_picks.py` part 7.
+Details: `vehicle-selection.md`, `shop-network.md`.
 
 **Only the chosen car's values, checked after the model.** The user typed
 "2001 E 320 4MATIC" (W210, M112) and got torque values for every W210

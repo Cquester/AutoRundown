@@ -165,6 +165,55 @@ the same rule. The VIN dialog (`#vinFind`) now picks through `carFromVin` +
 `tests/test_ui_picks.py` part 6 checks every prefix (not only each
 variant's first, which hid this) against `vin2fin.json` itself.
 
+**A VIN is checked before it is decoded (2026-10-16).** The VIN audit found
+357 one-character typos that land on another real car with another engine.
+`vinCheck()` (the `vin-check` block of `index.html`, pure functions) runs on
+every VIN entered -- car box, VIN dialog, Scan VIN:
+- spaces, hyphens and dots are dropped; I, O and Q are refused with their
+  position ("position 9 is "O" — did you mean O → 0?") and a button that
+  puts the corrected VIN in the box, changed characters highlighted -- never
+  applied by itself;
+- a length other than 17 warns (and is still decoded as before);
+- the **ISO 3779 check digit (position 9)** is checked on every 17-character
+  VIN that is *not* a FIN. That is wider than "WMI starting 1/4/5": the
+  Mercedes VINs the US decode uses (`WDB`/`WDD`/`4JG`…, coded letter at 4)
+  all carry one -- US and Canadian law require it on every car sold there,
+  and AW_VIN2FIN's 9-character keys include it. A FIN (digits at 4-6, the
+  same test `vinLookup` uses; also the ~230 FIN-form keys of other markets
+  in AW_VIN2FIN, `8AB 384.067`…) has none and is never checked. On a
+  mismatch: "Check digit doesn't match — re-check the VIN", and **only the
+  series** is decoded (position-4 code; no variant, engine or year).
+- Measured on Mercedes' own table: of 1,892 pairs of US prefixes one
+  character apart (positions 1-8), the check digit catches 1,862; the other
+  30 are swaps between characters ISO 3779 gives the same value (A/J/1,
+  B/K/S/2 …), which no check digit can see. `tests/test_vin.py` (and part 7
+  of `test_ui_picks.py`: 5,723 mistyped VINs, all series only).
+- `looksLikeVin` now lets I/O/Q and hyphens through, so a mistyped VIN in
+  the car box gets its own message instead of "No match".
+
+**Scan VIN (2026-10-16).** The VIN dialog has "Scan VIN" (camera) and
+"Choose a photo"; on a phone the car sheet has a Scan VIN button that opens
+the dialog and the camera. The photo is read on the device: barcodes first
+(zxing-wasm 3.1.4: Code 39 -- with the import "I" some US labels add --
+Data Matrix, QR), then printed text (tesseract.js 7.0.0, LSTM, English;
+whitelist A-Z 0-9 with I/O/Q kept so a misread shows). Text is read upright,
+then turned 90° and 270°; a 17-character stretch must start with a Mercedes
+maker code (`isMercedesWmi`). When the check digit can't prove it (a FIN, or
+it fails), the VIN's line is read twice more (one line, two sizes): a read
+with a right check digit wins, otherwise a per-character vote, and the
+characters the reads disagreed on are underlined for the user. The result
+fills the VIN box with the crop and the text read shown; nothing is searched
+until Find is tapped, which goes through `carFromVin` + `applyCar` like a
+typed VIN (so a "send to desk" hook sees an ordinary car pick). Why a file
+input (not the live camera), why in the browser, sizes and licences:
+`autorundown/web/vendor/README.txt` and the `vin-scan` block's comment.
+Generated-image accuracy (`tests/test_vin_scan.py`, Edge): barcodes 30/30
+(2 hard Code 39s fell back to the printed VIN under them), clean labels
+20/20, rough labels (bold, blurred, noisy, shaded, JPEG 70) 13/20 -- the
+misses are 8/9/6/0 confusions; on a US VIN those fail the check digit and
+show the warning, on a FIN nothing can catch them, hence "compare it with
+the car". **Not yet tried on a real phone or a real label.**
+
 **Data cards (EPC) are not available — they are access-protected.** The EPC
 install has the data card databases (`DAG_DCPC`, `MBNA_DCNA`, `MBOE_DCCAR`,
 … 2016-11-23, up to 8 GB each, port 2034), but they refuse both accounts the

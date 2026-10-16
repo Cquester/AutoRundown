@@ -281,6 +281,10 @@ def _origin_ok(request: Request) -> bool:
 # what /api/image will serve: pictures only. An .svg or .html in a manual's
 # images/ folder was served as a page of this site, script and all
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tif", ".tiff"}
+# what /vendor/ serves (web/vendor: the Scan VIN libraries); licence texts too
+VENDOR_TYPES = {".js": "text/javascript; charset=utf-8", ".wasm": "application/wasm",
+                ".gz": "application/octet-stream", ".txt": "text/plain; charset=utf-8",
+                ".md": "text/plain; charset=utf-8"}
 # a diagram opened full size is a document of this origin: no script, ever
 IMAGE_HEADERS = {
     "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; "
@@ -563,6 +567,22 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
     def home(request: Request) -> Response:
         return _etagged(request, (WEB_DIR / "index.html").read_bytes(), "text/html; charset=utf-8")
+
+    # Scan VIN's libraries (barcode + OCR), vendored with a fixed version in
+    # the folder name and loaded by the page only when someone scans: no CDN,
+    # so it works on a shop LAN with no internet. Same sign-in rules as every
+    # other non-public path. Read-only; nothing is uploaded -- the photo is
+    # read on the phone itself.
+    @app.get("/vendor/{name:path}")
+    def vendor(name: str) -> Response:
+        root = (WEB_DIR / "vendor").resolve()
+        target = (root / name).resolve()
+        kind = VENDOR_TYPES.get(target.suffix.lower())
+        if kind is None or not target.is_relative_to(root) or not target.is_file():
+            raise HTTPException(404, "Not found.")
+        return FileResponse(target, media_type=kind, headers={
+            # the version is in the path: a new version is a new URL
+            "Cache-Control": "private, max-age=31536000, immutable"})
 
     @app.get("/manifest.webmanifest")
     def manifest() -> JSONResponse:
