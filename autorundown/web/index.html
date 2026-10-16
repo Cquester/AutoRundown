@@ -88,6 +88,27 @@
   .phonerow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0}
   .phonerow b{color:var(--text); font-size:15px; overflow-wrap:anywhere}
   .phonerow button{min-height:36px; padding:0 12px; font-size:13px}
+  /* QR codes: always black on white with a quiet zone, whatever the theme --
+     camera apps expect that */
+  .qrbox{display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:10px 0 4px}
+  .qrimg{background:#fff; border-radius:8px; line-height:0; flex:none}
+  .qrimg svg{display:block; width:100%; height:auto}
+  .qrsite .qrimg{width:150px}
+  #qrDlg{width:min(420px, 94vw)}
+  #qrDlg .qrimg{width:min(300px, 80vw); margin:10px auto}
+  #qrDlg .qrcode{font-size:28px; font-weight:700; letter-spacing:4px; color:var(--accent)}
+  #qrDlg .qrstate{text-align:center; font-size:15px; min-height:22px; margin:4px 0}
+  #qrDlg.done .qrimg{opacity:.15}
+  /* questions / dollars this month against a limit */
+  .meter{height:8px; border-radius:4px; background:var(--panel-2); border:1px solid var(--line);
+    overflow:hidden; margin:6px 0 2px; max-width:360px}
+  .meter > i{display:block; height:100%; background:var(--good)}
+  .meter.warn > i{background:var(--warn)}
+  .meter.over > i{background:var(--bad)}
+  .keyrow{padding:10px 12px; margin:0 0 8px}
+  .keyform{display:grid; grid-template-columns:1fr 150px auto; gap:8px; align-items:end; margin-top:6px}
+  .keyform label{margin-top:4px}
+  @media (max-width:560px){ .keyform{grid-template-columns:1fr} }
   select{min-width:0}
   /* compact enough to sit inline with the toolbar chips */
   select.inline{width:auto; min-height:40px; padding:6px 10px; font-size:14px}
@@ -773,7 +794,16 @@
 
       <section class="setsec" id="sec-ai" hidden>
         <h2>AI answers</h2>
-        <label for="sKey">Anthropic API key</label>
+        <fieldset class="setgroup" style="border-top:0; margin-top:0; padding-top:0">
+          <legend>Who pays for AI answers</legend>
+          <label class="check"><input type="radio" name="keyMode" value="company"> One company key
+            <span class="muted">— every question goes on the key below</span></label>
+          <label class="check"><input type="radio" name="keyMode" value="per_mechanic"> A key per mechanic
+            <span class="muted">— each mechanic's questions go on their own key</span></label>
+          <span class="savedmark" id="mKeyMode" role="status"></span>
+        </fieldset>
+        <div class="help" id="monthTotal"></div>
+        <label for="sKey" id="sKeyLabel">Anthropic API key</label>
         <div class="row nowrap"><input id="sKey" type="password" autocomplete="off" spellcheck="false">
           <button type="button" id="saveKey" disabled>Save key</button></div>
         <div class="help" id="keyStatus"></div>
@@ -781,15 +811,33 @@
         <label for="sModel">Default AI model <span class="muted">(phones can pick their own)</span></label>
         <div class="row nowrap"><select id="sModel"></select><span class="savedmark" id="mModel" role="status"></span></div>
         <div class="help" id="modelPrice"></div>
+        <div id="mechKeysSec" hidden>
+          <h3 class="subhead">Mechanics' keys</h3>
+          <div class="help">Make one key per mechanic at console.anthropic.com, load it with credit, and enter
+            it here with the amount loaded. <b>Remaining is AutoRundown's own estimate</b>: the amount you entered
+            minus what AutoRundown logged on that key since. Anthropic doesn't tell an ordinary API key its
+            balance, so check the console for the real figure. When you add credit or swap the key, use
+            “Topped up / new key” so the count starts again.</div>
+          <div class="vinnote errnote" id="keysNote" role="alert"></div>
+          <div id="mechKeys" style="margin-top:10px"></div>
+        </div>
       </section>
 
       <section class="setsec" id="sec-phones" hidden>
         <h2>Phones &amp; mechanics</h2>
-        <div id="sPhone" class="help"></div>
+        <div class="qrbox qrsite">
+          <div class="qrimg" id="siteQrImg" role="img" aria-label="QR code that opens AutoRundown" hidden></div>
+          <div style="flex:1; min-width:240px">
+            <div class="help" id="siteQrHelp" hidden>Scan this with a phone's camera, on the shop wifi,
+              to open AutoRundown.</div>
+            <div id="sPhone" class="help"></div>
+          </div>
+        </div>
         <label class="check"><input type="checkbox" id="sSignin"> Require each mechanic to sign in
           <span class="savedmark" id="mSignin" role="status"></span></label>
         <div class="help">Off: anyone on your wifi can search and ask on your API key.
-          On: each phone needs a one-time code from this PC, and you can set a monthly limit per mechanic.</div>
+          On: each phone signs in once, by scanning a sign-in QR shown here, and you can set a monthly limit
+          per mechanic.</div>
         <h3 class="subhead">Mechanics</h3>
         <div class="adduser">
           <div><label for="uName">Add a mechanic</label>
@@ -870,16 +918,33 @@
 
 
 
+<dialog id="qrDlg" aria-labelledby="qrTitle">
+  <h3 style="margin:0 0 4px" id="qrTitle">Sign-in QR</h3>
+  <div class="muted" id="qrHelp"></div>
+  <div class="qrimg" id="qrImg" role="img" aria-label="Sign-in QR code"></div>
+  <div class="qrstate" id="qrState" role="status"></div>
+  <div class="help" id="qrCodeBox" style="text-align:center">Camera can't scan? Open AutoRundown on
+    the phone and type this code:
+    <div class="qrcode" id="qrCode"></div></div>
+  <div class="row" style="margin-top:12px; justify-content:flex-end">
+    <button class="ghost" id="qrNew" hidden>New QR</button>
+    <button id="qrClose">Close</button>
+  </div>
+</dialog>
+
 <dialog id="signinDlg">
   <h3 style="margin:0 0 4px">Sign in</h3>
-  <div class="muted">Ask whoever runs AutoRundown in the shop for a sign-in code (8 letters and
-    numbers, like ABCD 2345). You only do this once on each phone.</div>
+  <div class="muted">At the shop PC, ask for your <b>sign-in QR</b> (Shop setup → Phones &amp; mechanics)
+    and scan it with this phone's camera. You only do this once on each phone.</div>
+  <div class="muted" style="margin-top:8px">Camera can't scan it? Type the 8-letter code shown under
+    the QR (like ABCD 2345):</div>
   <label for="signinCode">Sign-in code</label>
   <input id="signinCode" type="text" maxlength="12" autocapitalize="characters"
          autocomplete="one-time-code" spellcheck="false" placeholder="8-letter code"
          style="font-size:22px; letter-spacing:3px; text-transform:uppercase">
   <div class="vinnote errnote" id="signinNote" role="alert"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
+    <button class="ghost" id="signinLater" hidden>Not now</button>
     <button id="signinGo">Sign in</button>
   </div>
 </dialog>
@@ -887,6 +952,8 @@
 <dialog id="acctDlg">
   <h3 style="margin:0 0 4px" id="acctName"></h3>
   <div class="muted" id="acctSpend"></div>
+  <div class="meter" id="acctMeter" hidden><i></i></div>
+  <div class="muted" id="acctKey" style="margin-top:10px"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
     <button class="ghost" id="acctSignout">Sign out on this phone</button>
     <button class="ghost" onclick="document.getElementById('acctDlg').close()">Close</button>
@@ -944,14 +1011,46 @@ async function loadMe() {
   if (me.signed_in) $('#acctBtn').textContent = me.name;
   return me;
 }
-function showSignin() {
+// a sign-in QR that didn't work comes back as /#signin=<why> (server.signin_link)
+const SIGNIN_WHY = {
+  expired: 'That sign-in QR has expired, was closed, or was already used. Ask for a new one.',
+  refused: 'That sign-in link was opened from another site, so it was not used. Scan the QR with the camera.',
+  wait: 'Too many tries from this phone. Wait 15 minutes, then scan a new sign-in QR.',
+};
+function showSignin(closable = false) {
+  const why = /[#&]signin=([a-z]+)/.exec(location.hash);
+  if (why) $('#signinNote').textContent = SIGNIN_WHY[why[1]] || SIGNIN_WHY.expired;
   if ($('#signinDlg').open) return;
   const m = /[#&]code=([A-Za-z0-9-]+)/.exec(location.hash);
   if (m) $('#signinCode').value = m[1];
-  $('#signinNote').textContent = '';
+  if (!why) $('#signinNote').textContent = '';
+  // "Not now" only where the page works without signing in
+  $('#signinLater').hidden = !closable;
   $('#signinDlg').showModal();
 }
-$('#signinDlg').addEventListener('cancel', e => e.preventDefault());  // no way past it
+$('#signinLater').onclick = () => {
+  if (/[#&]signin=/.test(location.hash)) history.replaceState(null, '', location.pathname);
+  $('#signinDlg').close();
+};
+// questions/dollars this month against a limit: '' (no bar), or the bar's class
+function meter(el, spent, cap) {
+  el.hidden = cap == null;
+  if (cap == null) return;
+  const f = cap > 0 ? spent / cap : 1;
+  el.className = 'meter' + (f >= 1 ? ' over' : f >= 0.8 ? ' warn' : '');
+  el.firstElementChild.style.width = Math.min(100, Math.round(f * 100)) + '%';
+}
+const meterHtml = (spent, cap) => {
+  if (cap == null) return '';
+  const f = cap > 0 ? spent / cap : 1;
+  return `<div class="meter${f >= 1 ? ' over' : f >= 0.8 ? ' warn' : ''}" role="meter" aria-valuemin="0"
+    aria-valuemax="${cap}" aria-valuenow="${spent}" aria-label="spent of the limit"><i style="width:${
+    Math.min(100, Math.round(f * 100))}%"></i></div>`;
+};
+$('#signinDlg').addEventListener('cancel', e => {    // no way past it when sign-in is required
+  if (!$('#signinLater').hidden) return;
+  e.preventDefault();
+});
 // a #code= link opened while the box is already showing still fills it in
 addEventListener('hashchange', () => {
   const m = /[#&]code=([A-Za-z0-9-]+)/.exec(location.hash);
@@ -966,10 +1065,21 @@ $('#signinGo').onclick = async () => {
   } catch (e) { $('#signinNote').textContent = e.message; }
 };
 $('#signinCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('#signinGo').click(); });
-$('#acctBtn').onclick = () => {
+$('#acctBtn').onclick = async () => {
+  try { await loadMe(); } catch (e) { /* show what we have */ }
+  const spent = me.month_spend_usd || 0, cap = me.monthly_cap_usd, n = me.month_questions || 0;
   $('#acctName').textContent = me.name;
-  $('#acctSpend').textContent = `Spent this month: $${(me.month_spend_usd || 0).toFixed(2)}`
-    + (me.monthly_cap_usd != null ? ` of your $${me.monthly_cap_usd.toFixed(2)} limit` : '');
+  $('#acctSpend').textContent = `This month: ${n} question${n === 1 ? '' : 's'}, $${spent.toFixed(2)}`
+    + (cap != null ? ` of your $${cap.toFixed(2)} limit` : ' (no limit)')
+    + (cap != null && spent >= cap ? ' — limit reached; keyword search still works.' : '');
+  meter($('#acctMeter'), spent, cap);
+  const k = me.own_key;
+  $('#acctKey').textContent = !k ? ''
+    : !k.has_key ? 'No API key is set up for you yet, so AI answers are off. Ask the shop to add yours.'
+    : k.remaining_usd != null
+      ? `Your API key: about $${k.remaining_usd.toFixed(2)} left of $${k.loaded_usd.toFixed(2)} loaded `
+        + `(AutoRundown's estimate from its own log).`
+      : `Your API key: $${k.spent_usd.toFixed(2)} spent on it since it was set up.`;
   $('#acctDlg').showModal();
 };
 $('#acctSignout').onclick = async () => {
@@ -2376,6 +2486,7 @@ async function loadSetup() {
   $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
   $('#sAutostart').checked = !!s.autostart;
   $('#sSignin').checked = !!s.require_signin;
+  showKeyMode(s);
   $('#sKey').placeholder = s.has_api_key ? 'leave empty to keep the saved key' : 'sk-ant-…';
   $('#keyStatus').innerHTML = s.has_api_key
     ? `<span style="color:var(--good)">&#10003; Key saved</span>`
@@ -2427,7 +2538,89 @@ async function showSetup(sec) {
   if (sec === 'welcome') renderWelcome();
   if (sec === 'manuals') openImport();
   if (sec === 'phones') openUsers();
+  if (sec === 'ai') {        // this month's totals move with every question: fetch them afresh
+    api('/api/settings').then(s => { Object.assign(setupData, s); showKeyMode(s);
+      if (s.key_mode === 'per_mechanic') loadKeys(); }, () => {});
+  }
 }
+// -- who pays for AI answers: one company key, or a key per mechanic --
+function showKeyMode(s) {
+  const per = s.key_mode === 'per_mechanic';
+  document.querySelectorAll('input[name=keyMode]').forEach(r => { r.checked = r.value === s.key_mode; });
+  $('#sKeyLabel').textContent = per ? 'This PC’s Anthropic API key (for questions asked on this PC)'
+                                    : 'Anthropic API key';
+  const n = s.month_questions || 0;
+  $('#monthTotal').innerHTML = (per ? 'Everyone together this month: ' : '<b>Spent this month</b>, everyone on this key: ')
+    + `${n} question${n === 1 ? '' : 's'}, <b>${money(s.month_spend_usd)}</b>`
+    + (s.company_key_last4 && !per ? ` (key …${esc(s.company_key_last4)})` : '')
+    + '. Months are calendar months (UTC), as logged by AutoRundown.';
+  $('#mechKeysSec').hidden = !per;
+}
+document.querySelectorAll('input[name=keyMode]').forEach(r => r.onchange = async () => {
+  const v = r.value;
+  if (v === 'per_mechanic' && !confirm('Switch to a key per mechanic? Each mechanic can ask only once you have '
+      + 'added their key below; mechanics without one get “no key set up for you”. Phones that are not '
+      + 'signed in can no longer ask.')) { showKeyMode(setupData); return; }
+  if (await saveSetting({key_mode: v}, '#mKeyMode')) {
+    await loadSetup();
+    if (v === 'per_mechanic') loadKeys();
+  } else showKeyMode(setupData);
+});
+async function loadKeys() {
+  let d;
+  try { d = await api('/api/admin/users'); }
+  catch (e) { $('#keysNote').textContent = e.message; return; }
+  const row = u => {
+    const k = u.key || {};
+    const est = !k.has_key ? '<span style="color:var(--warn)">No key yet — this mechanic can’t ask.</span>'
+      : `Key …${esc(k.last4)}` + (k.loaded_usd != null
+          ? ` · ${money(k.loaded_usd)} loaded · ${money(k.spent_usd)} spent since · `
+            + `<b>about ${money(k.remaining_usd)} left</b> (estimate)`
+          : ` · ${money(k.spent_usd)} spent since it was added · enter the amount loaded to see what’s left`)
+        + (k.since ? ` <span class="muted">· counting since ${esc(k.since)} UTC</span>` : '');
+    return `<div class="card keyrow" data-id="${u.id}" data-name="${esc(u.name)}">
+      <b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
+      <div class="help">${est}</div>
+      ${k.has_key && k.loaded_usd != null ? meterHtml(k.spent_usd, k.loaded_usd) : ''}
+      <div class="keyform">
+        <div><label for="mk${u.id}">${k.has_key ? 'New key (leave empty to keep it)' : 'API key'}</label>
+          <input id="mk${u.id}" class="mkkey" type="password" autocomplete="off" spellcheck="false"
+            placeholder="sk-ant-…"></div>
+        <div><label for="ml${u.id}">$ loaded on it</label>
+          <input id="ml${u.id}" class="mkload" type="number" min="0" step="1" inputmode="decimal"
+            value="${k.loaded_usd ?? ''}"></div>
+        <button type="button" data-kact="save">${k.has_key ? 'Topped up / new key' : 'Save key'}</button>
+      </div>
+      ${k.has_key ? `<div class="row" style="margin-top:6px"><button type="button" class="ghost" data-kact="remove">
+        Remove key</button></div>` : ''}
+    </div>`;
+  };
+  $('#mechKeys').innerHTML = d.users.length ? d.users.map(row).join('')
+    : '<div class="notfound">No mechanics yet. Add them under Phones &amp; mechanics.</div>';
+}
+$('#mechKeys').onclick = async e => {
+  const b = e.target.closest('button[data-kact]');
+  if (!b || b.disabled) return;
+  const card = b.closest('.keyrow'), id = card.dataset.id, name = card.dataset.name;
+  let body;
+  try {
+    if (b.dataset.kact === 'remove') {
+      if (!confirm(`Remove ${name}’s API key? They can’t ask until you add one.`)) return;
+      body = {remove: true};
+    } else {
+      const key = card.querySelector('.mkkey').value.trim();
+      const loaded = parseCap(card.querySelector('.mkload').value);
+      body = {reset: true};
+      if (key) body.api_key = key;
+      if (loaded === null) body.clear_loaded = true; else body.loaded_usd = loaded;
+    }
+    b.disabled = true;
+    await api(`/api/admin/users/${id}/key`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    $('#keysNote').textContent = '';
+    await loadKeys();
+  } catch (err) { $('#keysNote').textContent = err.message; b.disabled = false; }
+};
 $('#sModel').onchange = async () => {
   showModelPrice();
   const v = $('#sModel').value;
@@ -2488,24 +2681,34 @@ function parseCap(raw) {
     throw new Error('The limit must be an amount in dollars, 0 or more (leave it empty for no limit).');
   return n;
 }
-let lastCode = null;          // {id, name, code, minutes}: shown in that mechanic's card
+async function loadSiteQr() {
+  const d = await api('/api/admin/site-qr');
+  $('#siteQrImg').hidden = $('#siteQrHelp').hidden = !d.svg;
+  $('#siteQrImg').innerHTML = d.svg;          // built by this server from its own address
+}
 async function loadUsers() {
   const d = await api('/api/admin/users');
-  const urls = d.phone_urls.map(u => `<b>${esc(u)}</b>`).join(' or ') || '<i>no network address found</i>';
+  loadSiteQr().catch(() => { $('#siteQrImg').hidden = $('#siteQrHelp').hidden = true; });
   const ca = d.phone_urls.length && d.phone_urls[0].startsWith('https')
     ? ` To remove the security warning, install <b>${esc(d.phone_urls[0])}/ca.crt</b> on each phone once.` : '';
   $('#usersIntro').innerHTML = (d.require_signin
-      ? 'Sign-in is <b>required</b>: other devices need a code from here.'
+      ? 'Sign-in is <b>required</b>: each phone signs in once by scanning its mechanic’s sign-in QR.'
       : 'Sign-in is <b>off</b>: anyone on the network can search and ask. Turn it on above.')
-    + ` Phones open ${urls}.${ca}`;
+    + (d.phone_urls.length ? '' : ' <i>No network address found.</i>') + ca;
+  const perKey = d.key_mode === 'per_mechanic';
   const row = u => `<div class="card usercard" data-id="${u.id}" data-name="${esc(u.name)}" style="padding:10px 12px; margin:0 0 8px">
       <div class="row" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
-        <div><b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
-          <div class="muted">${u.month_questions} questions, ${money(u.month_spend_usd)} this month`
-          + (u.monthly_cap_usd != null ? ` of ${money(u.monthly_cap_usd)} limit` : ', no limit')
-          + ` · ${u.devices} signed-in device${u.devices === 1 ? '' : 's'}</div></div>
+        <div style="flex:1; min-width:220px"><b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
+          <div class="muted">This month: ${u.month_questions} question${u.month_questions === 1 ? '' : 's'}, `
+          + `<b>${money(u.month_spend_usd)}</b>`
+          + (u.monthly_cap_usd != null ? ` of ${money(u.monthly_cap_usd)} limit` : ' (no limit)')
+          + ` · ${u.devices} signed-in device${u.devices === 1 ? '' : 's'}`
+          + (perKey ? ' · ' + (u.key && u.key.has_key
+              ? (u.key.remaining_usd != null ? `own key: about ${money(u.key.remaining_usd)} left` : 'own key')
+              : '<span style="color:var(--warn)">no key of their own</span>') : '')
+          + `</div>${meterHtml(u.month_spend_usd, u.monthly_cap_usd)}</div>
         <div class="row" style="gap:6px; flex-wrap:wrap">
-          ${u.disabled ? '' : `<button type="button" class="ghost" data-act="code">Sign-in code</button>`}
+          ${u.disabled ? '' : `<button type="button" class="ghost" data-act="qr">Sign-in QR</button>`}
           <button type="button" class="ghost" data-act="cap">Limit</button>
           ${u.devices ? `<button type="button" class="ghost" data-act="signout">Sign out devices</button>` : ''}
           <button type="button" class="${u.disabled ? 'ghost' : 'danger'}" data-act="${u.disabled ? 'enable' : 'disable'}">
@@ -2516,22 +2719,79 @@ async function loadUsers() {
         <div class="row"><input id="cap${u.id}" class="capin" type="number" min="0" step="1" inputmode="decimal"
           value="${u.monthly_cap_usd ?? ''}" style="max-width:160px">
           <button type="button" data-act="capsave">Save limit</button></div>
-      </div>
-      <div class="codeslot"></div></div>`;
+      </div></div>`;
   $('#usersList').innerHTML = (d.users.length ? d.users.map(row).join('')
-      : `<div class="notfound">No mechanics yet. Add one above to give their phone a sign-in code.</div>`)
+      : `<div class="notfound">No mechanics yet. Add one above, then scan their sign-in QR with their phone.</div>`)
     + `<div class="muted" style="margin:8px 0">This PC and devices that did not sign in: `
     + `${d.unattributed.month_questions} questions, ${money(d.unattributed.month_spend_usd)} this month.</div>`;
-  if (lastCode) {
-    const slot = $(`#usersList .usercard[data-id="${lastCode.id}"] .codeslot`);
-    if (slot) slot.innerHTML = codeCard(lastCode);
+}
+
+// -- the sign-in QR dialog: one QR per opening, voided when it closes ------
+// The server keeps only hashes; the link and code exist on this page until
+// the dialog closes. 15 minutes, one use (link or code), then dead.
+let qr = null;      // {uid, name, grant_id, deadline, timer, poll, state}
+async function openQr(uid, name) {
+  if (qr) await closeQr();
+  const r = await api(`/api/admin/users/${uid}/qr`, {method: 'POST'});
+  qr = {uid, name, grant_id: r.grant_id, deadline: Date.now() + r.expires_in * 1000, state: 'pending'};
+  $('#qrDlg').classList.remove('done');
+  $('#qrTitle').textContent = `Sign-in QR for ${name}`;
+  $('#qrHelp').textContent = `Scan it with ${name}’s phone camera, on the shop wifi. It works once, for `
+    + `${r.minutes} minutes, and stops working when you close this.`;
+  $('#qrImg').innerHTML = r.svg;            // built by this server from its own address
+  $('#qrCode').textContent = r.code.slice(0, 4) + ' ' + r.code.slice(4);
+  $('#qrCodeBox').hidden = false;
+  $('#qrNew').hidden = true;
+  tickQr();
+  qr.timer = setInterval(tickQr, 1000);
+  qr.poll = setInterval(pollQr, 2000);
+  if (!$('#qrDlg').open) $('#qrDlg').showModal();
+}
+function tickQr() {
+  if (!qr || qr.state !== 'pending') return;
+  const left = Math.max(0, Math.round((qr.deadline - Date.now()) / 1000));
+  $('#qrState').textContent = `Valid for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  if (!left) endQr('expired');
+}
+async function pollQr() {
+  if (!qr || qr.state !== 'pending') return;
+  const q = qr;
+  try {
+    const s = await api(`/api/admin/users/${q.uid}/qr/${q.grant_id}`);
+    if (qr === q && s.state !== 'pending') endQr(s.state);
+  } catch (e) { /* next poll */ }
+}
+function endQr(state) {
+  qr.state = state;
+  clearInterval(qr.timer); clearInterval(qr.poll);
+  $('#qrDlg').classList.add('done');
+  $('#qrCodeBox').hidden = true;
+  $('#qrNew').hidden = state === 'used';
+  $('#qrState').innerHTML = state === 'used'
+    ? `<b style="color:var(--good)">&#10003; ${esc(qr.name)}’s phone is signed in.</b>`
+    : `<b style="color:var(--warn)">This QR has expired.</b> Make a new one if the phone still needs it.`;
+  if (state === 'used') loadUsers().catch(() => {});
+}
+async function closeQr(keepalive = false) {
+  if (!qr) return;
+  const q = qr;
+  qr = null;
+  clearInterval(q.timer); clearInterval(q.poll);
+  $('#qrImg').innerHTML = ''; $('#qrCode').textContent = '';
+  if (q.state === 'pending') {          // closing voids it at once, on the server
+    await fetch(`/api/admin/users/${q.uid}/qr/${q.grant_id}/void`, {method: 'POST', keepalive})
+      .catch(() => {});
   }
 }
-const codeCard = c => `<div class="codecard">Sign-in code for <b>${esc(c.name)}</b>
-    (one use, valid ${c.minutes} minutes):
-    <div style="font-size:32px; font-weight:700; letter-spacing:4px; color:var(--accent); margin:6px 0">
-      ${esc(c.code.slice(0, 4))} ${esc(c.code.slice(4))}</div>
-    <div class="muted">Open AutoRundown on their phone and type it in.</div></div>`;
+$('#qrClose').onclick = () => $('#qrDlg').close();
+$('#qrDlg').addEventListener('close', () => { closeQr(); });
+$('#qrNew').onclick = async () => {
+  const {uid, name} = qr || {};
+  if (uid == null) return;
+  try { await openQr(uid, name); } catch (e) { $('#qrState').textContent = e.message; }
+};
+// the page closed with the dialog open: void it on the way out
+addEventListener('pagehide', () => { if (qr) closeQr(true); });
 $('#usersList').onclick = async e => {
   const b = e.target.closest('button[data-act]');
   if (!b || b.disabled) return;
@@ -2545,9 +2805,10 @@ $('#usersList').onclick = async e => {
   if (act === 'disable' && !confirm(`Disable ${name}? Their phones are signed out at once.`)) return;
   b.disabled = true;                         // a double click issued two codes
   try {
-    if (act === 'code') {
-      const r = await api(`/api/admin/users/${id}/code`, {method: 'POST'});
-      lastCode = {id, name, ...r};
+    if (act === 'qr') {
+      await openQr(id, name);
+      b.disabled = false;
+      return;
     } else if (act === 'signout') {
       await api(`/api/admin/users/${id}/signout`, {method: 'POST'});
     } else if (act === 'capsave') {
@@ -2557,7 +2818,6 @@ $('#usersList').onclick = async e => {
     } else {
       await api(`/api/admin/users/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({disabled: act === 'disable'})});
-      if (act === 'disable' && lastCode && lastCode.id === id) lastCode = null;
     }
     $('#usersNote').textContent = '';
     await loadUsers();
@@ -2573,8 +2833,8 @@ $('#uAdd').onclick = async () => {
       body: JSON.stringify({name, monthly_cap_usd: cap})});
     $('#uName').value = ''; $('#uCap').value = '';
     $('#usersNote').textContent = '';
-    lastCode = {id: String(r.id), name, code: r.code, minutes: r.minutes};
     await loadUsers();
+    await openQr(String(r.id), name);       // straight to their phone's sign-in
   } catch (err) { $('#usersNote').textContent = err.message; }
   finally { $('#uAdd').disabled = false; }
 };
@@ -3323,6 +3583,8 @@ async function start() {
         showSignin();
         return;
       }
+      // a sign-in QR that failed on a page that doesn't need one: say so, closably
+      if (!m.admin && /[#&]signin=/.test(location.hash)) showSignin(true);
       await loadVehicles(vehiclesReq);
       loadModels(modelsReq).catch(e => {
         $('#model').innerHTML = '<option value="">AI models unavailable</option>';
