@@ -803,7 +803,7 @@
         <div class="help">Answers are checked the same way whichever provider writes them: a value or page
           the search didn't find is removed, and an answer left with no page behind it is not shown.</div>
         <div class="getkey" id="getKeyBox">
-          <a class="btnlink ghostlink" id="getKey" href="https://console.anthropic.com/settings/keys"
+          <a class="btnlink ghostlink" id="getKey" href="https://platform.claude.com/settings/keys"
             target="_blank" rel="noopener noreferrer">Get a key</a>
           <ol class="help" style="margin:0">
             <li>Sign in and create a key.</li>
@@ -2577,7 +2577,7 @@ async function showSetup(sec) {
 // through the same checks on the server whichever it is.
 const curProvider = s => (s.providers || []).find(p => p.id === s.provider)
   || {id: 'anthropic', short: 'Anthropic', label: 'Anthropic (Claude)', key_hint: 'sk-ant-…',
-      key_url: 'https://console.anthropic.com/settings/keys'};
+      key_url: 'https://platform.claude.com/settings/keys'};
 function showProvider(s) {
   const p = curProvider(s);
   $('#sProvider').innerHTML = (s.providers || [p]).map(x =>
@@ -2615,7 +2615,7 @@ function showKeyMode(s) {
   $('#sKeyLabel').textContent = per ? `This PC’s ${short} API key (for questions asked on this PC)`
                                     : `${short} API key`;
   const n = s.month_questions || 0;
-  $('#monthTotal').innerHTML = (per ? 'Everyone together this month: ' : '<b>Spent this month</b>, everyone on this key: ')
+  $('#monthTotal').innerHTML = (per ? 'Everyone together this month: ' : '<b>Spent this month</b>, everyone, all AI providers: ')
     + `${n} question${n === 1 ? '' : 's'}, <b>${money(s.month_spend_usd)}</b>`
     + (s.company_key_last4 && !per ? ` (key …${esc(s.company_key_last4)})` : '')
     + '. Months are calendar months (UTC), as logged by AutoRundown.';

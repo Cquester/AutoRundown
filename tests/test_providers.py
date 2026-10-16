@@ -223,6 +223,62 @@ check("every listed model's price has a source and the date it was checked",
       all(m["price_checked"] == providers.PRICE_CHECKED and m["price_source"].startswith("https://")
           for p in providers.PROVIDERS for m in providers.model_list(p)))
 
+print("\n-- Shop setup over HTTP (this PC) --")
+from fastapi.testclient import TestClient  # noqa: E402
+from autorundown import server as app_server  # noqa: E402
+
+app = app_server.create_app(str(db), TMP / "auth.db")
+pc = TestClient(app, base_url="http://localhost:8756", client=("127.0.0.1", 50000))
+phone = TestClient(app, base_url="http://192.168.1.20:8756", client=("192.168.1.50", 50000))
+GKEY = "AIza-test-not-real-GGGG"
+r = pc.post("/api/settings", json={"provider": "gemini"})
+s = pc.get("/api/settings").json()
+check("switching provider saves it and moves the model to that provider's default",
+      r.status_code == 200 and s["provider"] == "gemini" and s["model"] == "gemini-3.8-flash", s.get("model"))
+check("every provider is listed with its key page; no key yet for Gemini",
+      [p["id"] for p in s["providers"]] == list(providers.PROVIDERS)
+      and not s["has_api_key"], s["providers"])
+check("an unknown provider is refused", pc.post("/api/settings", json={"provider": "openai"}).status_code == 422)
+check("another provider's model is refused",
+      pc.post("/api/settings", json={"model": "claude-opus-5"}).status_code == 400)
+r = pc.post("/api/settings", json={"api_key": GKEY, "key_provider": "gemini"})
+s = pc.get("/api/settings").json()
+check("the Gemini key is saved as Gemini's, shown by its last 4 only",
+      r.status_code == 200 and s["has_api_key"] and s["company_key_last4"] == "GGGG"
+      and GKEY not in str(s) and config.load().provider_keys == {"gemini": GKEY}
+      and config.load().api_key == "", s)
+models = pc.get("/api/models").json()
+check("/api/models lists Gemini's models with prices",
+      [m["id"] for m in models] == list(providers.PROVIDERS["gemini"]["models"])
+      and all(m["price_in"] for m in models), models)
+me = phone.get("/api/me").json()
+check("a phone sees the provider and model, never a key",
+      me["provider"] == "gemini" and me["default_model"] == "gemini-3.8-flash"
+      and GKEY not in str(me) and "GGGG" not in str(me), me)
+r = phone.post("/api/ask", json={"doc_id": vehicle["doc_id"], "question": "brake caliper bolt torque",
+                                 "model": "gemini-3.5-flash-lite"})
+d = r.json()
+check("a phone's question is answered by Gemini on the company Gemini key",
+      r.status_code == 200 and d["found"] and d["usage"]["provider"] == "gemini", d)
+row = conn.execute("SELECT provider, model, key_ref FROM usage_log ORDER BY id DESC").fetchone()
+check("  ... logged as gemini / gemini-3.5-flash-lite / company:gemini",
+      tuple(row) == ("gemini", "gemini-3.5-flash-lite", "company:gemini"), tuple(row))
+r = phone.post("/api/ask", json={"doc_id": vehicle["doc_id"], "question": "q", "model": "claude-opus-5"})
+check("a model of another provider is refused", r.status_code == 400, r.status_code)
+uid = pc.post("/api/admin/users", json={"name": "Sam"}).json()["id"]
+pc.post("/api/settings", json={"key_mode": "per_mechanic"})
+r = pc.post(f"/api/admin/users/{uid}/key", json={"api_key": "AIza-sam-not-real-SAMG"})
+cfg = config.load()
+check("a mechanic's key is stored for the active provider",
+      r.status_code == 200 and config.mechanic_entry(cfg, uid, "gemini")["api_key"] == "AIza-sam-not-real-SAMG"
+      and not config.mechanic_entry(cfg, uid, "anthropic").get("api_key")
+      and r.json()["key"]["last4"] == "SAMG", r.json())
+pc.post("/api/settings", json={"provider": "anthropic"})
+users = pc.get("/api/admin/users").json()["users"]
+check("back on Anthropic, Sam has no key there (his Gemini key is kept)",
+      not users[0]["key"]["has_key"]
+      and config.mechanic_entry(config.load(), uid, "gemini").get("api_key"), users[0]["key"])
+
 server.shutdown()
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

@@ -63,7 +63,7 @@ PROVIDERS: dict[str, dict] = {
     "anthropic": {
         "label": "Anthropic (Claude)",
         "short": "Anthropic",
-        "key_url": "https://console.anthropic.com/settings/keys",
+        "key_url": "https://platform.claude.com/settings/keys",
         "key_hint": "sk-ant-…",
         "env_key": "ANTHROPIC_API_KEY",
         "price_source": "https://platform.claude.com/docs/en/about-claude/pricing",
@@ -118,7 +118,7 @@ PROVIDERS: dict[str, dict] = {
     "xai": {
         "label": "xAI (Grok)",
         "short": "xAI",
-        "key_url": "https://console.x.ai/",
+        "key_url": "https://console.x.ai/team/default/api-keys",
         "key_hint": "xai-…",
         "env_key": "XAI_API_KEY",
         "base_env": "XAI_BASE_URL",
