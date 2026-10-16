@@ -103,6 +103,21 @@
   .suggest .opt:last-child{border-bottom:0}
   .suggest .opt.on, .suggest .opt:hover{background:var(--hover)}
   .suggest .opt .sub{color:var(--muted); font-size:13px}
+  /* recent cars on this device (the box focused while empty or unchanged) */
+  .suggest .histhead{display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:4px 6px 4px 12px; border-bottom:1px solid var(--line); color:var(--muted);
+    font-size:13px; font-weight:600}
+  .suggest .histnote{padding:9px 12px; border-bottom:1px solid var(--line); font-size:13px;
+    border-left:4px solid var(--warn); background:var(--warn-bg)}
+  .suggest button.histclear{min-height:32px; padding:0 10px; background:none; border:0;
+    color:var(--accent); font-size:13px; font-weight:600}
+  .suggest .opt.hist{display:flex; align-items:center; gap:6px; padding-right:4px}
+  .suggest .histtext{flex:1; min-width:0}
+  .suggest button.histx{flex:none; width:34px; min-height:34px; height:34px; padding:0;
+    background:none; border:0; border-radius:8px; color:var(--muted); font-size:20px;
+    font-weight:400; line-height:1}
+  .suggest button.histx:hover, .suggest button.histx:focus-visible{background:var(--line); color:var(--text)}
+  .suggest button.histclear:focus-visible, .suggest button.histx:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
   .picker{display:flex; gap:8px; flex:1 0 100%; min-width:0; flex-wrap:wrap}
   .picker[hidden]{display:none}
   .picker #year{flex:0 1 124px}
@@ -577,6 +592,11 @@
     .sheetmore #scopeNote{margin:4px 0 12px !important; font-size:15px !important; line-height:1.45}
     .sheetmore details.opts{margin:0}
     .sheetmore details.opts > summary{display:flex}
+    /* suggestions and recent cars: rows a thumb can hit */
+    .suggest .opt{min-height:44px; display:flex; flex-direction:column; justify-content:center}
+    .suggest .opt.hist{flex-direction:row}
+    .suggest button.histx{width:44px; height:44px; min-height:44px}
+    .suggest button.histclear{min-height:44px}
 
     /* Answer | Document */
     main{display:flex; flex-direction:column}
@@ -1473,7 +1493,7 @@ function carMatches(q) {
 function showCarList(items) {
   const list = $('#carList');
   carSel = items.length ? 0 : -1;
-  list._items = items;
+  list._items = items; list._hist = false;
   list.innerHTML = items.length ? items.map((e, k) =>
     `<div class="opt${k === 0 ? ' on' : ''}" data-k="${k}"><div>${esc(e.label)}</div>`
     + (e.sub ? `<div class="sub">${esc(e.sub)}</div>` : '') + `</div>`).join('')
@@ -1489,6 +1509,7 @@ function applyCar(e, typedYear) {
   refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
   carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub};
   try { localStorage.setItem(CARPICK, JSON.stringify({...carPick, doc: e.doc, variant: e.variant})); } catch (_) {}
+  recordCarHistory({...e, year: carPick.year}, 'box');
   setCarBox(e.label);
   $('#carList').hidden = true;
   carChanged();
@@ -1510,8 +1531,138 @@ function carFromVin(raw) {
                + (r.names ? ` · ${r.bm || ''} is sold as ${[...new Set(r.names)].join(', ')} — pick yours in Browse` : '')
                + (fams.length ? ` · ${fams.map(f => labels[f] || 'Engine ' + f).join(' or ')}` : ''),
           doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year,
-          bm: r.bm || null, how: r.how};
+          bm: r.bm || null, how: r.how, vin: String(raw).trim().toUpperCase()};
 }
+
+// -- recent cars on this device ----------------------------------------------
+// The last cars picked here, newest first, shown when the box is focused (or
+// the car sheet opened) while it is empty or still says the selected car.
+// Kept in this browser only (localStorage; blocked storage = no history).
+// Stored as the structured pick -- car, variant index AND its name, engine,
+// year, label, the VIN it came from -- not as text: re-selecting checks the
+// pick against the vehicles this server lists now (an index rebuilt since can
+// move a variant's position: "_variants" order is the server's) and goes
+// through applyCar like any pick, so it sends exactly what the first pick did.
+const CARHIST = 'autorundown.carHistory.v1', CARHIST_MAX = 10;
+function carHistory() {
+  try {
+    const h = JSON.parse(localStorage.getItem(CARHIST) || '[]');
+    return Array.isArray(h) ? h.filter(x => x && typeof x.doc === 'string' && typeof x.label === 'string') : [];
+  } catch (_) { return []; }
+}
+function saveCarHistory(h) {
+  try { localStorage.setItem(CARHIST, JSON.stringify(h.slice(0, CARHIST_MAX))); } catch (_) {}
+}
+// the same car: same vehicle, variant, engine and year (a VIN is not part of
+// it -- the car the VIN names is)
+const histKey = h => [h.doc, h.variant ?? '', h.engine || '', h.year || ''].join('|');
+function recordCarHistory(e, src) {
+  const v = vehicles.find(x => x.doc_id === e.doc);
+  if (!v || !e.label) return;
+  const n = e.variant ?? null;
+  const h = {doc: e.doc, variant: n, vname: n !== null && v._variants[n] ? v._variants[n].name : null,
+             engine: e.engine || null, year: e.year || null, label: e.label, sub: e.sub || '',
+             vin: e.vin || null, src, at: Date.now()};
+  const list = carHistory().filter(x => histKey(x) !== histKey(h));
+  // Browse picks a car in steps (Model, then Variant): the next step of the
+  // same car replaces the one before rather than filling the list
+  if (src === 'browse' && list[0] && list[0].src === 'browse' && list[0].doc === h.doc) list.shift();
+  saveCarHistory([h, ...list]);
+}
+function removeCarHistory(h) { saveCarHistory(carHistory().filter(x => histKey(x) !== histKey(h))); }
+// Browse: what the dropdowns now select, as a pick
+function recordBrowsePick() {
+  const v = vehicles.find(x => x.doc_id === docId());
+  if (!v) return;
+  const n = variantIdx(), eng = engineSel();
+  const g = eng && engineGroups(v).find(([f]) => f === eng);
+  recordCarHistory({doc: v.doc_id, variant: n, engine: n === null ? eng : null, year: null,
+                    label: currentCarLabel(),
+                    sub: g ? g[1].label : n !== null ? [v.model, ...(v._variants[n].engines || [])].join(' · ')
+                                        : v._variants.length ? 'whole generation' : ''}, 'browse');
+}
+// The pick as it stands in the current index: {e} to apply, plus a note when
+// it no longer fits and the whole series is used instead; {gone} when the
+// car's manual is not in this index any more.
+function resolveCarHistory(h) {
+  const v = vehicles.find(x => x.doc_id === h.doc);
+  if (!v) return {gone: true};
+  const fams = String(h.engine || '').split(',').filter(Boolean);
+  const e = {doc: v.doc_id, variant: null, engine: null, year: h.year || null,
+             label: h.label, sub: h.sub, vin: h.vin || null};
+  let ok;
+  if (h.variant !== null && h.variant !== undefined) {
+    const x = v._variants[h.variant];
+    ok = !!x && x.name === h.vname && fams.every(f => f in (x.engine_families || {}));
+    if (ok) { e.variant = h.variant; e.engine = h.engine || null; }
+  } else {
+    const all = Object.assign({}, ...v._variants.map(x => x.engine_families || {}));
+    ok = fams.every(f => f in all);
+    if (ok) e.engine = h.engine || null;
+  }
+  if (ok) return {e};
+  const engines = engineGroups(v).filter(([f]) => f).length;
+  return {e: {doc: v.doc_id, variant: null, engine: null, year: null,
+              label: `${v.year_range || ''} ${v.make || ''} ${v.model}`.replace(/\s+/g, ' ').trim(),
+              sub: engines > 1 ? `whole generation — all ${engines} engines` : 'whole generation'},
+          note: `“${h.label}” is not listed the same way in the manuals any more, so the whole `
+                + `${v.model} is selected` + (engines > 1 ? ' — pick your engine in Browse.' : '.')};
+}
+function applyCarHistory(h) {
+  const r = resolveCarHistory(h);
+  if (r.gone) {
+    removeCarHistory(h);
+    showCarHistory(`“${h.label}” is no longer in the manuals here; removed from the list.`);
+    return;
+  }
+  if (r.note) removeCarHistory(h);
+  applyCar(r.e);
+  $('#histNote')?.remove();
+  if (r.note) out.insertAdjacentHTML('afterbegin',
+    `<div class="card" id="histNote"><div class="warnbox">${esc(r.note)}</div></div>`);
+}
+// the list under the box; false when there is nothing to show
+function showCarHistory(note) {
+  const list = $('#carList'), hist = carHistory();
+  list._items = hist.map(h => ({hist: h}));
+  list._hist = true;
+  carSel = -1;                        // nothing highlighted: Enter keeps the car
+  if (!hist.length && !note) { list.hidden = true; list.innerHTML = ''; return false; }
+  list.innerHTML = (note ? `<div class="histnote" role="status">${esc(note)}</div>` : '')
+    + (hist.length
+      ? `<div class="histhead"><span>Recent cars on this device</span>`
+        + `<button type="button" class="histclear">Clear history</button></div>`
+        + hist.map((h, k) =>
+            `<div class="opt hist" data-k="${k}"><div class="histtext"><div>${esc(h.label)}</div>`
+            + (h.sub || h.vin ? `<div class="sub">${esc([h.sub, h.vin && !String(h.sub).includes(h.vin) ? 'VIN ' + h.vin : '']
+                                                         .filter(Boolean).join(' · '))}</div>` : '')
+            + `</div><button type="button" class="histx" data-x="${k}" title="Remove from this list"`
+            + ` aria-label="Remove ${esc(h.label)} from recent cars">×</button></div>`).join('')
+      : '');
+  list.hidden = false;
+  list.querySelectorAll('.opt[data-k]').forEach(o => o.onmousedown = ev => {
+    if (ev.target.closest('button')) return;
+    ev.preventDefault(); applyCarHistory(list._items[+o.dataset.k].hist);
+  });
+  // buttons: the mouse must not take the focus from the box (its blur closes
+  // the list); a keyboard press (detail 0) gives it back to the box
+  list.querySelectorAll('button').forEach(b => b.onmousedown = ev => ev.preventDefault());
+  list.querySelectorAll('.histx').forEach(b => b.onclick = ev => {
+    removeCarHistory(list._items[+b.dataset.x].hist);
+    showCarHistory();
+    if (ev.detail === 0) $('#carInput').focus();
+  });
+  const clear = list.querySelector('.histclear');
+  if (clear) clear.onclick = ev => {
+    try { localStorage.removeItem(CARHIST); } catch (_) {}
+    list.hidden = true;
+    if (ev.detail === 0) $('#carInput').focus();
+  };
+  return true;
+}
+// shown only while the box is empty or still says the selected car: typing
+// replaces it with the normal suggestions
+const carBoxUnchanged = () => { const t = $('#carInput').value.trim(); return !t || t === carBoxLabel.trim(); };
 // A VIN is one token of 10-17 VIN characters with several digits. Spaces
 // used to be removed first, so "mercedes 190" (11 letters and digits) was
 // decoded as a VIN; a car name that matches a car is never treated as one.
@@ -1521,7 +1672,7 @@ const looksLikeVin = s => {
 };
 $('#carInput').addEventListener('input', () => {
   const q = $('#carInput').value.trim();
-  if (!q) { $('#carList').hidden = true; return; }
+  if (!q) { showCarHistory(); return; }
   if (looksLikeVin(q) && !carMatches(q).hits.length) {
     const e = carFromVin(q);
     if (e.error) { $('#carList').innerHTML = `<div class="opt"><div class="sub">${esc(e.error)}</div></div>`;
@@ -1536,19 +1687,39 @@ $('#carInput').addEventListener('keydown', ev => {
   if (list.hidden || !items.length) return;
   if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
     ev.preventDefault();
-    carSel = (carSel + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-    list.querySelectorAll('.opt').forEach((o, k) => o.classList.toggle('on', k === carSel));
+    // recent cars start with nothing highlighted: ArrowUp goes to the last
+    carSel = carSel < 0 && ev.key === 'ArrowUp' ? items.length - 1
+           : (carSel + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    list.querySelectorAll('.opt[data-k]').forEach((o, k) => o.classList.toggle('on', k === carSel));
+    list.querySelector('.opt.on')?.scrollIntoView({block: 'nearest'});
   } else if (ev.key === 'Enter') {
-    ev.preventDefault(); applyCar(items[Math.max(carSel, 0)]);
+    ev.preventDefault();
+    if (!list._hist) applyCar(items[Math.max(carSel, 0)]);
+    else if (carSel >= 0) applyCarHistory(items[carSel].hist);
+    else list.hidden = true;
   } else if (ev.key === 'Escape') { list.hidden = true; setCarBox(carBoxLabel); }
 });
 // Escape with no list open (e.g. after "Pick your car from the list first")
 $('#carInput').addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && $('#carList').hidden) setCarBox(carBoxLabel);
 });
-$('#carInput').addEventListener('focus', () => $('#carInput').select());
-$('#carInput').addEventListener('blur', () => setTimeout(() => $('#carList').hidden = true, 150));
-$('#browseBtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; };
+$('#carInput').addEventListener('focus', () => {
+  $('#carInput').select();
+  if (carBoxUnchanged()) showCarHistory();
+});
+// closed when the focus leaves the box -- not when it moves onto the list's
+// own buttons (Tab reaches "Clear history" and each ×)
+const carListLeft = () => setTimeout(() => {
+  if (!$('.carfield').contains(document.activeElement)) $('#carList').hidden = true;
+}, 150);
+$('#carInput').addEventListener('blur', carListLeft);
+$('#carList').addEventListener('focusout', carListLeft);
+// a tap anywhere else (the car sheet on a phone, where the box need not have
+// the focus) closes it too
+document.addEventListener('pointerdown', ev => {
+  if (!$('#carList').hidden && !ev.target.closest('.carfield')) $('#carList').hidden = true;
+});
+$('#browseBtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; $('#carList').hidden = true; };
 
 // Documents are filed per generation, not per variant. Say what a choice
 // actually searches, so a variant name doesn't imply a precision the manuals
@@ -1724,6 +1895,9 @@ function openSheet(toVariant) {
   if (phone() && !document.body.classList.contains('sheet')) {
     document.body.classList.add('sheet');
     history.pushState({...(history.state || {}), sheet: 1}, '');
+    // the recent cars on this phone, one tap each (without focusing the box,
+    // which would bring the keyboard up over them)
+    if (!toVariant && carBoxUnchanged()) showCarHistory();
   }
   if (toVariant && !$('#variant').hidden) {
     $('#picker').hidden = false;
@@ -2893,8 +3067,9 @@ $('#vehicle').addEventListener('change', () => {
   clearCarPick();
   refreshVariants();          // a new generation starts at "All variants"
   loadConnectors();
+  recordBrowsePick();
 });
-$('#variant').addEventListener('change', () => { clearCarPick(); rememberPick(); showScope(); });
+$('#variant').addEventListener('change', () => { clearCarPick(); rememberPick(); showScope(); recordBrowsePick(); });
 
 // Model year from VIN position 10 (US standard). Letters repeat every 30
 // years (H = 1987 or 2017), so pick the candidate inside the vehicle's own
