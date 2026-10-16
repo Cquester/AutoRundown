@@ -3186,6 +3186,14 @@ function openImport() {
     importOpened = true;
     impSawRunning = false;
     impShowSource();
+    // a reload during a VM extraction comes back to its tab and progress bar
+    api('/api/import').then(s => {
+      if (s.state !== 'running' || !/^vm/.test(s.mode || '')) return;
+      const what = {vm: 'wis', vm_epc: 'epc', vm_both: 'both'}[s.mode];
+      const r = document.querySelector(`#impVmWhat input[value="${what}"]`);
+      if (r) { r.checked = true; impVmWhatShow(); }
+      if (impTab() !== 'vm') impSelectTab('vm');
+    }).catch(() => {});
     // focus the selected tab, not the whole strip (it drew a ring round all three)
     setTimeout(() => document.querySelector('.srctabs [aria-selected="true"]')?.focus({preventScroll: true}), 0);
   }
