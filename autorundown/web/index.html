@@ -864,11 +864,7 @@
       <label for="labBook" id="labBookLbl" hidden>This model is in more than one labour-time book
         (Mercedes splits them by body style, engine or build date) &mdash; pick yours</label>
       <select id="labBook" hidden></select>
-      <label for="labQ">Search operations</label>
-      <div class="vinrow">
-        <input id="labQ" type="search" spellcheck="false" placeholder="water pump, brake pads, timing chain">
-        <button id="labFind">Search</button>
-      </div>
+      <!-- no search box of its own: the question box fills this tab (Ask or Search) -->
       <div id="labOut" style="margin-top:10px"></div>
     </div>
   </section>
@@ -3213,11 +3209,11 @@ async function labourFor(terms, seq) {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
   labFor = docId() + '::' + variantIdx();
-  if (variantIdx() === null) { $('#labQ').value = ''; await loadLabour(); setCount('labour', null); return; }
+  if (variantIdx() === null) { labQuery = ''; await loadLabour(); setCount('labour', null); return; }
   for (const t of terms) {
     const words = t.replace(LAB_STOP, ' ').replace(/\s+/g, ' ').trim();
     if (!words) continue;
-    $('#labQ').value = words;
+    labQuery = words;
     const n = await loadLabour();
     if (seq !== tabSeq) return;
     if (n) { setCount('labour', n); return; }
@@ -4259,16 +4255,18 @@ $('#saFind').onclick = saLookup;
 // Labour times (WIS ASRA flat rates) for the exact model picked. A model in
 // several books (build-date splits) shows a chooser and no times until one
 // is picked -- which applies depends on the chassis number.
-let labSeq = 0, labTimer = null;
-// Labour times are a tab now (they were a dialog): the button and the scope
-// note's link open it
-function openLabour() { setTab('labour'); openRight(); $('#labQ').focus(); }
+let labSeq = 0;
+// Labour times are a tab of the right box: the button and the scope note's
+// link open it. It has no search box of its own -- the question box fills
+// it (labourFor), and labQuery is the words it last searched.
+let labQuery = '';
+function openLabour() { setTab('labour'); openRight(); }
 function showLabourTab() {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
   if (labFor !== docId() + '::' + variantIdx()) {     // a different car: start over
     labFor = docId() + '::' + variantIdx();
-    $('#labQ').value = '';
+    labQuery = '';
     $('#labBook').innerHTML = ''; $('#labBook').hidden = $('#labBookLbl').hidden = true;
   }
   loadLabour();
@@ -4289,7 +4287,7 @@ async function loadLabour() {
     r = await api(`/api/wis/labour/${encodeURIComponent(docId())}?variant=${n}`
       + (eng ? `&engine=${encodeURIComponent(eng)}` : '')
       + (book ? `&book=${encodeURIComponent(book)}` : '')
-      + `&q=${encodeURIComponent($('#labQ').value.trim())}`);
+      + `&q=${encodeURIComponent(labQuery)}`);
   } catch (e) {
     if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     return 0;
@@ -4302,9 +4300,14 @@ async function loadLabour() {
   }
   if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return 0; }
   if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return 0; }
-  if (!r.items.length) { out.innerHTML = '<div class="muted">No operation matches that search.</div>'; return 0; }
+  if (!r.items.length) {
+    out.innerHTML = '<div class="muted">No labour operation matches this question. To look one up, '
+      + '<b>Search</b> its name in the question box, e.g. <i>water pump</i>.</div>';
+    return 0;
+  }
   let last = '';
-  out.innerHTML = `<div class="tablewrap"><table><tbody>` + r.items.map(i => {
+  out.innerHTML = (labQuery ? `<div class="muted" style="margin-bottom:6px">For: <b>${esc(labQuery)}</b></div>` : '')
+    + `<div class="tablewrap"><table><tbody>` + r.items.map(i => {
     const head = i.group !== last ? `<tr><th colspan="2" style="text-align:left">${esc(i.group)}</th></tr>` : '';
     last = i.group;
     return head + `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
@@ -4312,14 +4315,15 @@ async function loadLabour() {
       + ` <span class="muted" style="font-size:12px">${i.minutes} min</span></td></tr>`;
   }).join('') + `</tbody></table></div>`
     + (r.total > r.items.length
-        ? `<div class="muted" style="margin-top:6px">Showing ${r.items.length} of ${r.total} — search to narrow.</div>` : '');
+        ? `<div class="muted" style="margin-top:6px">Showing ${r.items.length} of ${r.total} — ask or search to narrow.</div>` : '');
   return r.items.length;
 }
 $('#labBtn').onclick = openLabour;
-$('#labFind').onclick = loadLabour;
-$('#labBook').addEventListener('change', loadLabour);
-$('#labQ').addEventListener('input', () => { clearTimeout(labTimer); labTimer = setTimeout(loadLabour, 300); });
-$('#labQ').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); loadLabour(); } });
+// a book picked: the question's terms again, in that book
+$('#labBook').addEventListener('change', () => {
+  if (tabQuery && tabQuery.doc === docId()) labourFor([...tabQuery.also, tabQuery.q], tabSeq);
+  else loadLabour();
+});
 $('#saInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saLookup(); } });
 // The dialog picks the car exactly as a VIN typed in the car box does
 // (carFromVin + applyCar): same variant, same engine, same year. It used to

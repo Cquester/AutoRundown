@@ -167,6 +167,8 @@ def main(argv=None):
               pg.locator("#rpTorque").is_visible() and pg.locator("#out .answer").is_visible()
               and not pg.locator("#srcout").is_visible())
         check("the Torque tab lists value lines", pg.locator("#rpTorque .vlines li").count() > 0)
+        check("the Labour tab has no search box of its own (the question box fills it)",
+              pg.locator("#tabLabour input").count() == 0)
 
         searches.clear()
         pg.fill("#q", "wheel bolts")
