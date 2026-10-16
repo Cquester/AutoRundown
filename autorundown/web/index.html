@@ -382,6 +382,26 @@
   .vp-parts .st{color:var(--muted)}
   .vp-parts .st.done{color:var(--good)} .vp-parts .st.failed{color:var(--bad); font-weight:600}
   .vp-parts .st.running{color:var(--accent)}
+  .vp-parts .st.cancelled{color:var(--warn); font-weight:600}
+  /* the VM's checklist: one row per thing the run needs */
+  .vmchecks{margin:12px 0 0; border:1px solid var(--line); border-radius:10px; padding:4px 12px;
+    background:var(--panel-2)}
+  .vmchecks .ck{display:grid; grid-template-columns:22px 1fr; gap:6px; padding:6px 0; font-size:14px;
+    border-top:1px solid var(--line)}
+  .vmchecks .ck:first-of-type{border-top:0}
+  .vmchecks .ck .i{font-weight:800; text-align:center}
+  .vmchecks .ck.ok .i{color:var(--good)} .vmchecks .ck.warn .i{color:var(--warn)}
+  .vmchecks .ck.fail .i{color:var(--bad)} .vmchecks .ck.fail{font-weight:600}
+  .vmchecks .ckhead{font-weight:700; padding:6px 0 2px}
+  #impVmTestRow{align-items:center; gap:10px; margin-top:10px}
+  #impVmTestRow .muted{font-size:13px; flex:1 1 220px}
+  .vmscreen{margin:10px 0 0}
+  .vmscreen img{display:block; max-width:100%; border:1px solid var(--line); border-radius:6px}
+  .vmscreen figcaption{font-size:13px; margin-top:4px}
+  #impCancel{min-height:44px}
+  .vmsnaps{margin:12px 0 0; border:1px solid var(--line); border-radius:10px; padding:8px 12px}
+  .vmsnaps summary{cursor:pointer; font-weight:600; min-height:32px; display:flex; align-items:center}
+  .vmsnaps select{flex:1 1 220px; min-width:0}
   .dirlist{max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px}
   .dirlist button{display:block; width:100%; text-align:left; background:none; border:0;
     border-bottom:1px solid var(--line); color:var(--text); padding:7px 10px; font:inherit; cursor:pointer}
@@ -999,12 +1019,32 @@
       <label><input type="radio" name="vmwhat" value="both"><span>Both</span></label>
     </div>
     <p class="muted" id="impVmWhatHelp" style="margin:6px 0 0"></p>
+    <!-- what the run needs, checked as soon as a VM is chosen (no boot) -->
+    <div class="vmchecks" id="impVmChecks" aria-live="polite" hidden></div>
+    <div class="row" id="impVmTestRow" hidden>
+      <button type="button" class="ghost" id="impVmTest">Test the VM</button>
+      <span class="muted">Starts it, checks Windows comes up and the database answers, then shuts it down. Imports nothing.</span>
+    </div>
+    <!-- our own snapshots: one before each run / VM test, to roll back to -->
+    <details class="vmsnaps" id="impVmSnaps" hidden>
+      <summary>Snapshots and rolling back</summary>
+      <p class="muted">Before each run and each VM test AutoRundown takes a snapshot of the VM (at most one
+        every 6 hours). If a run leaves Windows broken, roll back to the one taken before it. Rolling back
+        first takes a snapshot of the VM as it is, so it can be undone. AutoRundown never deletes snapshots:
+        tidy old ones up in VirtualBox.</p>
+      <label for="impSnap">Roll back to</label>
+      <div class="row" style="gap:8px; align-items:center">
+        <select id="impSnap"></select>
+        <button type="button" class="ghost" id="impRollback">Roll back the VM</button>
+      </div>
+      <p class="muted" id="impSnapNote" style="margin:6px 0 0"></p>
+    </details>
     <div id="impEpcOpts" hidden>
     <p class="muted" style="margin:10px 0 0">Pulls every passenger-car parts catalogue (chassis and engines)
       with its exploded drawings, then replaces the parts catalogue in the index. Part numbers then show
       under each car alongside its manual. A first full run takes several hours; a re-run resumes where it
       stopped and reuses drawings already pulled. Starts the VM headless, reads the EPC database (read only)
-      and shuts it down; it never takes snapshots or changes the VM's settings.</p>
+      and shuts it down; it takes a snapshot first, to roll back to, and never changes the VM's settings.</p>
     </div>
     <div id="impWisOpts">
     <label>Steps (each one resumes where it stopped)</label>
@@ -1016,8 +1056,8 @@
       <label style="margin:0"><input type="checkbox" value="build" checked> Build corpus</label>
     </div>
     <p class="muted" style="margin:10px 0 0">Starts the VM headless, reads the Mercedes database (read only),
-      then shuts it down and rebuilds the Mercedes part of the index. It never takes snapshots or changes
-      the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
+      then shuts it down and rebuilds the Mercedes part of the index. It takes a snapshot of the VM first,
+      to roll back to, and never changes the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
       off in between); a re-run skips what is already pulled.</p>
     </div>
     </div>
@@ -1033,8 +1073,16 @@
                 <div class="vp-track" id="vpBar" role="progressbar" aria-labelledby="vpHead"><div class="vp-fill"></div></div>
                 <div class="vp-sub" id="vpSub"></div>
                 <ol class="vp-parts" id="vpParts" hidden></ol>
+                <!-- the VM's screen, when the extractor stopped because Windows didn't start -->
+                <figure class="vmscreen" id="impScreen" hidden>
+                  <img alt="The virtual machine's screen when the extractor stopped">
+                  <figcaption class="muted">The VM's screen when the extractor stopped. Open the VM in
+                    VirtualBox to fix it (it was paused there, not switched off), or roll it back to the
+                    snapshot taken before the run (Snapshots and rolling back, above).</figcaption>
+                </figure>
               </div>
               <span class="muted" id="impStatus" role="status"></span>
+              <button id="impCancel" type="button" class="ghost" hidden>Cancel</button>
               <button id="impStart" type="button">Import</button>
             </div>
           </div>
@@ -4700,10 +4748,15 @@ const impDur = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600
 const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'remove_wis'
   ? 'removing Mercedes WIS' : s.mode === 'remove_epc' ? 'removing Mercedes EPC'
   : s.mode === 'vm' ? 'Mercedes VM extract' : s.mode === 'vm_epc' ? 'Mercedes EPC extract'
-  : s.mode === 'vm_both' ? 'Mercedes WIS + EPC extract' : 'import';
+  : s.mode === 'vm_both' ? 'Mercedes WIS + EPC extract' : s.mode === 'vm_check' ? 'VM test'
+  : s.mode === 'vm_rollback' ? 'VM rollback' : 'import';
 function impShow(s) {
   const log = $('#impLog');
   $('#jobIdle').hidden = s.state !== 'idle';
+  // Cancel while anything runs; once asked, it says what it is waiting for
+  $('#impCancel').hidden = s.state !== 'running';
+  $('#impCancel').disabled = !!s.cancelling;
+  $('#impCancel').textContent = s.cancelling ? 'Cancelling…' : 'Cancel';
   if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; $('#impFail').hidden = true; impProg(s); return; }
   if (s.state === 'running') impSawRunning = true;
   log.textContent = (s.log || []).join('\n');
@@ -4712,19 +4765,32 @@ function impShow(s) {
   if (s.state !== 'running' && !impSawRunning) {
     log.hidden = true;
     $('#jobIdle').hidden = false;
-    $('#impStatus').innerHTML = `Last job: ${esc(impJobName(s))} ${s.state === 'done' ? 'finished' : 'failed'}`
+    $('#impStatus').innerHTML = `Last job: ${esc(impJobName(s))} ${s.state === 'done' ? 'finished'
+        : s.state === 'cancelled' ? 'cancelled' : 'failed'}`
       + ` ${impDur(s.ago || 0)} ago · <a href="#" id="impShowLog">Show log</a>`;
     $('#impShowLog').onclick = e => { e.preventDefault(); log.hidden = !log.hidden;
       e.target.textContent = log.hidden ? 'Show log' : 'Hide log'; log.scrollTop = log.scrollHeight; };
   } else {
     log.hidden = false;
     log.scrollTop = log.scrollHeight;
-    $('#impStatus').textContent = s.state === 'running' ? `${verb}… ${t}`
-      : s.state === 'done' ? `Finished in ${t}.` : `Failed (exit ${s.returncode}) after ${t} — see the log.`;
+    $('#impStatus').textContent = s.state === 'running'
+      ? (s.cancelling ? `Cancelling: stopping the pull and shutting the VM down cleanly… ${t}` : `${verb}… ${t}`)
+      : s.state === 'done' ? `Finished in ${t}.` : s.state === 'cancelled' ? `Cancelled after ${t}.`
+      : `Failed (exit ${s.returncode}) after ${t} — see the log.`;
   }
-  const failed = s.state === 'failed' || (s.state !== 'running' && s.state !== 'done' && s.state !== 'idle');
+  // a VM test's results go in the VM's checklist
+  if (s.mode === 'vm_check' && s.state !== 'running' && s.checks?.length) {
+    $('#impVmChecks').hidden = false;
+    $('#impVmChecks').innerHTML = vmChecksHtml(s.checks, s.state === 'done'
+      ? 'VM test passed: Windows starts and the database answers' : 'VM test: not ready');
+  }
+  const failed = s.state === 'failed' || (s.state !== 'running' && s.state !== 'done' && s.state !== 'idle'
+                                          && s.state !== 'cancelled');
   $('#impStatus').classList.toggle('bad', failed);
-  const last = (s.log || []).filter(l => l.trim()).slice(-1)[0] || '';
+  // the reason: the extractor's STOP line, else the last line that is not the
+  // job's own closing line ("== job failed (exit 2) ...")
+  const last = s.progress?.error
+    || (s.log || []).filter(l => l.trim() && !/^== job /.test(l)).slice(-1)[0] || '';
   $('#impFail').hidden = !(failed && impSawRunning);
   if (failed && impSawRunning) {
     // a two-part job says which part failed and what it did not start
@@ -4735,7 +4801,15 @@ function impShow(s) {
       + (rest.length ? ` — ${rest.join(', ')} was not started.` : '');
   }
   impProg(s);
-  $('#impStart').disabled = s.state === 'running' || (impSource() === 'lemon' && !lemPicked().length);
+  $('#impStart').disabled = s.state === 'running' || (impSource() === 'lemon' && !lemPicked().length)
+    || (impSource() === 'vm' && !vmReady);
+  $('#impVmTest').disabled = s.state === 'running' || !vmReady;
+  // the VM's screen, when the extractor took a picture of it (Windows didn't start)
+  $('#impScreen').hidden = !s.screen;
+  if (s.screen) {
+    const img = $('#impScreen img'), src = `/api/import/screen?t=${s.started}`;
+    if (img.getAttribute('src') !== src) img.src = src;
+  }
 }
 async function impWatch() {
   clearInterval(impPoll);
@@ -4745,6 +4819,12 @@ async function impWatch() {
     if (s.state !== 'running') {
       clearInterval(impPoll); impPoll = null;
       manLoad();
+      // a VM job ended: its snapshots changed; a broken Windows points at the
+      // snapshot taken before the run, ready to roll back to
+      if (/^vm/.test(s.mode || '') && impTab() === 'vm' && $('#impVm').value === s.vm) {
+        impVmSnaps(s.snapshot);
+        if (s.screen) $('#impVmSnaps').open = true;
+      }
       if (catRoot) catRefresh();
       if (s.state === 'done') {
         loadVehicles().then(() => {
@@ -4813,14 +4893,98 @@ async function impVms() {
     if (r.error) return noVm(r.error);
     if (!r.vms.length) return noVm('No VirtualBox virtual machines were found on this PC.');
     $('#impVmControls').hidden = false; $('#impStart').hidden = false;
-    $('#impVm').innerHTML = r.vms.map(v =>
+    // the user picks the VM (the user, 2026-10-16): nothing is chosen for
+    // them, and the run's needs are checked once one is
+    const keep = $('#impVm').value || (impLast?.state === 'running' && impLast.vm) || '';
+    $('#impVm').innerHTML = '<option value="">Choose the virtual machine…</option>' + r.vms.map(v =>
       `<option value="${esc(v.name)}">${esc(v.name)} (${esc(v.state)})</option>`).join('');
-    $('#impVmNote').innerHTML = r.vms.length
-      ? `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`
-      : '<span class="muted">No VirtualBox VMs found on this PC.</span>';
-    $('#impStart').disabled = !r.vms.length;
+    if (r.vms.some(v => v.name === keep)) $('#impVm').value = keep;
+    $('#impVmNote').innerHTML = `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`;
+    impVmCheck();
+    impVmSnaps();
   } catch (e) { noVm(e.message); }
 }
+// what a run on the chosen VM needs, checked without booting it
+// (vm_pipeline.py --check): Extract and Test stay off until nothing fails
+let vmCheckSeq = 0, vmReady = false;
+const VM_CK_ICON = {ok: '✓', warn: '!', fail: '✗'};
+const vmChecksHtml = (checks, head) => (head ? `<div class="ckhead">${esc(head)}</div>` : '')
+  + checks.map(c => `<div class="ck ${c.level}"><span class="i" aria-label="${c.level}">${VM_CK_ICON[c.level]}</span>`
+    + `<span>${esc(c.message)}</span></div>`).join('');
+const impVmSteps = () => [...document.querySelectorAll('#impSteps input:checked')].map(c => c.value).join(',');
+async function impVmCheck() {
+  const vm = $('#impVm').value, seq = ++vmCheckSeq, box = $('#impVmChecks');
+  vmReady = false;
+  const running = impLast?.state === 'running';
+  $('#impStart').disabled = true;
+  $('#impVmTestRow').hidden = !vm;
+  $('#impVmTest').disabled = true;
+  if (!vm) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<div class="ckhead"><span class="spinner"></span> Checking what this run needs…</div>';
+  try {
+    const r = await api(`/api/vms/check?vm=${encodeURIComponent(vm)}&what=${impVmWhat()}`
+      + `&steps=${encodeURIComponent(impVmWhat() === 'epc' ? '' : impVmSteps())}`);
+    if (seq !== vmCheckSeq) return;
+    vmReady = r.ready;
+    box.innerHTML = vmChecksHtml(r.checks, r.ready ? 'Ready to run' : 'Not ready: fix the ✗ first');
+  } catch (e) {
+    if (seq !== vmCheckSeq) return;
+    box.innerHTML = vmChecksHtml([{level: 'fail', message: e.message}]);
+  }
+  $('#impStart').disabled = !vmReady || running;
+  $('#impVmTest').disabled = !vmReady || running;
+}
+// the VM's snapshots, newest first; ours (before a run, before a rollback) say so
+async function impVmSnaps(prefer) {
+  const vm = $('#impVm').value, box = $('#impVmSnaps');
+  box.hidden = !vm;
+  if (!vm) return;
+  try {
+    const r = await api(`/api/vms/snapshots?vm=${encodeURIComponent(vm)}`);
+    if (vm !== $('#impVm').value) return;
+    const snaps = [...(r.snapshots || [])].reverse();
+    $('#impSnap').innerHTML = snaps.map(s => `<option value="${esc(s.name)}">${esc(s.name)}`
+      + (s.current ? ' (the VM runs on this one now)' : '') + (s.ours ? '' : ' · not AutoRundown\'s') + '</option>').join('');
+    const pick = prefer && snaps.some(s => s.name === prefer) ? prefer
+      : (snaps.find(s => s.ours && /auto-/.test(s.name)) || snaps[0] || {}).name;
+    if (pick) $('#impSnap').value = pick;
+    $('#impRollback').disabled = !snaps.length || impLast?.state === 'running';
+    $('#impSnapNote').textContent = r.error || (snaps.length ? '' : 'This VM has no snapshots yet.');
+  } catch (e) { $('#impSnapNote').textContent = e.message; }
+}
+$('#impVm').addEventListener('change', () => impVmSnaps());
+$('#impRollback').onclick = async () => {
+  const vm = $('#impVm').value, snap = $('#impSnap').value;
+  if (!snap || !confirm(`Roll ${vm} back to "${snap}"? Everything done inside the VM since then is undone. `
+      + 'A snapshot of the VM as it is now is taken first, so this can be undone. '
+      + 'The VM must be shut down (or its window closed, saving its state).')) return;
+  try {
+    impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: '', mode: 'vm_rollback', vm, snapshot: snap})}));
+    impWatch();
+  } catch (e) { $('#impStatus').textContent = e.message; }
+};
+$('#impVm').addEventListener('change', impVmCheck);
+$('#impSteps').addEventListener('change', impVmCheck);
+$('#impVmTest').onclick = async () => {
+  if (!confirm(`Start ${$('#impVm').value}, check Windows comes up and the database answers, `
+      + 'then shut it down? Nothing is imported.')) return;
+  try {
+    impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: '', mode: 'vm_check', vm: $('#impVm').value,
+                            steps: {wis: impVmSteps(), epc: 'epc', both: impVmSteps() + ',epc'}[impVmWhat()]})}));
+    impWatch();
+  } catch (e) { $('#impStatus').textContent = e.message; }
+};
+$('#impCancel').onclick = async () => {
+  const vmJob = /^vm/.test(impLast?.mode || '');
+  if (!confirm(vmJob
+      ? 'Cancel this run? The pull stops (a re-run resumes where it left off) and the VM is shut down cleanly.'
+      : 'Cancel this job? The step that is running now finishes first, then it stops.')) return;
+  try { impShow(await api('/api/import/cancel', {method: 'POST'})); }
+  catch (e) { $('#impStatus').textContent = e.message; }
+};
 // Mercedes VM tab: workshop manuals (WIS, with its steps), the EPC parts
 // catalogue, or both -- WIS then EPC as one job (mode vm_both)
 const impVmWhat = () => document.querySelector('#impVmWhat input:checked')?.value || 'wis';
@@ -4833,6 +4997,7 @@ function impVmWhatShow() {
   $('#impWisOpts').hidden = w === 'epc';
   $('#impEpcOpts').hidden = w === 'wis';
   $('#impVmWhatHelp').textContent = VM_WHAT_HELP[w];
+  if ($('#impVm').value) impVmCheck();     // EPC needs other scripts and the other database
 }
 document.querySelectorAll('#impVmWhat input').forEach(r => r.onchange = impVmWhatShow);
 impVmWhatShow();
@@ -4841,7 +5006,7 @@ impVmWhatShow();
 // log lines), so a reload shows the same. A phase with no known total gets a
 // moving (indeterminate) bar and its counts, never a made-up percentage.
 const VP_STATE = {pending: 'waiting', running: 'running', done: 'done ✓', failed: 'failed',
-                  'not started': 'not started'};
+                  'not started': 'not started', cancelled: 'cancelled'};
 let impLast = null;     // the last job status, to redraw the bar on a tab change
 function impProg(s) {
   impLast = s;
@@ -4852,7 +5017,8 @@ function impProg(s) {
   box.hidden = false;
   const parts = s.parts && s.parts.length ? s.parts : [{label: '', state: s.state}];
   const n = parts.length, i = Math.min(s.part || 0, n - 1);
-  const name = lb => lb || (s.mode === 'vm_epc' ? 'EPC parts' : 'WIS');
+  const name = lb => lb || (s.mode === 'vm_epc' ? 'EPC parts' : s.mode === 'vm_check' ? 'VM test'
+    : s.mode === 'vm_rollback' ? 'VM rollback' : 'WIS');
   const step = n > 1 ? `Step ${i + 1} of ${n}: ${name(parts[i].label)}` : name(parts[0].label);
   const p = s.progress || {};
   const bar = $('#vpBar'), fill = bar.firstElementChild;
@@ -4880,10 +5046,16 @@ function impProg(s) {
   } else {
     const failed = s.state !== 'done';
     const fi = s.failed_part != null ? s.failed_part : i;
-    bar.classList.add(failed ? 'bad' : 'done');
+    bar.classList.add(failed && s.state !== 'cancelled' ? 'bad' : 'done');
     bar.removeAttribute('aria-valuenow');
     fill.style.width = '100%';
-    if (failed) {
+    if (s.state === 'cancelled') {
+      $('#vpHead').textContent = `Cancelled: ${name(parts[i].label)}` + (p.phase ? ` (${p.phase})` : '');
+      bar.setAttribute('aria-valuetext', 'cancelled');
+      sub.push('What was pulled so far is kept; running it again resumes.');
+      const rest = parts.filter(x => x.state === 'not started').map(x => name(x.label));
+      if (rest.length) sub.push(`${esc(rest.join(', '))} was not started.`);
+    } else if (failed) {
       const fstep = n > 1 ? `Step ${fi + 1} of ${n}: ${name(parts[fi].label)}` : name(parts[0].label);
       $('#vpHead').textContent = `${fstep} failed` + (p.phase ? ` (${p.phase})` : '');
       bar.setAttribute('aria-valuetext', 'failed');
@@ -4937,6 +5109,9 @@ $('.srctabs').addEventListener('keydown', e => {
   impSelectTab(next.dataset.src); next.focus();
 });
 $('#impStart').onclick = async () => {
+  if (impSource() === 'vm' && !$('#impVm').value) {
+    $('#impStatus').textContent = 'Choose the virtual machine first.'; $('#impVm').focus(); return;
+  }
   if (impSource() === 'vm' && impVmWhat() === 'epc') {
     if (!confirm(`Extract the EPC parts catalogue from ${$('#impVm').value} and replace it in the index? `
         + 'The VM will be started and shut down by this job.')) return;

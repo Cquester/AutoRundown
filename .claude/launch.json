@@ -31,6 +31,17 @@
         "--no-browser"
       ],
       "port": 8757
+    },
+    {
+      "name": "autorundown-dev-fakevm",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "dev.py",
+        "--no-browser",
+        "--fake-vm",
+        "--fake-api"
+      ],
+      "port": 8757
     }
   ]
 }

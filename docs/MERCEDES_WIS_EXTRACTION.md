@@ -39,9 +39,12 @@ Steps: `docs` → `applic` → `vehicles` → `images` (VM on) → `build` (offl
 `parse.py` → `apply_applic.py` → `parse_vehicles.py` → `convert_images.py` →
 `apply_images.py`). `--steps images,build` runs a subset.
 
-The pipeline only starts the VM headless, stops it, and reads the database. It
-never takes snapshots, changes the network adapter or touches the guest's
-firewall. It finds VBoxManage, the Java bundled with EWA (`sun_jre`) and
+The pipeline starts the VM headless, stops it, and reads the database. Before
+a run it takes its own snapshot ("AutoRundown-auto-<date>-<time>", at most one
+per 6 hours) so a run that breaks Windows can be rolled back; it never deletes
+or restores one by itself (`--restore NAME`, from Shop setup, does). It never
+powers the VM off (a shutdown that doesn't finish saves its state), changes
+the network adapter or touches the guest's firewall. It finds VBoxManage, the Java bundled with EWA (`sun_jre`) and
 `tbjdbc.jar` by itself.
 
 ## 2. One-time VM setup (by hand)

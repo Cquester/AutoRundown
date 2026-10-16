@@ -10,11 +10,18 @@ a tiny invented corpus where the real one would go, so the job's next step
     Shop setup -> Advanced -> Mercedes extractor folder = <repo>/tools/fake_extractor
     python dev.py --fake-vm     (does that for you)
 
-`--list-vms` lists three pretend VMs; the name picks the path:
+`--list-vms` lists pretend VMs; the name picks the path:
 
     Mercedes EWA (fake)            every step succeeds
     Fails in documents (fake)      the WIS document pull stops (exit 1)
     Fails in EPC (fake)            WIS works, the EPC pull stops (exit 1)
+    Windows won't start (fake)     boot check / run: Windows never comes up ->
+                                   a picture of the screen (VM_SCREEN), state saved
+    No network (fake)              --check fails: no host-only adapter
+
+`--check` / `--check --boot` print CHECK lines like the real one. A cancel
+(AR_CANCEL_FILE appears) stops it with exit 3 and "shutting ... down", as
+the real one does. (AR_PARENT_PID is not watched here.)
 
 AR_FAKE_VM_DELAY  seconds between progress lines (default 0.15)
 AR_FAKE_VM_OUT    where the corpus goes (default: <temp>/ar_fake_vm_out; never
@@ -37,20 +44,108 @@ sys.path.insert(0, str(HERE))
 from wis_paths import out_root  # noqa: E402
 
 VMS = [("Mercedes EWA (fake)", "poweroff"), ("Fails in documents (fake)", "poweroff"),
-       ("Fails in EPC (fake)", "poweroff")]
+       ("Fails in EPC (fake)", "poweroff"), ("Windows won't start (fake)", "poweroff"),
+       ("No network (fake)", "poweroff")]
 ALL_STEPS = ["docs", "applic", "vehicles", "images", "build", "links", "epc"]
 DELAY = float(os.environ.get("AR_FAKE_VM_DELAY") or 0.15)
+CANCEL_FILE = os.environ.get("AR_CANCEL_FILE", "")
+VM = ""
+
+
+def cancelled() -> bool:
+    return bool(CANCEL_FILE) and Path(CANCEL_FILE).exists()
+
+
+def stop_if_cancelled() -> None:
+    if cancelled():
+        print(f"[{time.strftime('%H:%M:%S')}] STOP: cancelled; what was pulled so far is kept, "
+              "a re-run resumes", flush=True)
+        if VM:
+            print(f"[{time.strftime('%H:%M:%S')}] shutting {VM} down", flush=True)
+        raise SystemExit(3)
 
 
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
     time.sleep(DELAY)
+    stop_if_cancelled()
 
 
 def sub(msg: str) -> None:
     """A line from a child script, the way the real pipeline relays it."""
     print(f"    [{time.strftime('%H:%M:%S')}] {msg}", flush=True)
     time.sleep(DELAY)
+    stop_if_cancelled()
+
+
+def check(key: str, level: str, msg: str) -> str:
+    print(f"CHECK\t{key}\t{level}\t{msg}", flush=True)
+    return level
+
+
+# a tiny valid PNG (8x8 blue), standing in for VBoxManage screenshotpng
+def write_png(path: Path) -> None:
+    import struct
+    import zlib
+    raw = b"".join(b"\x00" + b"\x10\x40\xa0" * 8 for _ in range(8))
+
+    def chunk(t: bytes, d: bytes) -> bytes:
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0))
+                     + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+# pretend snapshots, one JSON file per run's output folder
+def _snap_file(out: Path) -> Path:
+    return out / "fake_snapshots.json"
+
+
+def fake_snaps(out: Path) -> dict:
+    try:
+        return json.loads(_snap_file(out).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def snaps_for(out: Path, vm: str) -> list[dict]:
+    return fake_snaps(out).get(vm) or [{"name": "Baseline (fake)", "current": True}]
+
+
+def save_snaps(out: Path, vm: str, snaps: list[dict]) -> None:
+    allv = fake_snaps(out)
+    allv[vm] = snaps
+    out.mkdir(parents=True, exist_ok=True)
+    _snap_file(out).write_text(json.dumps(allv), encoding="utf-8")
+
+
+def take_snap(out: Path, vm: str, name: str) -> None:
+    snaps = snaps_for(out, vm)
+    for s in snaps:
+        s["current"] = False
+    snaps.append({"name": name, "current": True})
+    save_snaps(out, vm, snaps)
+
+
+def auto_snapshot(out: Path) -> None:
+    ours = [s["name"] for s in snaps_for(out, VM) if s["name"].startswith("AutoRundown-auto-")]
+    if ours and time.time() - os.path.getmtime(_snap_file(out)) < 6 * 3600:
+        log(f"snapshot: using {ours[-1]} (taken in the last 6 hours)")
+        return
+    name = "AutoRundown-auto-" + time.strftime("%Y%m%d-%H%M%S")
+    take_snap(out, VM, name)
+    log(f"SNAPSHOT {name}")
+
+
+def windows_wont_start(out: Path) -> None:
+    log("database not answering yet. Once, inside the VM: log in to Windows, start "
+        "'Mercedes WSM EPC' (it starts the database), put the network adapter on "
+        "host-only and turn Windows Firewall off. Still checking...")
+    out.mkdir(parents=True, exist_ok=True)
+    shot = out / "vm_screen.png"
+    write_png(shot)
+    log(f"VM_SCREEN {shot}")
+    log(f"saving {VM}'s state (Windows did not start); open it in VirtualBox to see it as it is")
+    die(f"Windows in {VM} did not start within 10 min -- see the picture of its screen.")
 
 
 def die(msg: str) -> None:
@@ -88,22 +183,81 @@ def main(argv=None) -> int:
     ap.add_argument("--list-vms", action="store_true")
     ap.add_argument("--out-root", default=str(out_root()))
     ap.add_argument("--steps", default="docs,applic,vehicles,images,build")
+    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--boot", action="store_true")
+    ap.add_argument("--list-snapshots", action="store_true")
+    ap.add_argument("--restore", default="")
     args, _ = ap.parse_known_args(argv)
+    global VM
     if args.list_vms:
         for name, state in VMS:
             print(f"{name}\t{state}")
         return 0
     if args.vm not in {n for n, _ in VMS}:
         die(f"no VM named {args.vm!r}; --list-vms shows them")
+    VM = args.vm
+    snap_out = Path(args.out_root)
+    if args.list_snapshots:
+        for s in snaps_for(snap_out, VM):
+            ours = s["name"].startswith(("AutoRundown-auto-", "AutoRundown-before-rollback-"))
+            print("\t".join(["SNAP", s["name"], "ours" if ours else "", "current" if s["current"] else "",
+                             "a pretend snapshot"]))
+        return 0
+    if args.restore:
+        snaps = snaps_for(snap_out, VM)
+        if args.restore not in {s["name"] for s in snaps}:
+            die(f"{VM} has no snapshot named {args.restore!r}")
+        keep = "AutoRundown-before-rollback-" + time.strftime("%Y%m%d-%H%M%S")
+        take_snap(snap_out, VM, keep)
+        log(f"SNAPSHOT {keep} (the state before the rollback, to undo it)")
+        snaps = snaps_for(snap_out, VM)
+        for s in snaps:
+            s["current"] = s["name"] == args.restore
+        save_snaps(snap_out, VM, snaps)
+        log(f"rolled {VM} back to {args.restore}")
+        return 0
     steps = [s for s in args.steps.split(",") if s]
     bad = [s for s in steps if s not in ALL_STEPS]
     if bad:
         ap.error(f"unknown step(s) {bad}")
     out = Path(args.out_root)
     online = [s for s in steps if s != "build"]
+    if args.check:
+        levels = [check("vm", "ok", f"{VM} is off and ready to start.")]
+        if online:
+            levels.append(check("snapshot", "ok", "A snapshot of the VM is taken before it starts, "
+                                                  "to roll back to if Windows breaks."))
+            levels.append(check("network", "fail", f"{VM} has no host-only network adapter: this PC "
+                                                   "cannot reach its database.")
+                          if "No network" in VM else check("network", "ok", "Host-only network adapter."))
+            levels += [check("java", "ok", "Java: fake-java"), check("jdbc", "ok", "Transbase JDBC driver found.")]
+        levels += [check("scripts", "ok", "The extractor has every script these steps need."),
+                   check("disk", "ok", f"500 GB free for {out}.")]
+        if args.boot and "fail" not in levels:
+            auto_snapshot(out)
+            log(f"starting {VM} headless")
+            if "won't start" in VM:
+                try:
+                    windows_wont_start(out)
+                except SystemExit:
+                    stop_if_cancelled()
+                    levels.append(check("db_wis", "fail", "The WIS database did not answer -- see the "
+                                                          "log and the picture of the VM's screen."))
+            else:
+                for name, port in ([("WIS", 2054)] if [s for s in online if s != "epc"] else []) + \
+                                  ([("EPC", 2034)] if "epc" in steps else []):
+                    log(f"database answering at 192.168.56.101:{port}; letting it settle 30 s")
+                    levels.append(check(f"db_{name.lower()}", "ok", f"Windows started and the {name} "
+                                                                   f"database answers at 192.168.56.101:{port}."))
+                log(f"shutting {VM} down")
+        log("check: " + ("ready" if "fail" not in levels else "NOT ready -- see the CHECK lines"))
+        return 0 if "fail" not in levels else 2
     if online:
         log(f"VM {args.vm}; Java fake-java; output {out}")
+        auto_snapshot(out)
         log(f"starting {args.vm} headless")
+        if "won't start" in args.vm:
+            windows_wont_start(out)
         log("database answering at 192.168.56.101:2054; letting it settle 30 s")
     if "docs" in steps:
         log("== documents (resumable; the DB sometimes drops -- the VM is power-cycled and the pull resumes)")

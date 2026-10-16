@@ -132,6 +132,8 @@ class ImportBody(BaseModel):
     # mode "vm_both": "vm" then "vm_epc" as one job; EPC only if WIS succeeded
     vm: str = ""
     steps: str = ""
+    # mode "vm_rollback": the snapshot to roll the VM back to
+    snapshot: str = Field("", max_length=200)
     # mode "lemon": the vehicle folders to import, relative to path
     # mode "remove": the doc_ids to remove (LEMON / folder manuals only)
     vehicles: list[str] = []
@@ -619,7 +621,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         """Is an import running? Any device may ask: the page shows "search
         shows partial results until it finishes" while one is. No log, no paths."""
         st = jobs.status()
-        return {"importing": st.get("state") == "running"}
+        # a VM test or rollback imports nothing: search is not partial then
+        return {"importing": st.get("state") == "running"
+                             and st.get("mode") not in ("vm_check", "vm_rollback")}
 
     @app.get("/api/vehicles")
     def vehicles(request: Request) -> Response:
@@ -1141,21 +1145,86 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def api_vms() -> dict:
         return importer_jobs.list_vms()
 
+    WIS_STEPS = ("docs", "applic", "vehicles", "images", "build")
+
+    def vm_steps(what: str, steps: str) -> str:
+        """The extractor steps a WIS / EPC / both run would take."""
+        wis = [s for s in steps.split(",") if s] or list(WIS_STEPS)
+        if any(s not in WIS_STEPS for s in wis):
+            raise HTTPException(400, f"unknown step in {steps!r}")
+        return ",".join({"wis": wis, "epc": ["epc"], "both": wis + ["epc"]}[what])
+
+    @app.get("/api/vms/check")
+    def api_vm_check(vm: str = Query(max_length=200),
+                     what: str = Query("wis", pattern="^(wis|epc|both)$"),
+                     steps: str = Query("", max_length=200)) -> dict:
+        """Will a run on this VM work? Checked without booting it."""
+        return importer_jobs.check_vm(vm, vm_steps(what, steps))
+
+    @app.get("/api/vms/snapshots")
+    def api_vm_snapshots(vm: str = Query(max_length=200)) -> dict:
+        return importer_jobs.list_snapshots(vm)
+
     @app.get("/api/import")
     def api_import_status() -> dict:
         return jobs.status()
 
+    @app.post("/api/import/cancel")
+    def api_import_cancel() -> dict:
+        try:
+            return jobs.cancel()
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc))
+
+    @app.get("/api/import/screen")
+    def api_import_screen() -> FileResponse:
+        """The picture of the VM's screen the extractor took when it stopped."""
+        p = jobs.screen_path()
+        if not p:
+            raise HTTPException(404, "No picture of the VM's screen.")
+        return FileResponse(p, media_type="image/png", headers={"Cache-Control": "no-store"})
+
     @app.post("/api/import")
     def api_import_start(body: ImportBody) -> dict:
-        if body.mode in ("vm", "vm_epc", "vm_both"):
+        if body.mode == "vm_rollback":
+            # roll the VM back to one of its snapshots (asked for by a person;
+            # the extractor snapshots the current state first)
+            snaps = importer_jobs.list_snapshots(body.vm)
+            if snaps.get("error"):
+                raise HTTPException(400, snaps["error"])
+            if body.snapshot not in {s["name"] for s in snaps["snapshots"]}:
+                raise HTTPException(400, f"{body.vm} has no snapshot named {body.snapshot!r}.")
+            try:
+                return jobs.start(Path("."), app.state.index_path, "vm_rollback", vm=body.vm,
+                                  steps=body.snapshot)
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
+        if body.mode in ("vm", "vm_epc", "vm_both", "vm_check"):
             info = importer_jobs.list_vms()
             if info.get("error"):
                 raise HTTPException(400, str(info["error"]))
             if body.vm not in {v["name"] for v in info["vms"]}:
                 raise HTTPException(400, f"No VirtualBox VM named {body.vm!r}.")
+            # what the run needs is checked first (the extractor's --check):
+            # a missing network, Java, script or disk space stops it here,
+            # not an hour in
+            what = {"vm": "wis", "vm_epc": "epc", "vm_both": "both"}.get(body.mode)
+            check_steps = vm_steps(what, body.steps) if what else (body.steps or vm_steps("wis", ""))
+            pre = importer_jobs.check_vm(body.vm, check_steps)
+            if not pre["ready"]:
+                raise HTTPException(400, "Not ready: " + " ".join(
+                    c["message"] for c in pre["checks"] if c["level"] == "fail"))
+        if body.mode == "vm_check":
+            # boot the VM, see Windows start and the database(s) answer, shut it
+            # down; imports nothing
+            try:
+                return jobs.start(Path(info["out_root"]) / "wis_extract", app.state.index_path,
+                                  "vm_check", vm=body.vm, steps=check_steps)
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
         if body.mode in ("vm", "vm_both"):
             steps = [s for s in body.steps.split(",") if s]
-            if any(s not in ("docs", "applic", "vehicles", "images", "build") for s in steps):
+            if any(s not in WIS_STEPS for s in steps):
                 raise HTTPException(400, f"unknown step in {body.steps!r}")
         if body.mode == "vm_both":
             # WIS, then EPC, as one job: refused up front if the EPC half could
