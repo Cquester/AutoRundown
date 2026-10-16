@@ -468,6 +468,10 @@
   .setsec .subhead{margin:28px 0 4px; font-size:16px}
   .row.nowrap{flex-wrap:nowrap}
   .row.nowrap > input, .row.nowrap > select{flex:1; min-width:0}
+  .getkey{display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:10px 0 4px;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 16px}
+  .getkey ol{margin:0; padding-left:20px; line-height:1.5}
+  .provnote{margin-top:6px}
   .savedmark{font-size:13px; color:var(--good); font-weight:600; min-height:1em}
   .savedmark.bad{color:var(--bad)}
   .checklist{list-style:none; padding:0; margin:18px 0; display:grid; gap:10px}
@@ -794,7 +798,21 @@
 
       <section class="setsec" id="sec-ai" hidden>
         <h2>AI answers</h2>
-        <fieldset class="setgroup" style="border-top:0; margin-top:0; padding-top:0">
+        <label for="sProvider">AI provider <span class="muted">(whose AI answers the questions)</span></label>
+        <div class="row nowrap"><select id="sProvider"></select><span class="savedmark" id="mProvider" role="status"></span></div>
+        <div class="help">Answers are checked the same way whichever provider writes them: a value or page
+          the search didn't find is removed, and an answer left with no page behind it is not shown.</div>
+        <div class="getkey" id="getKeyBox">
+          <a class="btnlink ghostlink" id="getKey" href="https://console.anthropic.com/settings/keys"
+            target="_blank" rel="noopener noreferrer">Get a key</a>
+          <ol class="help" style="margin:0">
+            <li>Sign in and create a key.</li>
+            <li>Copy it.</li>
+            <li>Paste it here.</li>
+          </ol>
+        </div>
+        <div class="help provnote" id="providerNote" hidden></div>
+        <fieldset class="setgroup">
           <legend>Who pays for AI answers</legend>
           <label class="check"><input type="radio" name="keyMode" value="company"> One company key
             <span class="muted">— every question goes on the key below</span></label>
@@ -813,10 +831,11 @@
         <div class="help" id="modelPrice"></div>
         <div id="mechKeysSec" hidden>
           <h3 class="subhead">Mechanics' keys</h3>
-          <div class="help">Make one key per mechanic at console.anthropic.com, load it with credit, and enter
-            it here with the amount loaded. <b>Remaining is AutoRundown's own estimate</b>: the amount you entered
-            minus what AutoRundown logged on that key since. Anthropic doesn't tell an ordinary API key its
-            balance, so check the console for the real figure. When you add credit or swap the key, use
+          <div class="help">Make one <span class="provShort">Anthropic</span> key per mechanic (“Get a key” above),
+            load it with credit, and enter it here with the amount loaded. Keys are kept per provider: switching
+            provider needs a key for that provider. <b>Remaining is AutoRundown's own estimate</b>: the amount you
+            entered minus what AutoRundown logged on that key since. The provider doesn't tell an ordinary API key
+            its balance, so check its console for the real figure. When you add credit or swap the key, use
             “Topped up / new key” so the count starts again.</div>
           <div class="vinnote errnote" id="keysNote" role="alert"></div>
           <div id="mechKeys" style="margin-top:10px"></div>
@@ -964,7 +983,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const out = $('#out'), srcout = $('#srcout');
-let vehicles = [], sessionCost = 0, modelList = [];
+let vehicles = [], sessionCost = 0, costUntracked = false, modelList = [];
 
 // escapes for text and for attribute values in either quote style
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
@@ -1894,7 +1913,9 @@ function renderAnswer(d, doc = docId(), label = carBoxLabel) {
 function drawAnswer(d, label) {
   pageTitles = d.page_titles || {};
   sessionCost += d.usage?.cost_usd || 0;
+  if (d.usage && d.usage.calls && d.usage.cost_usd == null) costUntracked = true;
   $('#cost').textContent = '$' + sessionCost.toFixed(4) + ' this session'
+    + (costUntracked ? ' (some cost not tracked)' : '')
     + (d.usage?.model ? ' · ' + d.usage.model.replace('claude-', '') : '');
 
   let h = '';
@@ -2432,10 +2453,16 @@ $('#q').addEventListener('keydown', e => {
 
 function showModelPrice() {
   const m = modelList.find(x => x.id === $('#sModel').value);
-  $('#modelPrice').textContent = m
-    ? `$${m.price_in}/M input, $${m.price_out}/M output — roughly `
-      + `$${((6000/1e6)*m.price_in + (900/1e6)*m.price_out).toFixed(4)} per question`
-    : '';
+  if (!m) { $('#modelPrice').textContent = ''; return; }
+  if (m.price_in == null || m.price_out == null) {
+    $('#modelPrice').textContent = 'Price not known to AutoRundown: cost not tracked for this model.';
+    return;
+  }
+  $('#modelPrice').innerHTML = `$${m.price_in}/M input, $${m.price_out}/M output — roughly `
+    + `$${((6000/1e6)*m.price_in + (900/1e6)*m.price_out).toFixed(4)} per question`
+    + (m.offpeak_half ? ' at peak hours (half that off-peak)' : '')
+    + `. <span class="muted">Prices as listed on <a href="${esc(m.price_source)}" target="_blank" `
+    + `rel="noopener noreferrer">the provider’s price page</a> on ${esc(m.price_checked)}.</span>`;
 }
 
 // -- Shop setup: one page, #/setup/<section>, the PC only ---------------------
@@ -2486,14 +2513,16 @@ async function loadSetup() {
   $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
   $('#sAutostart').checked = !!s.autostart;
   $('#sSignin').checked = !!s.require_signin;
+  showProvider(s);
   showKeyMode(s);
-  $('#sKey').placeholder = s.has_api_key ? 'leave empty to keep the saved key' : 'sk-ant-…';
+  const prov = curProvider(s);
+  $('#sKey').placeholder = s.has_api_key ? 'leave empty to keep the saved key' : prov.key_hint;
   $('#keyStatus').innerHTML = s.has_api_key
     ? `<span style="color:var(--good)">&#10003; Key saved</span>`
-      + (s.key_source === 'environment' ? ' (from the ANTHROPIC_API_KEY environment variable)' : '')
+      + (s.key_source === 'environment' ? ` (from the ${esc(s.key_env)} environment variable)` : '')
       + '. Type a new one only to replace it.'
-    : `<span style="color:var(--warn)">No key yet.</span> Ask is off until you add one; keyword search works `
-      + `without it. Get a key at console.anthropic.com.`;
+    : `<span style="color:var(--warn)">No ${esc(prov.short)} key yet.</span> Ask is off until you add one; `
+      + `keyword search works without it. “Get a key” above opens ${esc(prov.short)}’s key page.`;
   const phone = s.phone_urls || [];
   $('#sPhone').innerHTML = phone.length
     ? 'On a phone on the same wifi, open:' + phone.map(u =>
@@ -2543,12 +2572,48 @@ async function showSetup(sec) {
       if (s.key_mode === 'per_mechanic') loadKeys(); }, () => {});
   }
 }
+// -- which AI provider answers: Anthropic, Gemini, xAI or DeepSeek --
+// Each has its own key page ("Get a key") and its own keys; the answers go
+// through the same checks on the server whichever it is.
+const curProvider = s => (s.providers || []).find(p => p.id === s.provider)
+  || {id: 'anthropic', short: 'Anthropic', label: 'Anthropic (Claude)', key_hint: 'sk-ant-…',
+      key_url: 'https://console.anthropic.com/settings/keys'};
+function showProvider(s) {
+  const p = curProvider(s);
+  $('#sProvider').innerHTML = (s.providers || [p]).map(x =>
+    `<option value="${esc(x.id)}">${esc(x.label)}${x.has_key ? '' : ' — no key yet'}</option>`).join('');
+  $('#sProvider').value = p.id;
+  $('#getKey').href = p.key_url;
+  $('#getKey').textContent = `Get a ${p.short} key`;
+  document.querySelectorAll('.provShort').forEach(x => { x.textContent = p.short; });
+  $('#providerNote').hidden = p.id !== 'gemini';
+  if (p.id === 'gemini') $('#providerNote').innerHTML =
+    '<b>Free tier:</b> Google lets you use Gemini Flash and Flash-Lite free of charge, with low limits on '
+    + 'requests a minute and a day (Gemini 4 Argon is not on the free tier). On the free tier, Google says '
+    + 'it may use what you send to improve its products — here, that is your questions and the manual pages '
+    + 'sent with them; on a key with billing turned on it does not. Check '
+    + `<a href="${esc(p.price_source)}" target="_blank" rel="noopener noreferrer">Google’s pricing page</a> `
+    + 'for the current limits and terms before relying on it.';
+}
+$('#sProvider').onchange = async () => {
+  const v = $('#sProvider').value, was = setupData.provider;
+  if (setupData.key_mode === 'per_mechanic' && !confirm('Switch the AI provider? Each mechanic then needs a '
+      + 'key for the new provider; their keys for the old one are kept for if you switch back.')) {
+    $('#sProvider').value = was; return;
+  }
+  if (await saveSetting({provider: v}, '#mProvider')) {
+    await loadSetup();
+    me.default_model = setupData.model;
+    await loadModels().catch(() => {});
+    if (setupData.key_mode === 'per_mechanic') loadKeys();
+  } else $('#sProvider').value = was;
+};
 // -- who pays for AI answers: one company key, or a key per mechanic --
 function showKeyMode(s) {
-  const per = s.key_mode === 'per_mechanic';
+  const per = s.key_mode === 'per_mechanic', short = curProvider(s).short;
   document.querySelectorAll('input[name=keyMode]').forEach(r => { r.checked = r.value === s.key_mode; });
-  $('#sKeyLabel').textContent = per ? 'This PC’s Anthropic API key (for questions asked on this PC)'
-                                    : 'Anthropic API key';
+  $('#sKeyLabel').textContent = per ? `This PC’s ${short} API key (for questions asked on this PC)`
+                                    : `${short} API key`;
   const n = s.month_questions || 0;
   $('#monthTotal').innerHTML = (per ? 'Everyone together this month: ' : '<b>Spent this month</b>, everyone on this key: ')
     + `${n} question${n === 1 ? '' : 's'}, <b>${money(s.month_spend_usd)}</b>`
@@ -2585,7 +2650,7 @@ async function loadKeys() {
       <div class="keyform">
         <div><label for="mk${u.id}">${k.has_key ? 'New key (leave empty to keep it)' : 'API key'}</label>
           <input id="mk${u.id}" class="mkkey" type="password" autocomplete="off" spellcheck="false"
-            placeholder="sk-ant-…"></div>
+            placeholder="${esc(curProvider(setupData || {}).key_hint)}"></div>
         <div><label for="ml${u.id}">$ loaded on it</label>
           <input id="ml${u.id}" class="mkload" type="number" min="0" step="1" inputmode="decimal"
             value="${k.loaded_usd ?? ''}"></div>
@@ -2639,7 +2704,7 @@ $('#saveKey').onclick = async () => {
   const k = $('#sKey').value.trim();
   if (!k) return;
   $('#saveKey').disabled = true;
-  if (await saveSetting({api_key: k}, '#mKey')) { $('#sKey').value = ''; await loadSetup(); }
+  if (await saveSetting({api_key: k, key_provider: curProvider(setupData).id}, '#mKey')) { $('#sKey').value = ''; await loadSetup(); }
   markDirty();
 };
 $('#sKey').addEventListener('keydown', e => { if (e.key === 'Enter') $('#saveKey').click(); });
