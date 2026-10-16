@@ -504,8 +504,11 @@
     max-width:100%}
   .deskcar .what{min-width:0; overflow-wrap:anywhere}
   .deskcar .when{color:var(--muted); white-space:nowrap}
-  .deskcar button{min-height:40px; padding:0 12px}
-  .deskcar .x{background:transparent; color:var(--muted); border:0; font-size:20px; line-height:1; padding:0 10px}
+  .deskcar button{min-height:44px; padding:0 12px}
+  .deskcar .x{background:transparent; color:var(--muted); border:0; font-size:20px; line-height:1; padding:0 10px;
+    min-width:44px}
+  /* the desk's inbox: not over Shop setup */
+  body[data-view="setup"] .deskcars{display:none}
   .senddesk{display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:-4px 0 12px}
   .senddesk #sendDeskHelp{flex:1 0 100%; font-size:13px}
   .banner a{color:inherit}
@@ -680,6 +683,10 @@
     /* suggestions and recent cars: the sheet's full width (under Browse
        too), rows a thumb can hit */
     body.sheet .carfield{position:static}
+    /* in the sheet the list takes its place in the flow: laid over the
+       scope note it hid "Pick your engine" */
+    body.sheet .suggest{position:static; box-shadow:none; margin-top:10px}
+    .sheetmore .senddesk{margin:0 0 12px}
     .suggest .opt{min-height:44px; display:flex; flex-direction:column; justify-content:center}
     .suggest .opt.hist{flex-direction:row}
     .suggest button.histx{width:44px; height:44px; min-height:44px}
@@ -2014,10 +2021,11 @@ async function sendToDesk() {
 }
 window.sendToDesk = sendToDesk;
 $('#sendDesk').onclick = sendToDesk;
-// the button: any device but the desk itself, once a car is chosen
+// the button: any device but the desk itself, once a car has been picked on
+// this device (not the car a fresh page starts on)
 function updateSendDesk() {
   const row = $('#sendDeskRow');
-  row.hidden = me.admin || !docId();
+  row.hidden = me.admin || !docId() || !carHistory().length;
   if (row.hidden) return;
   if (!$('#sendDeskNote').dataset.doc || $('#sendDeskNote').dataset.doc !== docId()) {
     $('#sendDeskNote').textContent = '';
@@ -2051,7 +2059,8 @@ async function loadDeskCars() {
 }
 function drawDeskCars() {
   const box = $('#deskCars');
-  box.hidden = !deskCars.length;
+  // the desk's inbox: on a phone it pushed the answer half a screen down
+  box.hidden = !deskCars.length || (!me.admin && phone());
   box.innerHTML = deskCars.map(c =>
     `<div class="deskcar" data-hid="${+c.id}"><span class="what">Car waiting from `
     + `<b>${esc(c.from)}</b>: ${esc(c.label)}${c.vin ? ` (VIN ${esc(c.vin)})` : ''} `
@@ -2347,15 +2356,16 @@ $('#q').addEventListener('focus', () => { clearTimeout(kbdTimer); document.body.
 $('#q').addEventListener('blur', () => {
   kbdTimer = setTimeout(() => document.body.classList.remove('kbd'), 350);
 });
-// the scope note and Options live in the car sheet on a phone
+// the scope note, Send to desk and Options live in the car sheet on a phone
 function placeForWidth() {
   const inSheet = $('#scopeNote').parentElement === $('#sheetMore');
   if (phone() && !inSheet) {
-    $('#sheetMore').append($('#scopeNote'), $('#opts'));
+    $('#sheetMore').append($('#scopeNote'), $('#sendDeskRow'), $('#opts'));
   } else if (!phone() && inSheet) {
-    $('#resTabs').before($('#opts'), $('#scopeNote'));
+    $('#resTabs').before($('#opts'), $('#scopeNote'), $('#sendDeskRow'));
     closeSheetNow();
   }
+  if (typeof drawDeskCars === 'function') drawDeskCars();
 }
 PHONE.addEventListener('change', placeForWidth);
 placeForWidth();
@@ -3330,7 +3340,7 @@ function showProvider(s) {
     `<option value="${esc(x.id)}">${esc(x.label)}${x.has_key ? '' : ' — no key yet'}</option>`).join('');
   $('#sProvider').value = p.id;
   $('#getKey').href = p.key_url;
-  $('#getKey').textContent = `Get a ${p.short} key`;
+  $('#getKey').textContent = `Get ${/^[AEIOU]/i.test(p.short) ? 'an' : 'a'} ${p.short} key`;
   document.querySelectorAll('.provShort').forEach(x => { x.textContent = p.short; });
   $('#providerNote').hidden = p.id !== 'gemini';
   if (p.id === 'gemini') $('#providerNote').innerHTML =
