@@ -285,6 +285,32 @@ def main() -> int:
         check("rolling back to a snapshot that isn't there is refused", pc.post("/api/import", json={
             "path": "", "mode": "vm_rollback", "vm": "Mercedes EWA (fake)", "snapshot": "nope"}).status_code == 400)
 
+        # the page asks for a VM's check and its snapshots at once; on a real
+        # VirtualBox two VBoxManage calls on one VM collide, so the server
+        # runs them one at a time
+        import threading
+        inside, most = [0], [0]
+        real_run = importer_jobs.subprocess.run
+
+        def counting_run(*a, **k):
+            inside[0] += 1
+            most[0] = max(most[0], inside[0])
+            try:
+                return real_run(*a, **k)
+            finally:
+                inside[0] -= 1
+        importer_jobs.subprocess.run = counting_run
+        try:
+            ts = [threading.Thread(target=f) for f in (
+                lambda: pc.get("/api/vms/check", params={"vm": "Mercedes EWA (fake)", "what": "wis"}),
+                lambda: pc.get("/api/vms/snapshots", params={"vm": "Mercedes EWA (fake)"}),
+                lambda: pc.get("/api/vms"))]
+            [t.start() for t in ts]
+            [t.join() for t in ts]
+        finally:
+            importer_jobs.subprocess.run = real_run
+        check("VirtualBox queries run one at a time (a real VM's lock)", most[0] == 1, most[0])
+
         print("\n-- Cancel --")
         os.environ["AR_FAKE_VM_DELAY"] = "0.3"           # slow enough to cancel mid-pull
         r = pc.post("/api/import", json={"path": "", "mode": "vm_both", "vm": "Mercedes EWA (fake)",

@@ -173,8 +173,15 @@ def find_jar(explicit: str = "") -> str:
 
 
 def vbox(*args: str, check: bool = True) -> str:
-    r = subprocess.run([VBOX, *args], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+    # two VBoxManage calls on one VM at once (or the VirtualBox window
+    # holding it) fail with "already has a lock request pending": a short
+    # wait and another try (seen on the real VM, 2026-10-16)
+    for attempt in range(6):
+        r = subprocess.run([VBOX, *args], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        if r.returncode == 0 or "lock request pending" not in r.stderr:
+            break
+        time.sleep(1 + attempt)
     if check and r.returncode != 0:
         raise RuntimeError(f"VBoxManage {' '.join(args)}: {r.stderr.strip() or r.stdout.strip()}")
     return r.stdout

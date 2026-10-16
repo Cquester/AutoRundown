@@ -92,8 +92,19 @@ def extractor_out_root(ext: Path) -> Path:
         raise RuntimeError(str(e)) from None
 
 
+# One VirtualBox query at a time: two VBoxManage calls on one VM collide
+# ("already has a lock request pending") -- the page asks for the VM's check
+# and its snapshots together (seen on the real VM, 2026-10-16)
+VBOX_LOCK = threading.RLock()
+
+
 def list_vms() -> dict:
     """VirtualBox VMs on this PC, via the extractor's own helper."""
+    with VBOX_LOCK:
+        return _list_vms()
+
+
+def _list_vms() -> dict:
     ext = find_extractor()
     if not ext:
         return {"extractor": "", "vms": [],
@@ -132,6 +143,11 @@ def parse_checks(text: str) -> list[dict]:
 
 
 def check_vm(vm: str, steps: str) -> dict:
+    with VBOX_LOCK:
+        return _check_vm(vm, steps)
+
+
+def _check_vm(vm: str, steps: str) -> dict:
     """Will a run on this VM work? The extractor's own `--check` (no boot):
     the VM, its network, Java, the JDBC driver, the scripts the steps need,
     disk space. An extractor too old to have --check says so as a failure --
@@ -161,6 +177,11 @@ def check_vm(vm: str, steps: str) -> dict:
 
 
 def list_snapshots(vm: str) -> dict:
+    with VBOX_LOCK:
+        return _list_snapshots(vm)
+
+
+def _list_snapshots(vm: str) -> dict:
     """The VM's snapshots (vm_pipeline.py --list-snapshots), oldest first:
     which are ours (taken before a run, or before a rollback) and which is
     the current one."""

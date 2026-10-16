@@ -300,10 +300,19 @@ saved Startup-Repair state, waited 10 min, took the screenshot and saved the
 VM again (never powered off); **Cancel** during a test: STOP, ACPI
 shutdown ignored by Startup Repair, screenshot, state saved after 2 min,
 job `cancelled` -- that run found a crash in the shutdown loop (a set
-changing while iterated; fixed, tested). The healthy path (Windows up, DB
-answering) and a real snapshot/rollback were not run yet: Windows in the VM
-was broken. The rest on the fake extractor ("Windows won't start (fake)",
-"No network (fake)"). Tests: `tests/test_vm_jobs.py`.
+changing while iterated; fixed, tested). Then, through Shop setup: **rolled
+back** to AutoRundown-20260929-172504 (it kept
+AutoRundown-before-rollback-20261016-133808 first) -- and found that the
+page's check and snapshot list, asked for together, collided on the VM's
+lock ("already has a lock request pending"): the server now runs VirtualBox
+queries one at a time (`VBOX_LOCK`) and `vbox()` retries a pending lock.
+**Test the VM** on the rolled-back VM: our snapshot taken, Windows up and
+WIS answering in ~70 s, clean ACPI shutdown in 10 s; again with EPC: the
+snapshot reused (6 h), WIS and EPC (2034) both answering, clean shutdown.
+Not run on the real VM: a full extraction with Cancel mid-pull (the pull
+itself is the same resumable code as before). The rest on the fake
+extractor ("Windows won't start (fake)", "No network (fake)").
+Tests: `tests/test_vm_jobs.py`.
 
 **Testing it without a VM**: `tools/fake_extractor/` is a stand-in
 `vm_pipeline.py` (plus empty `pull_epc.js`/`epc_fv4.js` and a `wis_paths.py`
