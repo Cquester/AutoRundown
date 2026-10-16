@@ -970,7 +970,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if body.mode not in ("add", "rebuild_wis"):
             raise HTTPException(400, f"unknown mode {body.mode!r}")
         if body.mode == "rebuild_wis" and not importer_jobs.can_rebuild_wis(app.state.index_path):
-            raise HTTPException(400, "No pre-WIS backup (index.before-wis.db) to rebuild from.")
+            raise HTTPException(400, "No Mercedes WIS data in the index to rebuild; add it instead.")
         try:
             return jobs.start(p, app.state.index_path, body.mode)
         except RuntimeError as exc:

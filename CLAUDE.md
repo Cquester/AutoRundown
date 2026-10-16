@@ -117,7 +117,7 @@ python ask.py --vehicle f-150 --search "<terms>"  # keyword only, FREE
 python ask.py --usage                             # spend, by source and user
 python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
-python rebuild_wis.py                             # replace the WIS part (~6 min; keeps spend log)
+python rebuild_wis.py                             # replace the WIS part in place (keeps other manuals + spend log)
 python dev.py                                     # FREE, throwaway instance, :8757
 python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py
 python eval.py                                    # FREE retrieval check (F-150)
@@ -134,6 +134,7 @@ python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
+python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~45 s, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
@@ -176,8 +177,13 @@ The Mercedes WIS pipeline (VM -> corpus -> index) and its commands are in
 **Never rebuild by copying `index.before-wis.db` over `index.db` by hand.**
 The spend log (`usage_log`) lives inside the index, so that silently deletes
 every paid question asked since the backup — it happened on several rebuilds
-in this project before `rebuild_wis.py` existed. The script copies the newer
-log rows across and checks the count before it re-ingests.
+in this project before `rebuild_wis.py` existed. It also deletes the EPC
+parts catalogue and every manual imported after the backup -- which is what
+`rebuild_wis.py` itself did until 2026-10-16. **The script now removes WIS
+in place** (`remove_manuals.py --source mercedes-wis`) and re-ingests; it
+never reads the backup, refuses a corpus that is not WIS, and checks every
+other manual's page/chunk counts and the spend log before and after
+(`tests/test_rebuild_wis.py`).
 
 ---
 
@@ -428,7 +434,8 @@ With Mercedes WIS (English, passenger mode, schema 1.3 with images) in the
 same `index.db`: 272,607 records = 272,603 indexed + 4 figure-only, 531,847
 page rows (x1.95), index 3.5 GB, ~6 min via `rebuild_wis.py`. Images live
 outside the index: 272,181 graphics, 11 GB, in `wis_extract/images/`.
-`index.before-wis.db` is the pre-WIS backup the script restores;
+`index.before-wis.db` is the old pre-WIS backup (no longer used by the
+script; it predates EPC and later manuals, so never restore it);
 `index.v11.db` is the last schema-1.1 index, kept for rollback (both
 gitignored). `eval_wis.py`: 19/19 pass, 13 known-bad guards within their ceilings (checked 2026-10-12).
 
@@ -443,9 +450,13 @@ gitignored). `eval_wis.py`: 19/19 pass, 13 known-bad guards within their ceiling
 - Sibling-engine pages exist in the main tree identified only by their title
   (e.g. "Generator - 2.7L EcoBoost"). The prompt requires flagging
   applicability, but this is prompt-level, not structural.
-- The spend log lives inside the index. `rebuild_wis.py` carries it across a
-  WIS rebuild; any *other* way of rebuilding (deleting `index.db`, copying a
-  backup over it) still loses it.
+- The spend log lives inside the index. `rebuild_wis.py` and
+  `remove_manuals.py` leave it in place; any *other* way of rebuilding
+  (deleting `index.db`, copying a backup over it) still loses it.
+- **The in-place WIS rebuild has not run on the real 3.5 GB index yet**
+  (tested on sample data only). Removing ~530k WIS pages fires the FTS
+  delete trigger per chunk, so expect it to take longer than the old
+  backup restore; freed pages are reused by the re-ingest.
 - **WIS retrieval is checked by `eval_wis.py`, not by answers.** 19 cases,
   13 known-bad guards left (other engines' documents in the general pool,
   engine buckets not type-narrowed, title-only applicability). The right page

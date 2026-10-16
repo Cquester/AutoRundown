@@ -30,10 +30,10 @@ one address = 429 for 15 min. Cross-site POSTs are refused by `Origin` check
 **Spend per mechanic.** `usage_log` gained `user_id`, `user_name` (nullable,
 `ADDED_COLUMNS`); the name is a snapshot so reports survive account changes.
 A monthly cap (`users.monthly_cap_usd`, UTC calendar month) is checked
-before the API is called (402); keyword search stays free. `rebuild_wis.py`
-compares log rows on the backup's columns and migrates the restored index
-before carrying rows over -- without that, the wider rows never matched and
-the insert would have failed.
+before the API is called (402); keyword search stays free. (`rebuild_wis.py`
+used to carry log rows across from a restored backup, comparing on the
+backup's columns; since 2026-10-16 it rebuilds in place and never moves the
+log.)
 
 Phones keep their model choice in `localStorage` and send it per question;
 only the PC changes the default. `/api/stats` hides this PC's paths from
