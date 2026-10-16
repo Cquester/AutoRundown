@@ -162,7 +162,9 @@ ADDED_COLUMNS = {
     "usage_log": {
         "user_id": "INTEGER",    # auth.db users.id; NULL = this PC, or no sign-in
         "user_name": "TEXT",     # the name at the time, so a report survives
-    },                           # a renamed or removed account
+                                 # a renamed or removed account
+        "key_ref": "TEXT",       # whose key paid: "company" | "user:<id>"
+    },                           # (config.pick_key); NULL = before 2026-10-16
 }
 
 
@@ -403,17 +405,17 @@ def connector_pages(conn: sqlite3.Connection, doc_id: str,
 
 def log_usage(conn: sqlite3.Connection, source: str, doc_id: str,
               question: str, usage, user_id: int | None = None,
-              user_name: str | None = None) -> None:
+              user_name: str | None = None, key_ref: str | None = None) -> None:
     """Record one question's spend. Never let logging break a good answer."""
     try:
         conn.execute(
             """INSERT INTO usage_log
                (ts, source, model, doc_id, question, calls,
-                input_tokens, output_tokens, cost_usd, user_id, user_name)
-               VALUES (datetime('now'),?,?,?,?,?,?,?,?,?,?)""",
+                input_tokens, output_tokens, cost_usd, user_id, user_name, key_ref)
+               VALUES (datetime('now'),?,?,?,?,?,?,?,?,?,?,?)""",
             (source, usage.model, doc_id, question[:500], usage.calls,
              usage.input_tokens, usage.output_tokens, usage.cost_usd,
-             user_id, user_name),
+             user_id, user_name, key_ref),
         )
         conn.commit()
     except sqlite3.Error:
@@ -455,6 +457,29 @@ def month_spend_by_user(conn: sqlite3.Connection) -> dict:
     return {r[0]: (r[1], r[2]) for r in conn.execute(
         f"""SELECT user_id, COUNT(*), COALESCE(SUM(cost_usd),0) FROM usage_log
             WHERE source='web' AND ts >= {MONTH_START} GROUP BY user_id""")}
+
+
+def month_questions(conn: sqlite3.Connection, user_id: int) -> int:
+    return conn.execute(
+        f"""SELECT COUNT(*) FROM usage_log
+            WHERE user_id=? AND ts >= {MONTH_START}""", (user_id,)).fetchone()[0]
+
+
+def month_total(conn: sqlite3.Connection) -> tuple[int, float]:
+    """(questions, dollars) this month, everyone and every source -- what
+    the company key paid in "One company key" mode, plus any cli/eval use."""
+    n, c = conn.execute(
+        f"""SELECT COUNT(*), COALESCE(SUM(cost_usd),0) FROM usage_log
+            WHERE ts >= {MONTH_START}""").fetchone()
+    return n, c
+
+
+def key_spend_since(conn: sqlite3.Connection, key_ref: str, since: str) -> float:
+    """Dollars logged on one key (usage_log.key_ref) since `since` (UTC
+    'YYYY-MM-DD HH:MM:SS', when the owner last said how much was loaded)."""
+    return conn.execute(
+        """SELECT COALESCE(SUM(cost_usd),0) FROM usage_log
+           WHERE key_ref=? AND ts >= ?""", (key_ref, since or "")).fetchone()[0]
 
 
 def recent_usage(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
