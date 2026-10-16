@@ -51,7 +51,9 @@ year or engine can never outrank the right one, because it is never a candidate
 in the first place.
 
 "Not found in this archive" is a correct and useful answer here, and the tool is
-built to prefer it over a plausible guess.
+built to prefer it over a plausible guess. A withheld answer says so instead —
+"No checked answer — the AI's sources couldn't be verified" — with a button
+that runs the same question as a (free) keyword search.
 
 ---
 
@@ -260,8 +262,9 @@ python ask.py --list
 
 ## What you can look up
 
-Under the question box, tabs pick what to search -- always within the car you
-chose:
+Under the question box (on a phone: the bar at the bottom, with the short names
+Manual, Parts, Labour, Fluids, Torque), tabs pick what to search -- always within
+the car you chose:
 
 | Tab | Shows |
 |---|---|
@@ -301,8 +304,17 @@ torque…". The page is the authority; the summary only points at it.
 | `caveats` | Applicability warnings, or a genuine conflict between pages |
 
 A value is a number, never *"see Fig 15"*: a picture belongs to its page, which
-is one tap away. On a phone the page opens when you tap it, so it does not cover
-the answer.
+is one tap away. An answer with no page (not found, or withheld) clears the page
+panel to "No manual page for this answer", so an earlier answer's page never
+reads as this one's source.
+
+**On a phone** the screen is one column: the car as a single line at the top
+(tap **Change** for the car box, Browse, VIN, the scope note and Options, full
+screen), **Answer | Document** under it, the question docked at the bottom with
+**Ask** and a magnifier for the keyword search, and the tabs as a bottom bar
+(Manual, Parts, Labour, Fluids, Torque). An answer's page loads into
+**Document** (a dot says one is waiting) and opens with *Open manual page*;
+the phone's Back, or a swipe to the right, returns to the answer.
 
 Citations name the page rather than just numbering it — `p6706 · Front Brake
 Caliper Anchor Plate: Removal`. Titles are resolved locally from the index, so

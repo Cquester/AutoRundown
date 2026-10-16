@@ -282,8 +282,16 @@ the FTS table (narrows inside FTS5; ~10x more, but rebuilds the FTS table).
 on the side ... it's more to provide the correct document"). An answer is one
 to three sentences, a table of the values the job uses (`specs`), and
 `document_page` -- the procedure page for "how do I", the spec page for a
-value -- which the UI opens on the right (on a phone: a button, so it does not
-cover the answer). `steps` is left empty by the prompt and not rendered; the
+value -- which the UI opens on the right (on a phone, 700 px and less: loaded
+into the "Document" view with a dot on that segment, opened by the answer's
+"Open manual page" button, so it does not cover the answer; Back or a swipe
+returns). An answer with no page clears the panel to "No manual page for this
+answer". A withheld answer (`caveats` ends "Answer withheld: …"; there is no
+separate field) is headed "No checked answer — the AI's sources couldn't be
+verified", with "Search the manual instead", never "Not found".
+The phone layout (car line + full-screen car sheet, Answer | Document, docked
+question, bottom tab bar) is CSS under `@media (max-width:700px)` plus
+`openRight`/`openSheet` in `index.html`; 701-900 px keeps the slide-over panel. `steps` is left empty by the prompt and not rendered; the
 side panel of "diagrams from cited pages" is gone; `figures` survive only as
 links to a diagram on another page. `document_page` is checked like any
 citation in `_verify_citations` (invented -> dropped, falls back to the first

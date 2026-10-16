@@ -59,8 +59,12 @@ The user picked "W212 E-Class, all 87 variants", searched "valve cover", and
 got V6, V8, AMG and diesel answers side by side -- 10 engine families, all in
 scope. Now the Variant menu is grouped by engine ("M272 · V6 petrol"), each
 group with "Any M272 — E 250, E 300, …" plus its cars; with several engines
-and none chosen, the scope note says "Pick your engine above for exact specs"
-in accent colour. Engine labels come from `importers/data/mercedes_engines.csv`
+and none chosen, the scope note lists the car's own engine groups (from
+`engineGroups`, e.g. "M272 · V6 petrol, M273 · V8 petrol" -- it used to say
+"V6, V8, diesel" for every car) and "Pick your engine" is a button that opens
+the Browse row on the Variant menu, in accent colour. On a phone the scope note
+and Options live in the car sheet (opened from the car line at the top, which
+itself says "N engines — tap to pick yours" until an engine is chosen). Engine labels come from `importers/data/mercedes_engines.csv`
 (reference knowledge, like the year table; an unknown family shows its number),
 attached per variant as `engine_families`.
 

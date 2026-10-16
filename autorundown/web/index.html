@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>AutoRundown</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#12141a" media="(prefers-color-scheme: dark)">
@@ -523,11 +523,137 @@
   .carbox{max-width:760px}
   .answer, .src p{max-width:72ch}
   @media (min-width:1400px){ main{grid-template-columns:minmax(560px,760px) 1fr} }
+
+  /* -- "Pick your engine" in the scope note: opens the picker on the Variant menu */
+  /* inline, so it doesn't open up the line; the padding makes the 44 px target */
+  button.pickeng{display:inline; background:none; border:0; border-radius:6px; padding:12px 4px; margin:-12px 0;
+    min-height:0; color:inherit; font:inherit; font-weight:700; text-decoration:underline;
+    text-underline-offset:3px; white-space:normal}
+  /* an answer withheld because its citations failed is not "not found" */
+  .withheld{border-left:4px solid var(--warn); background:var(--warn-bg); padding:14px; border-radius:10px;
+    overflow-wrap:anywhere}
+  .withheld button{margin-top:12px}
+  .nopage{padding:4px 2px}
+
+  /* -- the phone-only pieces stay out of a desktop's way */
+  .carpill, .sheethead, .viewseg, .ico, .docgo{display:none}
+
+  /* -- a phone (700 px and less): one line for the car, Answer | Document,
+     the question docked at the bottom above the tabs. The 701-900 px
+     slide-over panel above is unchanged. */
+  @media (max-width:700px){
+    html, body{height:100%; height:100dvh; overflow:hidden}
+    .ico{fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round}
+
+    /* the car line */
+    header{padding:5px 12px; gap:8px; flex-wrap:nowrap; min-height:54px}
+    header > .brand, header > .carbox, header > .picker, header > .sheetmore, header > #acctBtn{display:none}
+    .carpill{display:flex; flex:1; min-width:0; align-items:center; gap:6px; min-height:44px;
+      padding:3px 4px 3px 12px; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+      border-radius:12px; text-align:left; font-weight:400; white-space:normal}
+    .cp-text{flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.25}
+    .cp-car, .cp-sub{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+    .cp-car{font-size:15px; font-weight:700}
+    .cp-sub{font-size:12.5px; color:var(--muted)}
+    .cp-sub:empty{display:none}
+    .cp-sub.hint{color:var(--accent); font-weight:600}
+    .cp-go{flex:none; font-size:13px; font-weight:700; color:var(--accent); padding:0 8px}
+    #settingsBtn{flex:none; width:44px; padding:0}
+    body[data-view="setup"] .carpill, body[data-view="gate"] .carpill{display:none}
+    body[data-view="setup"] header > .brand, body[data-view="gate"] header > .brand{display:block}
+
+    /* the car sheet: the header grown to the whole screen */
+    body.sheet header{position:fixed; inset:0; z-index:40; display:block; overflow-y:auto;
+      padding:0 16px calc(24px + env(safe-area-inset-bottom)); background:var(--bg)}
+    body.sheet header > .carpill, body.sheet header > #settingsBtn{display:none}
+    body.sheet .sheethead{display:flex; align-items:center; justify-content:space-between; gap:12px;
+      position:sticky; top:0; z-index:31; margin:0 -16px 10px; padding:6px 16px;
+      background:var(--bg); border-bottom:1px solid var(--line)}
+    .sheethead h2{margin:0; font-size:18px}
+    body.sheet header > .carbox{display:flex; max-width:none; margin-bottom:10px}
+    body.sheet header > .picker{display:flex; margin-bottom:10px}
+    body.sheet header > .sheetmore{display:block}
+    body.sheet header > #acctBtn{display:block; max-width:none; margin-top:16px}
+    .sheetmore #scopeNote{margin:4px 0 12px !important; font-size:15px !important; line-height:1.45}
+    .sheetmore details.opts{margin:0}
+    .sheetmore details.opts > summary{display:flex}
+
+    /* Answer | Document */
+    main{display:flex; flex-direction:column}
+    #left{display:contents}
+    .viewseg{display:flex; order:0; flex:none; padding:6px 12px; background:var(--bg);
+      border-bottom:1px solid var(--line)}
+    .viewseg button{flex:1; min-height:44px; padding:0 8px; background:var(--panel-2); color:var(--muted);
+      border:1px solid var(--line); font-weight:700; font-size:15px; border-radius:0}
+    .viewseg button:first-child{border-radius:10px 0 0 10px; border-right:0}
+    .viewseg button:last-child{border-radius:0 10px 10px 0}
+    .viewseg button[aria-selected="true"]{background:var(--accent-dim); color:var(--pill-text);
+      border-color:var(--accent-dim)}
+    .segdot{display:inline-block; width:9px; height:9px; margin-left:7px; border-radius:50%;
+      background:var(--accent); vertical-align:1px}
+    .viewseg button[aria-selected="true"] .segdot{background:var(--pill-text)}
+    #out, #tabLabour, #right{order:1; flex:1 1 auto; min-height:0; overflow-y:auto;
+      -webkit-overflow-scrolling:touch; overscroll-behavior:contain; padding:10px 14px 16px}
+    #right{position:static; inset:auto; transform:none; transition:none; z-index:auto;
+      border:0; background:var(--pane)}
+    body:not(.docview) #right{display:none}
+    body.docview #out, body.docview #tabLabour{display:none}
+    .panelbar{display:none}
+    .docgo{display:block; color:var(--accent); font-weight:700; font-size:14px; margin-top:4px}
+
+    /* the question, docked */
+    .askbar{order:2; flex:none; margin:0; padding:8px 12px; gap:8px; flex-wrap:nowrap; align-items:flex-end;
+      background:var(--panel); border-top:1px solid var(--line)}
+    .askbar textarea{flex:1 1 auto; min-width:0; min-height:48px; max-height:120px; resize:none; padding:11px 12px}
+    .askbtns{flex:none; gap:6px}
+    .askbtns button{flex:none; padding:0 16px}
+    #searchBtn{width:48px; padding:0; display:inline-flex; align-items:center; justify-content:center}
+    #searchBtn .lbl{display:none}
+    #searchBtn .ico{display:block; width:22px; height:22px}
+    /* on the other tabs a search is the main action and Enter runs it */
+    body[data-tab]:not([data-tab="workshop"]) #searchBtn{background:var(--accent); color:var(--on-accent); border-color:transparent}
+    body[data-tab]:not([data-tab="workshop"]) #askBtn{background:var(--panel-2); color:var(--text);
+      border:1px solid var(--line); font-weight:600}
+
+    /* the tabs as a bottom bar: every one on screen */
+    .restabs{order:3; flex:none; margin:0; gap:0; overflow:visible; border-bottom:0;
+      border-top:1px solid var(--line); background:var(--panel); padding:0 0 env(safe-area-inset-bottom)}
+    .restabs button, .restabs button[aria-selected="true"]{flex:1 1 0; min-width:0; min-height:56px; margin:0;
+      padding:6px 2px 5px; border:0; border-radius:0; background:transparent; display:flex;
+      flex-direction:column; align-items:center; justify-content:center; gap:3px; font-size:0}
+    .restabs button{color:var(--muted)}
+    .restabs button::after{content:attr(data-short); font-size:12px; font-weight:600; line-height:1.1}
+    .restabs button .ico{display:block; width:23px; height:23px}
+    .restabs button[aria-selected="true"]{color:var(--accent); box-shadow:inset 0 3px 0 var(--accent)}
+    body.kbd .restabs{display:none}
+
+    /* the values: name across the top, value and page side by side under it */
+    .spectable, .spectable tbody{display:block}
+    .spectable thead{display:none}
+    .spectable tr{display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 12px; align-items:center;
+      padding:12px 0; border-bottom:1px solid var(--line)}
+    .spectable td{display:block; padding:0; border:0}
+    .spectable td:first-child{grid-column:1 / -1; font-weight:600}
+    .spectable .appl{font-weight:400}
+    .spectable td.value{font-size:24px; white-space:normal; overflow-wrap:anywhere}
+    .spectable td:last-child{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px}
+    .spectable .pagelink{margin:0; min-height:44px}
+  }
 </style>
 </head>
 <body>
 <header>
   <div class="brand">Auto<span>Rundown</span></div>
+  <!-- a phone: the car as one tap-to-change line; the car box, Browse, the
+       scope note and Options open in a full-screen sheet (body.sheet) -->
+  <button type="button" class="carpill" id="carPill" aria-haspopup="dialog" aria-controls="carSheetHead">
+    <span class="cp-text"><span class="cp-car" id="cpCar">Choose your car</span><span class="cp-sub" id="cpSub"></span></span>
+    <span class="cp-go">Change</span>
+  </button>
+  <div class="sheethead" id="carSheetHead">
+    <h2>Your car</h2>
+    <button type="button" id="sheetDone">Done</button>
+  </div>
   <div class="carbox">
     <div class="carfield">
       <input id="carInput" type="text" autocomplete="off" spellcheck="false"
@@ -545,18 +671,24 @@
     <button class="ghost" id="saBtn" title="What the option codes on a data card mean" hidden>Option codes</button>
     <button class="ghost" id="labBtn" title="Mercedes flat-rate labour times for this model" hidden>Labour times</button>
   </div>
+  <div class="sheetmore" id="sheetMore"></div>
   <button class="ghost" id="acctBtn" title="Your account" hidden></button>
   <a class="btnlink ghostlink" id="settingsBtn" href="#/setup" title="Shop setup" hidden><span aria-hidden="true">&#9881;</span><span class="lbl">Shop setup</span></a>
 </header>
 <div class="banner" id="banner" role="status" hidden></div>
 
 <main>
+  <!-- a phone: the answer and the manual page are two views of one screen -->
+  <div class="viewseg" id="viewSeg" role="tablist" aria-label="Show">
+    <button type="button" role="tab" id="segAnswer" aria-selected="true">Answer</button>
+    <button type="button" role="tab" id="segDoc" aria-selected="false">Document<span class="segdot" id="segDot" hidden aria-label="a new page is waiting"></span></button>
+  </div>
   <section class="pane" id="left">
     <div class="askbar">
       <textarea id="q" rows="1" placeholder="Torque for the front caliper anchor plate bolts?"></textarea>
       <div class="askbtns">
         <button id="askBtn" title="AI answer from the manual (uses your API key)">Ask</button>
-        <button class="ghost" id="searchBtn" title="Search the manual's words (free)">Search</button>
+        <button class="ghost" id="searchBtn" title="Search the manual's words (free)" aria-label="Keyword search"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg><span class="lbl">Search</span></button>
       </div>
     </div>
     <details class="opts" id="opts">
@@ -575,11 +707,12 @@
          kinds of value, each its own list (the parts catalogue's pages mixed
          into the manual's results made both hard to read) -->
     <div class="restabs" id="resTabs" role="tablist" aria-label="What to look up">
-      <button type="button" role="tab" data-tab="workshop" aria-selected="true">Workshop</button>
-      <button type="button" role="tab" data-tab="parts" aria-selected="false" tabindex="-1">Parts</button>
-      <button type="button" role="tab" data-tab="labour" aria-selected="false" tabindex="-1">Labour times</button>
-      <button type="button" role="tab" data-tab="capacity" aria-selected="false" tabindex="-1">Capacities</button>
-      <button type="button" role="tab" data-tab="torque" aria-selected="false" tabindex="-1">Torque specs</button>
+      <!-- on a phone this is the bottom bar: an icon and data-short as the label -->
+      <button type="button" role="tab" data-tab="workshop" data-short="Manual" aria-selected="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/></svg>Workshop</button>
+      <button type="button" role="tab" data-tab="parts" data-short="Parts" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>Parts</button>
+      <button type="button" role="tab" data-tab="labour" data-short="Labour" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>Labour times</button>
+      <button type="button" role="tab" data-tab="capacity" data-short="Fluids" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11z"/></svg>Capacities</button>
+      <button type="button" role="tab" data-tab="torque" data-short="Torque" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5a4.5 4.5 0 0 0-4.2 6.1L4 16.9 7.1 20l6.3-6.3a4.5 4.5 0 0 0 6.1-4.2l-2.7 2.7-2.9-.6-.6-2.9z"/></svg>Torque specs</button>
     </div>
     <div id="out"></div>
     <div id="tabLabour" hidden>
@@ -1210,14 +1343,16 @@ function currentCarLabel() {
 // selected car; asking or searching while the box says something else is
 // refused rather than silently using the old car.
 let carBoxLabel = '', shownDoc = null;
-function setCarBox(text) { carBoxLabel = text || ''; $('#carInput').value = carBoxLabel; }
+function setCarBox(text) { carBoxLabel = text || ''; $('#carInput').value = carBoxLabel; updatePill(); }
 function carBoxMatches() {
   const typed = $('#carInput').value.trim();
   if (!docId()) {
     out.innerHTML = `<div class="card"><div class="warnbox"><b>Pick your car first.</b></div></div>`;
+    openSheet(false);
     return false;
   }
   if (typed === carBoxLabel.trim()) return true;
+  openSheet(false);
   out.innerHTML = `<div class="card"><div class="warnbox"><b>Pick your car from the list first.</b> `
     + (typed ? `The box says “${esc(typed)}”, but` : `The box is empty, but`)
     + ` the selected car is <b>${esc(carBoxLabel || currentCarLabel())}</b>. Choose a suggestion,`
@@ -1233,7 +1368,8 @@ function carChanged() {
   tabHtml = {};                       // each tab's results were for the old car
   out.innerHTML = curTab === 'workshop' ? emptyState() : '';
   srcout.innerHTML = '<p class="muted">Cited pages and diagrams appear here.</p>';
-  $('#right').classList.remove('open');
+  hideRight();
+  $('#segDot').hidden = true;
 }
 // nothing asked yet: say what the box is for, with a few starting points
 const EXAMPLES = ['oil capacity', 'front brake pads torque', 'spark plug gap'];
@@ -1357,6 +1493,7 @@ function applyCar(e, typedYear) {
   $('#carList').hidden = true;
   carChanged();
   showScope(); loadConnectors();
+  closeSheet();                   // a phone: back to the answer with the new car
 }
 function carFromVin(raw) {
   const r = vinLookup(raw);
@@ -1455,6 +1592,7 @@ function showScope() {
   const v = vehicles.find(x => x.doc_id === docId());
   const note = $('#scopeNote');
   syncTabs();
+  updatePill();
   // the open tab follows a new variant / engine: labour times and the oil
   // figure are per model and engine
   if (curTab === 'labour') showLabourTab();
@@ -1479,8 +1617,16 @@ function showScope() {
   } else if (n === null) {
     const engines = engineGroups(v).filter(([f]) => f).length;
     if (engines > 1) {
-      note.textContent = `This ${v.model} was built with ${engines} different engines, so answers `
-        + `mix them (V6, V8, diesel …). Pick your engine above for exact specs.`;
+      // the car's own engines, not a stock list ("V6, V8, diesel" on a car
+      // that was never a diesel)
+      const labels = engineGroups(v).filter(([f]) => f).map(([, g]) => g.label);
+      note.textContent = `This ${v.model} was built with ${engines} different engines (`
+        + labels.slice(0, 6).join(', ') + (labels.length > 6 ? ', …' : '')
+        + `), so answers mix them. `;
+      const pick = document.createElement('button');
+      pick.type = 'button'; pick.className = 'pickeng'; pick.textContent = 'Pick your engine';
+      pick.onclick = () => openSheet(true);
+      note.append(pick, ' for exact specs.');
       note.classList.add('pickhint');
     } else {
       note.textContent = `Searching the ${v.model} manual (all ${v._variants.length} variants)`
@@ -1531,18 +1677,137 @@ $('#model').onchange = async () => {
 // On a phone the source panel covers the screen. It opens only when asked
 // for (a page, a diagram button), and the phone's Back gesture closes it
 // instead of leaving the app.
+// On a phone (700 px and less) the page is the "Document" view of the one
+// screen instead, switched by Answer | Document; the same history entry
+// makes Back return to the answer.
 const narrow = () => window.innerWidth <= 900;
+const PHONE = matchMedia('(max-width:700px)');
+const phone = () => PHONE.matches;
+function setPane(doc) {
+  document.body.classList.toggle('docview', doc);
+  $('#segAnswer').setAttribute('aria-selected', String(!doc));
+  $('#segDoc').setAttribute('aria-selected', String(doc));
+  if (doc) $('#segDot').hidden = true;
+}
+const docShown = () => phone() ? document.body.classList.contains('docview')
+                               : $('#right').classList.contains('open');
 function openRight() {
+  if (phone()) {
+    if (document.body.classList.contains('docview')) return;
+    setPane(true);
+    history.pushState({...(history.state || {}), panel: 1}, '');
+    $('#right').scrollTop = 0;
+    return;
+  }
   if (!narrow() || $('#right').classList.contains('open')) return;
   $('#right').classList.add('open');
   history.pushState({panel: 1}, '');
 }
+function hideRight() { $('#right').classList.remove('open'); setPane(false); }
 function closeRight() {
-  if (!$('#right').classList.contains('open')) return;
-  if (history.state && history.state.panel) history.back();   // popstate closes it
-  else $('#right').classList.remove('open');
+  if (!docShown()) return;
+  // hidden at once (a second call before popstate must not go back twice),
+  // and the entry openRight added is taken off
+  hideRight();
+  if (history.state && history.state.panel) history.back();
 }
-addEventListener('popstate', () => $('#right').classList.remove('open'));
+// results are drawn in the Answer view: switch to it, and put the keyboard away
+function toAnswerView() {
+  if (!phone()) return;
+  closeRight();
+  $('#q').blur();
+}
+
+// -- the car sheet (phone): the car box, Browse, VIN, the scope note and
+// Options, full screen; Back or Done closes it
+function openSheet(toVariant) {
+  if (phone() && !document.body.classList.contains('sheet')) {
+    document.body.classList.add('sheet');
+    history.pushState({...(history.state || {}), sheet: 1}, '');
+  }
+  if (toVariant && !$('#variant').hidden) {
+    $('#picker').hidden = false;
+    $('#variant').focus();
+  }
+}
+function closeSheetNow() { document.body.classList.remove('sheet'); $('#carList').hidden = true; }
+function closeSheet() {
+  if (!document.body.classList.contains('sheet')) return;
+  closeSheetNow();
+  if (history.state && history.state.sheet) history.back();
+}
+addEventListener('popstate', () => {
+  const s = history.state || {};
+  if (!s.sheet) closeSheetNow();
+  if (!s.panel) hideRight();
+});
+$('#carPill').onclick = () => openSheet(false);
+$('#sheetDone').onclick = () => {
+  // Done keeps the selected car, as Escape in the box does
+  if ($('#carInput').value.trim() !== carBoxLabel.trim()) setCarBox(carBoxLabel);
+  closeSheet();
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.body.classList.contains('sheet') && e.target !== $('#carInput')
+      && !document.querySelector('dialog[open]')) closeSheet();
+});
+$('#segAnswer').onclick = closeRight;
+$('#segDoc').onclick = openRight;
+// a swipe to the right on the page goes back to the answer (not on a wide
+// table or a diagram, which scroll sideways themselves)
+let swipe = null;
+$('#right').addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  swipe = phone() && e.touches.length === 1
+          && !e.target.closest('.tablewrap, .diawrap, .origframe, img') ? {x: t.clientX, y: t.clientY} : null;
+}, {passive: true});
+$('#right').addEventListener('touchend', e => {
+  if (!swipe) return;
+  const t = e.changedTouches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
+  swipe = null;
+  if (dx > 80 && Math.abs(dy) < 50) closeRight();
+}, {passive: true});
+// the soft keyboard is up while the question is being typed: the tab bar
+// steps aside so the question box sits right on top of the keyboard
+// (back a moment after the box loses focus: moving the question bar under a
+// finger tapping Ask made the tap miss the button)
+let kbdTimer = null;
+$('#q').addEventListener('focus', () => { clearTimeout(kbdTimer); document.body.classList.add('kbd'); });
+$('#q').addEventListener('blur', () => {
+  kbdTimer = setTimeout(() => document.body.classList.remove('kbd'), 350);
+});
+// the scope note and Options live in the car sheet on a phone
+function placeForWidth() {
+  const inSheet = $('#scopeNote').parentElement === $('#sheetMore');
+  if (phone() && !inSheet) {
+    $('#sheetMore').append($('#scopeNote'), $('#opts'));
+  } else if (!phone() && inSheet) {
+    $('#resTabs').before($('#opts'), $('#scopeNote'));
+    closeSheetNow();
+  }
+}
+PHONE.addEventListener('change', placeForWidth);
+placeForWidth();
+
+// the car line on a phone: the car, and its engine (or that one is still to pick)
+function updatePill() {
+  const v = vehicles.find(x => x.doc_id === docId());
+  const car = (carBoxLabel || currentCarLabel()).trim();
+  $('#cpCar').textContent = car ? (v?.make ? car.replace(v.make + ' ', '') : car) : 'Choose your car';
+  let sub = '', hint = false;
+  if (v && car) {
+    const engines = engineGroups(v).filter(([f]) => f).length;
+    const n = variantIdx(), eng = engineSel();
+    if (v._variants.length && n === null && !eng && engines > 1) {
+      sub = `${engines} engines — tap to pick yours`; hint = true;
+    } else if (carPick && carPick.sub) sub = carPick.sub;
+    else if (eng) sub = engineGroups(v).find(([f]) => f === eng)?.[1].label || `Engine ${eng}`;
+    else if (n !== null && v._variants[n]) sub = [v.model, ...(v._variants[n].engines || [])].join(' · ');
+  }
+  $('#cpSub').textContent = sub;
+  $('#cpSub').classList.toggle('hint', hint);
+  $('#carPill').setAttribute('aria-label', `Change car: ${car || 'none chosen'}${sub ? '. ' + sub : ''}`);
+}
 
 // diagram refs may contain slashes (nested archives), so encode each
 // segment rather than the whole ref
@@ -1794,7 +2059,19 @@ function drawAnswer(d, label) {
     + (d.usage?.model ? ' · ' + d.usage.model.replace('claude-', '') : '');
 
   let h = '';
-  if (!d.found) {
+  // _verify_citations withholds an answer left with no real citation and
+  // says so in caveats; that is not "the manual doesn't have it"
+  const WITHHELD = /\s*Answer withheld:[^]*$/i;
+  if (!d.found && WITHHELD.test(d.caveats || '')) {
+    const rest = (d.caveats || '').replace(WITHHELD, '').trim();
+    h += `<div class="card"><div class="withheld" role="status">
+      <strong>No checked answer — the AI's sources couldn't be verified</strong>
+      <div style="margin-top:6px">The AI's answer didn't cite a manual page that was actually searched,
+        so it isn't shown. The keyword search lists the manual's own pages for the same question.</div>
+      ${rest ? `<div class="muted" style="margin-top:6px">${esc(rest)}</div>` : ''}
+      <button type="button" class="ghost" data-searchinstead>Search the manual instead</button>
+    </div></div>`;
+  } else if (!d.found) {
     h += `<div class="card"><div class="notfound">
       <strong>Not found in this archive.</strong>
       <div class="muted" style="margin-top:6px">${esc(d.caveats) || 'The manual pages searched did not contain this.'}</div>
@@ -1815,7 +2092,8 @@ function drawAnswer(d, label) {
       const t = pageTitles[String(d.document_page)] || '';
       h += `<button type="button" class="docbtn" ${pageAttrs(d.document_page)}>`
          + `<span class="muted">Manual page ${esc(d.document_page)}</span>`
-         + `<b>${esc(t) || 'Open the manual page'}</b></button>`;
+         + `<b>${esc(t) || 'Open the manual page'}</b>`
+         + `<span class="docgo" aria-hidden="true">Open manual page &rsaquo;</span></button>`;
     }
     if (d.specs.length) h += specTable(d.specs);
     if (d.figures?.length) {
@@ -1858,12 +2136,21 @@ function drawAnswer(d, label) {
   h += `<div class="muted">searched: ${d.queries.map(esc).join(' &middot; ')}</div>`;
   out.innerHTML = h;
 
-  // the cited document opens on the right. On a phone the panel would cover
-  // the answer, so there it waits for a tap on the button above.
-  if (d.found && d.document_page && !narrow()) showPage(d.document_page, viewDoc());
+  // the cited document opens on the right. On a phone the page would cover
+  // the answer, so there it is loaded into the Document view and waits (a
+  // dot on "Document") for a tap on the button above.
+  if (d.found && d.document_page) {
+    showPage(d.document_page, viewDoc(), !narrow());
+    $('#segDot').hidden = !phone() || docShown();
+  } else {
+    // the last answer's page would read as this answer's source
+    pageSeq++;                        // and one still loading must not land
+    srcout.innerHTML = '<p class="muted nopage">No manual page for this answer.</p>';
+    $('#segDot').hidden = true;
+  }
 }
 
-let asking = false;
+let asking = false, lastAsked = '';
 async function ask() {
   const q = $('#q').value.trim();
   // each call is a paid request: Enter pressed again while one is running
@@ -1871,6 +2158,8 @@ async function ask() {
   if (!q || asking) return;
   if (!carBoxMatches()) return;
   const doc = docId(), label = carBoxLabel;
+  lastAsked = q;
+  toAnswerView();
   asking = true;
   $('#askBtn').disabled = true;
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching the manual&hellip;</div>`;
@@ -1895,6 +2184,7 @@ async function keywordSearch() {
   if (!carBoxMatches()) return;
   // a slow reply for an earlier search must not replace a later one
   const seq = ++searchSeq, doc = docId(), label = carBoxLabel;
+  toAnswerView();
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
   try {
     const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}`
@@ -2088,11 +2378,12 @@ function followXref(i) {
 }
 
 let pageSeq = 0;
-async function showPage(pageNo, doc) {
+// open=false loads the page without showing it (an answer's page on a phone)
+async function showPage(pageNo, doc, open = true) {
   doc = doc || docId();
   const seq = ++pageSeq;      // the page clicked last wins, not the slowest
   srcout.innerHTML = `<span class="spinner"></span>`;
-  openRight();
+  if (open) openRight();
   try {
     const p = await api(`/api/page/${encodeURIComponent(doc)}/${encodeURIComponent(pageNo)}`);
     if (seq !== pageSeq) return;
@@ -2215,6 +2506,7 @@ function setTab(t) {
   if (t === curTab && !$('#resTabs').hidden) { if (t === 'labour') showLabourTab(); return; }
   if (curTab !== 'labour') tabHtml[curTab] = out.innerHTML;
   curTab = t;
+  document.body.dataset.tab = t;
   document.querySelectorAll('#resTabs [data-tab]').forEach(b => {
     b.setAttribute('aria-selected', b.dataset.tab === t);
     b.tabIndex = b.dataset.tab === t ? 0 : -1;
@@ -2226,7 +2518,12 @@ function setTab(t) {
   out.innerHTML = tabHtml[t] || tabEmpty(t);
   if (t === 'capacity') showOilCard();
 }
-document.querySelectorAll('#resTabs [data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+document.body.dataset.tab = curTab;
+// a tab's results are in the Answer view (a phone)
+document.querySelectorAll('#resTabs [data-tab]').forEach(b => b.onclick = () => {
+  if (phone()) closeRight();
+  setTab(b.dataset.tab);
+});
 $('#resTabs').addEventListener('keydown', e => {
   if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
   const tabs = [...document.querySelectorAll('#resTabs [data-tab]')].filter(b => !b.hidden);
@@ -2259,6 +2556,7 @@ async function tabSearch(tab) {
   if (!q) { $('#q').focus(); $('#q').placeholder = TAB_HINT[tab]; return; }
   if (!carBoxMatches()) return;
   const seq = ++tabSeq, doc = docId(), label = carBoxLabel;
+  toAnswerView();
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
   try {
     const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}&tab=${tab}`
@@ -3331,6 +3629,11 @@ syncOpts();
 out.addEventListener('click', e => {
   const ex = e.target.closest('[data-example]');
   if (ex) { $('#q').value = ex.dataset.example; $('#q').focus(); }
+  // a withheld answer: the same question as a (free) keyword search
+  if (e.target.closest('[data-searchinstead]')) {
+    if (lastAsked) $('#q').value = lastAsked;
+    keywordSearch();
+  }
 });
 
 // While starting: /api/me, the vehicles and the models are asked for
