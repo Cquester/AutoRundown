@@ -1363,12 +1363,15 @@ function carFromVin(raw) {
   if (r.error) return {error: r.error};
   const x = r.variant !== null ? r.vehicle._variants[r.variant] : null;
   // the engine(s) of the Baumuster the VIN names (r.bms: several when it
-  // could not be pinned -- then every one of them, as "M272 or M276")
-  const fams = x ? famsOf(x, r.bms || (r.bm ? [r.bm] : [])) : [];
+  // could not be pinned -- then every one of them, as "M272 or M276");
+  // r.fams: one Baumuster sold under several names (vinCar)
+  const fams = r.fams || (x ? famsOf(x, r.bms || (r.bm ? [r.bm] : [])) : []);
+  const labels = Object.assign({}, ...(r.vehicle._variants || []).map(y => y.engine_families || {}));
   const make = r.vehicle.make || '';
   return {label: `${r.year || ''} ${make} ${x ? x.name : r.vehicle.model}`.trim(),
-          sub: `from the VIN · ${r.vehicle.model}` + (fams.length
-               ? ` · ${fams.map(f => (x.engine_families || {})[f] || 'Engine ' + f).join(' or ')}` : ''),
+          sub: `from the VIN · ${r.vehicle.model}`
+               + (r.names ? ` · ${r.bm || ''} is sold as ${[...new Set(r.names)].join(', ')} — pick yours in Browse` : '')
+               + (fams.length ? ` · ${fams.map(f => labels[f] || 'Engine ' + f).join(' or ')}` : ''),
           doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year,
           bm: r.bm || null, how: r.how};
 }
@@ -2630,6 +2633,22 @@ function isMercedesWmi(wmi) {
   return vehicles.some(v => (v.vin_codes || '').includes(`,${wmi}:`)
     || (v._variants || []).some(x => (x.vin9 || []).some(p => p.startsWith(wmi))));
 }
+// The car a decoded Baumuster is. `cands`: the variants that can be it, each
+// with the Baumuster it may be ({n, bms}). Usually one. One Baumuster is
+// sometimes sold under several names with different engines (636.705:
+// Vito 111 CDI = OM646, 119 = M272), which no VIN tells apart: then no
+// variant is picked and the engines of all of them are sent, never the
+// first one's.
+function vinCar(v, cands, year, how) {
+  const famsFor = c => famsOf(v._variants[c.n], c.bms);
+  const bms = [...new Set(cands.flatMap(c => c.bms))];
+  const bm = bms.length === 1 ? bms[0] : null;
+  if (cands.every(c => famsFor(c).join() === famsFor(cands[0]).join()))
+    return {vehicle: v, variant: cands[0].n, year, bm, bms: cands[0].bms, how};
+  return {vehicle: v, variant: null, year, bm, bms,
+          fams: [...new Set(cands.flatMap(famsFor))].sort(),
+          names: cands.map(c => v._variants[c.n].name), how};
+}
 function vinLookup(raw) {
   const vin = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (vin.length < 4)
@@ -2647,9 +2666,9 @@ function vinLookup(raw) {
     if (!v) return {error: `That is model series ${series}, which is not in this `
                           + `index. It may be a model the corpus does not cover.`};
     const bm = vin.length >= 9 ? `${series}.${vin.slice(6, 9)}` : null;
-    const n = bm ? v._variants.findIndex(x => x.baumuster.includes(bm)) : -1;
-    return {vehicle: v, variant: n >= 0 ? n : null, year: null, bm,
-            how: n >= 0 ? `Baumuster ${bm} (from the FIN)` : `series ${series}`};
+    const cands = bm ? v._variants.flatMap((x, n) => x.baumuster.includes(bm) ? [{n, bms: [bm]}] : []) : [];
+    if (cands.length) return vinCar(v, cands, null, `Baumuster ${bm} (from the FIN)`);
+    return {vehicle: v, variant: null, year: null, bm, how: `series ${series}`};
   }
 
   // US VIN, exact: Mercedes' AW_VIN2FIN maps the first 9 characters (check
@@ -2660,21 +2679,21 @@ function vinLookup(raw) {
   if (vin.length >= 9) {
     const vin9 = vin.slice(0, 9);
     for (const x of vehicles) {
-      const n = (x._variants || []).findIndex(y => (y.vin9 || []).includes(vin9));
-      if (n < 0) continue;
-      const y = x._variants[n], year = vinYear(vin, x);
-      let bms = (y.vin9_bm || {})[vin9] ? [y.vin9_bm[vin9]] : [];
-      if (!bms.length) {
+      const year = vinYear(vin, x);
+      const cands = (x._variants || []).flatMap((y, n) => {
+        if (!(y.vin9 || []).includes(vin9)) return [];
+        if ((y.vin9_bm || {})[vin9]) return [{n, bms: [y.vin9_bm[vin9]]}];
         // no exact map (its corpus file is gone): the VIN's year picks among
         // the variant's Baumuster; still several (or none) = all of them,
         // never just the first
         const own = y.baumuster || [];
         const byYear = year ? own.filter(b => yearsIn((y.us_years || {})[b]).includes(year)) : [];
-        bms = byYear.length ? byYear : own;
-      }
-      const bm = bms.length === 1 ? bms[0] : null;
-      return {vehicle: x, variant: n, year, bm, bms,
-              how: `Mercedes' VIN table (${vin9} = ${bm ? `Baumuster ${bm}, ` : ''}${y.name})`};
+        return [{n, bms: byYear.length ? byYear : own}];
+      });
+      if (!cands.length) continue;
+      const bms = [...new Set(cands.flatMap(c => c.bms))];
+      return vinCar(x, cands, year, `Mercedes' VIN table (${vin9} = `
+        + (bms.length === 1 ? `Baumuster ${bms[0]}` : `${x._variants[cands[0].n].name}`) + ')');
     }
   }
 

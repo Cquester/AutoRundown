@@ -134,10 +134,11 @@ class Truth:
                     self.vin_bm.setdefault(k, b)
 
     def vin_cases(self):
-        """(vin, doc, variant index, Baumuster, engine families) for every US
-        VIN prefix of every variant. Position 10 is the model year of the
-        Baumuster's first US year when known (so the label's year is real)."""
-        out = []
+        """(vin, Baumuster, [(doc, variant index, engine families)]) for every
+        US VIN prefix: every variant listing it. Usually one; a Baumuster sold
+        under several names (Vito 636.705: 111 CDI OM646, 119 M272) is listed
+        by each. Position 10 is the Baumuster's first US year when known."""
+        by = {}
         for d, vs in self.variants.items():
             for i, x in enumerate(vs):
                 for k in x.get("vin9") or []:
@@ -146,9 +147,9 @@ class Truth:
                         fail(f"VIN prefix {k} ({x['name']}): not in vin2fin.json")
                         continue
                     ys = sorted(years_in((x.get("us_years") or {}).get(bm)))
-                    out.append((k + (year_char(ys[0]) if ys else "H") + "F123456", d, i, bm,
-                                engine_fams(x, bm)))
-        return out
+                    vin = k + (year_char(ys[0]) if ys else "H") + "F123456"
+                    by.setdefault(k, (vin, bm, []))[2].append((d, i, engine_fams(x, bm)))
+        return list(by.values())
 
     def variant(self, doc, params, what):
         """The stored variant the request's `variant=` names, or None + FAIL."""
@@ -374,7 +375,10 @@ def main(argv=None):
                ("WDB2010341F123456", "201.034", "190 E 2.3 16")]
         # and one whose Baumuster is not its variant's first and has another
         # engine: the case the page got wrong
-        for vin, d, i, bm, fams in vin_cases:
+        for vin, bm, cands in vin_cases:
+            if len(cands) != 1:
+                continue
+            d, i, fams = cands[0]
             x = truth.variants[d][i]
             first = x["baumuster"][0]
             if bm != first and fams and fams != engine_fams(x, first):
@@ -512,8 +516,8 @@ def main(argv=None):
         print("\n6. every US VIN prefix of every variant (carFromVin)")
         t0 = time.time()
         rows = page.evaluate(JS_VIN, [c[0] for c in vin_cases])
-        n_eng = 0
-        for r, (vin, doc, i, bm, fams) in zip(rows, vin_cases):
+        n_eng = n_shared = 0
+        for r, (vin, bm, cands) in zip(rows, vin_cases):
             if "error" in r:
                 fail(f"VIN {r['vin']}: {r['error']}")
                 continue
@@ -521,9 +525,26 @@ def main(argv=None):
             if p is None:
                 fail(f"VIN {r['vin']}: no request")
                 continue
+            sent_fams = sorted(f for f in (p.get("engine") or "").split(",") if f)
+            agree = all(c[2] == cands[0][2] for c in cands)
+            union = sorted({f for c in cands for f in c[2]})
+            if r.get("bm") != bm:
+                fail(f"VIN {vin}: decoded as Baumuster {r.get('bm')}, the VIN is {bm}")
+            if not agree:
+                # one Baumuster, several names with different engines: no
+                # VIN tells them apart, so all their engines, no variant
+                n_shared += 1
+                if "variant" in p or sent_fams != union or p["doc_id"] != cands[0][0]:
+                    fail(f"VIN {vin} ({bm}, sold as {len(cands)} models with engines {union}): "
+                         f"sent variant={p.get('variant')} engine={p.get('engine')}")
+                check_scope(truth, p["doc_id"], p, f"VIN {vin}")
+                continue
             x = truth.variant(p["doc_id"], p, f"VIN {r['vin']}")
             if x is None:
                 continue
+            fams = cands[0][2]
+            if (p["doc_id"], int(p["variant"])) not in {(c[0], c[1]) for c in cands}:
+                fail(f"VIN {vin}: sent {x['name']!r}, which does not list this prefix")
             if r["vin"][:9] not in (x.get("vin9") or []):
                 fail(f"VIN {r['vin']} ({r['label']!r}): sent {x['name']!r}, whose VIN "
                      f"prefixes don't include {r['vin'][:9]}")
@@ -531,15 +552,13 @@ def main(argv=None):
                 fail(f"VIN {r['vin']}: shows {r['shown']!r}, sent {x['name']!r}")
             if bm not in x["baumuster"]:
                 fail(f"VIN {vin}: sent {x['name']!r} {x['baumuster']}, the VIN is {bm}")
-            if r.get("bm") != bm:
-                fail(f"VIN {vin} ({x['name']}): decoded as Baumuster {r.get('bm')}, the VIN is {bm}")
-            sent_fams = sorted(f for f in (p.get("engine") or "").split(",") if f)
             if sent_fams != fams:
                 fail(f"VIN {vin} ({x['name']}, {bm}): engine={p.get('engine')}, its engine is "
                      f"{','.join(fams) or 'unknown (send none)'}")
             n_eng += bool(fams)
             check_scope(truth, p["doc_id"], p, f"VIN {vin}")
-        print(f"   {len(rows)} VINs, {n_eng} with a known engine ({time.time() - t0:.0f} s)")
+        print(f"   {len(rows)} VIN prefixes, {n_eng} with a known engine, {n_shared} naming a "
+              f"Baumuster sold under several names with other engines ({time.time() - t0:.0f} s)")
 
         browser.close()
     srv.should_exit = True
