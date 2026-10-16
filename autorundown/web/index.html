@@ -87,7 +87,7 @@
   .capedit{margin-top:6px}
   .phonerow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0}
   .phonerow b{color:var(--text); font-size:15px; overflow-wrap:anywhere}
-  .phonerow button{min-height:36px; padding:0 12px; font-size:13px}
+  .phonerow button{min-height:44px; padding:0 14px; font-size:13px}
   /* QR codes: always black on white with a quiet zone, whatever the theme --
      camera apps expect that */
   .qrbox{display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:10px 0 4px}
@@ -590,7 +590,8 @@
     .setupnav a:not(.navback)::after{content:"\203A"; color:var(--muted); font-size:20px}
     .secbar{display:block; position:sticky; top:-16px; z-index:2; margin:-16px -16px 12px; padding:10px 16px;
       background:var(--bg); border-bottom:1px solid var(--line)}
-    .secbar a{color:var(--accent); font-weight:600; text-decoration:none}
+    .secbar a{color:var(--accent); font-weight:600; text-decoration:none;
+      display:inline-flex; align-items:center; min-height:44px}
   }
   @media (max-width:420px){
     .srctabs{overflow:visible}
