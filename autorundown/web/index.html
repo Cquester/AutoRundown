@@ -436,6 +436,18 @@
   #settingsBtn{margin-left:auto}
   #settingsBtn[aria-current="page"]{border-color:var(--accent)}
   .banner{background:var(--accent-dim); color:var(--pill-text); padding:8px 16px; font-size:14px; font-weight:600}
+  /* cars sent from a phone, waiting on the desk */
+  .deskcars{display:flex; flex-wrap:wrap; gap:8px; padding:8px 14px; background:var(--panel);
+    border-bottom:1px solid var(--line)}
+  .deskcar{display:flex; align-items:center; gap:6px; background:var(--panel-2); border:1px solid var(--line);
+    border-left:4px solid var(--accent); border-radius:10px; padding:4px 4px 4px 12px; font-size:14px;
+    max-width:100%}
+  .deskcar .what{min-width:0; overflow-wrap:anywhere}
+  .deskcar .when{color:var(--muted); white-space:nowrap}
+  .deskcar button{min-height:40px; padding:0 12px}
+  .deskcar .x{background:transparent; color:var(--muted); border:0; font-size:20px; line-height:1; padding:0 10px}
+  .senddesk{display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:-4px 0 12px}
+  .senddesk #sendDeskHelp{flex:1 0 100%; font-size:13px}
   .banner a{color:inherit}
   body[data-view="setup"] .carbox, body[data-view="setup"] .picker,
   body[data-view="gate"] .carbox, body[data-view="gate"] .picker, body[data-view="gate"] #settingsBtn{display:none}
@@ -570,6 +582,8 @@
   <a class="btnlink ghostlink" id="settingsBtn" href="#/setup" title="Shop setup" hidden><span aria-hidden="true">&#9881;</span><span class="lbl">Shop setup</span></a>
 </header>
 <div class="banner" id="banner" role="status" hidden></div>
+<!-- cars a phone sent to the desk (handoff.py): one click opens one -->
+<div class="deskcars" id="deskCars" role="region" aria-label="Cars sent to the desk" hidden></div>
 
 <main>
   <section class="pane" id="left">
@@ -592,6 +606,13 @@
       </div>
     </details>
     <div class="muted" id="scopeNote" hidden style="margin:-6px 0 12px; font-size:14px"></div>
+    <!-- a phone hands the car it picked to the desk PC -->
+    <div class="senddesk" id="sendDeskRow" hidden>
+      <button type="button" class="chipbtn" id="sendDesk"
+              title="Puts this car on the desk PC's screen, ready to open">Send this car to the desk</button>
+      <span class="muted" id="sendDeskNote" role="status"></span>
+      <div class="muted" id="sendDeskHelp" hidden></div>
+    </div>
     <!-- what to look up: the manual, the parts catalogue, labour times and two
          kinds of value, each its own list (the parts catalogue's pages mixed
          into the manual's results made both hard to read) -->
@@ -1163,7 +1184,8 @@ async function loadVehicles(pending) {
   try {
     const saved = JSON.parse(localStorage.getItem(CARPICK) || 'null');
     if (saved && saved.doc === $('#vehicle').value) {
-      carPick = {engine: saved.engine, year: saved.year, label: saved.label, sub: saved.sub};
+      carPick = {engine: saved.engine, year: saved.year, label: saved.label, sub: saved.sub,
+                 vin: saved.vin || null};
     }
   } catch (_) {}
   setCarBox(carPick ? carPick.label : currentCarLabel());
@@ -1461,13 +1483,19 @@ function applyCar(e, typedYear) {
   $('#picker').hidden = true;     // the header shrinks back once a car is chosen
   $('#year').value = ''; $('#make').value = '';
   refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
-  carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub};
+  carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub,
+             vin: e.vin || null};
   try { localStorage.setItem(CARPICK, JSON.stringify({...carPick, doc: e.doc, variant: e.variant})); } catch (_) {}
   setCarBox(e.label);
   $('#carList').hidden = true;
   carChanged();
   showScope(); loadConnectors();
 }
+// a full VIN or FIN, kept with the pick (sent to the desk); a partial one is not
+const cleanVin = raw => {
+  const v = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return /^[A-HJ-NPR-Z0-9]{10,17}$/.test(v) ? v : null;
+};
 function carFromVin(raw) {
   const r = vinLookup(raw);
   if (r.error) return {error: r.error};
@@ -1477,7 +1505,8 @@ function carFromVin(raw) {
   return {label: `${r.year || ''} ${make} ${x ? x.name : r.vehicle.model}`.trim(),
           sub: `from the VIN · ${r.vehicle.model}` + (fams.length
                ? ` · ${fams.map(f => (x.engine_families || {})[f] || 'Engine ' + f).join(' or ')}` : ''),
-          doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year};
+          doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year,
+          vin: cleanVin(raw)};
 }
 // A VIN is one token of 10-17 VIN characters with several digits. Spaces
 // used to be removed first, so "mercedes 190" (11 letters and digits) was
@@ -1516,6 +1545,147 @@ $('#carInput').addEventListener('keydown', ev => {
 $('#carInput').addEventListener('focus', () => $('#carInput').select());
 $('#carInput').addEventListener('blur', () => setTimeout(() => $('#carList').hidden = true, 150));
 $('#browseBtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; };
+
+// -- send to desk / cars waiting (handoff.py) ---------------------------------
+// A phone sends the car it picked -- the pick itself (vehicle, variant index,
+// engine, year, VIN), never a label -- and the desk PC shows "Car waiting from
+// <name>" with Open. Open checks the pick against this page's own vehicle list
+// and applies it through applyCar, like a suggestion clicked in the car box.
+// No websockets: the desk asks every 15 s while it is visible, and at once
+// when it regains focus; other devices every 60 s.
+// Hook for other features (a VIN scanner): pick the car with applyCar(), then
+// call sendToDesk().
+let dialogVin = null;          // a VIN found with the VIN dialog, for its car
+const SENT_KEY = 'autorundown.sentToDesk';
+const sentHere = () => { try { return JSON.parse(localStorage.getItem(SENT_KEY) || '[]'); } catch (_) { return []; } };
+function currentPick() {
+  if (!docId()) return null;
+  const vin = (carPick && carPick.vin)
+    || (dialogVin && dialogVin.doc === docId() ? dialogVin.vin : null);
+  return {doc_id: docId(), variant: variantIdx(), engine: engineSel(), year: yearSel(), vin};
+}
+async function sendToDesk() {
+  const pick = currentPick(), note = $('#sendDeskNote');
+  if (!pick) { note.textContent = 'Pick a car first.'; return false; }
+  $('#sendDesk').disabled = true;
+  try {
+    const r = await api('/api/handoff', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                         body: JSON.stringify(pick)});
+    // this device's own sends are not offered back to it as "waiting"
+    try { localStorage.setItem(SENT_KEY, JSON.stringify([r.id, ...sentHere()].slice(0, 20))); } catch (_) {}
+    note.textContent = `Sent: ${r.label} is waiting on the desk.`;
+    return true;
+  } catch (e) {
+    note.textContent = e.message;
+    return false;
+  } finally {
+    $('#sendDesk').disabled = false;
+  }
+}
+window.sendToDesk = sendToDesk;
+$('#sendDesk').onclick = sendToDesk;
+// the button: any device but the desk itself, once a car is chosen
+function updateSendDesk() {
+  const row = $('#sendDeskRow');
+  row.hidden = me.admin || !docId();
+  if (row.hidden) return;
+  if (!$('#sendDeskNote').dataset.doc || $('#sendDeskNote').dataset.doc !== docId()) {
+    $('#sendDeskNote').textContent = '';
+    $('#sendDeskNote').dataset.doc = docId();
+  }
+  // sign-in off: say plainly who else sees it
+  $('#sendDeskHelp').hidden = me.signed_in;
+  $('#sendDeskHelp').textContent = me.signed_in ? '' :
+    'Sign-in is off in this shop, so a car sent from here is shown on the desk PC and on any '
+    + 'device on the shop network that is not signed in. Its VIN goes with it.';
+}
+
+const agoText = t => {
+  const m = Math.round((Date.now() / 1000 - t) / 60);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
+};
+let deskCars = [], deskTimer = null;
+async function loadDeskCars() {
+  clearTimeout(deskTimer);
+  if (document.visibilityState === 'visible') {
+    try {
+      const r = await api('/api/handoff');
+      const mine = new Set(sentHere());
+      deskCars = r.cars.filter(c => !mine.has(c.id));
+      drawDeskCars();
+    } catch (e) {
+      if (e.status === 401) return;          // signed out: the sign-in box says so
+    }
+  }
+  deskTimer = setTimeout(loadDeskCars, me.admin ? 15000 : 60000);
+}
+function drawDeskCars() {
+  const box = $('#deskCars');
+  box.hidden = !deskCars.length;
+  box.innerHTML = deskCars.map(c =>
+    `<div class="deskcar" data-hid="${+c.id}"><span class="what">Car waiting from `
+    + `<b>${esc(c.from)}</b>: ${esc(c.label)}${c.vin ? ` (VIN ${esc(c.vin)})` : ''} `
+    + `<span class="when">· ${esc(agoText(c.created))}</span></span>`
+    + `<button type="button" data-open="${+c.id}">Open</button>`
+    + `<button type="button" class="x" data-dismiss="${+c.id}" title="Dismiss" aria-label="Dismiss">&times;</button></div>`
+  ).join('');
+}
+// the pick checked against this page's vehicle list, as a car-box entry
+function waitingEntry(c) {
+  const v = vehicles.find(x => x.doc_id === c.doc_id);
+  if (!v) return {error: 'That car’s manual is not in this shop’s index any more.'};
+  const n = c.variant;
+  if (n !== null && n !== undefined && !(Number.isInteger(n) && n >= 0 && n < v._variants.length))
+    return {error: 'That model is not in this car’s list any more.'};
+  const x = n !== null && n !== undefined ? v._variants[n] : null;
+  if (c.engine) {
+    const known = new Set((x ? [x] : v._variants).flatMap(y =>
+      [...Object.keys(y.engine_families || {}), ...famsOf(y, Object.keys(y.engine_by_bm || {}))]));
+    if (!String(c.engine).split(',').every(f => known.has(f)))
+      return {error: 'That engine does not fit the car any more.'};
+  }
+  const make = v.make || '';
+  const label = x ? `${c.year || ''} ${make} ${x.name}`.trim()
+                  : `${c.year || v.year_range || ''} ${make} ${v.model}`.trim();
+  const fams = c.engine ? String(c.engine).split(',') : [];
+  const engs = fams.map(f => (x ? x.engine_families : null)?.[f]
+    || v._variants.map(y => (y.engine_families || {})[f]).find(Boolean) || `Engine ${f}`);
+  return {label, sub: `from ${c.from}` + (x ? ` · ${v.model}` : '') + (engs.length ? ` · ${engs.join(' or ')}` : ''),
+          doc: v.doc_id, variant: x ? n : null, engine: c.engine || null, year: c.year || null,
+          vin: c.vin || null};
+}
+async function dismissDeskCar(id) {
+  deskCars = deskCars.filter(c => c.id !== id);
+  drawDeskCars();
+  await api(`/api/handoff/${id}/dismiss`, {method: 'POST'}).catch(() => {});
+}
+$('#deskCars').addEventListener('click', ev => {
+  const open = ev.target.closest('[data-open]'), dis = ev.target.closest('[data-dismiss]');
+  if (dis) return dismissDeskCar(+dis.dataset.dismiss);
+  if (!open) return;
+  const c = deskCars.find(x => x.id === +open.dataset.open);
+  if (!c) return;
+  const e = waitingEntry(c);
+  if (e.error) {
+    open.closest('.deskcar').querySelector('.when').textContent = '· ' + e.error;
+    return;
+  }
+  if (location.hash.startsWith('#/setup')) location.hash = '';
+  applyCar(e);
+  // "Any M272" picked from Browse on the phone: the same menu entry here
+  if (e.variant === null && e.engine && !e.year
+      && [...$('#variant').options].some(o => o.value === `e:${e.engine}`)) {
+    $('#variant').value = `e:${e.engine}`;
+    rememberPick();
+    showScope();
+  }
+  dismissDeskCar(c.id);            // opened: done with it
+  $('#q').focus();
+});
+addEventListener('focus', () => { if (booted) loadDeskCars(); });
+document.addEventListener('visibilitychange', () => {
+  if (booted && document.visibilityState === 'visible') loadDeskCars();
+});
 
 // Documents are filed per generation, not per variant. Say what a choice
 // actually searches, so a variant name doesn't imply a precision the manuals
@@ -1558,6 +1728,7 @@ function showLabourLink(v) {
 function showScope() {
   const v = vehicles.find(x => x.doc_id === docId());
   const note = $('#scopeNote');
+  updateSendDesk();
   syncTabs();
   // the open tab follows a new variant / engine: labour times and the oil
   // figure are per model and engine
@@ -3042,6 +3213,7 @@ $('#vinFind').onclick = () => {
                                    : r.vehicle.doc_id);
   // the box follows the pick (it kept showing the previous car)
   clearCarPick();
+  dialogVin = {doc: r.vehicle.doc_id, vin: cleanVin($('#vinInput').value)};
   loadConnectors();
   $('#vinNote').textContent = `Found by ${r.how}`
     + (hasYear ? `, model year ${r.year}.` : '.');
@@ -3604,6 +3776,7 @@ async function start() {
   booted = true;
   route();
   watchImports();
+  loadDeskCars();
 }
 // an import running (from this PC) gives partial results: say so, on every device
 let importingSeen = false;

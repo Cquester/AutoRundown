@@ -31,7 +31,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import auth, config, index, qr, query, tls
+from . import auth, config, handoff, index, qr, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
 from .search import get_page, part_lines, scope_ids, search, split_scope, value_lines
 
@@ -68,6 +68,16 @@ class SettingsBody(BaseModel):
     require_signin: bool | None = None
     # "company" | "per_mechanic" (config.pick_key)
     key_mode: str | None = Field(None, pattern="^(company|per_mechanic)$")
+
+
+class HandoffBody(BaseModel):
+    """A car picked on a phone, sent to the desk (handoff.py): the pick
+    itself, checked against the index -- never a label."""
+    doc_id: str = Field(max_length=200)
+    variant: int | None = Field(None, ge=0, le=100000)
+    engine: str | None = Field(None, max_length=40)
+    year: int | None = Field(None, ge=1900, le=2100)
+    vin: str | None = Field(None, max_length=40)
 
 
 class SigninBody(BaseModel):
@@ -902,6 +912,62 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             return {"connector_id": connector_id.upper(), "entries": entries}
         finally:
             conn.close()
+
+    # -- cars waiting at the desk (handoff.py) -------------------------------
+    # A phone sends the car it picked; the PC (and the mechanic's own other
+    # devices) list it and open it with one click. Behind the same sign-in as
+    # everything else: with sign-in required, a device not signed in is 401
+    # in who_is_asking before it gets here.
+    send_limit = handoff.SendLimit()
+
+    @app.get("/api/handoff")
+    def api_handoff_list(request: Request) -> dict:
+        who: auth.Who = request.state.who
+        aconn = adb()
+        try:
+            cars = handoff.visible_to(aconn, who)
+        finally:
+            aconn.close()
+        # "shared": not signed in, so the list is everyone's who isn't either
+        return {"cars": cars, "hours": handoff.TTL_HOURS,
+                "shared": not who.admin and who.user_id is None}
+
+    @app.post("/api/handoff")
+    def api_handoff_send(request: Request, body: HandoffBody) -> dict:
+        who: auth.Who = request.state.who
+        if who.admin:
+            raise HTTPException(400, "This PC is the desk; send a car from a phone.")
+        sender = f"user:{who.user_id}" if who.user_id is not None else (
+            "addr:" + (request.client.host if request.client else ""))
+        if not send_limit.allow(sender):
+            raise HTTPException(429, "Too many cars sent. Wait a few minutes.")
+        conn = db()
+        try:
+            vehicles = index.vehicles(conn)
+        finally:
+            conn.close()
+        try:
+            pick = handoff.check_pick(vehicles, body.doc_id, body.variant, body.engine,
+                                      body.year, body.vin)
+        except handoff.BadPick as exc:
+            raise HTTPException(400, str(exc))
+        aconn = adb()
+        try:
+            new_id = handoff.add(aconn, pick, who)
+        finally:
+            aconn.close()
+        return {"ok": True, "id": new_id, "label": pick["label"]}
+
+    @app.post("/api/handoff/{handoff_id}/dismiss")
+    def api_handoff_dismiss(request: Request, handoff_id: int) -> dict:
+        aconn = adb()
+        try:
+            done = handoff.dismiss(aconn, handoff_id, request.state.who)
+        finally:
+            aconn.close()
+        if not done:   # someone else's, already gone, or never there: all alike
+            raise HTTPException(404, "No such car waiting.")
+        return {"ok": True}
 
     @app.get("/api/models")
     def models() -> list[dict]:
