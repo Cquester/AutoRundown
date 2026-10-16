@@ -31,7 +31,10 @@ Three sidecars in the corpus dir feed it, all optional:
 - `vin_us.json` (3b) — `USTypBM2TypBM`, 38 rows: WMI + VIN position 4 → series.
 - `vin2fin.json` — `AW_VIN2FIN`, 7,577 US VIN prefixes (first 9 characters,
   check digit included) → Baumuster. The importer attaches them to each
-  variant as `vin9`.
+  variant as `vin9` (the prefixes) and `vin9_bm` (prefix → its Baumuster).
+  An index built before 2026-10-16 has only `vin9`; `/api/vehicles` adds
+  `vin9_bm` at runtime from this file next to the corpus (`file_path`,
+  read-only, cached; `server._with_vin9_bm`), so no rebuild is needed.
 
 They come from `pull_vehicles.js` (8 tables, 9 s, VM on) and
 `parse_vehicles.py` (offline) in the extractor folder. Raw TSVs are kept in
@@ -139,6 +142,25 @@ FIN = WMI + Baumuster: `WDBDA34D4` → 201.034 190 E 2.3 16, `WDDGF8AB3` →
 falls back to the series-only position-4 code. Covers 84 series up to ~2016
 (the database is dated 2016-11); newer US VINs fall back to series only.
 
+**The VIN's own Baumuster sends the engine, not the variant's first
+(fixed 2026-10-16).** A variant has several Baumuster, often with different
+engines ("E 320": 210.055 = M104, 210.065 = M112). The importer used to
+keep only a flat `vin9` list per variant and `vinLookup()` took the
+variant's *first* Baumuster: `WDBJF65J0YB…` (210.065) searched the M104 --
+320 of 5,797 prefixes on the real index sent a wrong engine (2012-13 E 350,
+C 200 CDI, E 320 CDI, S 63, G 500, R 350, smart). Now `vin9_bm` names the
+exact Baumuster; without it (the corpus file gone) the VIN year (position
+10) picks among the variant's Baumuster by `us_years`, and if that still
+leaves several, all their engines are sent -- never the first.
+**One Baumuster sold under several names** with different engines (81
+prefixes: Vito 636.705 = 111 CDI OM646, 115 CDI, 119 M272): no VIN tells
+them apart, so `vinCar()` picks no variant and sends all their engines,
+with "636.705 is sold as … — pick yours in Browse". The FIN path follows
+the same rule. The VIN dialog (`#vinFind`) now picks through `carFromVin` +
+`applyCar` like the car box; it used to send no engine.
+`tests/test_ui_picks.py` part 6 checks every prefix (not only each
+variant's first, which hid this) against `vin2fin.json` itself.
+
 **Data cards (EPC) are not available — they are access-protected.** The EPC
 install has the data card databases (`DAG_DCPC`, `MBNA_DCNA`, `MBOE_DCCAR`,
 … 2016-11-23, up to 8 GB each, port 2034), but they refuse both accounts the
@@ -160,9 +182,13 @@ trucks/buses), `WHC_MASTER(_MODELS)` (WMI → market/plant names),
 `VIN_MDL` (74 rows, VIN prefix → model stub — a subset of what
 `AW_VIN2FIN` already gives), `DCDBINFO` (which data-card DB serves which
 region), `AGG_FILTERS*`, `DB_LANGS`, `VERSIONS` ("DW 01/2017"), `SAREC_INI`
-(6 config rows). `PWORD`/`PWORD_V` were deliberately not read. The
-catalogue databases where EPC keeps code texts — `ALLTEXT`, `COMM`, and
-`SA_IMAGES`/`BM_IMAGES` — refuse `tbuser` at login, like the data cards.
+(6 config rows). That survey did not read `PWORD`/`PWORD_V` and found
+`ALLTEXT`, `COMM` and `SA_IMAGES`/`BM_IMAGES` refusing `tbuser` -- with a
+blank password. **Superseded (2026-10-14/16):** the EPC program itself opens
+the catalogue with the ROT13 of `PWORD`, and `pull_epc.js` does the same;
+the user decided (2026-10-16) that reading the EPC *catalogue* that way is
+fine. See `epc-source.md`, "How EPC is reached". The *data-card* databases
+stay off-limits: they refuse both accounts, a deliberate lock.
 (The code list now comes from WIS instead; the data card itself is still
 EPC-only and locked.) Survey output:
 `autorundown_out/epc_survey/`; script `extractor/probe_epc_survey.js`.

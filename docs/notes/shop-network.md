@@ -73,6 +73,12 @@ created 0600, never written then chmod'ed.
 - Bodies over 256 KB are refused unread (`BodyLimit`); search `limit` 1-50,
   `q` 500 chars; a question 2,000 chars (paid input); monthly caps 0-100,000
   and finite (-5 blocked a mechanic for good, Infinity meant no limit).
+- No `/docs`, `/redoc` or `/openapi.json` (2026-10-16): they mapped every
+  route for any device, and `/docs` loaded Swagger's script from a CDN on
+  this origin. A NUL in an `/api/image` name (`x.png%00.db`) is a 404 -- it
+  was an unhandled 500 without the security headers.
+- On Linux/macOS the app folder is created 0700 and `auth.db` 0600 (sqlite
+  made them 0644; an older 0644 `auth.db` is tightened). Windows unchanged.
 - Phones get no `file_path` (vehicles, page, image/original errors); Settings
   refuses an empty or missing index, a non-index file, an unknown model and
   a network-share extractor; `config.json` is written atomically (a

@@ -4,7 +4,7 @@
     python tests/test_ui_picks.py --index sample_wis.db --headed
 
 sample_wis.db (make_sample_corpus.py + ingest.py) carries ~20 hand-made
-variants and two VIN prefixes, enough for CI (ci.yml runs it there); the real
+variants and four VIN prefixes (two for one W212 E 350, M272 and M276), enough for CI (ci.yml runs it there); the real
 index checks ~1,600 variants.
 
 Needs `pip install -r requirements-dev.txt` (Playwright). It drives the

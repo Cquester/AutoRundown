@@ -134,7 +134,7 @@ python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
-python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~45 s, Playwright)
+python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
 # sample data and tools
@@ -363,6 +363,10 @@ in `docs/notes/`. The ones most likely to be undone by accident:
 - **`_variants` order is the server's order — never sort it in place** (the
   E 500 → E 63 AMG bug); `tests/test_ui_picks.py` guards it.
   (`vehicle-selection.md`)
+- **A VIN sends the engine of the Baumuster it names** (`vin9_bm`), never
+  the variant's first (320 prefixes sent a wrong engine until 2026-10-16);
+  a Baumuster sold under several names gets all their engines. The live
+  index gets `vin9_bm` at runtime from `vin2fin.json`. (`vehicle-selection.md`)
 - **Admin = loopback peer AND loopback Host**; no reverse proxy on the same
   PC; no handler built from manual text. (`shop-network.md`)
 - **WIS is never removed per model.** (`importing.md`)
@@ -407,13 +411,15 @@ predates the end-view format. Features here degrade quietly by design.
    payloads into `renderAnswer()` rather than paying for answers.
    After any change to the vehicle picker (`#carInput`, Browse, VIN, the
    variant menu, `loadVehicles`): `python tests/test_ui_picks.py` — free,
-   ~45 s, needs `pip install -r requirements-dev.txt` (Playwright; it drives
+   ~3 min, needs `pip install -r requirements-dev.txt` (Playwright; it drives
    the installed Edge/Chrome). It loads the real page against the index
    (opened `mode=ro`; `--index` to point elsewhere), makes every pick the UI
    can make — typed queries, VIN and FIN, Browse + reload, every one-line
-   suggestion (~2,500), every Variant option (~1,600), one VIN prefix per
-   variant (~430) — and checks the `variant=` each sends against the stored
-   `vehicles.variants`. Any non-GET or `/api/ask` request fails the run.
+   suggestion (~2,500), every Variant option (~1,300), every US VIN prefix
+   (~5,800, checked against `vin2fin.json`: Baumuster and engine sent), the
+   VIN dialog sending what the box sends — and checks the `variant=` each
+   sends against the stored `vehicles.variants`. ~3 min on the real index.
+   Any non-GET or `/api/ask` request fails the run.
    Known quirk it works around: typing "190 e 2.3 16" finds nothing —
    `carMatches` reads a bare "16" as the year 2016.
 4. For extraction changes: re-index (~40s) and re-run `eval.py`. Watch
