@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from autorundown import config, index, query
+from autorundown import config, index, providers, query
 from autorundown.search import scope_ids, search
 
 
@@ -25,6 +25,11 @@ def pick_vehicle(vehicles: list[dict], wanted: str | None) -> dict | None:
     return None
 
 
+def money(x) -> str:
+    """A logged cost; None = a model whose price is not known."""
+    return "cost not tracked" if x is None else f"${x:.4f}"
+
+
 def main(argv: list[str] | None = None) -> int:
     cfg = config.load()
     ap = argparse.ArgumentParser(description="Query the manual archive.")
@@ -38,8 +43,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--search", action="store_true",
                     help="keyword search only; makes no API call")
     ap.add_argument("--include-other-variants", action="store_true")
-    ap.add_argument("--model", default=cfg.model or query.DEFAULT_MODEL,
-                    help=f"one of {list(query.MODELS)}")
+    ap.add_argument("--model", default=config.active_model(cfg),
+                    help="one of " + ", ".join(m for p in providers.PROVIDERS.values()
+                                               for m in p["models"])
+                         + "; the provider is the model's, and its company key pays")
     args = ap.parse_args(argv)
 
     conn = index.connect(args.index)
@@ -53,24 +60,24 @@ def main(argv: list[str] | None = None) -> int:
             print("by source:")
             for r in s["by_source"]:
                 print(f"  {r['source'] or '?':<8} {r['questions']:>4} questions "
-                      f"{r['calls']:>5} calls   ${r['cost_usd']:.4f}")
+                      f"{r['calls']:>5} calls   {money(r['cost_usd'])}")
         if any(r["user"] not in ("cli", "eval", "this PC / no sign-in")
                for r in s["by_user"]):
             print("\nby user:")
             for r in s["by_user"]:
                 print(f"  {r['user'] or '?':<22} {r['questions']:>4} questions   "
-                      f"${r['cost_usd']:.4f}")
+                      f"{money(r['cost_usd'])}")
         if s["by_day"]:
             print("\nby day:")
             for r in s["by_day"]:
                 print(f"  {r['day']}  {r['questions']:>4} questions  "
-                      f"${r['cost_usd']:.4f}")
+                      f"{money(r['cost_usd'])}")
         recent = index.recent_usage(conn, 10)
         if recent:
             print("\nmost recent:")
             for r in recent:
-                print(f"  {r['ts']}  {r['source'] or '?':<5} ${r['cost_usd']:.4f}"
-                      f"  {(r['question'] or '')[:52]}")
+                print(f"  {r['ts']}  {r['source'] or '?':<5} {money(r['cost_usd'])}"
+                      f"  {r['provider']}/{r['model']}  {(r['question'] or '')[:40]}")
         if not s["by_source"]:
             print("nothing logged yet (logging started this session)")
         return 0
@@ -107,7 +114,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        result = query.ask(conn, vehicle, question, cfg.resolved_key,
+        provider = providers.provider_of(args.model) or providers.DEFAULT_PROVIDER
+        result = query.ask(conn, vehicle, question, config.company_key(cfg, provider),
                            include_other_variants=args.include_other_variants,
                            model=args.model, source="cli")
     except query.NoApiKey as exc:
@@ -154,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
 
     u = result.usage
     print(f"\n[{u.model}: {u.calls} API calls, "
-          f"{u.input_tokens} in / {u.output_tokens} out, ~${u.cost_usd:.4f}]")
+          f"{u.input_tokens} in / {u.output_tokens} out, ~{money(u.cost_usd)}]")
     return 0
 
 

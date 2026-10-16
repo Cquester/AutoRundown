@@ -30,8 +30,9 @@ python extractor/apply_images.py
 #     After a parse_sids.py change: reparse_bodies.py (offline, ~18 min,
 #     --dry-run first) updates body_text only; then re-run apply_images.py.
 python extractor/reparse_bodies.py --dry-run
-# 2. rebuild the WIS part of the main index (~6 min): restores
-#    index.before-wis.db, carries the spend log across, re-ingests
+# 2. rebuild the WIS part of the main index: removes WIS in place
+#    (remove_manuals.py --source mercedes-wis), re-ingests; EPC, LEMON and
+#    folder manuals and the spend log stay
 python rebuild_wis.py
 ```
 
@@ -45,8 +46,26 @@ prints "structured model links IGNORED"); the `build` step does both.
 **Never rebuild by copying `index.before-wis.db` over `index.db` by hand.**
 The spend log (`usage_log`) lives inside the index, so that silently deletes
 every paid question asked since the backup — it happened on several rebuilds
-in this project before `rebuild_wis.py` existed. The script copies the newer
-log rows across and checks the count before it re-ingests.
+in this project before `rebuild_wis.py` existed.
+
+**`rebuild_wis.py` no longer restores the backup either** (2026-10-16).
+It used to restore `index.before-wis.db` and carry the newer usage-log rows
+across, but that backup predates the EPC parts catalogue and every LEMON or
+folder manual imported after WIS first went in, so a WIS-only rebuild
+(also what Shop setup's Mercedes VM job runs after extracting) silently
+dropped them. It now removes WIS in place (`remove_manuals.py --source
+mercedes-wis`: chunks with their FTS rows, pages, connectors, vehicles,
+per vehicle) and re-ingests. It refuses a corpus whose manifest
+`source_type` is not `mercedes-wis*` (an EPC corpus would be added while
+WIS was gone) before removing anything, and checks every other vehicle's
+page and chunk counts and the usage-log row count after the removal and
+after the re-ingest. `tests/test_rebuild_wis.py` builds the case that lost
+data (backup with one LEMON car; then WIS, EPC, a second car, a folder
+import and paid questions) and fails on the old script (Camry, folder
+import and all EPC lost). The backup file is left on disk untouched. A
+failed re-ingest leaves no WIS, as before: run the script again. Not yet
+run on the real index -- the removal of ~530k pages will be slower than
+the old file copy.
 
 The WIS DB drops its connection under load. `pull.js` now aborts and
 checkpoints at the last good document instead of carrying on, so if step 1

@@ -31,7 +31,10 @@ Three sidecars in the corpus dir feed it, all optional:
 - `vin_us.json` (3b) — `USTypBM2TypBM`, 38 rows: WMI + VIN position 4 → series.
 - `vin2fin.json` — `AW_VIN2FIN`, 7,577 US VIN prefixes (first 9 characters,
   check digit included) → Baumuster. The importer attaches them to each
-  variant as `vin9`.
+  variant as `vin9` (the prefixes) and `vin9_bm` (prefix → its Baumuster).
+  An index built before 2026-10-16 has only `vin9`; `/api/vehicles` adds
+  `vin9_bm` at runtime from this file next to the corpus (`file_path`,
+  read-only, cached; `server._with_vin9_bm`), so no rebuild is needed.
 
 They come from `pull_vehicles.js` (8 tables, 9 s, VM on) and
 `parse_vehicles.py` (offline) in the extractor folder. Raw TSVs are kept in
@@ -56,8 +59,12 @@ The user picked "W212 E-Class, all 87 variants", searched "valve cover", and
 got V6, V8, AMG and diesel answers side by side -- 10 engine families, all in
 scope. Now the Variant menu is grouped by engine ("M272 · V6 petrol"), each
 group with "Any M272 — E 250, E 300, …" plus its cars; with several engines
-and none chosen, the scope note says "Pick your engine above for exact specs"
-in accent colour. Engine labels come from `importers/data/mercedes_engines.csv`
+and none chosen, the scope note lists the car's own engine groups (from
+`engineGroups`, e.g. "M272 · V6 petrol, M273 · V8 petrol" -- it used to say
+"V6, V8, diesel" for every car) and "Pick your engine" is a button that opens
+the Browse row on the Variant menu, in accent colour. On a phone the scope note
+and Options live in the car sheet (opened from the car line at the top, which
+itself says "N engines — tap to pick yours" until an engine is chosen). Engine labels come from `importers/data/mercedes_engines.csv`
 (reference knowledge, like the year table; an unknown family shows its number),
 attached per variant as `engine_families`.
 
@@ -139,6 +146,74 @@ FIN = WMI + Baumuster: `WDBDA34D4` → 201.034 190 E 2.3 16, `WDDGF8AB3` →
 falls back to the series-only position-4 code. Covers 84 series up to ~2016
 (the database is dated 2016-11); newer US VINs fall back to series only.
 
+**The VIN's own Baumuster sends the engine, not the variant's first
+(fixed 2026-10-16).** A variant has several Baumuster, often with different
+engines ("E 320": 210.055 = M104, 210.065 = M112). The importer used to
+keep only a flat `vin9` list per variant and `vinLookup()` took the
+variant's *first* Baumuster: `WDBJF65J0YB…` (210.065) searched the M104 --
+320 of 5,797 prefixes on the real index sent a wrong engine (2012-13 E 350,
+C 200 CDI, E 320 CDI, S 63, G 500, R 350, smart). Now `vin9_bm` names the
+exact Baumuster; without it (the corpus file gone) the VIN year (position
+10) picks among the variant's Baumuster by `us_years`, and if that still
+leaves several, all their engines are sent -- never the first.
+**One Baumuster sold under several names** with different engines (81
+prefixes: Vito 636.705 = 111 CDI OM646, 115 CDI, 119 M272): no VIN tells
+them apart, so `vinCar()` picks no variant and sends all their engines,
+with "636.705 is sold as … — pick yours in Browse". The FIN path follows
+the same rule. The VIN dialog (`#vinFind`) now picks through `carFromVin` +
+`applyCar` like the car box; it used to send no engine.
+`tests/test_ui_picks.py` part 6 checks every prefix (not only each
+variant's first, which hid this) against `vin2fin.json` itself.
+
+**A VIN is checked before it is decoded (2026-10-16).** The VIN audit found
+357 one-character typos that land on another real car with another engine.
+`vinCheck()` (the `vin-check` block of `index.html`, pure functions) runs on
+every VIN entered -- car box, VIN dialog, Scan VIN:
+- spaces, hyphens and dots are dropped; I, O and Q are refused with their
+  position ("position 9 is "O" — did you mean O → 0?") and a button that
+  puts the corrected VIN in the box, changed characters highlighted -- never
+  applied by itself;
+- a length other than 17 warns (and is still decoded as before);
+- the **ISO 3779 check digit (position 9)** is checked on every 17-character
+  VIN that is *not* a FIN. That is wider than "WMI starting 1/4/5": the
+  Mercedes VINs the US decode uses (`WDB`/`WDD`/`4JG`…, coded letter at 4)
+  all carry one -- US and Canadian law require it on every car sold there,
+  and AW_VIN2FIN's 9-character keys include it. A FIN (digits at 4-6, the
+  same test `vinLookup` uses; also the ~230 FIN-form keys of other markets
+  in AW_VIN2FIN, `8AB 384.067`…) has none and is never checked. On a
+  mismatch: "Check digit doesn't match — re-check the VIN", and **only the
+  series** is decoded (position-4 code; no variant, engine or year).
+- Measured on Mercedes' own table: of 1,892 pairs of US prefixes one
+  character apart (positions 1-8), the check digit catches 1,862; the other
+  30 are swaps between characters ISO 3779 gives the same value (A/J/1,
+  B/K/S/2 …), which no check digit can see. `tests/test_vin.py` (and part 7
+  of `test_ui_picks.py`: 5,723 mistyped VINs, all series only).
+- `looksLikeVin` now lets I/O/Q and hyphens through, so a mistyped VIN in
+  the car box gets its own message instead of "No match".
+
+**Scan VIN (2026-10-16).** The VIN dialog has "Scan VIN" (camera) and
+"Choose a photo"; on a phone the car sheet has a Scan VIN button that opens
+the dialog and the camera. The photo is read on the device: barcodes first
+(zxing-wasm 3.1.4: Code 39 -- with the import "I" some US labels add --
+Data Matrix, QR), then printed text (tesseract.js 7.0.0, LSTM, English;
+whitelist A-Z 0-9 with I/O/Q kept so a misread shows). Text is read upright,
+then turned 90° and 270°; a 17-character stretch must start with a Mercedes
+maker code (`isMercedesWmi`). When the check digit can't prove it (a FIN, or
+it fails), the VIN's line is read twice more (one line, two sizes): a read
+with a right check digit wins, otherwise a per-character vote, and the
+characters the reads disagreed on are underlined for the user. The result
+fills the VIN box with the crop and the text read shown; nothing is searched
+until Find is tapped, which goes through `carFromVin` + `applyCar` like a
+typed VIN (so a "send to desk" hook sees an ordinary car pick). Why a file
+input (not the live camera), why in the browser, sizes and licences:
+`autorundown/web/vendor/README.txt` and the `vin-scan` block's comment.
+Generated-image accuracy (`tests/test_vin_scan.py`, Edge): barcodes 30/30
+(2 hard Code 39s fell back to the printed VIN under them), clean labels
+20/20, rough labels (bold, blurred, noisy, shaded, JPEG 70) 13/20 -- the
+misses are 8/9/6/0 confusions; on a US VIN those fail the check digit and
+show the warning, on a FIN nothing can catch them, hence "compare it with
+the car". **Not yet tried on a real phone or a real label.**
+
 **Data cards (EPC) are not available — they are access-protected.** The EPC
 install has the data card databases (`DAG_DCPC`, `MBNA_DCNA`, `MBOE_DCCAR`,
 … 2016-11-23, up to 8 GB each, port 2034), but they refuse both accounts the
@@ -160,9 +235,13 @@ trucks/buses), `WHC_MASTER(_MODELS)` (WMI → market/plant names),
 `VIN_MDL` (74 rows, VIN prefix → model stub — a subset of what
 `AW_VIN2FIN` already gives), `DCDBINFO` (which data-card DB serves which
 region), `AGG_FILTERS*`, `DB_LANGS`, `VERSIONS` ("DW 01/2017"), `SAREC_INI`
-(6 config rows). `PWORD`/`PWORD_V` were deliberately not read. The
-catalogue databases where EPC keeps code texts — `ALLTEXT`, `COMM`, and
-`SA_IMAGES`/`BM_IMAGES` — refuse `tbuser` at login, like the data cards.
+(6 config rows). That survey did not read `PWORD`/`PWORD_V` and found
+`ALLTEXT`, `COMM` and `SA_IMAGES`/`BM_IMAGES` refusing `tbuser` -- with a
+blank password. **Superseded (2026-10-14/16):** the EPC program itself opens
+the catalogue with the ROT13 of `PWORD`, and `pull_epc.js` does the same;
+the user decided (2026-10-16) that reading the EPC *catalogue* that way is
+fine. See `epc-source.md`, "How EPC is reached". The *data-card* databases
+stay off-limits: they refuse both accounts, a deliberate lock.
 (The code list now comes from WIS instead; the data card itself is still
 EPC-only and locked.) Survey output:
 `autorundown_out/epc_survey/`; script `extractor/probe_epc_survey.js`.
@@ -191,6 +270,30 @@ sends `variant` + `engine` (comma list when a year is ambiguous, "M272 or
 M276" for a 2012-13 E 350) + `year`; the answer model is told all three. A
 VIN in the same box resolves the same way. Non-US variants are listed by
 name ("not a US model") under their generation's years.
+
+**Recent cars on this device (2026-10-16).** Focusing the box while it is
+empty or still says the selected car (on a phone: opening the car sheet,
+without focusing the box, so no keyboard) lists the last 10 picks, newest
+first; typing replaces them with the normal suggestions. Kept per browser in
+`localStorage` `autorundown.carHistory.v1` (every access in try/catch:
+blocked storage simply means no list). Each entry is the structured pick --
+`doc`, `variant` (index) **and `vname`** (its name), `engine`, `year`,
+`label`, `sub`, `vin` when it came from a VIN, `src` (box / browse) -- not
+text. Every `applyCar` records one (box, VIN box, VIN dialog); Browse records
+on a Model or Variant change, and its next step of the same car replaces the
+entry before (one entry, not one per dropdown). The same car (doc, variant,
+engine, year) moves to the top instead of repeating.
+Re-selecting (`applyCarHistory`) checks the entry against the vehicles
+`/api/vehicles` returned at load: the manual must still be there (else the
+entry is dropped, with a note in the list), the variant at that index must
+still have that name and the engine families must still be the variant's
+(else the whole series is picked and a note says so -- a re-ingest can shift
+positions, see "Body style" above), and then it goes through `applyCar`, so
+it sends exactly what the first pick sent. Arrow keys / Enter as for
+suggestions (nothing highlighted at first: Enter keeps the car); Tab reaches
+"Clear history" and each row's ×. Rows are 44 px on a phone, and the list
+spans the sheet's width. `tests/test_car_history.py` (sample index, built in
+a temp dir; in CI and `box.sh check`).
 
 **Body style: one model per body (2026-10-08).** WIS sells the W210 sedan
 (210.082) and wagon (210.282) under one name, "E 320 4MATIC", so the user

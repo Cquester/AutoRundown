@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>AutoRundown</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#12141a" media="(prefers-color-scheme: dark)">
@@ -87,7 +87,28 @@
   .capedit{margin-top:6px}
   .phonerow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0}
   .phonerow b{color:var(--text); font-size:15px; overflow-wrap:anywhere}
-  .phonerow button{min-height:36px; padding:0 12px; font-size:13px}
+  .phonerow button{min-height:44px; padding:0 14px; font-size:13px}
+  /* QR codes: always black on white with a quiet zone, whatever the theme --
+     camera apps expect that */
+  .qrbox{display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:10px 0 4px}
+  .qrimg{background:#fff; border-radius:8px; line-height:0; flex:none}
+  .qrimg svg{display:block; width:100%; height:auto}
+  .qrsite .qrimg{width:150px}
+  #qrDlg{width:min(420px, 94vw)}
+  #qrDlg .qrimg{width:min(300px, 80vw); margin:10px auto}
+  #qrDlg .qrcode{font-size:28px; font-weight:700; letter-spacing:4px; color:var(--accent)}
+  #qrDlg .qrstate{text-align:center; font-size:15px; min-height:22px; margin:4px 0}
+  #qrDlg.done .qrimg{opacity:.15}
+  /* questions / dollars this month against a limit */
+  .meter{height:8px; border-radius:4px; background:var(--panel-2); border:1px solid var(--line);
+    overflow:hidden; margin:6px 0 2px; max-width:360px}
+  .meter > i{display:block; height:100%; background:var(--good)}
+  .meter.warn > i{background:var(--warn)}
+  .meter.over > i{background:var(--bad)}
+  .keyrow{padding:10px 12px; margin:0 0 8px}
+  .keyform{display:grid; grid-template-columns:1fr 150px auto; gap:8px; align-items:end; margin-top:6px}
+  .keyform label{margin-top:4px}
+  @media (max-width:560px){ .keyform{grid-template-columns:1fr} }
   select{min-width:0}
   /* compact enough to sit inline with the toolbar chips */
   select.inline{width:auto; min-height:40px; padding:6px 10px; font-size:14px}
@@ -103,6 +124,21 @@
   .suggest .opt:last-child{border-bottom:0}
   .suggest .opt.on, .suggest .opt:hover{background:var(--hover)}
   .suggest .opt .sub{color:var(--muted); font-size:13px}
+  /* recent cars on this device (the box focused while empty or unchanged) */
+  .suggest .histhead{display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:4px 6px 4px 12px; border-bottom:1px solid var(--line); color:var(--muted);
+    font-size:13px; font-weight:600}
+  .suggest .histnote{padding:9px 12px; border-bottom:1px solid var(--line); font-size:13px;
+    border-left:4px solid var(--warn); background:var(--warn-bg)}
+  .suggest button.histclear{min-height:32px; padding:0 10px; background:none; border:0;
+    color:var(--accent); font-size:13px; font-weight:600}
+  .suggest .opt.hist{display:flex; align-items:center; gap:6px; padding-right:4px}
+  .suggest .histtext{flex:1; min-width:0}
+  .suggest button.histx{flex:none; width:34px; min-height:34px; height:34px; padding:0;
+    background:none; border:0; border-radius:8px; color:var(--muted); font-size:20px;
+    font-weight:400; line-height:1}
+  .suggest button.histx:hover, .suggest button.histx:focus-visible{background:var(--line); color:var(--text)}
+  .suggest button.histclear:focus-visible, .suggest button.histx:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
   .picker{display:flex; gap:8px; flex:1 0 100%; min-width:0; flex-wrap:wrap}
   .picker[hidden]{display:none}
   .picker #year{flex:0 1 124px}
@@ -131,6 +167,19 @@
   .vinrow{display:flex; gap:8px; align-items:flex-start}
   .vinrow input{font-variant-numeric:tabular-nums; letter-spacing:.5px}
   .vinnote{margin-top:10px; font-size:14px; color:var(--muted)}
+  .vinwarn, .vinnote .vinwarn{color:var(--warn)}
+  .vinmono{font-family:ui-monospace, Consolas, monospace; letter-spacing:.5px}
+  mark.vinfix{background:var(--warn-bg); color:var(--warn); outline:1px solid var(--warn);
+              border-radius:2px; padding:0 1px}
+  u.vinunsure{text-decoration:underline wavy var(--warn); text-underline-offset:3px}
+  /* Scan VIN: what was read, and from where in the photo */
+  .scanout{margin-top:10px; display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap}
+  .scanout img{max-width:100%; max-height:120px; border:1px solid var(--line); border-radius:6px;
+               background:#fff}
+  .scanout .scantext{font-size:14px; color:var(--muted); min-width:0; overflow-wrap:anywhere}
+  .scanrow{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap}
+  .carbox .scanbtn{display:none}
+  @media (max-width:700px){ .carbox .scanbtn{display:inline-flex; align-items:center} }
   button{
     background:var(--accent); color:var(--on-accent); border:0; border-radius:10px;
     padding:0 20px; min-height:var(--tap); font-weight:700; cursor:pointer;
@@ -301,6 +350,38 @@
   #sec-manuals label:has(> input[type=radio]), #sec-manuals label:has(> input[type=checkbox]){
     display:inline-flex; align-items:center; color:var(--text)}
   #impSteps{gap:6px 16px}
+  /* Mercedes VM: WIS / EPC / Both as one segmented toggle */
+  .seg{display:inline-flex; border:1px solid var(--field-line); border-radius:10px; overflow:hidden; margin-top:4px}
+  #sec-manuals #impVmWhat label{display:flex; margin:0; position:relative; cursor:pointer}
+  #sec-manuals #impVmWhat input{position:absolute; opacity:0; width:1px; height:1px; margin:0}
+  .seg span{display:flex; align-items:center; min-height:44px; padding:0 22px; font-weight:600;
+    color:var(--muted); background:var(--panel-2); border-left:1px solid var(--line)}
+  .seg label:first-child span{border-left:0}
+  .seg input:checked + span{background:var(--accent); color:var(--on-accent)}
+  .seg input:focus-visible + span{outline:2px solid var(--text); outline-offset:-3px}
+  .seg label:hover input:not(:checked) + span{color:var(--text)}
+  /* extraction progress at the bottom of the Mercedes VM tab */
+  .impbar{flex-wrap:wrap}
+  .vmprog{flex:1 1 100%; padding:10px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2)}
+  .vp-head{font-weight:600; overflow-wrap:anywhere}
+  .vp-track{position:relative; height:10px; margin:8px 0 6px; border-radius:5px; overflow:hidden; background:var(--line)}
+  .vp-fill{height:100%; width:0; border-radius:5px; background:var(--accent); transition:width .4s ease}
+  .vp-track.indet .vp-fill{position:absolute; width:30%; animation:vpslide 1.6s ease-in-out infinite}
+  .vp-track.done .vp-fill{background:var(--good)}
+  .vp-track.bad .vp-fill{background:var(--bad)}
+  @keyframes vpslide{from{left:-30%} to{left:100%}}
+  @media (prefers-reduced-motion:reduce){
+    .vp-track.indet .vp-fill{animation:none; left:0; width:100%; opacity:.45}
+    .vp-fill{transition:none}
+  }
+  .vp-sub{font-size:14px; color:var(--muted); overflow-wrap:anywhere}
+  .vp-sub .err{color:var(--bad); font-weight:600}
+  .vp-parts{margin:6px 0 0; padding-left:20px; font-size:14px}
+  @media (max-width:700px){ .vp-parts{display:none} }   /* the head already says Step i of n */
+  .vp-parts li{margin:2px 0}
+  .vp-parts .st{color:var(--muted)}
+  .vp-parts .st.done{color:var(--good)} .vp-parts .st.failed{color:var(--bad); font-weight:600}
+  .vp-parts .st.running{color:var(--accent)}
   .dirlist{max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px}
   .dirlist button{display:block; width:100%; text-align:left; background:none; border:0;
     border-bottom:1px solid var(--line); color:var(--text); padding:7px 10px; font:inherit; cursor:pointer}
@@ -314,14 +395,22 @@
   /* import sources as folder tabs */
   .srctabs{display:flex; gap:4px; margin-top:14px; border-bottom:1px solid var(--line);
     overflow-x:auto; scrollbar-width:none}
-  /* the results' tabs: Workshop, Parts, Labour times, Capacities, Torque specs.
-     The look of .srctabs, but its own class: the Shop setup import code binds
-     every ".srctabs button" to its own tab handler, which took these over. */
+  /* the right box's tabs: Manual page, Parts, Labour times, Capacities,
+     Torque specs. The look of .srctabs, but its own class: the Shop setup
+     import code binds every ".srctabs button" to its own tab handler. */
   .restabs{display:flex; gap:4px; margin:0 0 12px; border-bottom:1px solid var(--line);
     overflow-x:auto; scrollbar-width:none}
-  .restabs button{flex:none; min-height:40px; background:transparent; color:var(--muted);
-    border:1px solid transparent; border-bottom:0; border-radius:10px 10px 0 0; padding:0 16px;
-    font-weight:600; margin-bottom:-1px}
+  .restabs button{flex:none; min-height:44px; background:transparent; color:var(--muted);
+    border:1px solid transparent; border-bottom:0; border-radius:10px 10px 0 0; padding:0 12px;
+    font-weight:600; margin-bottom:-1px; white-space:nowrap}
+  /* how many results this question has there; a tab with none is dimmed */
+  .tcount{margin-left:6px; font-size:12px; font-weight:700; background:var(--panel-2); color:var(--muted);
+    border:1px solid var(--line); border-radius:10px; padding:0 6px}
+  .restabs button.none{opacity:.55}
+  /* at the top of the right box, staying in view while the page scrolls */
+  #right > .restabs{position:sticky; top:-16px; z-index:2; background:var(--pane);
+    margin:-16px -16px 12px; padding:8px 10px 0}
+  @media (max-width:900px){ #right > .restabs{top:40px; margin:0 -16px 12px} }
   .restabs button[aria-selected="true"]{background:var(--panel-2); color:var(--text);
     border-color:var(--line); border-bottom:1px solid var(--panel-2)}
   .restabs button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
@@ -408,13 +497,28 @@
   .notfound{overflow-wrap:anywhere}
 
   /* -- header: a labelled gear; the importing banner under it */
-  a.btnlink{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:var(--tap);
+  a.btnlink, label.btnlink{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:var(--tap);
     padding:0 18px; border-radius:10px; background:var(--accent); color:var(--on-accent); font-weight:700;
-    text-decoration:none; white-space:nowrap}
-  a.btnlink.ghostlink{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
+    text-decoration:none; white-space:nowrap; cursor:pointer; margin:0}
+  a.btnlink.ghostlink, label.btnlink.ghostlink{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
   #settingsBtn{margin-left:auto}
   #settingsBtn[aria-current="page"]{border-color:var(--accent)}
   .banner{background:var(--accent-dim); color:var(--pill-text); padding:8px 16px; font-size:14px; font-weight:600}
+  /* cars sent from a phone, waiting on the desk */
+  .deskcars{display:flex; flex-wrap:wrap; gap:8px; padding:8px 14px; background:var(--panel);
+    border-bottom:1px solid var(--line)}
+  .deskcar{display:flex; align-items:center; gap:6px; background:var(--panel-2); border:1px solid var(--line);
+    border-left:4px solid var(--accent); border-radius:10px; padding:4px 4px 4px 12px; font-size:14px;
+    max-width:100%}
+  .deskcar .what{min-width:0; overflow-wrap:anywhere}
+  .deskcar .when{color:var(--muted); white-space:nowrap}
+  .deskcar button{min-height:44px; padding:0 12px}
+  .deskcar .x{background:transparent; color:var(--muted); border:0; font-size:20px; line-height:1; padding:0 10px;
+    min-width:44px}
+  /* the desk's inbox: not over Shop setup */
+  body[data-view="setup"] .deskcars{display:none}
+  .senddesk{display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:-4px 0 12px}
+  .senddesk #sendDeskHelp{flex:1 0 100%; font-size:13px}
   .banner a{color:inherit}
   body[data-view="setup"] .carbox, body[data-view="setup"] .picker,
   body[data-view="gate"] .carbox, body[data-view="gate"] .picker, body[data-view="gate"] #settingsBtn{display:none}
@@ -447,6 +551,10 @@
   .setsec .subhead{margin:28px 0 4px; font-size:16px}
   .row.nowrap{flex-wrap:nowrap}
   .row.nowrap > input, .row.nowrap > select{flex:1; min-width:0}
+  .getkey{display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:10px 0 4px;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 16px}
+  .getkey ol{margin:0; padding-left:20px; line-height:1.5}
+  .provnote{margin-top:6px}
   .savedmark{font-size:13px; color:var(--good); font-weight:600; min-height:1em}
   .savedmark.bad{color:var(--bad)}
   .checklist{list-style:none; padding:0; margin:18px 0; display:grid; gap:10px}
@@ -490,7 +598,8 @@
     .setupnav a:not(.navback)::after{content:"\203A"; color:var(--muted); font-size:20px}
     .secbar{display:block; position:sticky; top:-16px; z-index:2; margin:-16px -16px 12px; padding:10px 16px;
       background:var(--bg); border-bottom:1px solid var(--line)}
-    .secbar a{color:var(--accent); font-weight:600; text-decoration:none}
+    .secbar a{color:var(--accent); font-weight:600; text-decoration:none;
+      display:inline-flex; align-items:center; min-height:44px}
   }
   @media (max-width:420px){
     .srctabs{overflow:visible}
@@ -523,11 +632,149 @@
   .carbox{max-width:760px}
   .answer, .src p{max-width:72ch}
   @media (min-width:1400px){ main{grid-template-columns:minmax(560px,760px) 1fr} }
+
+  /* -- "Pick your engine" in the scope note: opens the picker on the Variant menu */
+  /* inline, so it doesn't open up the line; the padding makes the 44 px target */
+  button.pickeng{display:inline; background:none; border:0; border-radius:6px; padding:12px 4px; margin:-12px 0;
+    min-height:0; color:inherit; font:inherit; font-weight:700; text-decoration:underline;
+    text-underline-offset:3px; white-space:normal}
+  /* an answer withheld because its citations failed is not "not found" */
+  .withheld{border-left:4px solid var(--warn); background:var(--warn-bg); padding:14px; border-radius:10px;
+    overflow-wrap:anywhere}
+  .withheld button{margin-top:12px}
+  .nopage{padding:4px 2px}
+
+  /* -- the phone-only pieces stay out of a desktop's way */
+  .carpill, .sheethead, .viewseg, .ico, .docgo{display:none}
+
+  /* -- a phone (700 px and less): one line for the car, Answer | Document,
+     the question docked at the bottom above the tabs. The 701-900 px
+     slide-over panel above is unchanged. */
+  @media (max-width:700px){
+    html, body{height:100%; height:100dvh; overflow:hidden}
+    .ico{fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round}
+
+    /* the car line */
+    header{padding:5px 12px; gap:8px; flex-wrap:nowrap; min-height:54px}
+    header > .brand, header > .carbox, header > .picker, header > .sheetmore, header > #acctBtn{display:none}
+    .carpill{display:flex; flex:1; min-width:0; align-items:center; gap:6px; min-height:44px;
+      padding:3px 4px 3px 12px; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+      border-radius:12px; text-align:left; font-weight:400; white-space:normal}
+    .cp-text{flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.25}
+    .cp-car, .cp-sub{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+    .cp-car{font-size:15px; font-weight:700}
+    .cp-sub{font-size:12.5px; color:var(--muted)}
+    .cp-sub:empty{display:none}
+    .cp-sub.hint{color:var(--accent); font-weight:600}
+    .cp-go{flex:none; font-size:13px; font-weight:700; color:var(--accent); padding:0 8px}
+    #settingsBtn{flex:none; width:44px; padding:0}
+    body[data-view="setup"] .carpill, body[data-view="gate"] .carpill{display:none}
+    body[data-view="setup"] header > .brand, body[data-view="gate"] header > .brand{display:block}
+
+    /* the car sheet: the header grown to the whole screen */
+    body.sheet header{position:fixed; inset:0; z-index:40; display:block; overflow-y:auto;
+      padding:0 16px calc(24px + env(safe-area-inset-bottom)); background:var(--bg)}
+    body.sheet header > .carpill, body.sheet header > #settingsBtn{display:none}
+    body.sheet .sheethead{display:flex; align-items:center; justify-content:space-between; gap:12px;
+      position:sticky; top:0; z-index:31; margin:0 -16px 10px; padding:6px 16px;
+      background:var(--bg); border-bottom:1px solid var(--line)}
+    .sheethead h2{margin:0; font-size:18px}
+    body.sheet header > .carbox{display:flex; max-width:none; margin-bottom:10px; flex-wrap:wrap}
+    /* the car box its own full row; Browse and Scan VIN share the next */
+    body.sheet header > .carbox .carfield{flex:1 0 100%}
+    body.sheet header > .carbox > button{flex:1 1 0}
+    body.sheet header > .picker{display:flex; margin-bottom:10px}
+    body.sheet header > .sheetmore{display:block}
+    body.sheet header > #acctBtn{display:block; max-width:none; margin-top:16px}
+    .sheetmore #scopeNote{margin:4px 0 12px !important; font-size:15px !important; line-height:1.45}
+    .sheetmore details.opts{margin:0}
+    .sheetmore details.opts > summary{display:flex}
+    /* suggestions and recent cars: the sheet's full width (under Browse
+       too), rows a thumb can hit */
+    body.sheet .carfield{position:static}
+    /* in the sheet the list takes its place in the flow: laid over the
+       scope note it hid "Pick your engine" */
+    body.sheet .suggest{position:static; box-shadow:none; margin-top:10px}
+    .sheetmore .senddesk{margin:0 0 12px}
+    .suggest .opt{min-height:44px; display:flex; flex-direction:column; justify-content:center}
+    .suggest .opt.hist{flex-direction:row}
+    .suggest button.histx{width:44px; height:44px; min-height:44px}
+    .suggest button.histclear{min-height:44px}
+
+    /* Answer | Document */
+    main{display:flex; flex-direction:column}
+    #left{display:contents}
+    .viewseg{display:flex; order:0; flex:none; padding:6px 12px; background:var(--bg);
+      border-bottom:1px solid var(--line)}
+    .viewseg button{flex:1; min-height:44px; padding:0 8px; background:var(--panel-2); color:var(--muted);
+      border:1px solid var(--line); font-weight:700; font-size:15px; border-radius:0}
+    .viewseg button:first-child{border-radius:10px 0 0 10px; border-right:0}
+    .viewseg button:last-child{border-radius:0 10px 10px 0}
+    .viewseg button[aria-selected="true"]{background:var(--accent-dim); color:var(--pill-text);
+      border-color:var(--accent-dim)}
+    .segdot{display:inline-block; width:9px; height:9px; margin-left:7px; border-radius:50%;
+      background:var(--accent); vertical-align:1px}
+    .viewseg button[aria-selected="true"] .segdot{background:var(--pill-text)}
+    #out, #right{order:1; flex:1 1 auto; min-height:0; overflow-y:auto;
+      -webkit-overflow-scrolling:touch; overscroll-behavior:contain; padding:10px 14px 16px}
+    #right{position:static; inset:auto; transform:none; transition:none; z-index:auto;
+      border:0; background:var(--pane)}
+    body:not(.docview) #right{display:none}
+    body.docview #out{display:none}
+    .panelbar{display:none}
+    .docgo{display:block; color:var(--accent); font-weight:700; font-size:14px; margin-top:4px}
+
+    /* the question, docked */
+    .askbar{order:2; flex:none; margin:0; padding:8px 12px; gap:8px; flex-wrap:nowrap; align-items:flex-end;
+      background:var(--panel); border-top:1px solid var(--line)}
+    .askbar textarea{flex:1 1 auto; min-width:0; min-height:48px; max-height:120px; resize:none; padding:11px 12px}
+    .askbtns{flex:none; gap:6px}
+    .askbtns button{flex:none; padding:0 16px}
+    #searchBtn{width:48px; padding:0; display:inline-flex; align-items:center; justify-content:center}
+    #searchBtn .lbl{display:none}
+    #searchBtn .ico{display:block; width:22px; height:22px}
+
+    /* the tabs as a bottom bar: every one on screen */
+    .restabs{order:3; flex:none; margin:0; gap:0; overflow:visible; border-bottom:0;
+      border-top:1px solid var(--line); background:var(--panel); padding:0 0 env(safe-area-inset-bottom)}
+    .restabs button, .restabs button[aria-selected="true"]{flex:1 1 0; min-width:0; min-height:56px; margin:0;
+      padding:6px 2px 5px; border:0; border-radius:0; background:transparent; display:flex;
+      flex-direction:column; align-items:center; justify-content:center; gap:3px; font-size:0}
+    .restabs button{color:var(--muted)}
+    .restabs button::after{content:attr(data-short); font-size:12px; font-weight:600; line-height:1.1}
+    .restabs button .ico{display:block; width:23px; height:23px}
+    .restabs button[aria-selected="true"]{color:var(--accent); box-shadow:inset 0 3px 0 var(--accent)}
+    body.kbd .restabs{display:none}
+    .restabs button{position:relative}
+    .restabs .tcount{position:absolute; top:5px; left:calc(50% + 7px); margin:0; font-size:10px; padding:0 5px}
+
+    /* the values: name across the top, value and page side by side under it */
+    .spectable, .spectable tbody{display:block}
+    .spectable thead{display:none}
+    .spectable tr{display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 12px; align-items:center;
+      padding:12px 0; border-bottom:1px solid var(--line)}
+    .spectable td{display:block; padding:0; border:0}
+    .spectable td:first-child{grid-column:1 / -1; font-weight:600}
+    .spectable .appl{font-weight:400}
+    .spectable td.value{font-size:24px; white-space:normal; overflow-wrap:anywhere}
+    .spectable td:last-child{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px}
+    .spectable .pagelink{margin:0; min-height:44px}
+  }
 </style>
 </head>
 <body>
 <header>
   <div class="brand">Auto<span>Rundown</span></div>
+  <!-- a phone: the car as one tap-to-change line; the car box, Browse, the
+       scope note and Options open in a full-screen sheet (body.sheet) -->
+  <button type="button" class="carpill" id="carPill" aria-haspopup="dialog" aria-controls="carSheetHead">
+    <span class="cp-text"><span class="cp-car" id="cpCar">Choose your car</span><span class="cp-sub" id="cpSub"></span></span>
+    <span class="cp-go">Change</span>
+  </button>
+  <div class="sheethead" id="carSheetHead">
+    <h2>Your car</h2>
+    <button type="button" id="sheetDone">Done</button>
+  </div>
   <div class="carbox">
     <div class="carfield">
       <input id="carInput" type="text" autocomplete="off" spellcheck="false"
@@ -535,6 +782,8 @@
       <div class="suggest" id="carList" hidden></div>
     </div>
     <button class="ghost" id="browseBtn" title="Pick from lists instead">Browse</button>
+    <!-- a phone (in the car sheet): photograph the VIN label or barcode -->
+    <button class="ghost scanbtn" id="sheetScanBtn" type="button" title="Photograph the VIN or its barcode">Scan VIN</button>
   </div>
   <div class="picker" id="picker" hidden>
     <select id="year" aria-label="Year"></select>
@@ -545,18 +794,26 @@
     <button class="ghost" id="saBtn" title="What the option codes on a data card mean" hidden>Option codes</button>
     <button class="ghost" id="labBtn" title="Mercedes flat-rate labour times for this model" hidden>Labour times</button>
   </div>
+  <div class="sheetmore" id="sheetMore"></div>
   <button class="ghost" id="acctBtn" title="Your account" hidden></button>
   <a class="btnlink ghostlink" id="settingsBtn" href="#/setup" title="Shop setup" hidden><span aria-hidden="true">&#9881;</span><span class="lbl">Shop setup</span></a>
 </header>
 <div class="banner" id="banner" role="status" hidden></div>
+<!-- cars a phone sent to the desk (handoff.py): one click opens one -->
+<div class="deskcars" id="deskCars" role="region" aria-label="Cars sent to the desk" hidden></div>
 
 <main>
+  <!-- a phone: the answer and the manual page are two views of one screen -->
+  <div class="viewseg" id="viewSeg" role="tablist" aria-label="Show">
+    <button type="button" role="tab" id="segAnswer" aria-selected="true">Answer</button>
+    <button type="button" role="tab" id="segDoc" aria-selected="false">Document<span class="segdot" id="segDot" hidden aria-label="a new page is waiting"></span></button>
+  </div>
   <section class="pane" id="left">
     <div class="askbar">
       <textarea id="q" rows="1" placeholder="Torque for the front caliper anchor plate bolts?"></textarea>
       <div class="askbtns">
         <button id="askBtn" title="AI answer from the manual (uses your API key)">Ask</button>
-        <button class="ghost" id="searchBtn" title="Search the manual's words (free)">Search</button>
+        <button class="ghost" id="searchBtn" title="Search the manual's words (free)" aria-label="Keyword search"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg><span class="lbl">Search</span></button>
       </div>
     </div>
     <details class="opts" id="opts">
@@ -571,36 +828,45 @@
       </div>
     </details>
     <div class="muted" id="scopeNote" hidden style="margin:-6px 0 12px; font-size:14px"></div>
-    <!-- what to look up: the manual, the parts catalogue, labour times and two
-         kinds of value, each its own list (the parts catalogue's pages mixed
-         into the manual's results made both hard to read) -->
-    <div class="restabs" id="resTabs" role="tablist" aria-label="What to look up">
-      <button type="button" role="tab" data-tab="workshop" aria-selected="true">Workshop</button>
-      <button type="button" role="tab" data-tab="parts" aria-selected="false" tabindex="-1">Parts</button>
-      <button type="button" role="tab" data-tab="labour" aria-selected="false" tabindex="-1">Labour times</button>
-      <button type="button" role="tab" data-tab="capacity" aria-selected="false" tabindex="-1">Capacities</button>
-      <button type="button" role="tab" data-tab="torque" aria-selected="false" tabindex="-1">Torque specs</button>
+    <!-- a phone hands the car it picked to the desk PC -->
+    <div class="senddesk" id="sendDeskRow" hidden>
+      <button type="button" class="chipbtn" id="sendDesk"
+              title="Puts this car on the desk PC's screen, ready to open">Send this car to the desk</button>
+      <span class="muted" id="sendDeskNote" role="status"></span>
+      <div class="muted" id="sendDeskHelp" hidden></div>
+    </div>
+    <!-- the right box's tabs: what one question finds in each source -- the
+         manual page, the parts catalogue, labour times and two kinds of
+         value. Filled after every Ask or Search from the same search terms
+         (the AI's, after an Ask), with no extra AI call. Here on a phone (the
+         bottom bar); moved to the top of the right box on wider screens. -->
+    <div class="restabs" id="resTabs" role="tablist" aria-label="What this question finds">
+      <!-- on a phone this is the bottom bar: an icon and data-short as the label -->
+      <button type="button" role="tab" data-tab="workshop" data-short="Manual" aria-selected="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/></svg>Manual page</button>
+      <button type="button" role="tab" data-tab="parts" data-short="Parts" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>Parts<span class="tcount" hidden></span></button>
+      <button type="button" role="tab" data-tab="labour" data-short="Labour" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>Labour times<span class="tcount" hidden></span></button>
+      <button type="button" role="tab" data-tab="capacity" data-short="Fluids" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11z"/></svg>Capacities<span class="tcount" hidden></span></button>
+      <button type="button" role="tab" data-tab="torque" data-short="Torque" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5a4.5 4.5 0 0 0-4.2 6.1L4 16.9 7.1 20l6.3-6.3a4.5 4.5 0 0 0 6.1-4.2l-2.7 2.7-2.9-.6-.6-2.9z"/></svg>Torque specs<span class="tcount" hidden></span></button>
     </div>
     <div id="out"></div>
-    <div id="tabLabour" hidden>
+  </section>
+
+  <section class="pane" id="right">
+    <div class="panelbar"><button class="ghost" type="button" id="closeRight">&larr; Back</button></div>
+    <div id="srcout" data-pane="workshop"><p class="muted">The manual page for an answer appears here.</p></div>
+    <div id="rpParts" data-pane="parts" hidden></div>
+    <div id="rpCapacity" data-pane="capacity" hidden></div>
+    <div id="rpTorque" data-pane="torque" hidden></div>
+    <div id="tabLabour" data-pane="labour" hidden>
       <div class="muted" id="labCar"></div>
       <div class="muted" style="font-size:13px; margin-top:4px">Mercedes flat rates from WIS
         (international), in hours. Extra-work items are not included. The lookup is local.</div>
       <label for="labBook" id="labBookLbl" hidden>This model is in more than one labour-time book
         (Mercedes splits them by body style, engine or build date) &mdash; pick yours</label>
       <select id="labBook" hidden></select>
-      <label for="labQ">Search operations</label>
-      <div class="vinrow">
-        <input id="labQ" type="search" spellcheck="false" placeholder="water pump, brake pads, timing chain">
-        <button id="labFind">Search</button>
-      </div>
+      <!-- no search box of its own: the question box fills this tab (Ask or Search) -->
       <div id="labOut" style="margin-top:10px"></div>
     </div>
-  </section>
-
-  <section class="pane" id="right">
-    <div class="panelbar"><button class="ghost" type="button" id="closeRight">&larr; Back</button></div>
-    <div id="srcout"><p class="muted">Cited pages and diagrams appear here.</p></div>
   </section>
 </main>
 
@@ -726,11 +992,13 @@
     <div id="impVmControls">
     <label for="impVm">VirtualBox VM</label>
     <select id="impVm"></select>
-    <label>What to extract</label>
-    <div class="row" id="impVmWhat">
-      <label style="margin:0"><input type="radio" name="vmwhat" value="wis" checked> Workshop manuals (WIS)</label>
-      <label style="margin:0"><input type="radio" name="vmwhat" value="epc"> Parts catalogue (EPC)</label>
+    <label id="impVmWhatLbl">What to extract</label>
+    <div class="seg" id="impVmWhat" role="radiogroup" aria-labelledby="impVmWhatLbl">
+      <label><input type="radio" name="vmwhat" value="wis" checked><span>WIS</span></label>
+      <label><input type="radio" name="vmwhat" value="epc"><span>EPC</span></label>
+      <label><input type="radio" name="vmwhat" value="both"><span>Both</span></label>
     </div>
+    <p class="muted" id="impVmWhatHelp" style="margin:6px 0 0"></p>
     <div id="impEpcOpts" hidden>
     <p class="muted" style="margin:10px 0 0">Pulls every passenger-car parts catalogue (chassis and engines)
       with its exploded drawings, then replaces the parts catalogue in the index. Part numbers then show
@@ -758,6 +1026,14 @@
   </div>
             </div>
             <div class="impbar">
+              <!-- Mercedes VM extraction progress, read from the job on the server
+                   (survives a reload); in the sticky bar so it stays in view -->
+              <div class="vmprog" id="impVmProg" hidden>
+                <div class="vp-head" id="vpHead"></div>
+                <div class="vp-track" id="vpBar" role="progressbar" aria-labelledby="vpHead"><div class="vp-fill"></div></div>
+                <div class="vp-sub" id="vpSub"></div>
+                <ol class="vp-parts" id="vpParts" hidden></ol>
+              </div>
               <span class="muted" id="impStatus" role="status"></span>
               <button id="impStart" type="button">Import</button>
             </div>
@@ -773,7 +1049,30 @@
 
       <section class="setsec" id="sec-ai" hidden>
         <h2>AI answers</h2>
-        <label for="sKey">Anthropic API key</label>
+        <label for="sProvider">AI provider <span class="muted">(whose AI answers the questions)</span></label>
+        <div class="row nowrap"><select id="sProvider"></select><span class="savedmark" id="mProvider" role="status"></span></div>
+        <div class="help">Answers are checked the same way whichever provider writes them: a value or page
+          the search didn't find is removed, and an answer left with no page behind it is not shown.</div>
+        <div class="getkey" id="getKeyBox">
+          <a class="btnlink ghostlink" id="getKey" href="https://platform.claude.com/settings/keys"
+            target="_blank" rel="noopener noreferrer">Get a key</a>
+          <ol class="help" style="margin:0">
+            <li>Sign in and create a key.</li>
+            <li>Copy it.</li>
+            <li>Paste it here.</li>
+          </ol>
+        </div>
+        <div class="help provnote" id="providerNote" hidden></div>
+        <fieldset class="setgroup">
+          <legend>Who pays for AI answers</legend>
+          <label class="check"><input type="radio" name="keyMode" value="company"> One company key
+            <span class="muted">— every question goes on the key below</span></label>
+          <label class="check"><input type="radio" name="keyMode" value="per_mechanic"> A key per mechanic
+            <span class="muted">— each mechanic's questions go on their own key</span></label>
+          <span class="savedmark" id="mKeyMode" role="status"></span>
+        </fieldset>
+        <div class="help" id="monthTotal"></div>
+        <label for="sKey" id="sKeyLabel">Anthropic API key</label>
         <div class="row nowrap"><input id="sKey" type="password" autocomplete="off" spellcheck="false">
           <button type="button" id="saveKey" disabled>Save key</button></div>
         <div class="help" id="keyStatus"></div>
@@ -781,15 +1080,34 @@
         <label for="sModel">Default AI model <span class="muted">(phones can pick their own)</span></label>
         <div class="row nowrap"><select id="sModel"></select><span class="savedmark" id="mModel" role="status"></span></div>
         <div class="help" id="modelPrice"></div>
+        <div id="mechKeysSec" hidden>
+          <h3 class="subhead">Mechanics' keys</h3>
+          <div class="help">Make one <span class="provShort">Anthropic</span> key per mechanic (“Get a key” above),
+            load it with credit, and enter it here with the amount loaded. Keys are kept per provider: switching
+            provider needs a key for that provider. <b>Remaining is AutoRundown's own estimate</b>: the amount you
+            entered minus what AutoRundown logged on that key since. The provider doesn't tell an ordinary API key
+            its balance, so check its console for the real figure. When you add credit or swap the key, use
+            “Topped up / new key” so the count starts again.</div>
+          <div class="vinnote errnote" id="keysNote" role="alert"></div>
+          <div id="mechKeys" style="margin-top:10px"></div>
+        </div>
       </section>
 
       <section class="setsec" id="sec-phones" hidden>
         <h2>Phones &amp; mechanics</h2>
-        <div id="sPhone" class="help"></div>
+        <div class="qrbox qrsite">
+          <div class="qrimg" id="siteQrImg" role="img" aria-label="QR code that opens AutoRundown" hidden></div>
+          <div style="flex:1; min-width:240px">
+            <div class="help" id="siteQrHelp" hidden>Scan this with a phone's camera, on the shop wifi,
+              to open AutoRundown.</div>
+            <div id="sPhone" class="help"></div>
+          </div>
+        </div>
         <label class="check"><input type="checkbox" id="sSignin"> Require each mechanic to sign in
           <span class="savedmark" id="mSignin" role="status"></span></label>
         <div class="help">Off: anyone on your wifi can search and ask on your API key.
-          On: each phone needs a one-time code from this PC, and you can set a monthly limit per mechanic.</div>
+          On: each phone signs in once, by scanning a sign-in QR shown here, and you can set a monthly limit
+          per mechanic.</div>
         <h3 class="subhead">Mechanics</h3>
         <div class="adduser">
           <div><label for="uName">Add a mechanic</label>
@@ -841,9 +1159,24 @@
     tables. Nothing is sent anywhere &mdash; the lookup is local.</div>
   <label for="vinInput">VIN (the full 17 characters also gives the model year)</label>
   <div class="vinrow">
-    <input id="vinInput" type="text" maxlength="17" autocapitalize="characters"
+    <input id="vinInput" type="text" maxlength="24" autocapitalize="characters"
            spellcheck="false" placeholder="WDD2040081A123456">
     <button id="vinFind">Find</button>
+  </div>
+  <!-- Scan VIN: a photo of the VIN label, plate or barcode, read on this
+       device (barcode reader + OCR, no AI, nothing uploaded). A file input
+       with capture works over plain http on a phone, where the live camera
+       (getUserMedia) is not allowed. -->
+  <div class="scanrow">
+    <label class="btnlink ghostlink" id="vinScanLbl" for="vinPhoto" role="button" tabindex="0" title="Photograph the VIN or its barcode">Scan VIN</label>
+    <input id="vinPhoto" type="file" accept="image/*" capture="environment" hidden>
+    <label class="btnlink ghostlink" id="vinFileLbl" for="vinFile" role="button" tabindex="0"
+           title="Use a photo already on this device">Choose a photo</label>
+    <input id="vinFile" type="file" accept="image/*" hidden>
+  </div>
+  <div class="scanout" id="vinScanOut" hidden>
+    <img id="vinScanImg" alt="Where the VIN was read in the photo">
+    <div class="scantext" id="vinScanText"></div>
   </div>
   <div class="vinnote" id="vinNote"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
@@ -870,16 +1203,33 @@
 
 
 
+<dialog id="qrDlg" aria-labelledby="qrTitle">
+  <h3 style="margin:0 0 4px" id="qrTitle">Sign-in QR</h3>
+  <div class="muted" id="qrHelp"></div>
+  <div class="qrimg" id="qrImg" role="img" aria-label="Sign-in QR code"></div>
+  <div class="qrstate" id="qrState" role="status"></div>
+  <div class="help" id="qrCodeBox" style="text-align:center">Camera can't scan? Open AutoRundown on
+    the phone and type this code:
+    <div class="qrcode" id="qrCode"></div></div>
+  <div class="row" style="margin-top:12px; justify-content:flex-end">
+    <button class="ghost" id="qrNew" hidden>New QR</button>
+    <button id="qrClose">Close</button>
+  </div>
+</dialog>
+
 <dialog id="signinDlg">
   <h3 style="margin:0 0 4px">Sign in</h3>
-  <div class="muted">Ask whoever runs AutoRundown in the shop for a sign-in code (8 letters and
-    numbers, like ABCD 2345). You only do this once on each phone.</div>
+  <div class="muted">At the shop PC, ask for your <b>sign-in QR</b> (Shop setup → Phones &amp; mechanics)
+    and scan it with this phone's camera. You only do this once on each phone.</div>
+  <div class="muted" style="margin-top:8px">Camera can't scan it? Type the 8-letter code shown under
+    the QR (like ABCD 2345):</div>
   <label for="signinCode">Sign-in code</label>
   <input id="signinCode" type="text" maxlength="12" autocapitalize="characters"
          autocomplete="one-time-code" spellcheck="false" placeholder="8-letter code"
          style="font-size:22px; letter-spacing:3px; text-transform:uppercase">
   <div class="vinnote errnote" id="signinNote" role="alert"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
+    <button class="ghost" id="signinLater" hidden>Not now</button>
     <button id="signinGo">Sign in</button>
   </div>
 </dialog>
@@ -887,6 +1237,8 @@
 <dialog id="acctDlg">
   <h3 style="margin:0 0 4px" id="acctName"></h3>
   <div class="muted" id="acctSpend"></div>
+  <div class="meter" id="acctMeter" hidden><i></i></div>
+  <div class="muted" id="acctKey" style="margin-top:10px"></div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
     <button class="ghost" id="acctSignout">Sign out on this phone</button>
     <button class="ghost" onclick="document.getElementById('acctDlg').close()">Close</button>
@@ -897,7 +1249,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const out = $('#out'), srcout = $('#srcout');
-let vehicles = [], sessionCost = 0, modelList = [];
+let vehicles = [], sessionCost = 0, costUntracked = false, modelList = [];
 
 // escapes for text and for attribute values in either quote style
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
@@ -944,14 +1296,46 @@ async function loadMe() {
   if (me.signed_in) $('#acctBtn').textContent = me.name;
   return me;
 }
-function showSignin() {
+// a sign-in QR that didn't work comes back as /#signin=<why> (server.signin_link)
+const SIGNIN_WHY = {
+  expired: 'That sign-in QR has expired, was closed, or was already used. Ask for a new one.',
+  refused: 'That sign-in link was opened from another site, so it was not used. Scan the QR with the camera.',
+  wait: 'Too many tries from this phone. Wait 15 minutes, then scan a new sign-in QR.',
+};
+function showSignin(closable = false) {
+  const why = /[#&]signin=([a-z]+)/.exec(location.hash);
+  if (why) $('#signinNote').textContent = SIGNIN_WHY[why[1]] || SIGNIN_WHY.expired;
   if ($('#signinDlg').open) return;
   const m = /[#&]code=([A-Za-z0-9-]+)/.exec(location.hash);
   if (m) $('#signinCode').value = m[1];
-  $('#signinNote').textContent = '';
+  if (!why) $('#signinNote').textContent = '';
+  // "Not now" only where the page works without signing in
+  $('#signinLater').hidden = !closable;
   $('#signinDlg').showModal();
 }
-$('#signinDlg').addEventListener('cancel', e => e.preventDefault());  // no way past it
+$('#signinLater').onclick = () => {
+  if (/[#&]signin=/.test(location.hash)) history.replaceState(null, '', location.pathname);
+  $('#signinDlg').close();
+};
+// questions/dollars this month against a limit: '' (no bar), or the bar's class
+function meter(el, spent, cap) {
+  el.hidden = cap == null;
+  if (cap == null) return;
+  const f = cap > 0 ? spent / cap : 1;
+  el.className = 'meter' + (f >= 1 ? ' over' : f >= 0.8 ? ' warn' : '');
+  el.firstElementChild.style.width = Math.min(100, Math.round(f * 100)) + '%';
+}
+const meterHtml = (spent, cap) => {
+  if (cap == null) return '';
+  const f = cap > 0 ? spent / cap : 1;
+  return `<div class="meter${f >= 1 ? ' over' : f >= 0.8 ? ' warn' : ''}" role="meter" aria-valuemin="0"
+    aria-valuemax="${cap}" aria-valuenow="${spent}" aria-label="spent of the limit"><i style="width:${
+    Math.min(100, Math.round(f * 100))}%"></i></div>`;
+};
+$('#signinDlg').addEventListener('cancel', e => {    // no way past it when sign-in is required
+  if (!$('#signinLater').hidden) return;
+  e.preventDefault();
+});
 // a #code= link opened while the box is already showing still fills it in
 addEventListener('hashchange', () => {
   const m = /[#&]code=([A-Za-z0-9-]+)/.exec(location.hash);
@@ -966,10 +1350,21 @@ $('#signinGo').onclick = async () => {
   } catch (e) { $('#signinNote').textContent = e.message; }
 };
 $('#signinCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('#signinGo').click(); });
-$('#acctBtn').onclick = () => {
+$('#acctBtn').onclick = async () => {
+  try { await loadMe(); } catch (e) { /* show what we have */ }
+  const spent = me.month_spend_usd || 0, cap = me.monthly_cap_usd, n = me.month_questions || 0;
   $('#acctName').textContent = me.name;
-  $('#acctSpend').textContent = `Spent this month: $${(me.month_spend_usd || 0).toFixed(2)}`
-    + (me.monthly_cap_usd != null ? ` of your $${me.monthly_cap_usd.toFixed(2)} limit` : '');
+  $('#acctSpend').textContent = `This month: ${n} question${n === 1 ? '' : 's'}, $${spent.toFixed(2)}`
+    + (cap != null ? ` of your $${cap.toFixed(2)} limit` : ' (no limit)')
+    + (cap != null && spent >= cap ? ' — limit reached; keyword search still works.' : '');
+  meter($('#acctMeter'), spent, cap);
+  const k = me.own_key;
+  $('#acctKey').textContent = !k ? ''
+    : !k.has_key ? 'No API key is set up for you yet, so AI answers are off. Ask the shop to add yours.'
+    : k.remaining_usd != null
+      ? `Your API key: about $${k.remaining_usd.toFixed(2)} left of $${k.loaded_usd.toFixed(2)} loaded `
+        + `(AutoRundown's estimate from its own log).`
+      : `Your API key: $${k.spent_usd.toFixed(2)} spent on it since it was set up.`;
   $('#acctDlg').showModal();
 };
 $('#acctSignout').onclick = async () => {
@@ -1053,7 +1448,8 @@ async function loadVehicles(pending) {
   try {
     const saved = JSON.parse(localStorage.getItem(CARPICK) || 'null');
     if (saved && saved.doc === $('#vehicle').value) {
-      carPick = {engine: saved.engine, year: saved.year, label: saved.label, sub: saved.sub};
+      carPick = {engine: saved.engine, year: saved.year, label: saved.label, sub: saved.sub,
+                 vin: saved.vin || null};
     }
   } catch (_) {}
   setCarBox(carPick ? carPick.label : currentCarLabel());
@@ -1210,14 +1606,16 @@ function currentCarLabel() {
 // selected car; asking or searching while the box says something else is
 // refused rather than silently using the old car.
 let carBoxLabel = '', shownDoc = null;
-function setCarBox(text) { carBoxLabel = text || ''; $('#carInput').value = carBoxLabel; }
+function setCarBox(text) { carBoxLabel = text || ''; $('#carInput').value = carBoxLabel; updatePill(); }
 function carBoxMatches() {
   const typed = $('#carInput').value.trim();
   if (!docId()) {
     out.innerHTML = `<div class="card"><div class="warnbox"><b>Pick your car first.</b></div></div>`;
+    openSheet(false);
     return false;
   }
   if (typed === carBoxLabel.trim()) return true;
+  openSheet(false);
   out.innerHTML = `<div class="card"><div class="warnbox"><b>Pick your car from the list first.</b> `
     + (typed ? `The box says “${esc(typed)}”, but` : `The box is empty, but`)
     + ` the selected car is <b>${esc(carBoxLabel || currentCarLabel())}</b>. Choose a suggestion,`
@@ -1230,10 +1628,12 @@ function carBoxMatches() {
 function carChanged() {
   if (docId() === shownDoc) return;
   shownDoc = docId();
-  tabHtml = {};                       // each tab's results were for the old car
-  out.innerHTML = curTab === 'workshop' ? emptyState() : '';
-  srcout.innerHTML = '<p class="muted">Cited pages and diagrams appear here.</p>';
-  $('#right').classList.remove('open');
+  resetTabs();                        // each tab's results were for the old car
+  out.innerHTML = emptyState();
+  srcout.innerHTML = '<p class="muted">The manual page for an answer appears here.</p>';
+  setTab('workshop');
+  hideRight();
+  $('#segDot').hidden = true;
 }
 // nothing asked yet: say what the box is for, with a few starting points
 const EXAMPLES = ['oil capacity', 'front brake pads torque', 'spark plug gap'];
@@ -1337,10 +1737,11 @@ function carMatches(q) {
 function showCarList(items) {
   const list = $('#carList');
   carSel = items.length ? 0 : -1;
-  list._items = items;
+  list._items = items; list._hist = false;
   list.innerHTML = items.length ? items.map((e, k) =>
     `<div class="opt${k === 0 ? ' on' : ''}" data-k="${k}"><div>${esc(e.label)}</div>`
-    + (e.sub ? `<div class="sub">${esc(e.sub)}</div>` : '') + `</div>`).join('')
+    + (e.sub ? `<div class="sub">${esc(e.sub)}</div>` : '')
+    + (e.warn ? `<div class="sub vinwarn">${esc(e.warn)}</div>` : '') + `</div>`).join('')
     : '<div class="opt"><div class="sub">No match — try fewer words, or Browse.</div></div>';
   list.hidden = false;
   list.querySelectorAll('.opt[data-k]').forEach(o =>
@@ -1351,38 +1752,204 @@ function applyCar(e, typedYear) {
   $('#picker').hidden = true;     // the header shrinks back once a car is chosen
   $('#year').value = ''; $('#make').value = '';
   refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
-  carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub};
+  carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub,
+             vin: e.vin || null};
   try { localStorage.setItem(CARPICK, JSON.stringify({...carPick, doc: e.doc, variant: e.variant})); } catch (_) {}
+  recordCarHistory({...e, year: carPick.year}, 'box');
   setCarBox(e.label);
   $('#carList').hidden = true;
   carChanged();
   showScope(); loadConnectors();
+  closeSheet();                   // a phone: back to the answer with the new car
 }
+// a full VIN or FIN, kept with the pick (sent to the desk); a partial one is not
+const cleanVin = raw => {
+  const v = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return /^[A-HJ-NPR-Z0-9]{10,17}$/.test(v) ? v : null;
+};
 function carFromVin(raw) {
   const r = vinLookup(raw);
-  if (r.error) return {error: r.error};
+  if (r.error) return {error: r.error, fixed: r.fixed, changed: r.changed};
   const x = r.variant !== null ? r.vehicle._variants[r.variant] : null;
-  const fams = x && r.bm ? famsOf(x, [r.bm]) : [];
+  // the engine(s) of the Baumuster the VIN names (r.bms: several when it
+  // could not be pinned -- then every one of them, as "M272 or M276");
+  // r.fams: one Baumuster sold under several names (vinCar)
+  const fams = r.fams || (x ? famsOf(x, r.bms || (r.bm ? [r.bm] : [])) : []);
+  const labels = Object.assign({}, ...(r.vehicle._variants || []).map(y => y.engine_families || {}));
   const make = r.vehicle.make || '';
   return {label: `${r.year || ''} ${make} ${x ? x.name : r.vehicle.model}`.trim(),
-          sub: `from the VIN · ${r.vehicle.model}` + (fams.length
-               ? ` · ${fams.map(f => (x.engine_families || {})[f] || 'Engine ' + f).join(' or ')}` : ''),
-          doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year};
+          sub: `from the VIN · ${r.vehicle.model}`
+               + (r.names ? ` · ${r.bm || ''} is sold as ${[...new Set(r.names)].join(', ')} — pick yours in Browse` : '')
+               + (fams.length ? ` · ${fams.map(f => labels[f] || 'Engine ' + f).join(' or ')}` : ''),
+          doc: r.vehicle.doc_id, variant: r.variant, engine: fams.join(',') || null, year: r.year,
+          bm: r.bm || null, how: r.how, warn: r.warn || null, check: r.check,
+          vin: cleanVin(raw)};
 }
+
+// -- recent cars on this device ----------------------------------------------
+// The last cars picked here, newest first, shown when the box is focused (or
+// the car sheet opened) while it is empty or still says the selected car.
+// Kept in this browser only (localStorage; blocked storage = no history).
+// Stored as the structured pick -- car, variant index AND its name, engine,
+// year, label, the VIN it came from -- not as text: re-selecting checks the
+// pick against the vehicles this server lists now (an index rebuilt since can
+// move a variant's position: "_variants" order is the server's) and goes
+// through applyCar like any pick, so it sends exactly what the first pick did.
+const CARHIST = 'autorundown.carHistory.v1', CARHIST_MAX = 10;
+function carHistory() {
+  try {
+    const h = JSON.parse(localStorage.getItem(CARHIST) || '[]');
+    return Array.isArray(h) ? h.filter(x => x && typeof x.doc === 'string' && typeof x.label === 'string') : [];
+  } catch (_) { return []; }
+}
+function saveCarHistory(h) {
+  try { localStorage.setItem(CARHIST, JSON.stringify(h.slice(0, CARHIST_MAX))); } catch (_) {}
+}
+// the same car: same vehicle, variant, engine and year (a VIN is not part of
+// it -- the car the VIN names is)
+const histKey = h => [h.doc, h.variant ?? '', h.engine || '', h.year || ''].join('|');
+function recordCarHistory(e, src) {
+  const v = vehicles.find(x => x.doc_id === e.doc);
+  if (!v || !e.label) return;
+  const n = e.variant ?? null;
+  const h = {doc: e.doc, variant: n, vname: n !== null && v._variants[n] ? v._variants[n].name : null,
+             engine: e.engine || null, year: e.year || null, label: e.label, sub: e.sub || '',
+             vin: e.vin || null, src, at: Date.now()};
+  const list = carHistory().filter(x => histKey(x) !== histKey(h));
+  // Browse picks a car in steps (Model, then Variant): the next step of the
+  // same car replaces the one before rather than filling the list
+  if (src === 'browse' && list[0] && list[0].src === 'browse' && list[0].doc === h.doc) list.shift();
+  saveCarHistory([h, ...list]);
+}
+function removeCarHistory(h) { saveCarHistory(carHistory().filter(x => histKey(x) !== histKey(h))); }
+// Browse: what the dropdowns now select, as a pick
+function recordBrowsePick() {
+  const v = vehicles.find(x => x.doc_id === docId());
+  if (!v) return;
+  const n = variantIdx(), eng = engineSel();
+  const g = eng && engineGroups(v).find(([f]) => f === eng);
+  recordCarHistory({doc: v.doc_id, variant: n, engine: n === null ? eng : null, year: null,
+                    label: currentCarLabel(),
+                    sub: g ? g[1].label : n !== null ? [v.model, ...(v._variants[n].engines || [])].join(' · ')
+                                        : v._variants.length ? 'whole generation' : ''}, 'browse');
+}
+// The pick as it stands in the current index: {e} to apply, plus a note when
+// it no longer fits and the whole series is used instead; {gone} when the
+// car's manual is not in this index any more.
+function resolveCarHistory(h) {
+  const v = vehicles.find(x => x.doc_id === h.doc);
+  if (!v) return {gone: true};
+  const fams = String(h.engine || '').split(',').filter(Boolean);
+  const e = {doc: v.doc_id, variant: null, engine: null, year: h.year || null,
+             label: h.label, sub: h.sub, vin: h.vin || null};
+  let ok;
+  if (h.variant !== null && h.variant !== undefined) {
+    const x = v._variants[h.variant];
+    ok = !!x && x.name === h.vname && fams.every(f => f in (x.engine_families || {}));
+    if (ok) { e.variant = h.variant; e.engine = h.engine || null; }
+  } else {
+    const all = Object.assign({}, ...v._variants.map(x => x.engine_families || {}));
+    ok = fams.every(f => f in all);
+    if (ok) e.engine = h.engine || null;
+  }
+  if (ok) return {e};
+  const engines = engineGroups(v).filter(([f]) => f).length;
+  return {e: {doc: v.doc_id, variant: null, engine: null, year: null,
+              label: `${v.year_range || ''} ${v.make || ''} ${v.model}`.replace(/\s+/g, ' ').trim(),
+              sub: engines > 1 ? `whole generation — all ${engines} engines` : 'whole generation'},
+          note: `“${h.label}” is not listed the same way in the manuals any more, so the whole `
+                + `${v.model} is selected` + (engines > 1 ? ' — pick your engine in Browse.' : '.')};
+}
+function applyCarHistory(h) {
+  const r = resolveCarHistory(h);
+  if (r.gone) {
+    removeCarHistory(h);
+    showCarHistory(`“${h.label}” is no longer in the manuals here; removed from the list.`);
+    return;
+  }
+  if (r.note) removeCarHistory(h);
+  applyCar(r.e);
+  $('#histNote')?.remove();
+  if (r.note) out.insertAdjacentHTML('afterbegin',
+    `<div class="card" id="histNote"><div class="warnbox">${esc(r.note)}</div></div>`);
+}
+// the list under the box; false when there is nothing to show
+function showCarHistory(note) {
+  const list = $('#carList'), hist = carHistory();
+  list._items = hist.map(h => ({hist: h}));
+  list._hist = true;
+  carSel = -1;                        // nothing highlighted: Enter keeps the car
+  if (!hist.length && !note) { list.hidden = true; list.innerHTML = ''; return false; }
+  list.innerHTML = (note ? `<div class="histnote" role="status">${esc(note)}</div>` : '')
+    + (hist.length
+      ? `<div class="histhead"><span>Recent cars on this device</span>`
+        + `<button type="button" class="histclear">Clear history</button></div>`
+        + hist.map((h, k) =>
+            `<div class="opt hist" data-k="${k}"><div class="histtext"><div>${esc(h.label)}</div>`
+            + (h.sub || h.vin ? `<div class="sub">${esc([h.sub, h.vin && !String(h.sub).includes(h.vin) ? 'VIN ' + h.vin : '']
+                                                         .filter(Boolean).join(' · '))}</div>` : '')
+            + `</div><button type="button" class="histx" data-x="${k}" title="Remove from this list"`
+            + ` aria-label="Remove ${esc(h.label)} from recent cars">×</button></div>`).join('')
+      : '');
+  list.hidden = false;
+  list.querySelectorAll('.opt[data-k]').forEach(o => o.onmousedown = ev => {
+    if (ev.target.closest('button')) return;
+    ev.preventDefault(); applyCarHistory(list._items[+o.dataset.k].hist);
+  });
+  // buttons: the mouse must not take the focus from the box (its blur closes
+  // the list); a keyboard press (detail 0) gives it back to the box
+  list.querySelectorAll('button').forEach(b => b.onmousedown = ev => ev.preventDefault());
+  list.querySelectorAll('.histx').forEach(b => b.onclick = ev => {
+    removeCarHistory(list._items[+b.dataset.x].hist);
+    showCarHistory();
+    if (ev.detail === 0) $('#carInput').focus();
+  });
+  const clear = list.querySelector('.histclear');
+  if (clear) clear.onclick = ev => {
+    try { localStorage.removeItem(CARHIST); } catch (_) {}
+    list.hidden = true;
+    if (ev.detail === 0) $('#carInput').focus();
+  };
+  return true;
+}
+// shown only while the box is empty or still says the selected car: typing
+// replaces it with the normal suggestions
+const carBoxUnchanged = () => { const t = $('#carInput').value.trim(); return !t || t === carBoxLabel.trim(); };
 // A VIN is one token of 10-17 VIN characters with several digits. Spaces
 // used to be removed first, so "mercedes 190" (11 letters and digits) was
 // decoded as a VIN; a car name that matches a car is never treated as one.
+// I, O and Q count (a VIN never has them) so that a mistyped one gets its own
+// message and the fix instead of "No match"; so do hyphens ("WDB-…").
 const looksLikeVin = s => {
-  const t = s.trim();
-  return /^[A-HJ-NPR-Z0-9]{10,17}$/i.test(t) && (t.match(/\d/g) || []).length >= 4 && /[A-Z]/i.test(t);
+  const t = s.trim().replace(/-/g, '');
+  return /^[A-Z0-9]{10,18}$/i.test(t) && (t.match(/\d/g) || []).length >= 4 && /[A-Z]/i.test(t);
 };
+// the VIN with the characters at `changed` (0-based) marked, for showing a
+// correction
+// (`unsure`: where several reads of a photo disagreed, underlined)
+const vinMarked = (vin, changed, unsure) => [...vin].map((c, i) =>
+  (changed || []).includes(i) ? `<mark class="vinfix">${esc(c)}</mark>`
+  : (unsure || []).includes(i) ? `<u class="vinunsure">${esc(c)}</u>` : esc(c)).join('');
 $('#carInput').addEventListener('input', () => {
   const q = $('#carInput').value.trim();
-  if (!q) { $('#carList').hidden = true; return; }
+  if (!q) { showCarHistory(); return; }
   if (looksLikeVin(q) && !carMatches(q).hits.length) {
     const e = carFromVin(q);
-    if (e.error) { $('#carList').innerHTML = `<div class="opt"><div class="sub">${esc(e.error)}</div></div>`;
-                   $('#carList').hidden = false; $('#carList')._items = []; carSel = -1; return; }
+    if (e.error) {
+      // I/O/Q: one tap puts the corrected VIN in the box; it is decoded (and
+      // checked) like a typed one, never applied on its own
+      $('#carList').innerHTML = `<div class="opt"><div class="sub errnote">${esc(e.error)}</div></div>`
+        + (e.fixed && e.changed && e.changed.length
+           ? `<div class="opt" id="vinFixOpt"><div>Use <span class="vinmono">${vinMarked(e.fixed, e.changed)}</span></div></div>` : '');
+      $('#carList').hidden = false; $('#carList')._items = []; carSel = -1;
+      const fix = $('#vinFixOpt');
+      if (fix) fix.onmousedown = ev => {
+        ev.preventDefault();
+        $('#carInput').value = e.fixed;
+        $('#carInput').dispatchEvent(new Event('input'));
+      };
+      return;
+    }
     return showCarList([e]);
   }
   const {hits} = carMatches(q);
@@ -1393,19 +1960,184 @@ $('#carInput').addEventListener('keydown', ev => {
   if (list.hidden || !items.length) return;
   if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
     ev.preventDefault();
-    carSel = (carSel + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-    list.querySelectorAll('.opt').forEach((o, k) => o.classList.toggle('on', k === carSel));
+    // recent cars start with nothing highlighted: ArrowUp goes to the last
+    carSel = carSel < 0 && ev.key === 'ArrowUp' ? items.length - 1
+           : (carSel + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    list.querySelectorAll('.opt[data-k]').forEach((o, k) => o.classList.toggle('on', k === carSel));
+    list.querySelector('.opt.on')?.scrollIntoView({block: 'nearest'});
   } else if (ev.key === 'Enter') {
-    ev.preventDefault(); applyCar(items[Math.max(carSel, 0)]);
+    ev.preventDefault();
+    if (!list._hist) applyCar(items[Math.max(carSel, 0)]);
+    else if (carSel >= 0) applyCarHistory(items[carSel].hist);
+    else list.hidden = true;
   } else if (ev.key === 'Escape') { list.hidden = true; setCarBox(carBoxLabel); }
 });
 // Escape with no list open (e.g. after "Pick your car from the list first")
 $('#carInput').addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && $('#carList').hidden) setCarBox(carBoxLabel);
 });
-$('#carInput').addEventListener('focus', () => $('#carInput').select());
-$('#carInput').addEventListener('blur', () => setTimeout(() => $('#carList').hidden = true, 150));
-$('#browseBtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; };
+$('#carInput').addEventListener('focus', () => {
+  $('#carInput').select();
+  if (carBoxUnchanged()) showCarHistory();
+});
+// closed when the focus leaves the box -- not when it moves onto the list's
+// own buttons (Tab reaches "Clear history" and each ×)
+// In the car sheet (phone) the list sits in the sheet's flow, not over it:
+// closing it there on a tap elsewhere moved what was under the finger
+// (Send to desk, Pick your engine) before the tap landed. The sheet closing
+// closes it.
+const sheetOpen = () => document.body.classList.contains('sheet');
+const carListLeft = () => setTimeout(() => {
+  if (!sheetOpen() && !$('.carfield').contains(document.activeElement)) $('#carList').hidden = true;
+}, 150);
+$('#carInput').addEventListener('blur', carListLeft);
+$('#carList').addEventListener('focusout', carListLeft);
+// a tap anywhere else closes it too
+document.addEventListener('pointerdown', ev => {
+  if (!$('#carList').hidden && !sheetOpen() && !ev.target.closest('.carfield')) $('#carList').hidden = true;
+});
+$('#browseBtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; $('#carList').hidden = true; };
+
+// -- send to desk / cars waiting (handoff.py) ---------------------------------
+// A phone sends the car it picked -- the pick itself (vehicle, variant index,
+// engine, year, VIN), never a label -- and the desk PC shows "Car waiting from
+// <name>" with Open. Open checks the pick against this page's own vehicle list
+// and applies it through applyCar, like a suggestion clicked in the car box.
+// No websockets: the desk asks every 15 s while it is visible, and at once
+// when it regains focus; other devices every 60 s.
+// Hook for other features (a VIN scanner): pick the car with applyCar(), then
+// call sendToDesk().
+const SENT_KEY = 'autorundown.sentToDesk';
+const sentHere = () => { try { return JSON.parse(localStorage.getItem(SENT_KEY) || '[]'); } catch (_) { return []; } };
+function currentPick() {
+  if (!docId()) return null;
+  const vin = (carPick && carPick.vin) || null;   // the VIN dialog goes through applyCar too
+  return {doc_id: docId(), variant: variantIdx(), engine: engineSel(), year: yearSel(), vin};
+}
+async function sendToDesk() {
+  const pick = currentPick(), note = $('#sendDeskNote');
+  if (!pick) { note.textContent = 'Pick a car first.'; return false; }
+  $('#sendDesk').disabled = true;
+  try {
+    const r = await api('/api/handoff', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                         body: JSON.stringify(pick)});
+    // this device's own sends are not offered back to it as "waiting"
+    try { localStorage.setItem(SENT_KEY, JSON.stringify([r.id, ...sentHere()].slice(0, 20))); } catch (_) {}
+    note.textContent = `Sent: ${r.label} is waiting on the desk.`;
+    return true;
+  } catch (e) {
+    note.textContent = e.message;
+    return false;
+  } finally {
+    $('#sendDesk').disabled = false;
+  }
+}
+window.sendToDesk = sendToDesk;
+$('#sendDesk').onclick = sendToDesk;
+// the button: any device but the desk itself, once a car has been picked on
+// this device (not the car a fresh page starts on)
+function updateSendDesk() {
+  const row = $('#sendDeskRow');
+  row.hidden = me.admin || !docId() || !carHistory().length;
+  if (row.hidden) return;
+  if (!$('#sendDeskNote').dataset.doc || $('#sendDeskNote').dataset.doc !== docId()) {
+    $('#sendDeskNote').textContent = '';
+    $('#sendDeskNote').dataset.doc = docId();
+  }
+  // sign-in off: say plainly who else sees it
+  $('#sendDeskHelp').hidden = me.signed_in;
+  $('#sendDeskHelp').textContent = me.signed_in ? '' :
+    'Sign-in is off in this shop, so a car sent from here is shown on the desk PC and on any '
+    + 'device on the shop network that is not signed in. Its VIN goes with it.';
+}
+
+const agoText = t => {
+  const m = Math.round((Date.now() / 1000 - t) / 60);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
+};
+let deskCars = [], deskTimer = null;
+async function loadDeskCars() {
+  clearTimeout(deskTimer);
+  if (document.visibilityState === 'visible') {
+    try {
+      const r = await api('/api/handoff');
+      const mine = new Set(sentHere());
+      deskCars = r.cars.filter(c => !mine.has(c.id));
+      drawDeskCars();
+    } catch (e) {
+      if (e.status === 401) return;          // signed out: the sign-in box says so
+    }
+  }
+  deskTimer = setTimeout(loadDeskCars, me.admin ? 15000 : 60000);
+}
+function drawDeskCars() {
+  const box = $('#deskCars');
+  // the desk's inbox: on a phone it pushed the answer half a screen down
+  box.hidden = !deskCars.length || (!me.admin && phone());
+  box.innerHTML = deskCars.map(c =>
+    `<div class="deskcar" data-hid="${+c.id}"><span class="what">Car waiting from `
+    + `<b>${esc(c.from)}</b>: ${esc(c.label)}${c.vin ? ` (VIN ${esc(c.vin)})` : ''} `
+    + `<span class="when">· ${esc(agoText(c.created))}</span></span>`
+    + `<button type="button" data-open="${+c.id}">Open</button>`
+    + `<button type="button" class="x" data-dismiss="${+c.id}" title="Dismiss" aria-label="Dismiss">&times;</button></div>`
+  ).join('');
+}
+// the pick checked against this page's vehicle list, as a car-box entry
+function waitingEntry(c) {
+  const v = vehicles.find(x => x.doc_id === c.doc_id);
+  if (!v) return {error: 'That car’s manual is not in this shop’s index any more.'};
+  const n = c.variant;
+  if (n !== null && n !== undefined && !(Number.isInteger(n) && n >= 0 && n < v._variants.length))
+    return {error: 'That model is not in this car’s list any more.'};
+  const x = n !== null && n !== undefined ? v._variants[n] : null;
+  if (c.engine) {
+    const known = new Set((x ? [x] : v._variants).flatMap(y =>
+      [...Object.keys(y.engine_families || {}), ...famsOf(y, Object.keys(y.engine_by_bm || {}))]));
+    if (!String(c.engine).split(',').every(f => known.has(f)))
+      return {error: 'That engine does not fit the car any more.'};
+  }
+  const make = v.make || '';
+  const label = x ? `${c.year || ''} ${make} ${x.name}`.trim()
+                  : `${c.year || v.year_range || ''} ${make} ${v.model}`.trim();
+  const fams = c.engine ? String(c.engine).split(',') : [];
+  const engs = fams.map(f => (x ? x.engine_families : null)?.[f]
+    || v._variants.map(y => (y.engine_families || {})[f]).find(Boolean) || `Engine ${f}`);
+  return {label, sub: `from ${c.from}` + (x ? ` · ${v.model}` : '') + (engs.length ? ` · ${engs.join(' or ')}` : ''),
+          doc: v.doc_id, variant: x ? n : null, engine: c.engine || null, year: c.year || null,
+          vin: c.vin || null};
+}
+async function dismissDeskCar(id) {
+  deskCars = deskCars.filter(c => c.id !== id);
+  drawDeskCars();
+  await api(`/api/handoff/${id}/dismiss`, {method: 'POST'}).catch(() => {});
+}
+$('#deskCars').addEventListener('click', ev => {
+  const open = ev.target.closest('[data-open]'), dis = ev.target.closest('[data-dismiss]');
+  if (dis) return dismissDeskCar(+dis.dataset.dismiss);
+  if (!open) return;
+  const c = deskCars.find(x => x.id === +open.dataset.open);
+  if (!c) return;
+  const e = waitingEntry(c);
+  if (e.error) {
+    open.closest('.deskcar').querySelector('.when').textContent = '· ' + e.error;
+    return;
+  }
+  if (location.hash.startsWith('#/setup')) location.hash = '';
+  applyCar(e);
+  // "Any M272" picked from Browse on the phone: the same menu entry here
+  if (e.variant === null && e.engine && !e.year
+      && [...$('#variant').options].some(o => o.value === `e:${e.engine}`)) {
+    $('#variant').value = `e:${e.engine}`;
+    rememberPick();
+    showScope();
+  }
+  dismissDeskCar(c.id);            // opened: done with it
+  $('#q').focus();
+});
+addEventListener('focus', () => { if (booted) loadDeskCars(); });
+document.addEventListener('visibilitychange', () => {
+  if (booted && document.visibilityState === 'visible') loadDeskCars();
+});
 
 // Documents are filed per generation, not per variant. Say what a choice
 // actually searches, so a variant name doesn't imply a precision the manuals
@@ -1448,12 +2180,22 @@ function showLabourLink(v) {
 function showScope() {
   const v = vehicles.find(x => x.doc_id === docId());
   const note = $('#scopeNote');
+  updateSendDesk();
   syncTabs();
-  // the open tab follows a new variant / engine: labour times and the oil
-  // figure are per model and engine
-  if (curTab === 'labour') showLabourTab();
-  else if (curTab === 'capacity') { if (!out.innerHTML.trim()) out.innerHTML = tabEmpty('capacity'); showOilCard(); }
-  else if (!out.innerHTML.trim()) out.innerHTML = tabEmpty(curTab);
+  updatePill();
+  // the tabs follow a new variant / engine: a question already asked is
+  // searched again for it (labour times and the oil figure are per model and
+  // engine); without one, the tabs say what they will show
+  // (only for the same car: another car starts with no question -- its
+  // answer area is empty, the tabs are too)
+  if (tabQuery && tabQuery.doc === docId()) fillTabs(tabQuery.q, tabQuery.also);
+  else {
+    if (tabQuery) resetTabs();
+    for (const t of ['parts', 'capacity', 'torque']) if (!$(PANE[t]).innerHTML.trim()) $(PANE[t]).innerHTML = tabEmpty(t);
+    if (curTab === 'labour') showLabourTab();
+    if (curTab === 'capacity') showOilCard();
+  }
+  if (!out.innerHTML.trim()) out.innerHTML = emptyState();
   $('#saBtn').hidden = $('#labBtn').hidden = !WIS_SOURCE.test(v?.source_name || '');
   if (!v || !v._variants.length) { note.hidden = true; return; }
   setTimeout(() => { showLabourLink(v); showOil(v); });
@@ -1473,8 +2215,16 @@ function showScope() {
   } else if (n === null) {
     const engines = engineGroups(v).filter(([f]) => f).length;
     if (engines > 1) {
-      note.textContent = `This ${v.model} was built with ${engines} different engines, so answers `
-        + `mix them (V6, V8, diesel …). Pick your engine above for exact specs.`;
+      // the car's own engines, not a stock list ("V6, V8, diesel" on a car
+      // that was never a diesel)
+      const labels = engineGroups(v).filter(([f]) => f).map(([, g]) => g.label);
+      note.textContent = `This ${v.model} was built with ${engines} different engines (`
+        + labels.slice(0, 6).join(', ') + (labels.length > 6 ? ', …' : '')
+        + `), so answers mix them. `;
+      const pick = document.createElement('button');
+      pick.type = 'button'; pick.className = 'pickeng'; pick.textContent = 'Pick your engine';
+      pick.onclick = () => openSheet(true);
+      note.append(pick, ' for exact specs.');
       note.classList.add('pickhint');
     } else {
       note.textContent = `Searching the ${v.model} manual (all ${v._variants.length} variants)`
@@ -1525,18 +2275,144 @@ $('#model').onchange = async () => {
 // On a phone the source panel covers the screen. It opens only when asked
 // for (a page, a diagram button), and the phone's Back gesture closes it
 // instead of leaving the app.
+// On a phone (700 px and less) the page is the "Document" view of the one
+// screen instead, switched by Answer | Document; the same history entry
+// makes Back return to the answer.
 const narrow = () => window.innerWidth <= 900;
+const PHONE = matchMedia('(max-width:700px)');
+const phone = () => PHONE.matches;
+function setPane(doc) {
+  document.body.classList.toggle('docview', doc);
+  $('#segAnswer').setAttribute('aria-selected', String(!doc));
+  $('#segDoc').setAttribute('aria-selected', String(doc));
+  if (doc) $('#segDot').hidden = true;
+}
+const docShown = () => phone() ? document.body.classList.contains('docview')
+                               : $('#right').classList.contains('open');
 function openRight() {
+  if (phone()) {
+    if (document.body.classList.contains('docview')) return;
+    setPane(true);
+    history.pushState({...(history.state || {}), panel: 1}, '');
+    $('#right').scrollTop = 0;
+    return;
+  }
   if (!narrow() || $('#right').classList.contains('open')) return;
   $('#right').classList.add('open');
   history.pushState({panel: 1}, '');
 }
+function hideRight() { $('#right').classList.remove('open'); setPane(false); }
 function closeRight() {
-  if (!$('#right').classList.contains('open')) return;
-  if (history.state && history.state.panel) history.back();   // popstate closes it
-  else $('#right').classList.remove('open');
+  if (!docShown()) return;
+  // hidden at once (a second call before popstate must not go back twice),
+  // and the entry openRight added is taken off
+  hideRight();
+  if (history.state && history.state.panel) history.back();
 }
-addEventListener('popstate', () => $('#right').classList.remove('open'));
+// results are drawn in the Answer view: switch to it, and put the keyboard away
+function toAnswerView() {
+  if (!phone()) return;
+  closeRight();
+  $('#q').blur();
+}
+
+// -- the car sheet (phone): the car box, Browse, VIN, the scope note and
+// Options, full screen; Back or Done closes it
+function openSheet(toVariant) {
+  if (phone() && !document.body.classList.contains('sheet')) {
+    document.body.classList.add('sheet');
+    history.pushState({...(history.state || {}), sheet: 1}, '');
+    // the recent cars on this phone, one tap each (without focusing the box,
+    // which would bring the keyboard up over them)
+    if (!toVariant && carBoxUnchanged()) showCarHistory();
+  }
+  if (toVariant && !$('#variant').hidden) {
+    $('#picker').hidden = false;
+    $('#variant').focus();
+  }
+}
+function closeSheetNow() { document.body.classList.remove('sheet'); $('#carList').hidden = true; }
+function closeSheet() {
+  if (!document.body.classList.contains('sheet')) return;
+  closeSheetNow();
+  if (history.state && history.state.sheet) history.back();
+}
+addEventListener('popstate', () => {
+  const s = history.state || {};
+  if (!s.sheet) closeSheetNow();
+  if (!s.panel) hideRight();
+});
+$('#carPill').onclick = () => openSheet(false);
+$('#sheetDone').onclick = () => {
+  // Done keeps the selected car, as Escape in the box does
+  if ($('#carInput').value.trim() !== carBoxLabel.trim()) setCarBox(carBoxLabel);
+  closeSheet();
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.body.classList.contains('sheet') && e.target !== $('#carInput')
+      && !document.querySelector('dialog[open]')) closeSheet();
+});
+$('#segAnswer').onclick = closeRight;
+$('#segDoc').onclick = openRight;
+// a swipe to the right on the page goes back to the answer (not on a wide
+// table or a diagram, which scroll sideways themselves)
+let swipe = null;
+$('#right').addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  swipe = phone() && e.touches.length === 1
+          && !e.target.closest('.tablewrap, .diawrap, .origframe, img') ? {x: t.clientX, y: t.clientY} : null;
+}, {passive: true});
+$('#right').addEventListener('touchend', e => {
+  if (!swipe) return;
+  const t = e.changedTouches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
+  swipe = null;
+  if (dx > 80 && Math.abs(dy) < 50) closeRight();
+}, {passive: true});
+// the soft keyboard is up while the question is being typed: the tab bar
+// steps aside so the question box sits right on top of the keyboard
+// (back a moment after the box loses focus: moving the question bar under a
+// finger tapping Ask made the tap miss the button)
+let kbdTimer = null;
+$('#q').addEventListener('focus', () => { clearTimeout(kbdTimer); document.body.classList.add('kbd'); });
+$('#q').addEventListener('blur', () => {
+  kbdTimer = setTimeout(() => document.body.classList.remove('kbd'), 350);
+});
+// the scope note, Send to desk and Options live in the car sheet on a phone
+function placeForWidth() {
+  const inSheet = $('#scopeNote').parentElement === $('#sheetMore');
+  if (phone() && !inSheet) {
+    $('#sheetMore').append($('#scopeNote'), $('#sendDeskRow'), $('#opts'));
+  } else if (!phone() && inSheet) {
+    $('#out').before($('#opts'), $('#scopeNote'), $('#sendDeskRow'));
+    closeSheetNow();
+  }
+  // the right box's tabs: its top on a wide screen, the bottom bar on a phone
+  if (phone() && $('#resTabs').parentElement === $('#right')) $('#out').before($('#resTabs'));
+  else if (!phone() && $('#resTabs').parentElement !== $('#right')) $('#srcout').before($('#resTabs'));
+  if (typeof drawDeskCars === 'function') drawDeskCars();
+}
+PHONE.addEventListener('change', placeForWidth);
+placeForWidth();
+
+// the car line on a phone: the car, and its engine (or that one is still to pick)
+function updatePill() {
+  const v = vehicles.find(x => x.doc_id === docId());
+  const car = (carBoxLabel || currentCarLabel()).trim();
+  $('#cpCar').textContent = car ? (v?.make ? car.replace(v.make + ' ', '') : car) : 'Choose your car';
+  let sub = '', hint = false;
+  if (v && car) {
+    const engines = engineGroups(v).filter(([f]) => f).length;
+    const n = variantIdx(), eng = engineSel();
+    if (v._variants.length && n === null && !eng && engines > 1) {
+      sub = `${engines} engines — tap to pick yours`; hint = true;
+    } else if (carPick && carPick.sub) sub = carPick.sub;
+    else if (eng) sub = engineGroups(v).find(([f]) => f === eng)?.[1].label || `Engine ${eng}`;
+    else if (n !== null && v._variants[n]) sub = [v.model, ...(v._variants[n].engines || [])].join(' · ');
+  }
+  $('#cpSub').textContent = sub;
+  $('#cpSub').classList.toggle('hint', hint);
+  $('#carPill').setAttribute('aria-label', `Change car: ${car || 'none chosen'}${sub ? '. ' + sub : ''}`);
+}
 
 // diagram refs may contain slashes (nested archives), so encode each
 // segment rather than the whole ref
@@ -1784,11 +2660,25 @@ function renderAnswer(d, doc = docId(), label = carBoxLabel) {
 function drawAnswer(d, label) {
   pageTitles = d.page_titles || {};
   sessionCost += d.usage?.cost_usd || 0;
+  if (d.usage && d.usage.calls && d.usage.cost_usd == null) costUntracked = true;
   $('#cost').textContent = '$' + sessionCost.toFixed(4) + ' this session'
+    + (costUntracked ? ' (some cost not tracked)' : '')
     + (d.usage?.model ? ' · ' + d.usage.model.replace('claude-', '') : '');
 
   let h = '';
-  if (!d.found) {
+  // _verify_citations withholds an answer left with no real citation and
+  // says so in caveats; that is not "the manual doesn't have it"
+  const WITHHELD = /\s*Answer withheld:[^]*$/i;
+  if (!d.found && WITHHELD.test(d.caveats || '')) {
+    const rest = (d.caveats || '').replace(WITHHELD, '').trim();
+    h += `<div class="card"><div class="withheld" role="status">
+      <strong>No checked answer — the AI's sources couldn't be verified</strong>
+      <div style="margin-top:6px">The AI's answer didn't cite a manual page that was actually searched,
+        so it isn't shown. The keyword search lists the manual's own pages for the same question.</div>
+      ${rest ? `<div class="muted" style="margin-top:6px">${esc(rest)}</div>` : ''}
+      <button type="button" class="ghost" data-searchinstead>Search the manual instead</button>
+    </div></div>`;
+  } else if (!d.found) {
     h += `<div class="card"><div class="notfound">
       <strong>Not found in this archive.</strong>
       <div class="muted" style="margin-top:6px">${esc(d.caveats) || 'The manual pages searched did not contain this.'}</div>
@@ -1809,7 +2699,8 @@ function drawAnswer(d, label) {
       const t = pageTitles[String(d.document_page)] || '';
       h += `<button type="button" class="docbtn" ${pageAttrs(d.document_page)}>`
          + `<span class="muted">Manual page ${esc(d.document_page)}</span>`
-         + `<b>${esc(t) || 'Open the manual page'}</b></button>`;
+         + `<b>${esc(t) || 'Open the manual page'}</b>`
+         + `<span class="docgo" aria-hidden="true">Open manual page &rsaquo;</span></button>`;
     }
     if (d.specs.length) h += specTable(d.specs);
     if (d.figures?.length) {
@@ -1852,12 +2743,21 @@ function drawAnswer(d, label) {
   h += `<div class="muted">searched: ${d.queries.map(esc).join(' &middot; ')}</div>`;
   out.innerHTML = h;
 
-  // the cited document opens on the right. On a phone the panel would cover
-  // the answer, so there it waits for a tap on the button above.
-  if (d.found && d.document_page && !narrow()) showPage(d.document_page, viewDoc());
+  // the cited document opens on the right. On a phone the page would cover
+  // the answer, so there it is loaded into the Document view and waits (a
+  // dot on "Document") for a tap on the button above.
+  if (d.found && d.document_page) {
+    showPage(d.document_page, viewDoc(), !narrow());
+    $('#segDot').hidden = !phone() || docShown();
+  } else {
+    // the last answer's page would read as this answer's source
+    pageSeq++;                        // and one still loading must not land
+    srcout.innerHTML = '<p class="muted nopage">No manual page for this answer.</p>';
+    $('#segDot').hidden = true;
+  }
 }
 
-let asking = false;
+let asking = false, lastAsked = '';
 async function ask() {
   const q = $('#q').value.trim();
   // each call is a paid request: Enter pressed again while one is running
@@ -1865,15 +2765,20 @@ async function ask() {
   if (!q || asking) return;
   if (!carBoxMatches()) return;
   const doc = docId(), label = carBoxLabel;
+  lastAsked = q;
+  toAnswerView();
   asking = true;
   $('#askBtn').disabled = true;
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching the manual&hellip;</div>`;
   try {
-    renderAnswer(await api('/api/ask', {
+    const d = await api('/api/ask', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({doc_id:doc, question:q, include_other_variants:variants(),
                             model:model(), variant:variantIdx(), engine:engineSel(), year:yearSel()})
-    }, 240000), doc, label);
+    }, 240000);
+    renderAnswer(d, doc, label);
+    // the right box's other tabs, from the AI's own search terms (free)
+    if (docId() === doc) fillTabs(q, d.queries || []);
   } catch (e) {
     out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   } finally {
@@ -1889,7 +2794,9 @@ async function keywordSearch() {
   if (!carBoxMatches()) return;
   // a slow reply for an earlier search must not replace a later one
   const seq = ++searchSeq, doc = docId(), label = carBoxLabel;
+  toAnswerView();
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
+  fillTabs(q, [q]);                   // the right box's tabs, for the same words
   try {
     const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}`
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
@@ -2082,11 +2989,13 @@ function followXref(i) {
 }
 
 let pageSeq = 0;
-async function showPage(pageNo, doc) {
+// open=false loads the page without showing it (an answer's page on a phone)
+async function showPage(pageNo, doc, open = true) {
   doc = doc || docId();
   const seq = ++pageSeq;      // the page clicked last wins, not the slowest
+  setTab('workshop');         // a page opens on the right box's Manual page tab
   srcout.innerHTML = `<span class="spinner"></span>`;
-  openRight();
+  if (open) openRight();
   try {
     const p = await api(`/api/page/${encodeURIComponent(doc)}/${encodeURIComponent(pageNo)}`);
     if (seq !== pageSeq) return;
@@ -2169,18 +3078,16 @@ document.addEventListener('click', e => {
 
 $('#closeRight').onclick = closeRight;
 if (narrow()) $('#q').placeholder = 'Ask about this car…';   // the Workshop tab's; setTab sets the others
-// -- result tabs: Workshop, Parts, Labour times, Capacities, Torque specs -----
-// One results area; each tab keeps what it last showed, so switching back
-// does not lose it. The question box is shared: Ask answers on Workshop,
-// Search searches the open tab. Every tab searches within the chosen car.
-let curTab = 'workshop', tabHtml = {};
-const TAB_HINT = {
-  workshop: 'Torque for the front caliper anchor plate bolts?',
-  parts: 'A part — e.g. glow plug, oil filter, front brake pads',
-  labour: 'An operation — e.g. water pump, brake pads',
-  capacity: 'What to fill — e.g. engine oil, coolant, transmission',
-  torque: "What's being tightened — e.g. cylinder head, wheel bolts",
-};
+// -- the right box's tabs: Manual page, Parts, Labour times, Capacities,
+// Torque specs. One question fills them all (the user, 2026-10-16: "a user
+// asks a question and AI can populate everything in those fields"): after an
+// Ask, each tab is searched with the AI's own search terms (d.queries); after
+// a Search, with the words typed. Keyword searches only -- no extra AI call,
+// and every row links to its manual or catalogue page. The left side holds
+// the answer (or the keyword list); the tabs never replace it.
+let curTab = 'workshop', tabQuery = null, tabSeq = 0;
+const PANE = {workshop: '#srcout', parts: '#rpParts', labour: '#tabLabour',
+              capacity: '#rpCapacity', torque: '#rpTorque'};
 // which tabs this car has: parts only with a parts catalogue joined (or a
 // parts-only car), labour times and the oil figure only from WIS
 function tabsFor(v) {
@@ -2199,28 +3106,41 @@ function syncTabs() {
 function tabEmpty(t) {
   const label = carBoxLabel || currentCarLabel();
   if (!docId() || !label) return '';
-  if (t === 'workshop') return emptyState();
-  const what = {parts: 'the parts catalogue (part numbers, which models they fit, quantities)',
-                capacity: 'capacities (litres, quarts) printed in the manual',
-                torque: 'torque values printed in the manual'}[t];
-  return `<div class="empty">Search ${what} for <b>${esc(label)}</b>.</div>`;
+  const what = {parts: 'the parts it names from the parts catalogue (part numbers, which models they fit)',
+                capacity: 'the capacities (litres, quarts) the manual prints for it',
+                torque: 'the torque values the manual prints for it'}[t];
+  return `<div class="empty">Ask a question or search: ${what} for <b>${esc(label)}</b> show here.</div>`;
+}
+// what the tab shows before any question, or after the car changed
+function resetTabs() {
+  tabQuery = null; ++tabSeq;
+  for (const t of ['parts', 'capacity', 'torque']) $(PANE[t]).innerHTML = tabEmpty(t);
+  document.querySelectorAll('#resTabs .tcount').forEach(c => { c.hidden = true; c.textContent = ''; });
+  document.querySelectorAll('#resTabs button').forEach(b => b.classList.remove('none'));
+}
+function setCount(t, n) {
+  const b = document.querySelector(`#resTabs [data-tab="${t}"]`), c = b?.querySelector('.tcount');
+  if (!c) return;
+  c.hidden = n === null; c.textContent = n === null ? '' : String(n);
+  b.classList.toggle('none', n === 0);
 }
 function setTab(t) {
-  if (t === curTab && !$('#resTabs').hidden) { if (t === 'labour') showLabourTab(); return; }
-  if (curTab !== 'labour') tabHtml[curTab] = out.innerHTML;
   curTab = t;
+  document.body.dataset.tab = t;
   document.querySelectorAll('#resTabs [data-tab]').forEach(b => {
     b.setAttribute('aria-selected', b.dataset.tab === t);
     b.tabIndex = b.dataset.tab === t ? 0 : -1;
   });
-  $('#tabLabour').hidden = t !== 'labour';
-  out.hidden = t === 'labour';
-  $('#q').placeholder = narrow() && t === 'workshop' ? 'Ask about this car…' : TAB_HINT[t];
-  if (t === 'labour') { showLabourTab(); return; }
-  out.innerHTML = tabHtml[t] || tabEmpty(t);
+  for (const [k, sel] of Object.entries(PANE)) $(sel).hidden = k !== t;
+  if (t === 'labour' && !tabQuery) showLabourTab();
   if (t === 'capacity') showOilCard();
 }
-document.querySelectorAll('#resTabs [data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+document.body.dataset.tab = curTab;
+// a tab is a view of the right box: on a phone it opens the Document view
+document.querySelectorAll('#resTabs [data-tab]').forEach(b => b.onclick = () => {
+  setTab(b.dataset.tab);
+  openRight();
+});
 $('#resTabs').addEventListener('keydown', e => {
   if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
   const tabs = [...document.querySelectorAll('#resTabs [data-tab]')].filter(b => !b.hidden);
@@ -2247,23 +3167,26 @@ const VALUE_HL = {
 const valueLinesHtml = (lines, kind) => `<ul class="vlines">` + lines.map(l =>
   `<li>${esc(l).replace(VALUE_HL[kind], '<span class="torque">$&</span>')}</li>`).join('') + `</ul>`;
 
-let tabSeq = 0;
-async function tabSearch(tab) {
-  const q = $('#q').value.trim();
-  if (!q) { $('#q').focus(); $('#q').placeholder = TAB_HINT[tab]; return; }
-  if (!carBoxMatches()) return;
-  const seq = ++tabSeq, doc = docId(), label = carBoxLabel;
-  out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
+// One tab of the right box for the current question: q is what was typed,
+// also the AI's search terms (after an Ask). The server merges them
+// round-robin, as the answer's own retrieval does.
+async function tabSearch(tab, q, also, seq) {
+  const pane = $(PANE[tab]), doc = docId(), label = carBoxLabel;
+  pane.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
   try {
     const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}&tab=${tab}`
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
+      + also.map(a => `&also=${encodeURIComponent(a)}`).join('')
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
       + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
-    if (seq !== tabSeq || curTab !== tab) return;
-    const none = {parts: 'No part in this car’s parts catalogue matches.',
-                  torque: 'No torque value found for that in this car’s manual pages.',
-                  capacity: 'No capacity found for that in this car’s manual pages.'}[tab];
-    out.innerHTML = withDoc(doc, () => resultsFor(label)
+    if (seq !== tabSeq) return;
+    setCount(tab, rows.length);
+    const none = {parts: 'No part in this car’s parts catalogue matches this question.',
+                  torque: 'No torque value for this question in this car’s manual pages.',
+                  capacity: 'No capacity for this question in this car’s manual pages.'}[tab];
+    pane.innerHTML = withDoc(doc, () => resultsFor(label)
+      + `<div class="muted" style="margin:0 0 8px">For: <b>${esc(q)}</b>`
+      + (also.length ? ` &middot; searched ${also.map(esc).join(' &middot; ')}` : '') + `</div>`
       + (tab !== 'parts' && rows.length ? `<div class="muted" style="margin:0 0 8px">Lines from the
           manual pages below; tables often list several engines or models &mdash; open the page to
           check the row is yours.</div>` : '')
@@ -2275,8 +3198,36 @@ async function tabSearch(tab) {
         : `<div class="card"><div class="notfound">${none}</div></div>`));
     if (tab === 'capacity') showOilCard();
   } catch (e) {
-    if (seq === tabSeq) out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
+    if (seq === tabSeq) pane.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   }
+}
+// Labour times: an operation must hold every word searched, so each search
+// term is tried alone, without words that name a value ("torque",
+// "capacity"), until one finds operations
+const LAB_STOP = /\b(torques?|tightening|nm|capacity|capacities|specs?|specifications?|values?|how|much|what|is|the|for|of)\b/gi;
+async function labourFor(terms, seq) {
+  const v = vehicles.find(x => x.doc_id === docId());
+  $('#labCar').textContent = carBoxLabel || v?.model || '';
+  labFor = docId() + '::' + variantIdx();
+  if (variantIdx() === null) { labQuery = ''; await loadLabour(); setCount('labour', null); return; }
+  for (const t of terms) {
+    const words = t.replace(LAB_STOP, ' ').replace(/\s+/g, ' ').trim();
+    if (!words) continue;
+    labQuery = words;
+    const n = await loadLabour();
+    if (seq !== tabSeq) return;
+    if (n) { setCount('labour', n); return; }
+  }
+  setCount('labour', 0);
+}
+// After an Ask (terms = the AI's search terms) or a Search (the words typed):
+// every tab this car has, searched for the same question
+function fillTabs(q, terms) {
+  const seq = ++tabSeq, v = vehicles.find(x => x.doc_id === docId()), have = tabsFor(v);
+  const also = terms.filter(t => t.toLowerCase() !== q.toLowerCase()).slice(0, 4);
+  tabQuery = {q, also, doc: docId()};
+  for (const t of ['parts', 'capacity', 'torque']) if (have[t]) tabSearch(t, q, also, seq);
+  if (have.labour) labourFor([...also, q], seq);
 }
 // Capacities: WIS's own engine oil figure for the chosen engine, on top
 let oilCardSeq = 0;
@@ -2300,32 +3251,29 @@ async function showOilCard() {
       `<span class="torque">${esc(String(r.litres).replace(/\.0$/, ''))} ${esc(r.unit)}</span>`
       + (many ? ` (${esc(r.engine)})` : '') + (r.note ? ` ${esc(r.note)}` : '')).join('; ');
   }
-  if (seq !== oilCardSeq || curTab !== 'capacity') return;
+  if (seq !== oilCardSeq) return;
   $('#oilCard')?.remove();
-  out.insertAdjacentHTML('afterbegin', `<div class="card" id="oilCard">${html}</div>`);
-}
-function runSearch() {
-  if (curTab === 'workshop') return keywordSearch();
-  if (curTab === 'labour') { $('#labQ').value = $('#q').value.trim(); return loadLabour(); }
-  return tabSearch(curTab);
+  $('#rpCapacity').insertAdjacentHTML('afterbegin', `<div class="card" id="oilCard">${html}</div>`);
 }
 
-$('#askBtn').onclick = () => { if (curTab !== 'workshop') setTab('workshop'); ask(); };
-$('#searchBtn').onclick = runSearch;
+$('#askBtn').onclick = ask;
+$('#searchBtn').onclick = keywordSearch;
 $('#q').addEventListener('keydown', e => {
-  // Enter asks on Workshop; on the other tabs it searches the tab
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    if (curTab === 'workshop') ask(); else runSearch();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
 });
 
 function showModelPrice() {
   const m = modelList.find(x => x.id === $('#sModel').value);
-  $('#modelPrice').textContent = m
-    ? `$${m.price_in}/M input, $${m.price_out}/M output — roughly `
-      + `$${((6000/1e6)*m.price_in + (900/1e6)*m.price_out).toFixed(4)} per question`
-    : '';
+  if (!m) { $('#modelPrice').textContent = ''; return; }
+  if (m.price_in == null || m.price_out == null) {
+    $('#modelPrice').textContent = 'Price not known to AutoRundown: cost not tracked for this model.';
+    return;
+  }
+  $('#modelPrice').innerHTML = `$${m.price_in}/M input, $${m.price_out}/M output — roughly `
+    + `$${((6000/1e6)*m.price_in + (900/1e6)*m.price_out).toFixed(4)} per question`
+    + (m.offpeak_half ? ' at peak hours (half that off-peak)' : '')
+    + `. <span class="muted">Prices as listed on <a href="${esc(m.price_source)}" target="_blank" `
+    + `rel="noopener noreferrer">the provider’s price page</a> on ${esc(m.price_checked)}.</span>`;
 }
 
 // -- Shop setup: one page, #/setup/<section>, the PC only ---------------------
@@ -2376,13 +3324,16 @@ async function loadSetup() {
   $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
   $('#sAutostart').checked = !!s.autostart;
   $('#sSignin').checked = !!s.require_signin;
-  $('#sKey').placeholder = s.has_api_key ? 'leave empty to keep the saved key' : 'sk-ant-…';
+  showProvider(s);
+  showKeyMode(s);
+  const prov = curProvider(s);
+  $('#sKey').placeholder = s.has_api_key ? 'leave empty to keep the saved key' : prov.key_hint;
   $('#keyStatus').innerHTML = s.has_api_key
     ? `<span style="color:var(--good)">&#10003; Key saved</span>`
-      + (s.key_source === 'environment' ? ' (from the ANTHROPIC_API_KEY environment variable)' : '')
+      + (s.key_source === 'environment' ? ` (from the ${esc(s.key_env)} environment variable)` : '')
       + '. Type a new one only to replace it.'
-    : `<span style="color:var(--warn)">No key yet.</span> Ask is off until you add one; keyword search works `
-      + `without it. Get a key at console.anthropic.com.`;
+    : `<span style="color:var(--warn)">No ${esc(prov.short)} key yet.</span> Ask is off until you add one; `
+      + `keyword search works without it. “Get a key” above opens ${esc(prov.short)}’s key page.`;
   const phone = s.phone_urls || [];
   $('#sPhone').innerHTML = phone.length
     ? 'On a phone on the same wifi, open:' + phone.map(u =>
@@ -2427,7 +3378,125 @@ async function showSetup(sec) {
   if (sec === 'welcome') renderWelcome();
   if (sec === 'manuals') openImport();
   if (sec === 'phones') openUsers();
+  if (sec === 'ai') {        // this month's totals move with every question: fetch them afresh
+    api('/api/settings').then(s => { Object.assign(setupData, s); showKeyMode(s);
+      if (s.key_mode === 'per_mechanic') loadKeys(); }, () => {});
+  }
 }
+// -- which AI provider answers: Anthropic, Gemini, xAI or DeepSeek --
+// Each has its own key page ("Get a key") and its own keys; the answers go
+// through the same checks on the server whichever it is.
+const curProvider = s => (s.providers || []).find(p => p.id === s.provider)
+  || {id: 'anthropic', short: 'Anthropic', label: 'Anthropic (Claude)', key_hint: 'sk-ant-…',
+      key_url: 'https://platform.claude.com/settings/keys'};
+function showProvider(s) {
+  const p = curProvider(s);
+  $('#sProvider').innerHTML = (s.providers || [p]).map(x =>
+    `<option value="${esc(x.id)}">${esc(x.label)}${x.has_key ? '' : ' — no key yet'}</option>`).join('');
+  $('#sProvider').value = p.id;
+  $('#getKey').href = p.key_url;
+  $('#getKey').textContent = `Get ${/^[AEIOU]/i.test(p.short) ? 'an' : 'a'} ${p.short} key`;
+  document.querySelectorAll('.provShort').forEach(x => { x.textContent = p.short; });
+  $('#providerNote').hidden = p.id !== 'gemini';
+  if (p.id === 'gemini') $('#providerNote').innerHTML =
+    '<b>Free tier:</b> Google lets you use Gemini Flash and Flash-Lite free of charge, with low limits on '
+    + 'requests a minute and a day (Gemini 4 Argon is not on the free tier). On the free tier, Google says '
+    + 'it may use what you send to improve its products — here, that is your questions and the manual pages '
+    + 'sent with them; on a key with billing turned on it does not. Check '
+    + `<a href="${esc(p.price_source)}" target="_blank" rel="noopener noreferrer">Google’s pricing page</a> `
+    + 'for the current limits and terms before relying on it.';
+}
+$('#sProvider').onchange = async () => {
+  const v = $('#sProvider').value, was = setupData.provider;
+  if (setupData.key_mode === 'per_mechanic' && !confirm('Switch the AI provider? Each mechanic then needs a '
+      + 'key for the new provider; their keys for the old one are kept for if you switch back.')) {
+    $('#sProvider').value = was; return;
+  }
+  if (await saveSetting({provider: v}, '#mProvider')) {
+    await loadSetup();
+    me.default_model = setupData.model;
+    await loadModels().catch(() => {});
+    if (setupData.key_mode === 'per_mechanic') loadKeys();
+  } else $('#sProvider').value = was;
+};
+// -- who pays for AI answers: one company key, or a key per mechanic --
+function showKeyMode(s) {
+  const per = s.key_mode === 'per_mechanic', short = curProvider(s).short;
+  document.querySelectorAll('input[name=keyMode]').forEach(r => { r.checked = r.value === s.key_mode; });
+  $('#sKeyLabel').textContent = per ? `This PC’s ${short} API key (for questions asked on this PC)`
+                                    : `${short} API key`;
+  const n = s.month_questions || 0;
+  $('#monthTotal').innerHTML = (per ? 'Everyone together this month: ' : '<b>Spent this month</b>, everyone, all AI providers: ')
+    + `${n} question${n === 1 ? '' : 's'}, <b>${money(s.month_spend_usd)}</b>`
+    + (s.company_key_last4 && !per ? ` (key …${esc(s.company_key_last4)})` : '')
+    + '. Months are calendar months (UTC), as logged by AutoRundown.';
+  $('#mechKeysSec').hidden = !per;
+}
+document.querySelectorAll('input[name=keyMode]').forEach(r => r.onchange = async () => {
+  const v = r.value;
+  if (v === 'per_mechanic' && !confirm('Switch to a key per mechanic? Each mechanic can ask only once you have '
+      + 'added their key below; mechanics without one get “no key set up for you”. Phones that are not '
+      + 'signed in can no longer ask.')) { showKeyMode(setupData); return; }
+  if (await saveSetting({key_mode: v}, '#mKeyMode')) {
+    await loadSetup();
+    if (v === 'per_mechanic') loadKeys();
+  } else showKeyMode(setupData);
+});
+async function loadKeys() {
+  let d;
+  try { d = await api('/api/admin/users'); }
+  catch (e) { $('#keysNote').textContent = e.message; return; }
+  const row = u => {
+    const k = u.key || {};
+    const est = !k.has_key ? '<span style="color:var(--warn)">No key yet — this mechanic can’t ask.</span>'
+      : `Key …${esc(k.last4)}` + (k.loaded_usd != null
+          ? ` · ${money(k.loaded_usd)} loaded · ${money(k.spent_usd)} spent since · `
+            + `<b>about ${money(k.remaining_usd)} left</b> (estimate)`
+          : ` · ${money(k.spent_usd)} spent since it was added · enter the amount loaded to see what’s left`)
+        + (k.since ? ` <span class="muted">· counting since ${esc(k.since)} UTC</span>` : '');
+    return `<div class="card keyrow" data-id="${u.id}" data-name="${esc(u.name)}">
+      <b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
+      <div class="help">${est}</div>
+      ${k.has_key && k.loaded_usd != null ? meterHtml(k.spent_usd, k.loaded_usd) : ''}
+      <div class="keyform">
+        <div><label for="mk${u.id}">${k.has_key ? 'New key (leave empty to keep it)' : 'API key'}</label>
+          <input id="mk${u.id}" class="mkkey" type="password" autocomplete="off" spellcheck="false"
+            placeholder="${esc(curProvider(setupData || {}).key_hint)}"></div>
+        <div><label for="ml${u.id}">$ loaded on it</label>
+          <input id="ml${u.id}" class="mkload" type="number" min="0" step="1" inputmode="decimal"
+            value="${k.loaded_usd ?? ''}"></div>
+        <button type="button" data-kact="save">${k.has_key ? 'Topped up / new key' : 'Save key'}</button>
+      </div>
+      ${k.has_key ? `<div class="row" style="margin-top:6px"><button type="button" class="ghost" data-kact="remove">
+        Remove key</button></div>` : ''}
+    </div>`;
+  };
+  $('#mechKeys').innerHTML = d.users.length ? d.users.map(row).join('')
+    : '<div class="notfound">No mechanics yet. Add them under Phones &amp; mechanics.</div>';
+}
+$('#mechKeys').onclick = async e => {
+  const b = e.target.closest('button[data-kact]');
+  if (!b || b.disabled) return;
+  const card = b.closest('.keyrow'), id = card.dataset.id, name = card.dataset.name;
+  let body;
+  try {
+    if (b.dataset.kact === 'remove') {
+      if (!confirm(`Remove ${name}’s API key? They can’t ask until you add one.`)) return;
+      body = {remove: true};
+    } else {
+      const key = card.querySelector('.mkkey').value.trim();
+      const loaded = parseCap(card.querySelector('.mkload').value);
+      body = {reset: true};
+      if (key) body.api_key = key;
+      if (loaded === null) body.clear_loaded = true; else body.loaded_usd = loaded;
+    }
+    b.disabled = true;
+    await api(`/api/admin/users/${id}/key`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    $('#keysNote').textContent = '';
+    await loadKeys();
+  } catch (err) { $('#keysNote').textContent = err.message; b.disabled = false; }
+};
 $('#sModel').onchange = async () => {
   showModelPrice();
   const v = $('#sModel').value;
@@ -2446,7 +3515,7 @@ $('#saveKey').onclick = async () => {
   const k = $('#sKey').value.trim();
   if (!k) return;
   $('#saveKey').disabled = true;
-  if (await saveSetting({api_key: k}, '#mKey')) { $('#sKey').value = ''; await loadSetup(); }
+  if (await saveSetting({api_key: k, key_provider: curProvider(setupData).id}, '#mKey')) { $('#sKey').value = ''; await loadSetup(); }
   markDirty();
 };
 $('#sKey').addEventListener('keydown', e => { if (e.key === 'Enter') $('#saveKey').click(); });
@@ -2488,24 +3557,34 @@ function parseCap(raw) {
     throw new Error('The limit must be an amount in dollars, 0 or more (leave it empty for no limit).');
   return n;
 }
-let lastCode = null;          // {id, name, code, minutes}: shown in that mechanic's card
+async function loadSiteQr() {
+  const d = await api('/api/admin/site-qr');
+  $('#siteQrImg').hidden = $('#siteQrHelp').hidden = !d.svg;
+  $('#siteQrImg').innerHTML = d.svg;          // built by this server from its own address
+}
 async function loadUsers() {
   const d = await api('/api/admin/users');
-  const urls = d.phone_urls.map(u => `<b>${esc(u)}</b>`).join(' or ') || '<i>no network address found</i>';
+  loadSiteQr().catch(() => { $('#siteQrImg').hidden = $('#siteQrHelp').hidden = true; });
   const ca = d.phone_urls.length && d.phone_urls[0].startsWith('https')
     ? ` To remove the security warning, install <b>${esc(d.phone_urls[0])}/ca.crt</b> on each phone once.` : '';
   $('#usersIntro').innerHTML = (d.require_signin
-      ? 'Sign-in is <b>required</b>: other devices need a code from here.'
+      ? 'Sign-in is <b>required</b>: each phone signs in once by scanning its mechanic’s sign-in QR.'
       : 'Sign-in is <b>off</b>: anyone on the network can search and ask. Turn it on above.')
-    + ` Phones open ${urls}.${ca}`;
+    + (d.phone_urls.length ? '' : ' <i>No network address found.</i>') + ca;
+  const perKey = d.key_mode === 'per_mechanic';
   const row = u => `<div class="card usercard" data-id="${u.id}" data-name="${esc(u.name)}" style="padding:10px 12px; margin:0 0 8px">
       <div class="row" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
-        <div><b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
-          <div class="muted">${u.month_questions} questions, ${money(u.month_spend_usd)} this month`
-          + (u.monthly_cap_usd != null ? ` of ${money(u.monthly_cap_usd)} limit` : ', no limit')
-          + ` · ${u.devices} signed-in device${u.devices === 1 ? '' : 's'}</div></div>
+        <div style="flex:1; min-width:220px"><b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
+          <div class="muted">This month: ${u.month_questions} question${u.month_questions === 1 ? '' : 's'}, `
+          + `<b>${money(u.month_spend_usd)}</b>`
+          + (u.monthly_cap_usd != null ? ` of ${money(u.monthly_cap_usd)} limit` : ' (no limit)')
+          + ` · ${u.devices} signed-in device${u.devices === 1 ? '' : 's'}`
+          + (perKey ? ' · ' + (u.key && u.key.has_key
+              ? (u.key.remaining_usd != null ? `own key: about ${money(u.key.remaining_usd)} left` : 'own key')
+              : '<span style="color:var(--warn)">no key of their own</span>') : '')
+          + `</div>${meterHtml(u.month_spend_usd, u.monthly_cap_usd)}</div>
         <div class="row" style="gap:6px; flex-wrap:wrap">
-          ${u.disabled ? '' : `<button type="button" class="ghost" data-act="code">Sign-in code</button>`}
+          ${u.disabled ? '' : `<button type="button" class="ghost" data-act="qr">Sign-in QR</button>`}
           <button type="button" class="ghost" data-act="cap">Limit</button>
           ${u.devices ? `<button type="button" class="ghost" data-act="signout">Sign out devices</button>` : ''}
           <button type="button" class="${u.disabled ? 'ghost' : 'danger'}" data-act="${u.disabled ? 'enable' : 'disable'}">
@@ -2516,22 +3595,79 @@ async function loadUsers() {
         <div class="row"><input id="cap${u.id}" class="capin" type="number" min="0" step="1" inputmode="decimal"
           value="${u.monthly_cap_usd ?? ''}" style="max-width:160px">
           <button type="button" data-act="capsave">Save limit</button></div>
-      </div>
-      <div class="codeslot"></div></div>`;
+      </div></div>`;
   $('#usersList').innerHTML = (d.users.length ? d.users.map(row).join('')
-      : `<div class="notfound">No mechanics yet. Add one above to give their phone a sign-in code.</div>`)
+      : `<div class="notfound">No mechanics yet. Add one above, then scan their sign-in QR with their phone.</div>`)
     + `<div class="muted" style="margin:8px 0">This PC and devices that did not sign in: `
     + `${d.unattributed.month_questions} questions, ${money(d.unattributed.month_spend_usd)} this month.</div>`;
-  if (lastCode) {
-    const slot = $(`#usersList .usercard[data-id="${lastCode.id}"] .codeslot`);
-    if (slot) slot.innerHTML = codeCard(lastCode);
+}
+
+// -- the sign-in QR dialog: one QR per opening, voided when it closes ------
+// The server keeps only hashes; the link and code exist on this page until
+// the dialog closes. 15 minutes, one use (link or code), then dead.
+let qr = null;      // {uid, name, grant_id, deadline, timer, poll, state}
+async function openQr(uid, name) {
+  if (qr) await closeQr();
+  const r = await api(`/api/admin/users/${uid}/qr`, {method: 'POST'});
+  qr = {uid, name, grant_id: r.grant_id, deadline: Date.now() + r.expires_in * 1000, state: 'pending'};
+  $('#qrDlg').classList.remove('done');
+  $('#qrTitle').textContent = `Sign-in QR for ${name}`;
+  $('#qrHelp').textContent = `Scan it with ${name}’s phone camera, on the shop wifi. It works once, for `
+    + `${r.minutes} minutes, and stops working when you close this.`;
+  $('#qrImg').innerHTML = r.svg;            // built by this server from its own address
+  $('#qrCode').textContent = r.code.slice(0, 4) + ' ' + r.code.slice(4);
+  $('#qrCodeBox').hidden = false;
+  $('#qrNew').hidden = true;
+  tickQr();
+  qr.timer = setInterval(tickQr, 1000);
+  qr.poll = setInterval(pollQr, 2000);
+  if (!$('#qrDlg').open) $('#qrDlg').showModal();
+}
+function tickQr() {
+  if (!qr || qr.state !== 'pending') return;
+  const left = Math.max(0, Math.round((qr.deadline - Date.now()) / 1000));
+  $('#qrState').textContent = `Valid for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  if (!left) endQr('expired');
+}
+async function pollQr() {
+  if (!qr || qr.state !== 'pending') return;
+  const q = qr;
+  try {
+    const s = await api(`/api/admin/users/${q.uid}/qr/${q.grant_id}`);
+    if (qr === q && s.state !== 'pending') endQr(s.state);
+  } catch (e) { /* next poll */ }
+}
+function endQr(state) {
+  qr.state = state;
+  clearInterval(qr.timer); clearInterval(qr.poll);
+  $('#qrDlg').classList.add('done');
+  $('#qrCodeBox').hidden = true;
+  $('#qrNew').hidden = state === 'used';
+  $('#qrState').innerHTML = state === 'used'
+    ? `<b style="color:var(--good)">&#10003; ${esc(qr.name)}’s phone is signed in.</b>`
+    : `<b style="color:var(--warn)">This QR has expired.</b> Make a new one if the phone still needs it.`;
+  if (state === 'used') loadUsers().catch(() => {});
+}
+async function closeQr(keepalive = false) {
+  if (!qr) return;
+  const q = qr;
+  qr = null;
+  clearInterval(q.timer); clearInterval(q.poll);
+  $('#qrImg').innerHTML = ''; $('#qrCode').textContent = '';
+  if (q.state === 'pending') {          // closing voids it at once, on the server
+    await fetch(`/api/admin/users/${q.uid}/qr/${q.grant_id}/void`, {method: 'POST', keepalive})
+      .catch(() => {});
   }
 }
-const codeCard = c => `<div class="codecard">Sign-in code for <b>${esc(c.name)}</b>
-    (one use, valid ${c.minutes} minutes):
-    <div style="font-size:32px; font-weight:700; letter-spacing:4px; color:var(--accent); margin:6px 0">
-      ${esc(c.code.slice(0, 4))} ${esc(c.code.slice(4))}</div>
-    <div class="muted">Open AutoRundown on their phone and type it in.</div></div>`;
+$('#qrClose').onclick = () => $('#qrDlg').close();
+$('#qrDlg').addEventListener('close', () => { closeQr(); });
+$('#qrNew').onclick = async () => {
+  const {uid, name} = qr || {};
+  if (uid == null) return;
+  try { await openQr(uid, name); } catch (e) { $('#qrState').textContent = e.message; }
+};
+// the page closed with the dialog open: void it on the way out
+addEventListener('pagehide', () => { if (qr) closeQr(true); });
 $('#usersList').onclick = async e => {
   const b = e.target.closest('button[data-act]');
   if (!b || b.disabled) return;
@@ -2545,9 +3681,10 @@ $('#usersList').onclick = async e => {
   if (act === 'disable' && !confirm(`Disable ${name}? Their phones are signed out at once.`)) return;
   b.disabled = true;                         // a double click issued two codes
   try {
-    if (act === 'code') {
-      const r = await api(`/api/admin/users/${id}/code`, {method: 'POST'});
-      lastCode = {id, name, ...r};
+    if (act === 'qr') {
+      await openQr(id, name);
+      b.disabled = false;
+      return;
     } else if (act === 'signout') {
       await api(`/api/admin/users/${id}/signout`, {method: 'POST'});
     } else if (act === 'capsave') {
@@ -2557,7 +3694,6 @@ $('#usersList').onclick = async e => {
     } else {
       await api(`/api/admin/users/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({disabled: act === 'disable'})});
-      if (act === 'disable' && lastCode && lastCode.id === id) lastCode = null;
     }
     $('#usersNote').textContent = '';
     await loadUsers();
@@ -2573,8 +3709,8 @@ $('#uAdd').onclick = async () => {
       body: JSON.stringify({name, monthly_cap_usd: cap})});
     $('#uName').value = ''; $('#uCap').value = '';
     $('#usersNote').textContent = '';
-    lastCode = {id: String(r.id), name, code: r.code, minutes: r.minutes};
     await loadUsers();
+    await openQr(String(r.id), name);       // straight to their phone's sign-in
   } catch (err) { $('#usersNote').textContent = err.message; }
   finally { $('#uAdd').disabled = false; }
 };
@@ -2589,8 +3725,368 @@ $('#vehicle').addEventListener('change', () => {
   clearCarPick();
   refreshVariants();          // a new generation starts at "All variants"
   loadConnectors();
+  recordBrowsePick();
 });
-$('#variant').addEventListener('change', () => { clearCarPick(); rememberPick(); showScope(); });
+$('#variant').addEventListener('change', () => { clearCarPick(); rememberPick(); showScope(); recordBrowsePick(); });
+
+/* vin-check:begin -- pure functions, no DOM; tests/test_vin.py runs this
+   block on its own (in node or a browser) */
+// Checking a VIN before it is decoded. A one-character typo in a US VIN
+// often lands on another real car with another engine (the 2026-10 audit
+// found 357 such pairs in Mercedes' own VIN table), so a US-format VIN must
+// pass its ISO 3779 check digit (position 9) before it may name an exact
+// variant or engine; when it fails only the series is used.
+// Which VINs carry one: every 17-character VIN that is NOT a European FIN.
+// That is all North American VINs (1/4/5 at position 1) and also Mercedes'
+// US-market VINs from Germany (WDB/WDD…, a coded letter at position 4) --
+// US and Canadian law require it on every car sold there, and those are the
+// VINs the AW_VIN2FIN table decodes. A FIN carries the Baumuster at 4-9
+// (WDB 210065 …: digits at 4-6, the same test vinLookup uses) and has no
+// check digit, so it is never checked.
+const VIN_VALUE = {A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7, H: 8, J: 1, K: 2, L: 3, M: 4, N: 5,
+  P: 7, R: 9, S: 2, T: 3, U: 4, V: 5, W: 6, X: 7, Y: 8, Z: 9};
+const VIN_WEIGHT = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
+// a VIN never uses I, O or Q (they read as 1 and 0); OCR often returns them
+const VIN_FIX = {O: '0', Q: '0', I: '1'};
+// spaces, hyphens, dots and the like are dropped; case does not matter
+const vinClean = raw => String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// the check digit a 17-character VIN must have ('0'-'9' or 'X'); null when
+// it is not 17 characters or holds a character a VIN can't have
+function vinCheckDigit(vin) {
+  if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) return null;
+  let sum = 0;
+  for (let i = 0; i < 17; i++) {
+    const c = vin[i];
+    sum += (/\d/.test(c) ? +c : VIN_VALUE[c]) * VIN_WEIGHT[i];
+  }
+  const r = sum % 11;
+  return r === 10 ? 'X' : String(r);
+}
+// a European FIN: the Baumuster's digits at positions 4-6 (and on to 9)
+const vinIsFin = vin => /^\d{3}$/.test(vin.slice(3, 6));
+// Everything wrong with a VIN as typed or read, without decoding it:
+//   vin      the cleaned text (I/O/Q left in, so a message can name them)
+//   illegal  [{pos (1-based), ch, fix}] for every I, O or Q
+//   fixed    the VIN with those replaced (0 for O and Q, 1 for I), and
+//   changed  the 0-based positions that replacement changed
+//   check    'ok' | 'bad' (check digit wrong) | 'na' (no check digit: a FIN,
+//            or not 17 characters)
+//   expected the check digit position 9 should hold, when check is 'bad'
+//   error    a message when it can't be used as typed (I/O/Q)
+//   warn     a message when it can be used but needs a second look
+function vinCheck(raw) {
+  const vin = vinClean(raw);
+  const illegal = [], changed = [];
+  let fixed = '';
+  for (let i = 0; i < vin.length; i++) {
+    const f = VIN_FIX[vin[i]];
+    if (f) { illegal.push({pos: i + 1, ch: vin[i], fix: f}); changed.push(i); }
+    fixed += f || vin[i];
+  }
+  const out = {vin, illegal, fixed, changed, check: 'na', expected: null, error: null, warn: null};
+  if (illegal.length) {
+    out.error = 'A VIN never contains I, O or Q: '
+      + illegal.map(x => `position ${x.pos} is "${x.ch}"`).join(', ')
+      + ` — did you mean ${[...new Set(illegal.map(x => `${x.ch} → ${x.fix}`))].join(', ')}?`;
+    return out;
+  }
+  if (vin.length !== 17) {
+    out.warn = vin.length > 17
+      ? `That is ${vin.length} characters; a VIN has 17. Check for an extra character.`
+      : `That is ${vin.length} characters; a VIN has 17. With all 17 it can be checked`
+        + ' (check digit) and gives the model year.';
+    return out;
+  }
+  // 17 characters is the 1981-on standard (Mercedes' US VINs before were
+  // shorter); a FIN has no check digit
+  if (vinIsFin(vin)) return out;
+  const want = vinCheckDigit(vin);
+  out.check = want === vin[8] ? 'ok' : 'bad';
+  if (out.check === 'bad') {
+    out.expected = want;
+    out.warn = "Check digit doesn't match — re-check the VIN. A wrong character can "
+      + 'name another car with another engine, so only the model series is used.';
+  }
+  return out;
+}
+// The VIN in text read off a photo (OCR) or a barcode: every 17-character
+// stretch of letters and digits, spaces and hyphens inside a line ignored.
+// I/O/Q are read as 1/0 (and reported as changed). Best first: a maker code
+// from `isMaker` (a Mercedes WMI) with a right check digit, then one with
+// none (a FIN), then other text. A Code 39 VIN often starts with an extra
+// "I" (imported car); the scoring skips it.
+function vinFromText(text, isMaker) {
+  const seen = new Map();
+  for (const line of String(text || '').toUpperCase().split(/[\r\n]+/)) {
+    for (let run of line.replace(/[\s\-.:]+/g, '').split(/[^A-Z0-9]+/)) {
+      // the label in front, glued on once spaces are gone ("VINWDB…"); read
+      // as V1N it once made a 17-character stretch whose check digit fit
+      if (run.length > 17) run = run.replace(/^(VIN|V1N|FIN|F1N)/, '');
+      for (let i = 0; i + 17 <= run.length; i++) {
+        const raw = run.slice(i, i + 17), c = vinCheck(raw);
+        const fixed = c.fixed, cc = c.illegal.length ? vinCheck(fixed) : c;
+        // a right check digit beats none beats a wrong one; a maker code
+        // outweighs a check digit that is right by chance (1 in 11) on a
+        // stretch shifted by one character
+        let score = {ok: 3, na: 1, bad: 0}[cc.check];
+        if (isMaker && isMaker(fixed.slice(0, 3))) score += 3;
+        if (i === 0) score += 0.5;               // a VIN usually starts its run
+        if (!seen.has(fixed) || seen.get(fixed).score < score)
+          seen.set(fixed, {vin: fixed, raw, changed: c.changed, check: cc.check, score});
+      }
+    }
+  }
+  return [...seen.values()].sort((a, b) => b.score - a.score);
+}
+// Several reads of one VIN (vinFromText picks): one whose check digit is
+// right wins; otherwise each position takes the character most reads have
+// (the first read's on a tie), and the positions where reads differ come
+// back as `unsure` -- for the user to look at, not to guess.
+function vinVote(reads) {
+  const ok = reads.find(r => r.check === 'ok');
+  if (ok) return {...ok, unsure: []};
+  const first = reads[0];
+  if (reads.length < 2) return {...first, unsure: []};
+  let vin = '';
+  const unsure = [];
+  for (let i = 0; i < 17; i++) {
+    const n = {};
+    for (const r of reads) n[r.vin[i]] = (n[r.vin[i]] || 0) + 1;
+    let best = first.vin[i];
+    for (const ch in n) if (n[ch] > n[best]) best = ch;
+    if (Object.keys(n).length > 1) unsure.push(i);
+    vin += best;
+  }
+  const changed = [...new Set(reads.flatMap(r => r.changed.filter(i => r.vin[i] === vin[i])))]
+    .sort((a, b) => a - b);
+  return {vin, raw: first.raw, changed, check: vinCheck(vin).check, score: first.score, unsure};
+}
+/* vin-check:end */
+
+/* vin-scan:begin -- reading a VIN off a photo, on this device; needs only
+   the vin-check block above (tests/test_vin_scan.py runs the two alone)
+   Why this way (2026-10-16):
+   - A file input with capture="environment", not the live camera: phones
+     reach AutoRundown over plain http on the shop LAN, where getUserMedia is
+     refused (it needs a secure context); a file input opens the camera
+     there on iOS Safari and Android Chrome alike.
+   - Standard libraries, no AI and no network: zxing-cpp (zxing-wasm, ~1 MB)
+     for the barcode -- Code 39 on door-jamb labels, Data Matrix / QR on
+     newer ones -- and Tesseract (tesseract.js, LSTM only, with the English
+     model) for printed text. A phone fetches ~0.4 MB for barcodes and
+     ~4.5 MB more for text (gzipped), once. Both vendored under web/vendor/ with
+     fixed versions and licences, loaded only when someone scans, then kept
+     by the browser's cache.
+   - In the browser, not on the server: the photo never leaves the phone,
+     the server gains no upload route, and the PC needs no OCR engine.
+   The photo is scaled down first (long side 1600 px for the barcode, the
+   VIN's line for display). */
+const SCAN_BASE = '/vendor/', SCAN_ZX = 'zxing-wasm-3.1.4', SCAN_TS = 'tesseract-7.0.0';
+const scanAbs = p => new URL(SCAN_BASE + p, location.href).href;
+const scanScripts = {};
+function scanScript(p) {
+  if (!scanScripts[p]) scanScripts[p] = new Promise((ok, no) => {
+    const s = document.createElement('script');
+    s.src = scanAbs(p);
+    s.onload = ok;
+    s.onerror = () => { delete scanScripts[p]; s.remove();
+                        no(new Error('Could not load the VIN reader from AutoRundown. Try again.')); };
+    document.head.append(s);
+  });
+  return scanScripts[p];
+}
+function scanPicture(file) {
+  return new Promise((ok, no) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); ok(img); };
+    img.onerror = () => { URL.revokeObjectURL(url);
+                          no(new Error("That file isn't a picture this browser can open.")); };
+    img.src = url;
+  });
+}
+// the picture as a canvas, long side at most `max` px (EXIF rotation is
+// applied by the browser when it draws the image)
+function scanCanvas(src, max, rotate) {
+  const w0 = src.naturalWidth || src.width, h0 = src.naturalHeight || src.height;
+  const k = Math.min(1, max / Math.max(w0, h0));
+  const w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
+  const c = document.createElement('canvas');
+  const turn = rotate === 90 || rotate === 270;
+  c.width = turn ? h : w; c.height = turn ? w : h;
+  const g = c.getContext('2d', {willReadFrequently: true});
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  if (rotate) { g.translate(c.width / 2, c.height / 2); g.rotate(rotate * Math.PI / 180); g.translate(-w / 2, -h / 2); }
+  g.drawImage(src, 0, 0, w, h);
+  return c;
+}
+// a piece of a canvas as a small JPEG for the dialog: where the VIN was read
+function scanCrop(c, box) {
+  const pad = Math.round(Math.max(box.x1 - box.x0, box.y1 - box.y0) * 0.08) + 6;
+  const x0 = Math.max(0, Math.floor(box.x0 - pad)), y0 = Math.max(0, Math.floor(box.y0 - pad));
+  const x1 = Math.min(c.width, Math.ceil(box.x1 + pad)), y1 = Math.min(c.height, Math.ceil(box.y1 + pad));
+  const k = Math.min(1, 640 / Math.max(1, x1 - x0));
+  const o = document.createElement('canvas');
+  o.width = Math.max(1, Math.round((x1 - x0) * k)); o.height = Math.max(1, Math.round((y1 - y0) * k));
+  o.getContext('2d').drawImage(c, x0, y0, x1 - x0, y1 - y0, 0, 0, o.width, o.height);
+  return o.toDataURL('image/jpeg', 0.85);
+}
+let scanZxReady = null;
+async function scanBarcodes(c) {
+  await scanScript(`${SCAN_ZX}/zxing-reader.js`);
+  if (!scanZxReady) scanZxReady = Promise.resolve(ZXingWASM.prepareZXingModule({
+    overrides: {locateFile: (p, prefix) => p.endsWith('.wasm') ? scanAbs(`${SCAN_ZX}/${p}`) : prefix + p},
+    fireImmediately: true})).catch(e => { scanZxReady = null; throw e; });
+  await scanZxReady;
+  const data = c.getContext('2d', {willReadFrequently: true}).getImageData(0, 0, c.width, c.height);
+  const found = await ZXingWASM.readBarcodes(data, {
+    formats: ['Code39', 'DataMatrix', 'QRCode'], tryHarder: true, tryRotate: true,
+    tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 8});
+  return found.filter(r => r.isValid && r.text).map(r => {
+    const p = r.position, xs = [p.topLeft.x, p.topRight.x, p.bottomLeft.x, p.bottomRight.x],
+          ys = [p.topLeft.y, p.topRight.y, p.bottomLeft.y, p.bottomRight.y];
+    return {text: r.text, format: r.format,
+            box: {x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys)}};
+  });
+}
+const SCAN_FORMAT = {Code39: 'Code 39 barcode', DataMatrix: 'Data Matrix code', QRCode: 'QR code'};
+// WebAssembly SIMD, as wasm-feature-detect tests it: the SIMD build of
+// Tesseract is ~2x faster; the plain one is for older phones
+const scanSimd = () => { try { return !window.VIN_SCAN_NO_SIMD && WebAssembly.validate(new Uint8Array(
+  [0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11])); }
+  catch (_) { return false; } };
+let scanOcrWorker = null;
+async function scanOcr() {
+  if (!scanOcrWorker) scanOcrWorker = (async () => {
+    await scanScript(`${SCAN_TS}/tesseract.min.js`);
+    const core = scanSimd() ? 'tesseract-core-simd-lstm.wasm.js' : 'tesseract-core-lstm.wasm.js';
+    const w = await Tesseract.createWorker('eng', 1 /* LSTM only */, {
+      workerPath: scanAbs(`${SCAN_TS}/worker.min.js`), corePath: scanAbs(`${SCAN_TS}/${core}`),
+      langPath: scanAbs(SCAN_TS), workerBlobURL: false, cacheMethod: 'none', gzip: true});
+    // I, O and Q stay allowed so that a misread one is shown, not hidden
+    await w.setParameters({tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                           tessedit_pageseg_mode: '11', user_defined_dpi: '300'});
+    return w;
+  })().catch(e => { scanOcrWorker = null; throw e; });
+  return scanOcrWorker;
+}
+// grey, contrast stretched (1st-99th percentile): labels photographed in a
+// dim door jamb come out grey on grey
+function scanGrey(c) {
+  const g = c.getContext('2d', {willReadFrequently: true}), d = g.getImageData(0, 0, c.width, c.height), p = d.data;
+  const hist = new Uint32Array(256), n = p.length / 4;
+  for (let i = 0; i < p.length; i += 4) {
+    const v = (p[i] * 299 + p[i + 1] * 587 + p[i + 2] * 114) / 1000 | 0;
+    p[i] = v; hist[v]++;
+  }
+  let lo = 0, hi = 255, acc = 0;
+  for (; lo < 255 && (acc += hist[lo]) < n * 0.01; lo++);
+  acc = 0;
+  for (; hi > 0 && (acc += hist[hi]) < n * 0.01; hi--);
+  const k = hi > lo ? 255 / (hi - lo) : 1;
+  for (let i = 0; i < p.length; i += 4) {
+    const v = Math.max(0, Math.min(255, (p[i] - lo) * k)) | 0;
+    p[i] = p[i + 1] = p[i + 2] = v;
+  }
+  g.putImageData(d, 0, 0);
+  return c;
+}
+async function scanLineAgain(w, c, box, isMaker, height) {
+  const h = Math.max(1, box.y1 - box.y0), pad = h * 0.5;
+  const x0 = Math.max(0, box.x0 - pad), y0 = Math.max(0, box.y0 - pad);
+  const x1 = Math.min(c.width, box.x1 + pad), y1 = Math.min(c.height, box.y1 + pad);
+  const k = Math.min(3, Math.max(0.5, height / h));
+  const o = document.createElement('canvas');
+  o.width = Math.round((x1 - x0) * k); o.height = Math.round((y1 - y0) * k);
+  const g = o.getContext('2d');
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(c, x0, y0, x1 - x0, y1 - y0, 0, 0, o.width, o.height);
+  await w.setParameters({tessedit_pageseg_mode: '7'});
+  try {
+    const {data} = await w.recognize(o);
+    return vinFromText(data.text, isMaker)[0] || null;
+  } finally {
+    await w.setParameters({tessedit_pageseg_mode: '11'});
+  }
+}
+// Read a VIN off a photo. Barcodes first (exact when found), then printed
+// text, upright and then turned a quarter either way. Returns
+// {best, source, crop, text, tried}: best is vinFromText's first pick
+// ({vin, raw, changed, check}) or null; text is what was read, as read.
+async function vinScan(file, {isMaker, onStatus} = {}) {
+  const say = s => onStatus && onStatus(s);
+  say('Opening the photo…');
+  const img = await scanPicture(file);
+  const big = scanCanvas(img, 1600);
+  say('Looking for a VIN barcode…');
+  let codes = [];
+  try { codes = await scanBarcodes(big); } catch (e) { say('Barcode reader unavailable; reading the text…'); }
+  // what read text may put in the box: a VIN with a Mercedes maker code --
+  // not "WR2763KGMADE1NSEP" from the line below the VIN, nor a stretch of
+  // other text whose check digit fits by chance (1 in 11). Without a maker
+  // test, any 17 characters with a right check digit.
+  const usable = best => !!best && (isMaker ? isMaker(best.vin.slice(0, 3)) : best.check === 'ok');
+  for (const b of codes) {
+    // a barcode holding just a VIN is taken as it is (another make's VIN
+    // then gets vinLookup's "not a Mercedes" message, not "no VIN found")
+    const best = vinFromText(b.text, isMaker)[0];
+    if (usable(best) || (best && /^I?[A-Z0-9]{17}$/.test(vinClean(b.text)))) return {best, source: SCAN_FORMAT[b.format] || b.format, crop: scanCrop(big, b.box),
+                      text: b.text, tried: ['barcode']};
+  }
+  say('Reading the text (the first time loads the reader, about 5 MB)…');
+  const w = await scanOcr();
+  let seen = '', firstCrop = null;
+  for (const turn of [0, 90, 270]) {
+    const c = scanGrey(scanCanvas(img, 1600, turn));
+    const {data} = await w.recognize(c, {}, {text: true, blocks: true});
+    const lines = (data.blocks || []).flatMap(b => b.paragraphs || []).flatMap(p => p.lines || []);
+    let pick = null;
+    for (const ln of lines) {
+      const best = vinFromText(ln.text, isMaker)[0];
+      if (usable(best) && (!pick || best.score > pick.best.score)) pick = {best, ln};
+    }
+    if (!pick && isMaker) {
+      // a line that starts like a VIN but came out a character short or
+      // long: read that line again on its own
+      const near = lines.find(ln => {
+        const t = vinClean(ln.text);
+        for (let i = 0; i + 14 <= t.length; i++) if (isMaker(t.slice(i, i + 3))) return true;
+        return false;
+      });
+      if (near) {
+        const reads = [];
+        for (const height of [80, 48]) {
+          const r = await scanLineAgain(w, c, near.bbox, isMaker, height);
+          if (usable(r)) reads.push(r);
+        }
+        if (reads.length) pick = {best: vinVote(reads), ln: near, reread: true};
+      }
+    }
+    // (no gluing all the text together to make 17: it put "G" from the
+    // next line's GVWR on the end of a VIN read one character short)
+    seen = seen || (data.text || '').trim();
+    firstCrop = firstCrop || c;
+    // not proven right by a check digit (a FIN has none; or it failed):
+    // read the VIN's own line twice more, as one line at two sizes. A read
+    // whose check digit is right wins; otherwise each character is the one
+    // most reads agree on, and where they differ it is marked `unsure`
+    if (pick && !pick.reread && pick.best.check !== 'ok') {
+      const reads = [pick.best];
+      for (const height of [80, 48]) {
+        const r = await scanLineAgain(w, c, pick.ln.bbox, isMaker, height);
+        if (usable(r)) reads.push(r);
+        if (usable(r) && r.check === 'ok') break;
+      }
+      pick = {...pick, best: vinVote(reads)};
+    }
+    if (pick) return {best: pick.best, source: 'printed text (OCR)', crop: scanCrop(c, pick.ln.bbox),
+                      text: pick.ln.text.trim(), tried: ['barcode', 'text']};
+    say('Turning the photo and reading again…');
+  }
+  return {best: null, source: null, text: seen,
+          crop: scanCrop(firstCrop, {x0: 0, y0: 0, x1: firstCrop.width, y1: firstCrop.height}),
+          tried: ['barcode', 'text']};
+}
+/* vin-scan:end */
 
 // Model year from VIN position 10 (US standard). Letters repeat every 30
 // years (H = 1987 or 2017), so pick the candidate inside the vehicle's own
@@ -2627,8 +4123,31 @@ function isMercedesWmi(wmi) {
   return vehicles.some(v => (v.vin_codes || '').includes(`,${wmi}:`)
     || (v._variants || []).some(x => (x.vin9 || []).some(p => p.startsWith(wmi))));
 }
+// The car a decoded Baumuster is. `cands`: the variants that can be it, each
+// with the Baumuster it may be ({n, bms}). Usually one. One Baumuster is
+// sometimes sold under several names with different engines (636.705:
+// Vito 111 CDI = OM646, 119 = M272), which no VIN tells apart: then no
+// variant is picked and the engines of all of them are sent, never the
+// first one's.
+function vinCar(v, cands, year, how) {
+  const famsFor = c => famsOf(v._variants[c.n], c.bms);
+  const bms = [...new Set(cands.flatMap(c => c.bms))];
+  const bm = bms.length === 1 ? bms[0] : null;
+  if (cands.every(c => famsFor(c).join() === famsFor(cands[0]).join()))
+    return {vehicle: v, variant: cands[0].n, year, bm, bms: cands[0].bms, how};
+  return {vehicle: v, variant: null, year, bm, bms,
+          fams: [...new Set(cands.flatMap(famsFor))].sort(),
+          names: cands.map(c => v._variants[c.n].name), how};
+}
 function vinLookup(raw) {
-  const vin = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  // I/O/Q: refused with the fix offered; a wrong check digit or a length
+  // other than 17 comes back as `warn` with whatever is decoded
+  const chk = vinCheck(raw);
+  if (chk.error) return {error: chk.error, fixed: chk.fixed, changed: chk.changed};
+  const r = vinDecode(chk.vin, chk.check);
+  return r.error ? r : {...r, warn: chk.warn, check: chk.check};
+}
+function vinDecode(vin, check) {
   if (vin.length < 4)
     return {error: 'Enter the VIN — at least the first 4 characters.'};
   const wmi = vin.slice(0, 3);
@@ -2644,22 +4163,45 @@ function vinLookup(raw) {
     if (!v) return {error: `That is model series ${series}, which is not in this `
                           + `index. It may be a model the corpus does not cover.`};
     const bm = vin.length >= 9 ? `${series}.${vin.slice(6, 9)}` : null;
-    const n = bm ? v._variants.findIndex(x => x.baumuster.includes(bm)) : -1;
-    return {vehicle: v, variant: n >= 0 ? n : null, year: null, bm,
-            how: n >= 0 ? `Baumuster ${bm} (from the FIN)` : `series ${series}`};
+    const cands = bm ? v._variants.flatMap((x, n) => x.baumuster.includes(bm) ? [{n, bms: [bm]}] : []) : [];
+    if (cands.length) return vinCar(v, cands, null, `Baumuster ${bm} (from the FIN)`);
+    return {vehicle: v, variant: null, year: null, bm, how: `series ${series}`};
   }
 
   // US VIN, exact: Mercedes' AW_VIN2FIN maps the first 9 characters (check
-  // digit included) to the Baumuster, so it names the variant itself
+  // digit included) to the Baumuster, so it names the variant itself -- and
+  // the exact Baumuster (vin9_bm), whose engine is the car's. A variant's
+  // Baumuster can have different engines (E 320: 210.055 M104, 210.065
+  // M112); taking its first one sent the wrong engine for 320 prefixes.
+  // A wrong check digit skips this: the typo may be in positions 1-8, and
+  // 357 one-character typos name another real car with another engine.
+  if (check === 'bad') {
+    const v = vehicles.find(x => (x.vin_codes || '').includes(`,${wmi}:${vin[3]},`))
+      || vehicles.find(x => (x._variants || []).some(y => (y.vin9 || []).some(p => p.startsWith(vin.slice(0, 4)))));
+    if (!v) return {error: `Check digit doesn't match, and no Mercedes model uses the code ${wmi} + `
+                          + `"${vin[3]}" at position 4 — re-check the VIN.`};
+    return {vehicle: v, variant: null, year: null,
+            how: `${wmi} + "${vin[3]}" at position 4 — series only, as the check digit doesn't match `
+               + '(re-check the VIN, or pick your variant below)'};
+  }
   if (vin.length >= 9) {
     const vin9 = vin.slice(0, 9);
     for (const x of vehicles) {
-      const n = (x._variants || []).findIndex(y => (y.vin9 || []).includes(vin9));
-      if (n >= 0) {
-        const bm = x._variants[n].baumuster.find(b => b.startsWith(x.model_code)) || '';
-        return {vehicle: x, variant: n, year: vinYear(vin, x), bm,
-                how: `Mercedes' VIN table (${vin9} = Baumuster ${bm}, ${x._variants[n].name})`};
-      }
+      const year = vinYear(vin, x);
+      const cands = (x._variants || []).flatMap((y, n) => {
+        if (!(y.vin9 || []).includes(vin9)) return [];
+        if ((y.vin9_bm || {})[vin9]) return [{n, bms: [y.vin9_bm[vin9]]}];
+        // no exact map (its corpus file is gone): the VIN's year picks among
+        // the variant's Baumuster; still several (or none) = all of them,
+        // never just the first
+        const own = y.baumuster || [];
+        const byYear = year ? own.filter(b => yearsIn((y.us_years || {})[b]).includes(year)) : [];
+        return [{n, bms: byYear.length ? byYear : own}];
+      });
+      if (!cands.length) continue;
+      const bms = [...new Set(cands.flatMap(c => c.bms))];
+      return vinCar(x, cands, year, `Mercedes' VIN table (${vin9} = `
+        + (bms.length === 1 ? `Baumuster ${bms[0]}` : `${x._variants[cands[0].n].name}`) + ')');
     }
   }
 
@@ -2672,12 +4214,16 @@ function vinLookup(raw) {
              + `pick your variant below)`};
 }
 
-$('#vinBtn').onclick = () => {
+function openVinDialog(focus = true) {
   $('#vinNote').textContent = '';
   $('#vinInput').value = '';
-  $('#vinDlg').showModal();
-  $('#vinInput').focus();
-};
+  $('#vinScanOut').hidden = true;
+  if (!$('#vinDlg').open) $('#vinDlg').showModal();
+  if (focus) $('#vinInput').focus();
+}
+$('#vinBtn').onclick = () => openVinDialog();
+// the car sheet's Scan VIN (a phone): the dialog, and straight to the camera
+$('#sheetScanBtn').onclick = () => { openVinDialog(false); $('#vinPhoto').click(); };
 $('#vinClose').onclick = () => $('#vinDlg').close();
 
 // Option codes (WIS SACode): each code's meaning for this car's vehicle
@@ -2709,16 +4255,18 @@ $('#saFind').onclick = saLookup;
 // Labour times (WIS ASRA flat rates) for the exact model picked. A model in
 // several books (build-date splits) shows a chooser and no times until one
 // is picked -- which applies depends on the chassis number.
-let labSeq = 0, labTimer = null;
-// Labour times are a tab now (they were a dialog): the button and the scope
-// note's link open it
-function openLabour() { setTab('labour'); $('#labQ').focus(); }
+let labSeq = 0;
+// Labour times are a tab of the right box: the button and the scope note's
+// link open it. It has no search box of its own -- the question box fills
+// it (labourFor), and labQuery is the words it last searched.
+let labQuery = '';
+function openLabour() { setTab('labour'); openRight(); }
 function showLabourTab() {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
   if (labFor !== docId() + '::' + variantIdx()) {     // a different car: start over
     labFor = docId() + '::' + variantIdx();
-    $('#labQ').value = '';
+    labQuery = '';
     $('#labBook').innerHTML = ''; $('#labBook').hidden = $('#labBookLbl').hidden = true;
   }
   loadLabour();
@@ -2730,7 +4278,7 @@ async function loadLabour() {
   if (n === null) {
     out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
       + 'Variant): labour times are per model type.</div>';
-    return;
+    return 0;
   }
   out.innerHTML = '<span class="spinner"></span>';
   const book = $('#labBook').hidden ? '' : $('#labBook').value;
@@ -2739,22 +4287,27 @@ async function loadLabour() {
     r = await api(`/api/wis/labour/${encodeURIComponent(docId())}?variant=${n}`
       + (eng ? `&engine=${encodeURIComponent(eng)}` : '')
       + (book ? `&book=${encodeURIComponent(book)}` : '')
-      + `&q=${encodeURIComponent($('#labQ').value.trim())}`);
+      + `&q=${encodeURIComponent(labQuery)}`);
   } catch (e) {
     if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
-    return;
+    return 0;
   }
-  if (seq !== labSeq) return;
+  if (seq !== labSeq) return 0;
   if (r.books.length > 1 && $('#labBook').hidden) {
     $('#labBook').innerHTML = '<option value="">Choose…</option>' + r.books.map(b =>
       `<option value="${esc(b.book)}">${esc(b.family)} · ${esc(b.type)}</option>`).join('');
     $('#labBook').hidden = $('#labBookLbl').hidden = false;
   }
-  if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return; }
-  if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return; }
-  if (!r.items.length) { out.innerHTML = '<div class="muted">No operation matches that search.</div>'; return; }
+  if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return 0; }
+  if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return 0; }
+  if (!r.items.length) {
+    out.innerHTML = '<div class="muted">No labour operation matches this question. To look one up, '
+      + '<b>Search</b> its name in the question box, e.g. <i>water pump</i>.</div>';
+    return 0;
+  }
   let last = '';
-  out.innerHTML = `<div class="tablewrap"><table><tbody>` + r.items.map(i => {
+  out.innerHTML = (labQuery ? `<div class="muted" style="margin-bottom:6px">For: <b>${esc(labQuery)}</b></div>` : '')
+    + `<div class="tablewrap"><table><tbody>` + r.items.map(i => {
     const head = i.group !== last ? `<tr><th colspan="2" style="text-align:left">${esc(i.group)}</th></tr>` : '';
     last = i.group;
     return head + `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
@@ -2762,34 +4315,101 @@ async function loadLabour() {
       + ` <span class="muted" style="font-size:12px">${i.minutes} min</span></td></tr>`;
   }).join('') + `</tbody></table></div>`
     + (r.total > r.items.length
-        ? `<div class="muted" style="margin-top:6px">Showing ${r.items.length} of ${r.total} — search to narrow.</div>` : '');
+        ? `<div class="muted" style="margin-top:6px">Showing ${r.items.length} of ${r.total} — ask or search to narrow.</div>` : '');
+  return r.items.length;
 }
 $('#labBtn').onclick = openLabour;
-$('#labFind').onclick = loadLabour;
-$('#labBook').addEventListener('change', loadLabour);
-$('#labQ').addEventListener('input', () => { clearTimeout(labTimer); labTimer = setTimeout(loadLabour, 300); });
-$('#labQ').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); loadLabour(); } });
+// a book picked: the question's terms again, in that book
+$('#labBook').addEventListener('change', () => {
+  if (tabQuery && tabQuery.doc === docId()) labourFor([...tabQuery.also, tabQuery.q], tabSeq);
+  else loadLabour();
+});
 $('#saInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saLookup(); } });
+// The dialog picks the car exactly as a VIN typed in the car box does
+// (carFromVin + applyCar): same variant, same engine, same year. It used to
+// set the dropdowns itself and send no engine at all.
+// A VIN read from a photo is never searched on its own: it goes in the box,
+// the user checks it against the car and taps Find (which picks the car
+// through applyCar, as typing does).
+// I/O/Q: the message, and a button that puts the corrected VIN in the box.
+function vinNoteError(e) {
+  $('#vinNote').innerHTML = `<span class="errnote">${esc(e.error)}</span>`
+    + (e.fixed && e.changed && e.changed.length
+       ? `<div style="margin-top:8px"><button type="button" class="ghost" id="vinUseFix">Use `
+         + `<span class="vinmono">${vinMarked(e.fixed, e.changed)}</span></button></div>` : '');
+  const b = $('#vinUseFix');
+  if (b) b.onclick = () => { $('#vinInput').value = e.fixed; vinLiveNote(); };
+}
+// while typing: what is wrong with the VIN so far (nothing until 17)
+function vinLiveNote() {
+  const c = vinCheck($('#vinInput').value);
+  if (c.error) return vinNoteError(c);
+  $('#vinNote').innerHTML = c.vin.length < 17 ? ''
+    : c.warn ? `<span class="vinwarn">${esc(c.warn)}</span>`
+    : c.check === 'ok' ? 'Check digit matches.' : '';
+}
+$('#vinInput').addEventListener('input', vinLiveNote);
 $('#vinFind').onclick = () => {
-  const r = vinLookup($('#vinInput').value);
-  if (r.error) { $('#vinNote').textContent = r.error; return; }
-  // set the year the VIN states (if we could pin one) and clear make, so the
-  // matched vehicle is definitely in the list
-  const hasYear = r.year && [...$('#year').options].some(o => +o.value === r.year);
-  $('#year').value = hasYear ? String(r.year) : '';
-  $('#make').value = '';
-  refreshPicker(r.variant !== null ? `${r.vehicle.doc_id}::${r.variant}`
-                                   : r.vehicle.doc_id);
-  // the box follows the pick (it kept showing the previous car)
-  clearCarPick();
-  loadConnectors();
-  $('#vinNote').textContent = `Found by ${r.how}`
-    + (hasYear ? `, model year ${r.year}.` : '.');
-  setTimeout(() => $('#vinDlg').close(), 1600);
+  const e = carFromVin($('#vinInput').value);
+  if (e.error) { vinNoteError(e); return; }
+  applyCar(e);
+  $('#vinNote').innerHTML = esc(`Found by ${e.how}` + (e.year ? `, model year ${e.year}.` : '.'))
+    + (e.warn ? `<div class="vinwarn" style="margin-top:6px">${esc(e.warn)}</div>` : '');
+  // a warning stays up until it is closed; otherwise the dialog goes
+  if (!e.warn) setTimeout(() => $('#vinDlg').close(), 1600);
 };
 $('#vinInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); $('#vinFind').click(); }
 });
+let scanSeq = 0;
+async function vinFromPhoto(file) {
+  if (!file) return;
+  const seq = ++scanSeq;
+  $('#vinScanOut').hidden = true;
+  $('#vinNote').innerHTML = '<span class="spinner"></span> <span id="vinScanStatus">Reading the photo…</span>';
+  let r;
+  try {
+    r = await vinScan(file, {isMaker: isMercedesWmi, onStatus: s => {
+      const el = $('#vinScanStatus'); if (el && seq === scanSeq) el.textContent = s; }});
+  } catch (e) {
+    if (seq === scanSeq) $('#vinNote').innerHTML = `<span class="errnote">${esc(e.message)}</span>`;
+    return;
+  }
+  if (seq !== scanSeq) return;
+  if (r.crop) { $('#vinScanImg').src = r.crop; }
+  $('#vinScanOut').hidden = !r.crop;
+  if (!r.best) {
+    $('#vinScanText').innerHTML = r.text ? `Text read: <span class="vinmono">${esc(r.text.slice(0, 200))}</span>` : '';
+    $('#vinNote').innerHTML = '<span class="errnote">No VIN found in that photo.</span> Get closer so the '
+      + 'VIN (or its barcode) fills the picture, keep it sharp and straight, avoid glare — or type it.';
+    return;
+  }
+  const b = r.best;
+  $('#vinInput').value = b.vin;
+  const unsure = b.unsure || [];
+  $('#vinScanText').innerHTML = `Read from the ${esc(r.source)}: <span class="vinmono">${esc(r.text.slice(0, 80))}</span>`
+    + `<br>In the box: <span class="vinmono">${vinMarked(b.vin, b.changed, unsure)}</span>`
+    + (b.changed.length ? '<br>A VIN has no I, O or Q: the highlighted characters were read as 1 or 0.' : '')
+    + (unsure.length ? `<br>The underlined character${unsure.length > 1 ? 's' : ''} read differently each `
+       + 'time — check against the car.' : '');
+  const c = vinCheck(b.vin);
+  $('#vinNote').innerHTML = (c.warn ? `<span class="vinwarn">${esc(c.warn)}</span> `
+      : c.check === 'ok' ? 'Check digit matches. ' : '')
+    + 'Compare it with the car, correct it if needed, then tap <b>Find</b>.';
+}
+for (const id of ['#vinPhoto', '#vinFile']) {
+  $(id).addEventListener('change', ev => {
+    const f = ev.target.files && ev.target.files[0];
+    ev.target.value = '';                    // the same photo can be picked again
+    vinFromPhoto(f);
+  });
+}
+// the labels act as buttons from the keyboard too
+for (const id of ['#vinScanLbl', '#vinFileLbl']) {
+  $(id).addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); $(id).click(); }
+  });
+}
 // -- import -----------------------------------------------------------------
 // Browsing and importing run on the PC hosting AutoRundown; the server refuses
 // them from other devices, and the dialog says so.
@@ -3079,11 +4699,12 @@ const impDur = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600
   : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
 const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'remove_wis'
   ? 'removing Mercedes WIS' : s.mode === 'remove_epc' ? 'removing Mercedes EPC'
-  : s.mode === 'vm' ? 'Mercedes VM extract' : s.mode === 'vm_epc' ? 'Mercedes EPC extract' : 'import';
+  : s.mode === 'vm' ? 'Mercedes VM extract' : s.mode === 'vm_epc' ? 'Mercedes EPC extract'
+  : s.mode === 'vm_both' ? 'Mercedes WIS + EPC extract' : 'import';
 function impShow(s) {
   const log = $('#impLog');
   $('#jobIdle').hidden = s.state !== 'idle';
-  if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; $('#impFail').hidden = true; return; }
+  if (s.state === 'idle') { log.hidden = true; $('#impStatus').textContent = ''; $('#impFail').hidden = true; impProg(s); return; }
   if (s.state === 'running') impSawRunning = true;
   log.textContent = (s.log || []).join('\n');
   const t = impDur(s.elapsed);
@@ -3105,7 +4726,15 @@ function impShow(s) {
   $('#impStatus').classList.toggle('bad', failed);
   const last = (s.log || []).filter(l => l.trim()).slice(-1)[0] || '';
   $('#impFail').hidden = !(failed && impSawRunning);
-  if (failed && impSawRunning) $('#impFail').textContent = `The ${impJobName(s)} failed: ${last}`;
+  if (failed && impSawRunning) {
+    // a two-part job says which part failed and what it did not start
+    const ps = s.parts || [], fi = s.failed_part;
+    const where = ps.length > 1 && fi != null ? ` in step ${fi + 1} of ${ps.length} (${ps[fi].label})` : '';
+    const rest = ps.length > 1 && fi != null ? ps.slice(fi + 1).map(x => x.label) : [];
+    $('#impFail').textContent = `The ${impJobName(s)} failed${where}: ${last}`
+      + (rest.length ? ` — ${rest.join(', ')} was not started.` : '');
+  }
+  impProg(s);
   $('#impStart').disabled = s.state === 'running' || (impSource() === 'lemon' && !lemPicked().length);
 }
 async function impWatch() {
@@ -3138,6 +4767,14 @@ function openImport() {
     importOpened = true;
     impSawRunning = false;
     impShowSource();
+    // a reload during a VM extraction comes back to its tab and progress bar
+    api('/api/import').then(s => {
+      if (s.state !== 'running' || !/^vm/.test(s.mode || '')) return;
+      const what = {vm: 'wis', vm_epc: 'epc', vm_both: 'both'}[s.mode];
+      const r = document.querySelector(`#impVmWhat input[value="${what}"]`);
+      if (r) { r.checked = true; impVmWhatShow(); }
+      if (impTab() !== 'vm') impSelectTab('vm');
+    }).catch(() => {});
     // focus the selected tab, not the whole strip (it drew a ring round all three)
     setTimeout(() => document.querySelector('.srctabs [aria-selected="true"]')?.focus({preventScroll: true}), 0);
   }
@@ -3184,12 +4821,86 @@ async function impVms() {
     $('#impStart').disabled = !r.vms.length;
   } catch (e) { noVm(e.message); }
 }
-// Mercedes VM tab: workshop manuals (WIS, with its steps) or the EPC parts catalogue
+// Mercedes VM tab: workshop manuals (WIS, with its steps), the EPC parts
+// catalogue, or both -- WIS then EPC as one job (mode vm_both)
 const impVmWhat = () => document.querySelector('#impVmWhat input:checked')?.value || 'wis';
-document.querySelectorAll('#impVmWhat input').forEach(r => r.onchange = () => {
-  $('#impWisOpts').hidden = impVmWhat() !== 'wis';
-  $('#impEpcOpts').hidden = impVmWhat() !== 'epc';
-});
+const VM_WHAT_HELP = {
+  wis: 'Workshop manuals (WIS): documents, model links, vehicles, images.',
+  epc: 'Parts catalogue (EPC): part numbers and exploded drawings.',
+  both: 'WIS first, then the EPC parts catalogue, as one job. If the WIS part fails, EPC is not started.'};
+function impVmWhatShow() {
+  const w = impVmWhat();
+  $('#impWisOpts').hidden = w === 'epc';
+  $('#impEpcOpts').hidden = w === 'wis';
+  $('#impVmWhatHelp').textContent = VM_WHAT_HELP[w];
+}
+document.querySelectorAll('#impVmWhat input').forEach(r => r.onchange = impVmWhatShow);
+impVmWhatShow();
+// The progress bar at the bottom of the Mercedes VM tab. Everything comes
+// from the job on the server (importer_jobs.Progress reads the pipeline's own
+// log lines), so a reload shows the same. A phase with no known total gets a
+// moving (indeterminate) bar and its counts, never a made-up percentage.
+const VP_STATE = {pending: 'waiting', running: 'running', done: 'done ✓', failed: 'failed',
+                  'not started': 'not started'};
+let impLast = null;     // the last job status, to redraw the bar on a tab change
+function impProg(s) {
+  impLast = s;
+  const box = $('#impVmProg');
+  if (!s || impTab() !== 'vm' || s.state === 'idle' || !/^vm/.test(s.mode || '') || (s.state !== 'running' && !impSawRunning)) {
+    box.hidden = true; return;
+  }
+  box.hidden = false;
+  const parts = s.parts && s.parts.length ? s.parts : [{label: '', state: s.state}];
+  const n = parts.length, i = Math.min(s.part || 0, n - 1);
+  const name = lb => lb || (s.mode === 'vm_epc' ? 'EPC parts' : 'WIS');
+  const step = n > 1 ? `Step ${i + 1} of ${n}: ${name(parts[i].label)}` : name(parts[0].label);
+  const p = s.progress || {};
+  const bar = $('#vpBar'), fill = bar.firstElementChild;
+  bar.classList.remove('indet', 'done', 'bad');
+  const fmt = x => Number(x).toLocaleString();
+  let sub = [];
+  if (s.state === 'running') {
+    $('#vpHead').textContent = `${step} — ${p.phase || 'starting'}`;
+    if (p.total) {
+      const pct = Math.min(100, Math.floor(100 * (p.done || 0) / p.total));
+      fill.style.width = pct + '%';
+      bar.setAttribute('aria-valuenow', pct);
+      bar.setAttribute('aria-valuetext', `${fmt(p.done || 0)} of ${fmt(p.total)} ${p.unit}`);
+      sub.push(`${fmt(p.done || 0)} / ${fmt(p.total)} ${esc(p.unit || '')} (${pct}%)`);
+    } else {
+      bar.classList.add('indet');
+      fill.style.width = '';
+      bar.removeAttribute('aria-valuenow');
+      bar.setAttribute('aria-valuetext', p.phase || 'working');
+      if (p.done != null) sub.push(`${fmt(p.done)} ${esc(p.unit || '')}`);
+    }
+    if (p.detail) sub.push(esc(p.detail));
+    if (p.activity) sub.push(esc(p.activity));
+    sub.push(impDur(s.elapsed || 0));
+  } else {
+    const failed = s.state !== 'done';
+    const fi = s.failed_part != null ? s.failed_part : i;
+    bar.classList.add(failed ? 'bad' : 'done');
+    bar.removeAttribute('aria-valuenow');
+    fill.style.width = '100%';
+    if (failed) {
+      const fstep = n > 1 ? `Step ${fi + 1} of ${n}: ${name(parts[fi].label)}` : name(parts[0].label);
+      $('#vpHead').textContent = `${fstep} failed` + (p.phase ? ` (${p.phase})` : '');
+      bar.setAttribute('aria-valuetext', 'failed');
+      if (p.error) sub.push(`<span class="err">${esc(p.error)}</span>`);
+      const rest = parts.slice(fi + 1).map(x => name(x.label));
+      if (rest.length) sub.push(`${esc(rest.join(', '))} was not started.`);
+    } else {
+      $('#vpHead').textContent = `Finished: ${parts.map(x => name(x.label)).join(' and ')}`;
+      bar.setAttribute('aria-valuetext', 'finished');
+      sub.push(`in ${impDur(s.elapsed || 0)}`);
+    }
+  }
+  $('#vpSub').innerHTML = sub.join(' · ');
+  $('#vpParts').hidden = n < 2;
+  $('#vpParts').innerHTML = n < 2 ? '' : parts.map(x =>
+    `<li>${esc(name(x.label))} — <span class="st ${x.state.replace(' ', '-')}">${VP_STATE[x.state] || esc(x.state)}</span></li>`).join('');
+}
 function impShowSource() {
   const tab = impTab(), src = impSource();
   // the folder browser lives in the Folder tab, or inside the LEMON tab's folder section
@@ -3199,6 +4910,7 @@ function impShowSource() {
   $('#impCatPanel').hidden = tab !== 'lemon';
   $('#impFolderManuals').hidden = tab !== 'folder' || !(manData && manData.folder.length);
   $('#impVmPanel').hidden = tab !== 'vm';
+  impProg(impLast);
   $('#impLemon').hidden = src !== 'lemon'; $('#impModes').innerHTML = '';
   $('#impStart').hidden = src === 'catalogue';
   $('#impStart').textContent = tab === 'vm' ? 'Extract & import' : 'Import';
@@ -3238,11 +4950,17 @@ $('#impStart').onclick = async () => {
   if (impSource() === 'vm') {
     const steps = [...document.querySelectorAll('#impSteps input:checked')].map(c => c.value);
     if (!steps.length) { $('#impStatus').textContent = 'Pick at least one step.'; return; }
-    if (!confirm(`Extract from ${$('#impVm').value} and rebuild the Mercedes data? `
-        + 'The VM will be started and shut down by this job.')) return;
+    const both = impVmWhat() === 'both';
+    if (!confirm(both
+        ? `Extract the workshop manuals (WIS) and then the EPC parts catalogue from ${$('#impVm').value}, `
+          + 'and replace both in the index? One job: if the WIS part fails, EPC is not started. '
+          + 'The VM will be started and shut down by this job.'
+        : `Extract from ${$('#impVm').value} and rebuild the Mercedes data? `
+          + 'The VM will be started and shut down by this job.')) return;
     try {
       impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: '', mode: 'vm', vm: $('#impVm').value, steps: steps.join(',')})}));
+        body: JSON.stringify({path: '', mode: both ? 'vm_both' : 'vm', vm: $('#impVm').value,
+                              steps: steps.join(',')})}));
       impWatch();
     } catch (e) { $('#impStatus').textContent = e.message; }
     return;
@@ -3304,6 +5022,11 @@ syncOpts();
 out.addEventListener('click', e => {
   const ex = e.target.closest('[data-example]');
   if (ex) { $('#q').value = ex.dataset.example; $('#q').focus(); }
+  // a withheld answer: the same question as a (free) keyword search
+  if (e.target.closest('[data-searchinstead]')) {
+    if (lastAsked) $('#q').value = lastAsked;
+    keywordSearch();
+  }
 });
 
 // While starting: /api/me, the vehicles and the models are asked for
@@ -3323,6 +5046,8 @@ async function start() {
         showSignin();
         return;
       }
+      // a sign-in QR that failed on a page that doesn't need one: say so, closably
+      if (!m.admin && /[#&]signin=/.test(location.hash)) showSignin(true);
       await loadVehicles(vehiclesReq);
       loadModels(modelsReq).catch(e => {
         $('#model').innerHTML = '<option value="">AI models unavailable</option>';
@@ -3342,6 +5067,7 @@ async function start() {
   booted = true;
   route();
   watchImports();
+  loadDeskCars();
 }
 // an import running (from this PC) gives partial results: say so, on every device
 let importingSeen = false;

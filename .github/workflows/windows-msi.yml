@@ -118,7 +118,10 @@ jobs:
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$msi`" /qn /l*v install.log"
           if ($p.ExitCode) { Get-Content install.log -Tail 40; throw "install failed: $($p.ExitCode)" }
           $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
-          foreach ($f in "python\python.exe", "app\ingest.py", "app\rebuild_wis.py", "app\remove_manuals.py", "app\autorundown\web\index.html") {
+          # (+ Scan VIN's vendored barcode/OCR libraries)
+          foreach ($f in "python\python.exe", "app\ingest.py", "app\rebuild_wis.py", "app\remove_manuals.py", "app\autorundown\web\index.html",
+                         "app\autorundown\web\vendor\zxing-wasm-3.1.4\zxing_reader.wasm", "app\autorundown\web\vendor\tesseract-7.0.0\eng.traineddata.gz",
+                         "app\autorundown\web\vendor\tesseract-7.0.0\tesseract-core-simd-lstm.wasm.js") {
             if (-not (Test-Path "$inst\$f")) { throw "missing after install: $f" }
           }
           $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
@@ -183,6 +186,8 @@ jobs:
           if ($hits.Count -lt 1) { throw "search found nothing" }
           $page = Invoke-WebRequest http://127.0.0.1:8756/ -UseBasicParsing
           if ($page.Content -notmatch "<html") { throw "UI not served" }
+          $wasm = Invoke-WebRequest http://127.0.0.1:8756/vendor/zxing-wasm-3.1.4/zxing_reader.wasm -UseBasicParsing
+          if ($wasm.Headers["Content-Type"] -ne "application/wasm") { throw "Scan VIN's barcode reader not served" }
           # the user's WIS extractor is found on the Desktop and run by the
           # bundled Python (no VirtualBox here, so it stops at --list-vms)
           $ext = "$env:USERPROFILE\Desktop\Mercedes Documents\autorundown_extractor"

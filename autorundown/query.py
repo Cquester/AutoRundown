@@ -18,36 +18,20 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 
-import anthropic
 from pydantic import BaseModel, Field
 
+from . import providers
+from .providers import ApiUnavailable, NoApiKey  # noqa: F401  (callers catch query.X)
 from .search import multi_search, scope_ids
 
-# Prices are USD per million tokens. `adaptive`/`effort` track which request
-# parameters each model accepts -- passing adaptive thinking or an effort
-# setting to a model that predates them is a 400, not a silent no-op.
-MODELS: dict[str, dict] = {
-    "claude-opus-5": {
-        "label": "Opus 5 — most capable",
-        "price_in": 5.0, "price_out": 25.0,
-        "adaptive": True, "effort": True,
-    },
-    "claude-sonnet-5": {
-        "label": "Sonnet 5 — balanced",
-        "price_in": 3.0, "price_out": 15.0,
-        "adaptive": True, "effort": True,
-    },
-    "claude-haiku-4-5": {
-        "label": "Haiku 4.5 — cheapest",
-        "price_in": 1.0, "price_out": 5.0,
-        "adaptive": False, "effort": False,
-    },
-}
-DEFAULT_MODEL = "claude-opus-5"
+# Anthropic's models (providers.PROVIDERS has every provider's); kept here
+# under the old name for callers and tests
+MODELS: dict[str, dict] = providers.PROVIDERS["anthropic"]["models"]
+DEFAULT_MODEL = providers.PROVIDERS["anthropic"]["default_model"]
 
 
 def model_spec(model: str) -> dict:
-    return MODELS.get(model, MODELS[DEFAULT_MODEL])
+    return providers.model_spec(model)
 
 
 class SearchPlan(BaseModel):
@@ -231,6 +215,7 @@ class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
     calls: int = 0
+    provider: str = "anthropic"
 
     def add(self, response) -> None:
         self.input_tokens += response.usage.input_tokens
@@ -238,17 +223,18 @@ class Usage:
         self.calls += 1
 
     @property
-    def cost_usd(self) -> float:
-        spec = model_spec(self.model)
-        return (self.input_tokens / 1e6 * spec["price_in"]
-                + self.output_tokens / 1e6 * spec["price_out"])
+    def cost_usd(self) -> float | None:
+        """None when this model's price is not known ("cost not tracked")."""
+        return providers.cost(self.model, self.input_tokens, self.output_tokens)
 
     def as_dict(self) -> dict:
+        c = self.cost_usd
         return {"model": self.model,
+                "provider": self.provider,
                 "input_tokens": self.input_tokens,
                 "output_tokens": self.output_tokens,
                 "calls": self.calls,
-                "cost_usd": round(self.cost_usd, 5)}
+                "cost_usd": round(c, 5) if c is not None else None}
 
 
 @dataclass
@@ -299,53 +285,6 @@ class Result:
         }
 
 
-class NoApiKey(RuntimeError):
-    pass
-
-
-class ApiUnavailable(RuntimeError):
-    """An API call failed for a reason the user can act on."""
-
-
-def _friendly_api_error(exc: Exception) -> ApiUnavailable:
-    """Turn SDK exceptions into something readable above a fender.
-
-    Ordered most specific first; the balance case is special-cased because it
-    is by far the most common first-run failure and the fix is not obvious
-    (API credit is billed separately from a Claude subscription).
-    """
-    if isinstance(exc, anthropic.AuthenticationError):
-        return ApiUnavailable(
-            "The API key was rejected. Check it in Settings, or create a new "
-            "one at https://console.anthropic.com -> API Keys.")
-    if isinstance(exc, anthropic.RateLimitError):
-        return ApiUnavailable("Rate limited by the API. Wait a moment and retry.")
-    if isinstance(exc, anthropic.BadRequestError):
-        detail = str(exc)
-        if "credit balance" in detail.lower():
-            return ApiUnavailable(
-                "Out of API credit. The key is valid, but the account has no "
-                "API balance. Note that API credit is separate from a Claude "
-                "Pro/Max subscription -- top up at "
-                "https://console.anthropic.com/settings/billing.")
-        return ApiUnavailable(f"The API rejected the request: {detail}")
-    if isinstance(exc, anthropic.APIConnectionError):
-        return ApiUnavailable(
-            "Could not reach the Anthropic API. Check the network connection.")
-    if isinstance(exc, anthropic.APIStatusError):
-        return ApiUnavailable(f"API error {exc.status_code}: {exc}")
-    return ApiUnavailable(f"Unexpected API failure: {exc}")
-
-
-def _client(api_key: str) -> anthropic.Anthropic:
-    if not api_key:
-        raise NoApiKey(
-            "No Anthropic API key configured. Set it on the Settings page or "
-            "export ANTHROPIC_API_KEY."
-        )
-    return anthropic.Anthropic(api_key=api_key)
-
-
 def narrowed(vehicle: dict, variant: int | None, engine: str | None,
              year: int | None = None) -> dict:
     """The vehicle with its chosen car / engine / year spelled out, which
@@ -393,29 +332,26 @@ def _vehicle_label(vehicle: dict) -> str:
     return f"{label} (engine: {engine})" if engine else label
 
 
-def plan_queries(client, question: str, vehicle: dict, usage: Usage,
-                 model: str = DEFAULT_MODEL) -> list[str]:
-    spec = model_spec(model)
-    kwargs: dict = {}
-    if spec["effort"]:
-        # planning is a light task; keep it cheap where the model allows it
-        kwargs["output_config"] = {"effort": "low"}
-    try:
-        response = client.messages.parse(
-            model=model,
-            max_tokens=1000,
-            system=PLANNER_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": f"Vehicle: {_vehicle_label(vehicle)}\nQuestion: {question}",
-            }],
-            output_format=SearchPlan,
-            **kwargs,
-        )
-    except anthropic.APIError as exc:
-        raise _friendly_api_error(exc) from None
-    usage.add(response)
-    plan = response.parsed_output
+# DeepSeek's JSON mode takes an example instead of a schema (providers.py)
+PLAN_EXAMPLE = {"queries": ["engine oil capacity", "oil drain plug torque"]}
+ANSWER_EXAMPLE = {
+    "found": True, "answer": "One to three sentences.",
+    "document_page": "<page number from the passages>",
+    "specs": [{"name": "<what the value is>", "value": "<value as printed>",
+               "applicability": "<engine / model codes>",
+               "source_pages": ["<page number from the passages>"]}],
+    "steps": [], "figures": [],
+    "source_pages": ["<page number from the passages>"],
+    "diagrams": [], "caveats": ""}
+
+
+def plan_queries(call, question: str, vehicle: dict, usage: Usage) -> list[str]:
+    """`call(kind, system, user, schema, example)` -> providers.Reply."""
+    reply = call("plan", PLANNER_SYSTEM,
+                 f"Vehicle: {_vehicle_label(vehicle)}\nQuestion: {question}",
+                 SearchPlan, PLAN_EXAMPLE)
+    usage.add(reply)
+    plan = reply.parsed
     queries = [q.strip() for q in (plan.queries if plan else []) if q.strip()]
     # always keep the raw question as a fallback query
     if question.strip() not in queries:
@@ -693,13 +629,21 @@ def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         model: str = DEFAULT_MODEL, source: str = "cli",
         variant: int | None = None, engine: str | None = None,
         year: int | None = None, user_id: int | None = None,
-        user_name: str | None = None) -> Result:
+        user_name: str | None = None, key_ref: str | None = None,
+        provider: str | None = None) -> Result:
     """Answer one question, recording what it cost.
 
+    `provider` is the AI provider ("anthropic", "gemini", "xai", "deepseek";
+    providers.py); by default the one `model` belongs to. Whichever answers,
+    the reply goes through the same checks: _verify_citations,
+    _drop_other_vehicles, _add_omitted_parts.
+
     `source` tags the spend as web/cli/eval so a bill can be attributed later;
-    `user_id`/`user_name` tag it with the signed-in mechanic, if any.
+    `user_id`/`user_name` tag it with the signed-in mechanic, if any;
+    `key_ref` with whose key paid (config.pick_key: "company" | "user:<id>").
     """
-    usage = Usage(model=model)
+    provider = provider or providers.provider_of(model) or providers.DEFAULT_PROVIDER
+    usage = Usage(model=model, provider=provider)
     try:
         return _ask(conn, vehicle, question, api_key, per_query, cap,
                     include_other_variants, model, usage, variant, engine, year)
@@ -709,19 +653,24 @@ def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         if usage.calls:
             from .index import log_usage
             log_usage(conn, source, vehicle["doc_id"], question, usage,
-                      user_id, user_name)
+                      user_id, user_name, key_ref)
 
 
 def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
          per_query: int, cap: int, include_other_variants: bool,
          model: str, usage: Usage, variant: int | None = None,
          engine: str | None = None, year: int | None = None) -> Result:
-    client = _client(api_key)
+    if not api_key:
+        raise NoApiKey(providers.no_key_message(usage.provider))
+
+    def call(kind, system, user, schema, example):
+        return providers.call(usage.provider, api_key, model, kind, system, user,
+                              schema, example)
+
     # tell the model which car within the generation, not just "W212 E-Class"
     vehicle = narrowed(vehicle, variant, engine, year)
-    spec = model_spec(model)
 
-    queries = plan_queries(client, question, vehicle, usage, model)
+    queries = plan_queries(call, question, vehicle, usage)
     # the manuals' own wording first: the planner wrote "valve cover ..." for
     # a 190E 2.3-16 and WIS only says "cylinder head cover" (synonyms.py)
     from .synonyms import translate
@@ -744,30 +693,17 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         f"Question: {question}\n\n"
         f"Manual passages:\n\n{format_passages(passages)}"
     )
-    answer_kwargs: dict = {}
-    if spec["adaptive"]:
-        answer_kwargs["thinking"] = {"type": "adaptive"}
-    try:
-        response = client.messages.parse(
-            model=model,
-            max_tokens=8000,
-            system=ANSWER_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-            output_format=AnswerModel,
-            **answer_kwargs,
-        )
-    except anthropic.APIError as exc:
-        raise _friendly_api_error(exc) from None
-    usage.add(response)
+    reply = call("answer", ANSWER_SYSTEM, prompt, AnswerModel, ANSWER_EXAMPLE)
+    usage.add(reply)
 
-    if response.stop_reason == "refusal":
+    if reply.refusal:
         return Result(
             answer=AnswerModel(found=False, answer="",
                                caveats="The request was declined by the model."),
             passages=passages, queries=queries, usage=usage,
         )
 
-    answer = response.parsed_output or AnswerModel(
+    answer = reply.parsed or AnswerModel(
         found=False, answer="", caveats="The model returned no parsable answer.")
     dropped = _verify_citations(answer, passages)
     other = _drop_other_vehicles(answer, vehicle_codes(vehicle, scope))

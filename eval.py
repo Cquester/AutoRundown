@@ -141,17 +141,17 @@ def run_retrieval(top_n: int = 10, cases: list[dict] | None = None,
 def run_full(cases: list[dict] | None = None, model: str | None = None,
              index_path: str | None = None) -> int:
     cfg = config.load()
-    if not cfg.resolved_key:
+    chosen = model or config.active_model(cfg)
+    from autorundown import providers
+    key = config.company_key(cfg, providers.provider_of(chosen) or "anthropic")
+    if not key:
         print("No API key configured. Run without --answers for the free "
               "retrieval check, or set a key first.", file=sys.stderr)
         return 2
 
     cases = cases if cases is not None else CASES
-    chosen = model or cfg.model or query.DEFAULT_MODEL
-    spec = query.model_spec(chosen)
     # rough per-question shape measured on this archive: ~6k in, ~900 out
-    estimate = len(cases) * (6000 / 1e6 * spec["price_in"]
-                             + 900 / 1e6 * spec["price_out"])
+    estimate = len(cases) * (providers.cost(chosen, 6000, 900) or 0.0)
 
     conn = index.connect(index_path or cfg.index_path)
     vehicles = {v["doc_id"]: v for v in index.vehicles(conn)}
@@ -165,9 +165,9 @@ def run_full(cases: list[dict] | None = None, model: str | None = None,
             print(f"  SKIP  {case['id']:<24} vehicle not indexed")
             continue
 
-        result = query.ask(conn, vehicle, case["question"], cfg.resolved_key,
+        result = query.ask(conn, vehicle, case["question"], key,
                            model=chosen, source="eval")
-        total_cost += result.usage.cost_usd
+        total_cost += result.usage.cost_usd or 0.0
         answer = result.answer
         problems: list[str] = []
 

@@ -734,6 +734,38 @@ def main():
                   "vin9" in RecordsImporter._with_vin9({"baumuster": ["201.018"]}, by_bm), False)
             check("no vin2fin.json: nothing, quietly",
                   RecordsImporter._vin2fin(vdir, {"vin2fin_file": "missing.json"}), {})
+
+            # a variant's Baumuster can have different engines: each prefix
+            # must keep ITS Baumuster (the page sent the variant's first one's
+            # engine for every VIN: WDBJF65J0 = 210.065 M112 searched the M104)
+            (vdir / "vin2fin.json").write_text(json.dumps(
+                {"WDBJF55F0": "210.055", "WDBJF65J0": "210.065"}), encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                by_bm = RecordsImporter._vin2fin(vdir, {"vin2fin_file": "vin2fin.json"})
+            e320 = {"name": "E 320", "baumuster": ["210.055", "210.065"],
+                    "engine_by_bm": {"210.055": ["104.995"], "210.065": ["112.941"]}}
+            check("each VIN prefix keeps its own Baumuster (vin9_bm)",
+                  RecordsImporter._with_vin9(e320, by_bm)["vin9_bm"],
+                  {"WDBJF55F0": "210.055", "WDBJF65J0": "210.065"})
+            # an index built before vin9_bm: the server rebuilds it at runtime
+            # from the corpus's vin2fin.json (file_path), no rebuild needed
+            from autorundown import server
+            old = {**e320, "vin9": ["WDBJF55F0", "WDBJF65J0"]}
+            rows = [{"doc_id": "w210", "file_path": str(vdir),
+                     "variants": json.dumps([old, {"name": "E 430", "baumuster": ["210.070"]}])},
+                    {"doc_id": "lemon", "file_path": None, "variants": None}]
+            sent = server._with_vin9_bm(rows)
+            check("old index: the server adds vin9_bm from vin2fin.json",
+                  [x.get("vin9_bm") for x in json.loads(sent[0]["variants"])],
+                  [{"WDBJF55F0": "210.055", "WDBJF65J0": "210.065"}, None])
+            check("rows without VIN prefixes are passed through", sent[1], rows[1])
+            stored = {**old, "vin9_bm": {"WDBJF65J0": "210.065"}}
+            check("a variant that already has vin9_bm is left alone",
+                  json.loads(server._with_vin9_bm([{**rows[0], "variants": json.dumps([stored])}])
+                             [0]["variants"])[0]["vin9_bm"], {"WDBJF65J0": "210.065"})
+            check("no vin2fin.json next to the corpus: rows unchanged",
+                  server._with_vin9_bm([{**rows[0], "file_path": str(vdir / "nowhere")}])[0],
+                  {**rows[0], "file_path": str(vdir / "nowhere")})
         finally:
             shutil.rmtree(vdir, ignore_errors=True)
 

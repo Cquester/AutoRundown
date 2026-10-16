@@ -114,10 +114,13 @@ SAMPLE_VARIANTS = [
 ]
 
 # US VIN tables (IMPORT_SPEC 3b): position 4 letter -> series, and the
-# first 9 VIN characters -> Baumuster. The two prefixes are the documented
-# examples in CLAUDE.md; enough for the VIN box and dialog.
+# first 9 VIN characters -> Baumuster. The first two prefixes are the
+# documented examples in CLAUDE.md; the two W212 E 350 ones are invented and
+# name the variant's two Baumuster, M272 and M276: the page once sent the
+# variant's first Baumuster's engine for every VIN (test_ui_picks.py part 6).
 SAMPLE_VIN_US = {"WDB": {"D": "201", "E": "124", "J": "210", "U": "211"}}
-SAMPLE_VIN2FIN = {"WDBDA34D4": "201.034", "WDDGF8AB3": "204.080"}
+SAMPLE_VIN2FIN = {"WDBDA34D4": "201.034", "WDDGF8AB3": "204.080",
+                  "WDDHF5AA1": "212.056", "WDDHF5AA2": "212.059"}
 
 # Engine documents tied to no car: filed under the engine (E102 ...), which a
 # car reaches through its variants' engines.

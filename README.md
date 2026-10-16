@@ -51,7 +51,9 @@ year or engine can never outrank the right one, because it is never a candidate
 in the first place.
 
 "Not found in this archive" is a correct and useful answer here, and the tool is
-built to prefer it over a plausible guess.
+built to prefer it over a plausible guess. A withheld answer says so instead —
+"No checked answer — the AI's sources couldn't be verified" — with a button
+that runs the same question as a (free) keyword search.
 
 ---
 
@@ -86,7 +88,8 @@ afterwards: Manuals, AI answers, Phones & mechanics, This PC, Advanced.
 on your network itself (mDNS, like a printer), so it keeps working when the
 PC's IP address changes, with no router setup. iPhones support it; Android
 does in recent versions of Chrome. If the name doesn't open (some guest or
-mesh networks block it), Shop setup → *Phones & mechanics* shows the numeric address; to keep that
+mesh networks block it), Shop setup → *Phones & mechanics* shows the numeric address,
+and a QR code that opens it from the phone's camera; to keep that
 one from changing, reserve the PC's IP in your router's DHCP settings
 ("address reservation" / "static lease").
 
@@ -104,8 +107,11 @@ files. "Start when I sign in" runs it as you, in the background.
   installer). It is found automatically at `Desktop\Mercedes Documents\autorundown_extractor`;
   anywhere else, set it under Shop setup → *Advanced* → *Mercedes extractor folder*.
   The installer includes the Python packages it needs. The same tab can pull
-  the **EPC parts catalogue** (*What to extract* → *Parts catalogue*): part
+  the **EPC parts catalogue** (*What to extract* → *EPC*): part
   numbers and exploded drawings then show under each car beside its manual.
+  *Both* runs WIS and then EPC as one job (EPC is not started if WIS fails);
+  a progress bar under the tab shows the step, phase and counts, and comes
+  back after a page reload.
   **If your manuals are already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,
   and pick `Mercedes Documents\autorundown_out\wis_extract`.
 - The command-line tools are installed too:
@@ -121,8 +127,12 @@ below. Everything works the same, including the phone access.
 ### Requirements (running from source)
 
 - Python 3.10+
-- An [Anthropic API key](https://console.anthropic.com) (yours — billing and
-  rate limits are yours)
+- An API key from one AI provider (yours — billing and rate limits are
+  yours): [Anthropic](https://platform.claude.com/settings/keys) (the
+  default), [Google Gemini](https://aistudio.google.com/apikey),
+  [xAI](https://console.x.ai/team/default/api-keys) or
+  [DeepSeek](https://platform.deepseek.com/api_keys). Shop setup → *AI
+  answers* has a "Get a key" button for each.
 - A local archive of service manuals you have the right to use
 
 No OCR engine, no GPU, no vector database, no cloud services beyond the LLM call.
@@ -202,15 +212,47 @@ refuses those requests from them.
 *Require each mechanic to sign in*. Then:
 
 - On the same page, add a mechanic's name (and, if you like, a monthly
-  dollar limit). You get an 8-character code, valid 15 minutes, used once.
-- The mechanic opens AutoRundown on their phone and types the code. That
-  phone stays signed in (a year, or until you sign it out).
+  dollar limit). Their **sign-in QR** opens on the PC's screen.
+- The mechanic scans it with their phone's camera: the phone opens
+  AutoRundown already signed in, and stays signed in (a year, or until you
+  sign it out). The QR works once, for 15 minutes, and stops working when
+  you close it. A phone whose camera can't scan it types the 8-character
+  code shown under the QR instead (same rules). A new phone later: the
+  mechanic's **Sign-in QR** button.
 - Lost phone or someone leaves: **Sign out devices** or **Disable**. It takes
-  effect immediately. A new phone just needs a new code.
-- Every paid question is logged against the mechanic who asked;
-  the same page shows each one's spend this month, and `python ask.py
-  --usage` lists it by user. Over the limit, asking is refused; keyword
-  search keeps working.
+  effect immediately.
+- Every paid question is logged against the mechanic who asked; the same
+  page shows each one's questions and dollars this month, with a bar against
+  their limit, and the mechanic sees their own by tapping their name on the
+  phone. `python ask.py --usage` lists it by user. Over the limit, asking is
+  refused; keyword search keeps working.
+- The top of the page has a QR that just opens AutoRundown, with its
+  addresses written beside it.
+
+**Who pays for AI answers** (Shop setup → *AI answers*):
+
+- **One company key** (the default): every question goes on the key you
+  saved; the page shows this month's total for everyone.
+- **A key per mechanic**: you make one API key per mechanic at the
+  provider's key page ("Get a key") and enter it there with the credit you loaded on
+  it. Each mechanic's questions go on their own key; the page shows what was
+  spent on it and roughly what is left. *Left* is AutoRundown's own estimate
+  (the amount you entered minus what it logged on that key) -- the provider
+  doesn't tell an ordinary key its balance -- so after adding credit or
+  swapping the key, use **Topped up / new key**. A mechanic with no key is
+  told so; their questions never go on another key. Questions asked on the PC
+  itself still use the PC's key.
+
+**From the phone to the desk.** Pick the car on a phone in the bay -- type
+it, Browse, or type or paste its VIN -- and tap **Send this car to the desk**.
+The PC shows *Car waiting from Daxton: 1987 Mercedes-Benz 190 E 2.3 16 (VIN
+…) -- Open*; Open picks the same car, model and engine there, ready for the
+big-screen diagrams and parts views. The PC lists the latest five from every
+mechanic; a mechanic's other devices see only their own. Cars disappear
+after 24 hours, when opened, or with the ×. With sign-in off there are no
+names: a car sent from a phone that isn't signed in also shows on every
+other device on the network that isn't signed in (the phone says so under
+the button).
 
 With sign-in off, anyone who can reach the PC on the network can search and
 ask (on your API key), as before. Either way, also keep customers off that
@@ -260,12 +302,19 @@ python ask.py --list
 
 ## What you can look up
 
-Under the question box, tabs pick what to search -- always within the car you
+One question fills every source at once. The answer (or, for **Search**, the
+manual's matching pages) stays on the left; the **right box** has a tab for
+each source -- on a phone, the bar at the bottom with the short names Manual,
+Parts, Labour, Fluids, Torque, each opening the **Document** view. After
+**Ask**, every tab is searched with the same search terms the AI made from
+your question; after **Search**, with the words you typed. That is a keyword
+search, not another AI call, so the tabs cost nothing, and each tab shows how
+many results it has (a tab with none is dimmed). Always within the car you
 chose:
 
 | Tab | Shows |
 |---|---|
-| **Workshop** | The manual's pages. *Ask* answers here. |
+| **Manual page** | The page the answer points at, or any page you open. |
 | **Parts** | The Mercedes parts catalogue (EPC), when imported: each page's matching part lines -- number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334"). |
 | **Labour times** | Mercedes flat-rate times for the exact model (WIS). |
 | **Capacities** | The engine oil figure for your engine (WIS), and capacity lines from the car's pages. |
@@ -301,8 +350,37 @@ torque…". The page is the authority; the summary only points at it.
 | `caveats` | Applicability warnings, or a genuine conflict between pages |
 
 A value is a number, never *"see Fig 15"*: a picture belongs to its page, which
-is one tap away. On a phone the page opens when you tap it, so it does not cover
-the answer.
+is one tap away. An answer with no page (not found, or withheld) clears the page
+panel to "No manual page for this answer", so an earlier answer's page never
+reads as this one's source.
+
+**On a phone** the screen is one column: the car as a single line at the top
+(tap **Change** for the car box, Browse, VIN, the scope note and Options, full
+screen), **Answer | Document** under it, the question docked at the bottom with
+**Ask** and a magnifier for the keyword search, and the right box's tabs as a
+bottom bar (Manual, Parts, Labour, Fluids, Torque; a tap opens that tab in
+**Document**). An answer's page loads into
+**Document** (a dot says one is waiting) and opens with *Open manual page*;
+the phone's Back, or a swipe to the right, returns to the answer.
+
+**Recent cars.** Clicking into the car box (on a phone: tapping **Change**)
+lists the last ten cars picked on that device, newest first -- one tap, or the
+arrow keys and Enter, picks one again with the same model, engine and year it
+had. Each row has a **×** to drop it, and **Clear history** empties the list.
+The list is kept in that browser only, so each phone in the shop has its own;
+typing in the box replaces it with the usual suggestions.
+
+**Scan VIN.** In the car sheet (or the VIN dialog, Browse → VIN) **Scan VIN**
+opens the phone's camera: photograph the VIN label, its barcode (Code 39 on
+the door jamb, Data Matrix or QR on newer labels) or the VIN plate. The photo
+is read on the phone itself — a barcode reader and OCR, no AI, nothing
+uploaded, no internet needed (the libraries ship with AutoRundown, ~5 MB
+fetched by the phone the first time). What was read fills the VIN box with
+the part of the photo it came from; check it against the car and tap
+**Find**. Every VIN — typed, pasted or scanned — is checked first: I, O and
+Q are refused with the 1/0 fix offered, and a US VIN whose check digit
+(position 9) doesn't match gives only the model series, never an exact
+model or engine, because one wrong character can name another car.
 
 Citations name the page rather than just numbering it — `p6706 · Front Brake
 Caliper Anchor Plate: Removal`. Titles are resolved locally from the index, so
@@ -343,20 +421,57 @@ alongside BM25 — not before.
 
 ---
 
+## Choosing an AI provider
+
+Shop setup → *AI answers* → **AI provider**: Anthropic (Claude, the
+default), Google Gemini, xAI (Grok) or DeepSeek. Each has a **Get a key**
+button that opens that provider's API-key page: sign in and create a key,
+copy it, paste it in. Keys are kept per provider, so switching back and
+forth loses nothing; in "A key per mechanic" mode each mechanic needs a key
+for the provider in use.
+
+Whichever provider answers, the answer goes through the same checks: every
+value and page must be one the search actually returned, values for other
+engines of the car are hidden, and an answer left with nothing behind it is
+not shown. Answers were tuned and evaluated on Claude; the other providers
+have been tested only against a stand-in (no paid question yet), so try one
+before relying on it.
+
+**Gemini's free tier**: Google offers Gemini Flash and Flash-Lite free of
+charge with low request limits (not Gemini 4 Argon). On the free tier Google
+says it may use what is sent to improve its products -- here, your questions
+and the manual pages sent with them; with billing turned on it does not.
+Check [Google's pricing page](https://ai.google.dev/gemini-api/docs/pricing)
+for the current terms.
+
 ## Choosing a model
 
 Pick it from the toolbar beside the question box; it applies to the next
 question immediately and saves the choice on that device. The PC's default
-is under Shop setup → *AI answers*; on the command line, `ask.py --model`.
+is under Shop setup → *AI answers*; on the command line, `ask.py --model`
+(any provider's model; its company key pays).
+
+Prices as listed by each provider on 2026-10-16 (USD per million tokens):
 
 | Model | Price /M in–out | Per question | Eval |
 |---|---|---|---|
 | `claude-opus-5` | $5 / $25 | ~$0.05 | — |
-| `claude-sonnet-5` | $3 / $15 | ~$0.03 | 7/7 |
+| `claude-sonnet-5` | $2 / $10 | ~$0.02 | 7/7 |
 | `claude-haiku-4-5` | $1 / $5 | ~$0.01 | 7/7 |
+| `gemini-4-argon` | $2 / $10 ($4 / $20 from 2026-12-01) | ~$0.02 | — |
+| `gemini-3.8-flash` | $0.75 / $3.75 ($1.50 / $7.50 from 2027-01-01) | ~$0.008 | — |
+| `gemini-3.5-flash-lite` | $0.30 / $2.50 | ~$0.004 | — |
+| `grok-4.7` | $2 / $6 | ~$0.02 | — |
+| `grok-4.3` | $1.25 / $2.50 | ~$0.01 | — |
+| `deepseek-v4-pro` | $1.32 / $3.96 peak, half off-peak | ~$0.01 | — |
+| `deepseek-flash` | $0.30 / $1.20 peak, half off-peak | ~$0.003 | — |
+
+The spend log records the provider and model of every question
+(`python ask.py --usage`). A model whose price AutoRundown doesn't know is
+logged as "cost not tracked" rather than with a made-up number.
 
 Retrieval does the finding, so the model's remaining job is reading passages and
-copying values exactly — which Haiku handles well at roughly a quarter of
+copying values exactly — which Haiku handles well at roughly half of
 Sonnet's cost.
 
 One difference the eval does not capture: when the same spec is printed on
@@ -515,7 +630,9 @@ autorundown/             the app (everything the installer ships)
   synonyms.py            shop words -> the manuals' words ("valve cover")
   query.py               Claude planner + answerer + citation verification
   server.py              local web server (FastAPI)
-  auth.py                the PC is admin; optional mechanic accounts
+  auth.py                the PC is admin; optional mechanic accounts, sign-in QRs
+  handoff.py             cars sent from a phone to the desk ("Send this car to the desk")
+  qr.py                  QR codes as SVG (segno)
   tls.py                 local certificate authority for --https
   importer_jobs.py       imports started from Shop setup
   lemon_catalogue.py     the LEMON catalogue tree
@@ -527,7 +644,7 @@ autorundown/             the app (everything the installer ships)
 serve.py                 start the server
 ingest.py                build / update the index
 ask.py                   command-line questions, keyword search, spend
-rebuild_wis.py           replace the Mercedes WIS part of the index (keeps the spend log)
+rebuild_wis.py           replace the Mercedes WIS part of the index in place (keeps other manuals and the spend log)
 remove_manuals.py        remove a manual (or all Mercedes WIS) from the index
 dev.py                   throwaway local instance with sample data (port 8757)
 eval.py, eval_wis.py     retrieval checks against a real index (free)

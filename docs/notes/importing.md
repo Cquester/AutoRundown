@@ -39,7 +39,9 @@ when the index is empty. A folder browser plus format detection
 is a corpus straight away — letting the other detectors walk its `images/`
 took 15 s), then a background job that runs **the same CLI**: `ingest.py
 --importer auto` (add / update, resumable) or, for a WIS corpus,
-`rebuild_wis.py` (replace the WIS part, keep other manuals and the spend log).
+`rebuild_wis.py` (replace the WIS part in place, keep other manuals -- EPC,
+LEMON, folder -- and the spend log; offered when the index already has WIS
+and the folder is a WIS corpus, see `wis-source.md`).
 One job at a time; the child runs with `PYTHONIOENCODING=utf-8` (a piped
 child on Windows otherwise dies printing "Coupé"); the log streams into the
 dialog. `/api/browse` and `/api/import` answer **only to localhost** (403 to
@@ -210,3 +212,47 @@ records, none partial). Since then the job log is also written to
 `<app dir>/import_job.log` as it arrives. Start long jobs from a server that
 does not live inside another app's terminal. Tests: `tests/test_epc_join.py`
 (groups, job commands, whole-source removal), nothing touching a VM.
+
+**WIS / EPC / Both, and the progress bar** (2026-10-16). "What to extract"
+is a segmented toggle: WIS, EPC, Both. **Both** is job mode `vm_both`: one
+POST, one job, made of two *parts* -- the WIS job's commands (`vm_pipeline.py
+--steps <ticked>` then `rebuild_wis.py`), a 60 s pause (the PC
+crashes under sustained I/O; the WIS part ends with an index rebuild), then
+the `vm_epc` commands. Nothing new runs: `ImportJobs.start` builds the parts
+from the same code as the two single jobs. The EPC part's commands are built
+when it starts, since the WIS part may change what the index holds, so
+whether an older EPC needs removing first is decided then. (`rebuild_wis.py`
+now replaces WIS in place and keeps EPC; it used to restore
+`index.before-wis.db`, which had none.) A failing command stops
+the job: that part is `failed`, later ones `not started`, `failed_part` says
+which, and the log says "not starting EPC parts". Both is refused up front if
+the extractor predates EPC (`epc_problem`), so it can't fail hours in.
+The status (`GET /api/import`) carries `parts`, `part` and `progress`
+(`importer_jobs.Progress`): phase, done, total, unit, detail, activity, the
+pipeline's `STOP:` reason -- parsed from the log lines the scripts already
+print (`== images: N graphics`, `batch: +x -> a / b`, `catalog X (i/N`,
+`total docs ... = N` on a fresh pull only, `found N vehicle(s)`, `parsed i`,
+`n/N failed` from conversion, `[i/N]` from removal). **A total is shown only
+when a script printed one**: a resumed document pull, model links and the
+vehicle tables get an indeterminate bar with their counts. The bar sits in
+the sticky bar at the bottom of the Manuals page while the Mercedes VM tab is
+open ("Step 1 of 2: WIS — Images", "2,000 / 3,000 graphics (66%)", the two
+parts' states; the parts list is hidden at phone width). It reads the job on
+the server, so a reload shows it again; a reload during a VM job also reopens
+the VM tab with the toggle on that job's choice. The job state lives in the
+server process, as before: a server restart still loses it (the log file
+stays).
+
+**Testing it without a VM**: `tools/fake_extractor/` is a stand-in
+`vm_pipeline.py` (plus empty `pull_epc.js`/`epc_fv4.js` and a `wis_paths.py`
+writing to a temp folder, never `AR_OUT_ROOT`). It lists three pretend VMs --
+"Mercedes EWA (fake)", "Fails in documents (fake)", "Fails in EPC (fake)" --
+prints the real pipeline's kind of lines over a few seconds and writes a tiny
+corpus, so the real `ingest.py`/`remove_manuals.py` steps run after it.
+`python dev.py --fake-vm` points the extractor folder at it (pause between
+parts 5 s, `AUTORUNDOWN_PART_PAUSE`); in a test box, restart `dev.py` with
+`--fake-vm` (the box's entrypoint doesn't pass it). tools/ is not in the MSI.
+Test: `tests/test_vm_jobs.py` (parser, Both order, failure of either part,
+one job at a time, reload, the old safeguards). **Not yet run against a real
+VM**: the parser's patterns are taken from the scripts' source, not from a
+real run's log.

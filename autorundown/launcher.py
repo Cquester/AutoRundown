@@ -65,7 +65,7 @@ def stop(port: int) -> int:
 
 def _log_to_file() -> None:
     """pythonw has no console: send everything to the log, kept small."""
-    config.APP_DIR.mkdir(parents=True, exist_ok=True)
+    config.make_private_dir(config.APP_DIR)
     if LOG.is_file() and LOG.stat().st_size > LOG_MAX:
         LOG.unlink()
     f = open(LOG, "a", encoding="utf-8", buffering=1)

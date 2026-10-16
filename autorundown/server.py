@@ -19,16 +19,20 @@ import json
 import re
 import socket
 import sqlite3
+import time
+from datetime import datetime, timezone
+from itertools import zip_longest
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, RedirectResponse,
+                               Response)
 from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import auth, config, index, query, tls
+from . import auth, config, handoff, index, providers, qr, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
 from .search import get_page, part_lines, scope_ids, search, split_scope, value_lines
 
@@ -63,10 +67,26 @@ class SettingsBody(BaseModel):
     # Windows: start in the background at sign-in (autostart.py)
     autostart: bool | None = None
     require_signin: bool | None = None
+    # "company" | "per_mechanic" (config.pick_key)
+    key_mode: str | None = Field(None, pattern="^(company|per_mechanic)$")
+    # the AI provider answering questions (providers.py)
+    provider: str | None = Field(None, pattern="^(anthropic|gemini|xai|deepseek)$")
+    # whose company key `api_key` is; default the active provider
+    key_provider: str | None = Field(None, pattern="^(anthropic|gemini|xai|deepseek)$")
+
+
+class HandoffBody(BaseModel):
+    """A car picked on a phone, sent to the desk (handoff.py): the pick
+    itself, checked against the index -- never a label."""
+    doc_id: str = Field(max_length=200)
+    variant: int | None = Field(None, ge=0, le=100000)
+    engine: str | None = Field(None, max_length=40)
+    year: int | None = Field(None, ge=1900, le=2100)
+    vin: str | None = Field(None, max_length=40)
 
 
 class SigninBody(BaseModel):
-    code: str
+    code: str = Field(max_length=40)
 
 
 # dollars a month: -5 used to be stored (the mechanic was refused for good)
@@ -85,6 +105,17 @@ class UserUpdateBody(BaseModel):
     clear_cap: bool = False
 
 
+class MechanicKeyBody(BaseModel):
+    """A mechanic's own API key ("A key per mechanic"). A new key, or
+    `reset` ("topped up / new key"), starts the spend count again from now;
+    `loaded_usd` is the credit the owner says is on the key at that moment."""
+    api_key: str | None = Field(None, max_length=300)
+    loaded_usd: Cap | None = None
+    clear_loaded: bool = False
+    reset: bool = False
+    remove: bool = False
+
+
 class LemonPickBody(BaseModel):
     # a folder of the catalogue tree: [make], [make, year], ... or a variant
     path: list[str]
@@ -98,6 +129,7 @@ class ImportBody(BaseModel):
     mode: str = "add"
     # mode "vm": extract WIS from this VirtualBox VM first (vm_pipeline.py);
     # mode "vm_epc": the EPC parts catalogue from it, then replace EPC in the index
+    # mode "vm_both": "vm" then "vm_epc" as one job; EPC only if WIS succeeded
     vm: str = ""
     steps: str = ""
     # mode "lemon": the vehicle folders to import, relative to path
@@ -141,8 +173,9 @@ def _wis_page(conn, vehicle: dict, page_no: str) -> tuple[dict | None, bool]:
 
 # answer to any device, signed in or not: the page itself, so it can show
 # the sign-in screen, and the CA a phone must install before trusting HTTPS
+# and /signin, where a sign-in QR's link lands
 PUBLIC_PATHS = {"/", "/manifest.webmanifest", "/ca.crt", "/api/me",
-                "/api/auth/signin", "/api/auth/signout"}
+                "/api/auth/signin", "/api/auth/signout", "/signin"}
 # answer to the PC running the server only -- they read and change this PC's
 # files, settings and API key, and manage accounts
 ADMIN_PREFIXES = ("/api/settings", "/api/browse", "/api/vms", "/api/import",
@@ -249,6 +282,10 @@ def _origin_ok(request: Request) -> bool:
 # what /api/image will serve: pictures only. An .svg or .html in a manual's
 # images/ folder was served as a page of this site, script and all
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tif", ".tiff"}
+# what /vendor/ serves (web/vendor: the Scan VIN libraries); licence texts too
+VENDOR_TYPES = {".js": "text/javascript; charset=utf-8", ".wasm": "application/wasm",
+                ".gz": "application/octet-stream", ".txt": "text/plain; charset=utf-8",
+                ".md": "text/plain; charset=utf-8"}
 # a diagram opened full size is a document of this origin: no script, ever
 IMAGE_HEADERS = {
     "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; "
@@ -300,8 +337,58 @@ def _extractor_error(raw: str) -> str | None:
     return None
 
 
+_VIN2FIN_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def _vin_prefixes(corpus: str) -> dict[str, list[str]]:
+    """The corpus's vin2fin.json as Baumuster -> [VIN prefixes], read-only and
+    cached until the file changes. {} when it is missing or unreadable."""
+    from .importers.records import vin_prefixes_by_bm
+    path = Path(corpus)
+    try:
+        stamp = max((path / n).stat().st_mtime for n in ("vin2fin.json", "manifest.json")
+                    if (path / n).is_file())
+    except (OSError, ValueError):     # ValueError: no file at all
+        return {}
+    hit = _VIN2FIN_CACHE.get(corpus)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    data = vin_prefixes_by_bm(path)
+    _VIN2FIN_CACHE[corpus] = (stamp, data)
+    return data
+
+
+def _with_vin9_bm(rows: list[dict]) -> list[dict]:
+    """Give every variant with US VIN prefixes the exact prefix -> Baumuster map.
+
+    An index built before 2026-10-16 stored only a flat `vin9` list per
+    variant, and the page sent the variant's first Baumuster's engine for all
+    of them (WDBJF65J0 = 210.065, M112, searched the M104 of 210.055). The
+    importer now stores `vin9_bm`; for an older index it is rebuilt here from
+    the corpus's own vin2fin.json (`file_path`), so no rebuild is needed.
+    Without that file the page falls back to the VIN's year, then to every
+    engine of the variant."""
+    from .importers.records import add_vin9_bm
+    out = []
+    for v in rows:
+        raw = v.get("variants")
+        if raw and '"vin9"' in raw and '"vin9_bm"' not in raw and v.get("file_path"):
+            by_bm = _vin_prefixes(v["file_path"])
+            if by_bm:
+                try:
+                    v = {**v, "variants": json.dumps(add_vin9_bm(json.loads(raw), by_bm),
+                                                     ensure_ascii=False, separators=(",", ":"))}
+                except ValueError:
+                    pass
+        out.append(v)
+    return out
+
+
 def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
-    app = FastAPI(title="AutoRundown")
+    # no /docs, /redoc or /openapi.json: every device on the LAN could read
+    # the whole API map, and /docs pulled Swagger's script from a CDN onto
+    # this app's origin (QA, 2026-10-15)
+    app = FastAPI(title="AutoRundown", docs_url=None, redoc_url=None, openapi_url=None)
     # vehicles.json is ~750 KB at full size; a phone on slow wifi waited 4.7 s
     app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
     app.add_middleware(BodyLimit)      # added last = runs first
@@ -370,21 +457,45 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "signed_in": who.user_id is not None,
             "name": who.label,
             "require_signin": cfg.require_signin,
-            "default_model": cfg.model or query.DEFAULT_MODEL,
+            "default_model": config.active_model(cfg),
+            "provider": config.active_provider(cfg),
             "https": request.url.scheme == "https",
         }
+        out["key_mode"] = cfg.key_mode
         if who.user_id is not None:
             conn, aconn = db(), adb()
             try:
                 out["month_spend_usd"] = round(index.month_spend(conn, who.user_id), 4)
+                out["month_questions"] = index.month_questions(conn, who.user_id)
                 out["monthly_cap_usd"] = auth.monthly_cap(aconn, who.user_id)
+                if cfg.key_mode == "per_mechanic":
+                    # their own key's estimate -- never the key, nor its last 4
+                    k = _key_status(conn, cfg, who.user_id)
+                    out["own_key"] = {f: k[f] for f in
+                                      ("has_key", "loaded_usd", "spent_usd", "remaining_usd")}
             finally:
                 conn.close()
                 aconn.close()
         return out
 
+    def _set_token_cookie(request: Request, response: Response, token: str) -> None:
+        # a phone that was signed in as someone else is now this mechanic;
+        # its old token is ended, not left behind
+        old = request.cookies.get(auth.COOKIE)
+        if old:
+            conn = adb()
+            try:
+                auth.revoke_token(conn, old)
+            finally:
+                conn.close()
+        response.set_cookie(auth.COOKIE, token, max_age=auth.TOKEN_DAYS * 86400,
+                            httponly=True, samesite="lax",
+                            secure=request.url.scheme == "https")
+
     @app.post("/api/auth/signin")
     def api_signin(request: Request, body: SigninBody, response: Response) -> dict:
+        """The typed code under a sign-in QR (for a phone whose camera can't
+        scan it): same grant, same single use and 15 minutes."""
         addr = request.client.host if request.client else ""
         if throttle.blocked(addr):
             raise HTTPException(429, "Too many wrong codes. Wait 15 minutes, or ask for a new code.")
@@ -395,12 +506,39 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             conn.close()
         if token is None:
             throttle.fail(addr)
-            raise HTTPException(400, "That code is wrong or has expired. Ask for a new one.")
+            raise HTTPException(400, "That code is wrong, used or has expired. "
+                                     "Ask for a new sign-in QR.")
         throttle.ok(addr)
-        response.set_cookie(auth.COOKIE, token, max_age=auth.TOKEN_DAYS * 86400,
-                            httponly=True, samesite="lax",
-                            secure=request.url.scheme == "https")
+        _set_token_cookie(request, response, token)
         return {"ok": True}
+
+    @app.get("/signin")
+    def signin_link(request: Request, t: str = Query("", max_length=200)) -> Response:
+        """Where a sign-in QR lands: the phone's camera opened
+        /signin?t=<token>. The token is used up here (hash looked up, expiry
+        and single use checked), the session cookie set, and the phone sent
+        to / -- so the token leaves the address bar and its history entry.
+        A failure goes to /#signin=<why>, where the page says so."""
+        addr = request.client.host if request.client else ""
+        no_store = {"Cache-Control": "no-store"}
+        # a camera app or a typed address is Sec-Fetch-Site "none"; a link
+        # or a hidden frame on another site must not sign this phone in
+        if _cross_site(request):
+            return RedirectResponse("/#signin=refused", 303, headers=no_store)
+        if throttle.blocked(addr):
+            return RedirectResponse("/#signin=wait", 303, headers=no_store)
+        conn = adb()
+        try:
+            token = auth.redeem_link(conn, t, request.headers.get("user-agent", ""))
+        finally:
+            conn.close()
+        if token is None:
+            throttle.fail(addr)
+            return RedirectResponse("/#signin=expired", 303, headers=no_store)
+        throttle.ok(addr)
+        response = RedirectResponse("/", 303, headers=no_store)
+        _set_token_cookie(request, response, token)
+        return response
 
     @app.post("/api/auth/signout")
     def api_signout(request: Request, response: Response) -> dict:
@@ -431,6 +569,22 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def home(request: Request) -> Response:
         return _etagged(request, (WEB_DIR / "index.html").read_bytes(), "text/html; charset=utf-8")
 
+    # Scan VIN's libraries (barcode + OCR), vendored with a fixed version in
+    # the folder name and loaded by the page only when someone scans: no CDN,
+    # so it works on a shop LAN with no internet. Same sign-in rules as every
+    # other non-public path. Read-only; nothing is uploaded -- the photo is
+    # read on the phone itself.
+    @app.get("/vendor/{name:path}")
+    def vendor(name: str) -> Response:
+        root = (WEB_DIR / "vendor").resolve()
+        target = (root / name).resolve()
+        kind = VENDOR_TYPES.get(target.suffix.lower())
+        if kind is None or not target.is_relative_to(root) or not target.is_file():
+            raise HTTPException(404, "Not found.")
+        return FileResponse(target, media_type=kind, headers={
+            # the version is in the path: a new version is a new URL
+            "Cache-Control": "private, max-age=31536000, immutable"})
+
     @app.get("/manifest.webmanifest")
     def manifest() -> JSONResponse:
         return JSONResponse({
@@ -448,7 +602,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             cfg = config.load()
-            out = {**index.stats(conn), "has_api_key": bool(cfg.resolved_key)}
+            who: auth.Who = request.state.who
+            try:   # a key this requester may use (theirs, in per-mechanic mode)
+                has_key = bool(config.pick_key(cfg, who.user_id, who.admin).key)
+            except config.NoKeyForRequest:
+                has_key = False
+            out = {**index.stats(conn), "has_api_key": has_key}
             if request.state.who.admin:  # this PC's paths are its own business
                 out.update(index_path=app.state.index_path, archive_dir=cfg.archive_dir)
             return out
@@ -472,6 +631,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             rows = [v for v in index.vehicles(conn) if not v.get("joined_into")]
         finally:
             conn.close()
+        rows = _with_vin9_bm(rows)
         if not request.state.who.admin:   # this PC's folders are its own business
             for v in rows:
                 v.pop("file_path", None)
@@ -484,13 +644,20 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                    include_other_variants: bool = False,
                    variant: int | None = None,
                    engine: str | None = Query(None, max_length=64),
-                   tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$")) -> list[dict]:
+                   tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$"),
+                   also: list[str] = Query(default=[])) -> list[dict]:
         """Keyword search for one of the UI's tabs, always within the car.
 
         workshop: the manual's pages only (as before the parts catalogue);
         parts: the joined parts catalogue only, each row with the page's
         matching part lines; torque / capacity: manual pages that print such
-        a value, each row with those lines."""
+        a value, each row with those lines.
+
+        `also`: more keyword queries for the same question -- the AI's search
+        terms after an Ask, so each tab of the right box shows what that
+        question finds there (free: no AI call). Merged round-robin with `q`,
+        like the answer's own retrieval, so one query can't crowd out another."""
+        also = [a.strip()[:200] for a in also if a.strip()][:4]
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
@@ -512,19 +679,27 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # cover"), then the user's own words
             alt = synonyms.translate(q)
             extra = {"torque": " torque", "capacity": " capacity"}.get(tab, "")
-            rows = []
-            for query_text in ([alt, q] if alt else [q]):
-                for r in search(conn, scope, query_text + extra, limit * 2,
-                                include_other_variants=include_other_variants):
+            texts = list(dict.fromkeys(([alt, q] if alt else [q]) + also))
+            per = []
+            for query_text in texts:
+                hits = search(conn, scope, query_text + extra, limit * 2,
+                              include_other_variants=include_other_variants)
+                for r in hits:
                     r["query"] = query_text
-                    rows.append(r)
+                per.append(hits)
+            # with the AI's terms: round-robin across the queries; without,
+            # the manual's wording then the user's, as before
+            rows = ([r for group in zip_longest(*per) for r in group if r is not None]
+                    if also else [r for hits in per for r in hits])
             # one row per page: a page whose two chunks both match is still
-            # one result, and the keyword list showed it twice
+            # one result, and the keyword list showed it twice. A page counts
+            # as seen only once a row for it is kept: its lines are picked by
+            # the query that found it, so a query whose words are not in its
+            # value lines must not hide the row another query would give
             seen, out = set(), []
             for r in rows:
                 if r["page_no"] in seen:
                     continue
-                seen.add(r["page_no"])
                 if tab == "parts":
                     r["lines"] = part_lines(r.get("body") or "")
                 elif tab in ("torque", "capacity"):
@@ -532,6 +707,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                                              other_engine=other_engine)
                     if not r["lines"]:
                         continue
+                seen.add(r["page_no"])
                 r.pop("body", None)
                 out.append(r)
             return out[:limit]
@@ -556,16 +732,24 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     raise HTTPException(
                         402, f"Monthly limit reached (${spent:.2f} of ${cap:.2f}). "
                              "Keyword search still works; ask the shop to raise the limit.")
+            # whose key pays: the company's or this mechanic's own; with none
+            # for them, a plain refusal -- never somebody else's key
             try:
-                chosen = body.model or cfg.model or query.DEFAULT_MODEL
-                if chosen not in query.MODELS:
+                key = config.pick_key(cfg, who.user_id, who.admin)
+            except config.NoKeyForRequest as exc:
+                raise HTTPException(400, str(exc))
+            try:
+                provider = config.active_provider(cfg)
+                chosen = body.model or config.active_model(cfg)
+                if chosen not in providers.PROVIDERS[provider]["models"]:
                     raise HTTPException(400, f"unknown model {chosen}")
                 result = query.ask(
-                    conn, vehicle, body.question, cfg.resolved_key,
+                    conn, vehicle, body.question, key.key,
                     include_other_variants=body.include_other_variants,
                     model=chosen, source="web", variant=body.variant,
                     engine=body.engine, year=body.year,
-                    user_id=who.user_id, user_name=who.name or None)
+                    user_id=who.user_id, user_name=who.name or None,
+                    key_ref=key.ref, provider=provider)
             except (query.NoApiKey, query.ApiUnavailable) as exc:
                 raise HTTPException(400, str(exc))
             return result.as_dict()
@@ -751,6 +935,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # images/IMP49Q313/euro210/551068321.png
     @app.get("/api/image/{doc_id}/{name:path}")
     def api_image(request: Request, doc_id: str, name: str) -> FileResponse:
+        # a NUL (x.png%00.db) made Path.resolve() raise: an unhandled 500,
+        # without the security headers. No picture is named that way.
+        if "\x00" in name or "\x00" in doc_id:
+            raise HTTPException(404, "image not found")
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
@@ -763,11 +951,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
         for fp in dict.fromkeys(extra):
-            other = (Path(fp) / "images").resolve()
-            hit = (other / name).resolve()
             try:
+                other = (Path(fp) / "images").resolve()
+                hit = (other / name).resolve()
                 hit.relative_to(other)      # never outside that images directory
-            except ValueError:
+            except (OSError, ValueError):
                 continue
             if hit.is_file() and hit.suffix.lower() in IMAGE_TYPES \
                     and not (Path(vehicle["file_path"]) / "images" / name).is_file():
@@ -782,11 +970,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 f"Archive not found at {vehicle['file_path']}. Diagrams are "
                 f"served from the extracted archive, not the index. Extract "
                 f"it and run: python ingest.py --archive <path> --repath")
-        target = (images_dir / name).resolve()
-        # never serve outside the vehicle's own images directory
+        # never serve outside the vehicle's own images directory; a name the
+        # OS can't even resolve is not one of its pictures either
         try:
+            target = (images_dir / name).resolve()
             target.relative_to(images_dir)
-        except ValueError:
+        except (OSError, ValueError):
             raise HTTPException(404, "image not found")
         if not target.is_file() or target.suffix.lower() not in IMAGE_TYPES:
             raise HTTPException(404, "image not found")
@@ -824,13 +1013,66 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
+    # -- cars waiting at the desk (handoff.py) -------------------------------
+    # A phone sends the car it picked; the PC (and the mechanic's own other
+    # devices) list it and open it with one click. Behind the same sign-in as
+    # everything else: with sign-in required, a device not signed in is 401
+    # in who_is_asking before it gets here.
+    send_limit = handoff.SendLimit()
+
+    @app.get("/api/handoff")
+    def api_handoff_list(request: Request) -> dict:
+        who: auth.Who = request.state.who
+        aconn = adb()
+        try:
+            cars = handoff.visible_to(aconn, who)
+        finally:
+            aconn.close()
+        # "shared": not signed in, so the list is everyone's who isn't either
+        return {"cars": cars, "hours": handoff.TTL_HOURS,
+                "shared": not who.admin and who.user_id is None}
+
+    @app.post("/api/handoff")
+    def api_handoff_send(request: Request, body: HandoffBody) -> dict:
+        who: auth.Who = request.state.who
+        if who.admin:
+            raise HTTPException(400, "This PC is the desk; send a car from a phone.")
+        sender = f"user:{who.user_id}" if who.user_id is not None else (
+            "addr:" + (request.client.host if request.client else ""))
+        if not send_limit.allow(sender):
+            raise HTTPException(429, "Too many cars sent. Wait a few minutes.")
+        conn = db()
+        try:
+            vehicles = index.vehicles(conn)
+        finally:
+            conn.close()
+        try:
+            pick = handoff.check_pick(vehicles, body.doc_id, body.variant, body.engine,
+                                      body.year, body.vin)
+        except handoff.BadPick as exc:
+            raise HTTPException(400, str(exc))
+        aconn = adb()
+        try:
+            new_id = handoff.add(aconn, pick, who)
+        finally:
+            aconn.close()
+        return {"ok": True, "id": new_id, "label": pick["label"]}
+
+    @app.post("/api/handoff/{handoff_id}/dismiss")
+    def api_handoff_dismiss(request: Request, handoff_id: int) -> dict:
+        aconn = adb()
+        try:
+            done = handoff.dismiss(aconn, handoff_id, request.state.who)
+        finally:
+            aconn.close()
+        if not done:   # someone else's, already gone, or never there: all alike
+            raise HTTPException(404, "No such car waiting.")
+        return {"ok": True}
+
     @app.get("/api/models")
     def models() -> list[dict]:
-        return [
-            {"id": mid, "label": spec["label"],
-             "price_in": spec["price_in"], "price_out": spec["price_out"]}
-            for mid, spec in query.MODELS.items()
-        ]
+        """The active provider's models; price None = "cost not tracked"."""
+        return providers.model_list(config.active_provider(config.load()))
 
     # -- import ------------------------------------------------------------
     # Browsing folders and starting an import reach into this PC's files and
@@ -905,12 +1147,27 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/import")
     def api_import_start(body: ImportBody) -> dict:
-        if body.mode in ("vm", "vm_epc"):
+        if body.mode in ("vm", "vm_epc", "vm_both"):
             info = importer_jobs.list_vms()
             if info.get("error"):
                 raise HTTPException(400, str(info["error"]))
             if body.vm not in {v["name"] for v in info["vms"]}:
                 raise HTTPException(400, f"No VirtualBox VM named {body.vm!r}.")
+        if body.mode in ("vm", "vm_both"):
+            steps = [s for s in body.steps.split(",") if s]
+            if any(s not in ("docs", "applic", "vehicles", "images", "build") for s in steps):
+                raise HTTPException(400, f"unknown step in {body.steps!r}")
+        if body.mode == "vm_both":
+            # WIS, then EPC, as one job: refused up front if the EPC half could
+            # not run, rather than failing hours later after the WIS half
+            problem = importer_jobs.epc_problem(importer_jobs.find_extractor())
+            if problem:
+                raise HTTPException(400, problem)
+            try:
+                return jobs.start(Path(info["out_root"]) / "wis_extract", app.state.index_path,
+                                  "vm_both", vm=body.vm, steps=",".join(steps))
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
         if body.mode == "vm_epc":
             # the EPC parts catalogue: vm_pipeline.py --steps epc, then re-ingest
             problem = importer_jobs.epc_problem(importer_jobs.find_extractor())
@@ -922,9 +1179,6 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
         if body.mode == "vm":
-            steps = [s for s in body.steps.split(",") if s]
-            if any(s not in ("docs", "applic", "vehicles", "images", "build") for s in steps):
-                raise HTTPException(400, f"unknown step in {body.steps!r}")
             try:
                 return jobs.start(Path(info["out_root"]) / "wis_extract", app.state.index_path,
                                   "vm", vm=body.vm, steps=",".join(steps))
@@ -970,7 +1224,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if body.mode not in ("add", "rebuild_wis"):
             raise HTTPException(400, f"unknown mode {body.mode!r}")
         if body.mode == "rebuild_wis" and not importer_jobs.can_rebuild_wis(app.state.index_path):
-            raise HTTPException(400, "No pre-WIS backup (index.before-wis.db) to rebuild from.")
+            raise HTTPException(400, "No Mercedes WIS data in the index to rebuild; add it instead.")
         try:
             return jobs.start(p, app.state.index_path, body.mode)
         except RuntimeError as exc:
@@ -979,15 +1233,39 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/settings")
     def get_settings() -> dict:
         cfg = config.load()
+        conn = db()
+        try:
+            month_q, month_usd = index.month_total(conn)
+        finally:
+            conn.close()
+        active = config.active_provider(cfg)
+        key = config.company_key(cfg, active)
+        env = providers.PROVIDERS[active]["env_key"]
+        saved = cfg.api_key if active == "anthropic" else (cfg.provider_keys or {}).get(active)
         return {
+            "key_mode": cfg.key_mode,
+            "provider": active,
+            # each provider's key page and whether its company key is set --
+            # never the key; the last 4 only
+            "providers": [
+                {"id": pid, "label": p["label"], "short": p["short"],
+                 "key_url": p["key_url"], "key_hint": p["key_hint"],
+                 "price_source": p["price_source"],
+                 "has_key": bool(config.company_key(cfg, pid)),
+                 "key_last4": config.key_last4(config.company_key(cfg, pid))}
+                for pid, p in providers.PROVIDERS.items()],
+            # everyone, every source, this UTC month: "One company key" mode's total
+            "month_questions": month_q,
+            "month_spend_usd": round(month_usd, 4),
+            "company_key_last4": config.key_last4(key),
             "archive_dir": cfg.archive_dir,
             "index_path": app.state.index_path,  # the one in use, not the saved one
             "importer": cfg.importer,
-            "model": cfg.model,
+            "model": config.active_model(cfg),
             "extractor_dir": cfg.extractor_dir,
-            "has_api_key": bool(cfg.resolved_key),
-            "key_source": ("config" if cfg.api_key
-                           else "environment" if cfg.resolved_key else "none"),
+            "has_api_key": bool(key),
+            "key_source": ("config" if saved else "environment" if key else "none"),
+            "key_env": env,
             # None: not offered on this OS
             "autostart": autostart.is_enabled() if autostart.supported() else None,
             "phone_urls": _phone_urls(),
@@ -1008,19 +1286,34 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             if err:
                 raise HTTPException(400, err)
             body.extractor_dir = body.extractor_dir.strip()
-        if body.model is not None and body.model not in query.MODELS:
+        provider = body.provider or config.active_provider(config.load())
+        if body.model is not None and body.model not in providers.PROVIDERS[provider]["models"]:
             raise HTTPException(400, f"Unknown model {body.model!r}.")
+        if body.api_key is not None and (not body.api_key.strip()
+                                         or any(c.isspace() for c in body.api_key.strip())):
+            raise HTTPException(400, "Paste the whole key, with no spaces.")
         if body.autostart is not None and body.autostart != autostart.is_enabled():
             try:
                 autostart.set_enabled(body.autostart)
             except RuntimeError as exc:
                 raise HTTPException(400, str(exc))
         cfg = config.load()
-        for field_name in ("archive_dir", "index_path", "importer", "api_key",
-                           "model", "extractor_dir", "require_signin"):
+        for field_name in ("archive_dir", "index_path", "importer",
+                           "model", "extractor_dir", "require_signin", "key_mode",
+                           "provider"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)
+        if body.provider is not None and body.model is None:
+            # a model saved under the old provider means nothing to the new one
+            cfg.model = config.active_model(cfg)
+        if body.api_key is not None:
+            # a company key belongs to one provider; the Anthropic one stays `api_key`
+            kp = body.key_provider or config.active_provider(cfg)
+            if kp == "anthropic":
+                cfg.api_key = body.api_key.strip()
+            else:
+                cfg.provider_keys = {**(cfg.provider_keys or {}), kp: body.api_key.strip()}
         cfg.save()
         # only a new index path moves the server: saving anything else (the
         # model, sign-in) used to swap a `serve.py --index X` server onto the
@@ -1040,26 +1333,132 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
             aconn.close()
-        for u in users:
-            q, c = spend.get(u["id"], (0, 0.0))
-            u.update(month_questions=q, month_spend_usd=round(c, 4))
+        cfg = config.load()
+        conn = db()
+        try:
+            for u in users:
+                q, c = spend.get(u["id"], (0, 0.0))
+                u.update(month_questions=q, month_spend_usd=round(c, 4),
+                         key=_key_status(conn, cfg, u["id"]))
+        finally:
+            conn.close()
         q, c = spend.get(None, (0, 0.0))
         return {"users": users, "unattributed": {"month_questions": q,
                                                  "month_spend_usd": round(c, 4)},
-                "require_signin": config.load().require_signin,
+                "require_signin": cfg.require_signin,
+                "key_mode": cfg.key_mode,
+                "provider": config.active_provider(cfg),
                 "phone_urls": _phone_urls()}
 
     @app.post("/api/admin/users")
     def admin_add_user(body: NewUserBody) -> dict:
+        """Adds the mechanic; the page then opens their sign-in QR."""
         aconn = adb()
         try:
-            uid = auth.add_user(aconn, body.name, body.monthly_cap_usd)
-            return {"id": uid, "code": auth.new_code(aconn, uid),
-                    "minutes": auth.CODE_MINUTES}
+            return {"id": auth.add_user(aconn, body.name, body.monthly_cap_usd)}
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         finally:
             aconn.close()
+
+    @app.get("/api/admin/site-qr")
+    def admin_site_qr() -> dict:
+        """A QR that opens AutoRundown on a phone, and the addresses to write
+        under it. It holds the LAN address, not autorundown.local: a camera
+        app on an Android phone often can't resolve .local names, while an
+        address always works (a home-screen icon added from autorundown.local
+        survives the PC getting a new address, so both are written out)."""
+        base = _qr_base()
+        return {"url": base, "svg": qr.svg(base + "/") if base else "",
+                "urls": _phone_urls()}
+
+    # -- sign-in QRs: one per dialog, single use, 15 minutes ---------------
+    @app.post("/api/admin/users/{user_id}/qr")
+    def admin_new_qr(user_id: int) -> dict:
+        base = _qr_base()
+        if not base:
+            raise HTTPException(409, "This PC has no network address, so a phone can't reach it.")
+        aconn = adb()
+        try:
+            g = auth.new_grant(aconn, user_id)
+        except KeyError:
+            raise HTTPException(404, "No such user.")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        finally:
+            aconn.close()
+        link = f"{base}/signin?t={g.link_token}"
+        # the link and the code go to this page once and are not kept
+        return {"grant_id": g.id, "svg": qr.svg(link), "url": link, "code": g.code,
+                "expires_in": max(0, round(g.expires - time.time())),
+                "minutes": auth.CODE_MINUTES, "site": base}
+
+    def _grant_of(aconn, user_id: int, grant_id: int) -> None:
+        row = aconn.execute("SELECT user_id FROM grants WHERE id=?", (grant_id,)).fetchone()
+        if row is None or row["user_id"] != user_id:   # another mechanic's QR
+            raise HTTPException(404, "No such sign-in QR for this mechanic.")
+
+    @app.get("/api/admin/users/{user_id}/qr/{grant_id}")
+    def admin_qr_status(user_id: int, grant_id: int) -> dict:
+        """pending | used | voided | expired: the dialog closes itself on used."""
+        aconn = adb()
+        try:
+            _grant_of(aconn, user_id, grant_id)
+            return {"state": auth.grant_status(aconn, grant_id)}
+        finally:
+            aconn.close()
+
+    @app.post("/api/admin/users/{user_id}/qr/{grant_id}/void")
+    def admin_void_qr(user_id: int, grant_id: int) -> dict:
+        """The dialog was closed: its QR and code stop working at once."""
+        aconn = adb()
+        try:
+            _grant_of(aconn, user_id, grant_id)
+            auth.void_grant(aconn, grant_id)
+        finally:
+            aconn.close()
+        return {"ok": True}
+
+    # -- "A key per mechanic" (admin only) --------------------------------
+    @app.post("/api/admin/users/{user_id}/key")
+    def admin_mechanic_key(user_id: int, body: MechanicKeyBody) -> dict:
+        aconn = adb()
+        try:
+            if aconn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone() is None:
+                raise HTTPException(404, "No such user.")
+        finally:
+            aconn.close()
+        cfg = config.load()
+        # a mechanic's key is for one provider: the one answering now
+        provider = config.active_provider(cfg)
+        if body.remove:
+            config.set_mechanic_entry(cfg, user_id, provider, None)
+            cfg.save()
+            return {"ok": True}
+        entry = config.mechanic_entry(cfg, user_id, provider)
+        new_key = (body.api_key or "").strip()
+        if body.api_key is not None:
+            if not new_key or any(c.isspace() for c in new_key):
+                raise HTTPException(400, "Paste the whole key, with no spaces "
+                                         f"(it starts {providers.PROVIDERS[provider]['key_hint']}).")
+            entry["api_key"] = new_key
+        if not entry.get("api_key"):
+            raise HTTPException(400, "Add this mechanic's API key first.")
+        if body.clear_loaded:
+            entry["loaded_usd"] = None
+        elif body.loaded_usd is not None:
+            entry["loaded_usd"] = body.loaded_usd
+        # a new key, or "topped up / new key": count spend from now
+        if new_key or body.reset or not entry.get("since"):
+            entry["since"] = _utc_now()
+        entry.setdefault("loaded_usd", None)
+        config.set_mechanic_entry(cfg, user_id, provider, entry)
+        cfg.save()
+        conn = db()
+        try:
+            return {"ok": True, "key": _key_status(conn, cfg, user_id)}
+        finally:
+            conn.close()
 
     @app.post("/api/admin/users/{user_id}")
     def admin_update_user(user_id: int, body: UserUpdateBody) -> dict:
@@ -1072,18 +1471,6 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             aconn.close()
         return {"ok": True}
-
-    @app.post("/api/admin/users/{user_id}/code")
-    def admin_new_code(user_id: int) -> dict:
-        aconn = adb()
-        try:
-            return {"code": auth.new_code(aconn, user_id), "minutes": auth.CODE_MINUTES}
-        except KeyError:
-            raise HTTPException(404, "No such user.")
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-        finally:
-            aconn.close()
 
     @app.post("/api/admin/users/{user_id}/signout")
     def admin_sign_out(user_id: int) -> dict:
@@ -1102,7 +1489,41 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         hosts += [ip for ip in ips if ":" not in ip and not ip.startswith("127.")]
         return [f"{scheme}://{h}:{app.state.port}" for h in hosts]
 
+    def _qr_base() -> str:
+        """The address a QR sends a phone to: this PC's LAN address (the one
+        its default route uses, not a WSL/VPN adapter's), else the first
+        address found; "" when there is none."""
+        scheme = "https" if app.state.https else "http"
+        ip = lan_ip()
+        if not ip.startswith("127."):
+            return f"{scheme}://{ip}:{app.state.port}"
+        mdns = app.state.mdns_name
+        urls = [u for u in _phone_urls() if not (mdns and f"//{mdns}:" in u)]
+        return urls[0] if urls else ""
+
+    def _key_status(conn, cfg: config.Config, user_id: int) -> dict:
+        """A mechanic's own key as the admin may see it: never the key, only
+        whether there is one and its last 4. Remaining is AutoRundown's own
+        estimate: the credit the owner said was loaded minus what this app
+        logged on that key since then (Anthropic does not tell a normal key
+        its balance)."""
+        provider = config.active_provider(cfg)
+        e = config.mechanic_entry(cfg, user_id, provider)
+        key = e.get("api_key") or ""
+        spent = (index.key_spend_since(conn, config.key_ref(provider, user_id), e.get("since") or "")
+                 if key else 0.0)
+        loaded = e.get("loaded_usd")
+        return {"has_key": bool(key), "last4": config.key_last4(key),
+                "since": e.get("since") or None, "loaded_usd": loaded,
+                "spent_usd": round(spent, 4),
+                "remaining_usd": round(loaded - spent, 4) if key and loaded is not None else None}
+
     return app
+
+
+def _utc_now() -> str:
+    """usage_log.ts's own format (SQLite datetime('now'), UTC)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def lan_ip() -> str:

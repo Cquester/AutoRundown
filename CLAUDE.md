@@ -1,12 +1,12 @@
 # AutoRundown — working notes for Claude
 
 Local repair-manual search over the user's own service-manual archive.
-Retrieval is local (SQLite FTS5); the only network call is to the Anthropic
-API. Read `README.md` for the product description — this file is the working
+Retrieval is local (SQLite FTS5); the only network call is to the AI
+provider's API (Anthropic by default; Gemini, xAI or DeepSeek by setting). Read `README.md` for the product description — this file is the working
 context: what is already decided, what is already tried, and what will break.
 
 **Status: working end to end.** Importers (LEMON HTML, Mercedes WIS via
-`records`, plain folders), index, retrieval, Claude query layer, web UI with
+`records`, plain folders), index, retrieval, AI query layer (four providers), web UI with
 Shop setup, shop-network access, Windows MSI with CI and releases. Not built:
 macOS/Linux packages (they run from source, by the user's decision), code
 signing, the LEMON torrent download.
@@ -19,11 +19,12 @@ broke:
 | Before you touch… | read |
 |---|---|
 | the WIS extractor, `importers/records.py`, WIS page rendering, images, "Original layout", `wis_links.py` (cross-refs, diagrams, option codes, oil, labour) | [`docs/notes/wis-source.md`](docs/notes/wis-source.md) |
-| the car box, Browse, Variant menu, VIN, years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
-| `auth.py`, sign-in, spend caps, HTTPS, request hardening | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
+| the car box, Browse, Variant menu, VIN (check digit, Scan VIN, `web/vendor/`), years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
+| `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
+| `providers.py`, the AI provider selector, prices, `tools/fake_anthropic.py`'s provider fakes | [`docs/notes/ai-providers.md`](docs/notes/ai-providers.md) |
 | the EPC parts source — `extractor/pull_epc.js`, `epc_fv4.js`, the EPC↔WIS join (`index.link_sources`) (not in the live index yet) | [`docs/notes/epc-source.md`](docs/notes/epc-source.md) |
 
 ---
@@ -117,9 +118,10 @@ python ask.py --vehicle f-150 --search "<terms>"  # keyword only, FREE
 python ask.py --usage                             # spend, by source and user
 python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
-python rebuild_wis.py                             # replace the WIS part (~6 min; keeps spend log)
+python rebuild_wis.py                             # replace the WIS part in place (keeps other manuals + spend log)
 python dev.py                                     # FREE, throwaway instance, :8757
-python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py
+python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py (all 4 providers)
+python dev.py --fake-vm                           # FREE, Mercedes VM tab runs tools/fake_extractor
 python eval.py                                    # FREE retrieval check (F-150)
 python eval.py --answers                          # PAID, prints estimate
 python eval_wis.py                                # FREE, WIS retrieval + wrong-vehicle guards
@@ -127,14 +129,22 @@ python eval_wis.py                                # FREE, WIS retrieval + wrong-
 # free test suites (CI runs all of them)
 python tests/test_citations.py                    # _verify_citations (<1 s)
 python tests/test_records.py                      # `records` importer
-python tests/test_access.py                       # admin/sign-in/limits/HTTPS (~2 s)
+python tests/test_access.py                       # admin/sign-in QRs/limits/keys/HTTPS (~4 s)
 python tests/test_lemon_import.py                 # LEMON import source (~3 s)
 python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (~3 s)
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
+python tests/test_providers.py                    # Ask on all 4 AI providers vs the fakes (~20 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
-python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~45 s, Playwright)
+python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
+python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
+python tests/test_vin.py                          # VIN check digit, I/O/Q, typos (~5 s)
+python tests/test_vin_scan.py [--n 8]             # Scan VIN on generated barcodes/labels (~1 min, Playwright)
+python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
+python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends the same car (~10 s, Playwright)
+python tests/test_answer_tabs.py [--index <db>]   # one question fills the right box's tabs (~15 s, Playwright)
+python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
 # sample data and tools
@@ -154,14 +164,17 @@ powershell -File tools/sandbox/start.ps1 [-Source] # fresh install in Windows Sa
 when Docker/WSL is unavailable). It builds sample data (invented text) into
 `.dev/`, runs with its own `AUTORUNDOWN_HOME` there and serves on
 localhost:8757, so the real index, spend log and the real server on 8756 are
-never touched. It drops `ANTHROPIC_API_KEY`, so Ask costs nothing unless
-someone types a key into its Shop setup. `--fake-api` (what a box runs)
-points the SDK at `tools/fake_anthropic.py` on port+1 via
-`ANTHROPIC_BASE_URL`, so Ask runs its whole real path -- planner, search,
-`_verify_citations`, spend log, UI -- with made-up replies, and even a real
-key typed into Settings goes only to the fake. Words in a question pick the
-rare paths (`fake:badcite`, `fake:steps`, `fake:notfound`, `fake:refusal`,
-`fake:error`, `fake:nocredit`, `fake:slow`). It proves the app's plumbing,
+never touched. It drops every provider's `*_API_KEY` / `*_BASE_URL`, so Ask
+costs nothing unless someone types a key into its Shop setup. `--fake-api`
+(what a box runs) points all four providers at `tools/fake_anthropic.py` on
+port+1 (`ANTHROPIC_BASE_URL`, `GEMINI_BASE_URL`, `XAI_BASE_URL`,
+`DEEPSEEK_BASE_URL`), so Ask runs its whole real path -- planner, search,
+`_verify_citations`, spend log, UI -- with made-up replies on any provider,
+and even a real key typed into Settings goes only to the fake (only the
+Anthropic key is preset; type any dummy key for the others). Words in a
+question pick the rare paths on every provider (`fake:badcite`,
+`fake:steps`, `fake:notfound`, `fake:refusal`, `fake:error`,
+`fake:nocredit`, `fake:slow`, `fake:malformed`, `fake:otherengine`). It proves the app's plumbing,
 not the real model's judgement: prompt changes still need one scoped paid
 answer. One of the three sample LEMON
 vehicles is imported, two are left for the import page; `--empty` gives the
@@ -176,8 +189,13 @@ The Mercedes WIS pipeline (VM -> corpus -> index) and its commands are in
 **Never rebuild by copying `index.before-wis.db` over `index.db` by hand.**
 The spend log (`usage_log`) lives inside the index, so that silently deletes
 every paid question asked since the backup — it happened on several rebuilds
-in this project before `rebuild_wis.py` existed. The script copies the newer
-log rows across and checks the count before it re-ingests.
+in this project before `rebuild_wis.py` existed. It also deletes the EPC
+parts catalogue and every manual imported after the backup -- which is what
+`rebuild_wis.py` itself did until 2026-10-16. **The script now removes WIS
+in place** (`remove_manuals.py --source mercedes-wis`) and re-ingests; it
+never reads the backup, refuses a corpus that is not WIS, and checks every
+other manual's page/chunk counts and the spend log before and after
+(`tests/test_rebuild_wis.py`).
 
 ---
 
@@ -215,9 +233,13 @@ autorundown/
   index.py         FTS5 schema, chunking, dedup, connectors, usage log, migrations
   search.py        BM25 + mandatory vehicle filter, scopes, round-robin merge
   synonyms.py      shop words -> manual words for keyword search
-  query.py         Claude planner + answerer + citation / other-vehicle checks
+  query.py         planner + answerer + citation / other-vehicle checks
+  providers.py     the AI providers (Anthropic SDK; Gemini, xAI, DeepSeek over HTTPS),
+                   their models, prices, schemas and errors
   server.py        FastAPI local server; admin-only routes, hardening
-  auth.py          the PC is admin; mechanic codes, tokens, caps
+  auth.py          the PC is admin; sign-in QRs (grants), tokens, caps
+  handoff.py       cars a phone sends to the desk (auth.db `handoffs`)
+  qr.py            QR codes as inline SVG (segno, pure Python)
   tls.py           local CA for --https
   config.py        ~/.autorundown/config.json (AUTORUNDOWN_HOME)
   importer_jobs.py import / remove / VM jobs started from Shop setup
@@ -282,14 +304,43 @@ the FTS table (narrows inside FTS5; ~10x more, but rebuilds the FTS table).
 on the side ... it's more to provide the correct document"). An answer is one
 to three sentences, a table of the values the job uses (`specs`), and
 `document_page` -- the procedure page for "how do I", the spec page for a
-value -- which the UI opens on the right (on a phone: a button, so it does not
-cover the answer). `steps` is left empty by the prompt and not rendered; the
+value -- which the UI opens on the right (on a phone, 700 px and less: loaded
+into the "Document" view with a dot on that segment, opened by the answer's
+"Open manual page" button, so it does not cover the answer; Back or a swipe
+returns). An answer with no page clears the panel to "No manual page for this
+answer". A withheld answer (`caveats` ends "Answer withheld: …"; there is no
+separate field) is headed "No checked answer — the AI's sources couldn't be
+verified", with "Search the manual instead", never "Not found".
+The phone layout (car line + full-screen car sheet, Answer | Document, docked
+question, bottom tab bar) is CSS under `@media (max-width:700px)` plus
+`openRight`/`openSheet` in `index.html`; 701-900 px keeps the slide-over panel. `steps` is left empty by the prompt and not rendered; the
 side panel of "diagrams from cited pages" is gone; `figures` survive only as
 links to a diagram on another page. `document_page` is checked like any
 citation in `_verify_citations` (invented -> dropped, falls back to the first
 real cited page; never counts on its own). A value is never "see Fig 15" --
 that rendered in big type as though it were a torque. **Not yet tried on a
 paid answer.**
+
+**One question fills the right box's tabs, without another AI call**
+(2026-10-16, the user's request). The right box has tabs -- Manual page,
+Parts, Labour times, Capacities, Torque specs; on a phone they are the bottom
+bar and open the Document view. Every Ask searches all of them with the AI's
+own search terms (`queries`), every Search with the words typed
+(`/api/search` `also=`, merged round-robin). The user chose this over the AI
+writing each tab: 3-5x the spend, and it would retell the manual. Do not add
+per-tab AI calls. Details: `docs/notes/epc-source.md` ("Result tabs").
+
+**A VIN is checked before it is decoded; a scanned one is never searched
+by itself** (2026-10-16). `vinCheck()` (index.html, `vin-check` block):
+I/O/Q refused with the fix offered; every 17-character VIN that is not a
+FIN must pass its ISO 3779 check digit, else only the series is used (no
+variant, engine or year) -- one-character typos named other cars with
+other engines. Do not narrow it to WMIs starting 1/4/5: Mercedes' US VINs
+start W. Scan VIN reads the photo in the browser (vendored zxing-wasm +
+tesseract.js under `web/vendor/`, served by `GET /vendor/`, no CDN, no
+upload route, no AI) and only fills the box; Find picks the car. Tests:
+`tests/test_vin.py`, `tests/test_vin_scan.py`, `test_ui_picks.py` part 7.
+Details: `vehicle-selection.md`, `shop-network.md`.
 
 **Only the chosen car's values, checked after the model.** The user typed
 "2001 E 320 4MATIC" (W210, M112) and got torque values for every W210
@@ -335,6 +386,21 @@ in `caveats`, and listed in `added_parts`. Only when a car or engine is
 chosen. Tests: `tests/test_citations.py`, and end to end through the fake
 API (`fake:onepart`) in `tests/test_epc_join.py`.
 
+**Four AI providers, one set of checks** (2026-10-16). Anthropic (default),
+Google Gemini, xAI and DeepSeek answer through `providers.call`; switching is
+the Shop setup setting `Config.provider`. The citations rule is unchanged and
+provider-blind: whatever answered, the reply is validated against the same
+schema (malformed → "no parsable answer", never a crash) and then goes
+through `_verify_citations`, `_drop_other_vehicles` and `_add_omitted_parts`
+exactly as before -- do not move any of them into a provider, and do not
+skip one for a provider. The Anthropic request is byte-for-byte what it was
+(recorded and compared). The others use the stdlib (no `openai` /
+`google-genai` in the MSI). Prices carry the date checked and their source;
+an unknown price is logged as NULL ("cost not tracked"), never guessed.
+Keys are per provider, entered in Shop setup, never fetched or sent to a
+phone. Tests: `tests/test_providers.py`; details and what is unverified
+(no real call to Gemini/xAI/DeepSeek yet): `ai-providers.md`.
+
 **Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert
 units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part
@@ -363,8 +429,26 @@ in `docs/notes/`. The ones most likely to be undone by accident:
 - **`_variants` order is the server's order — never sort it in place** (the
   E 500 → E 63 AMG bug); `tests/test_ui_picks.py` guards it.
   (`vehicle-selection.md`)
+- **Recent cars store the structured pick, re-checked on use** (2026-10-16):
+  `autorundown.carHistory.v1` keeps doc, variant index *and name*, engine,
+  year, label, VIN; a re-select whose variant name no longer sits at that
+  index falls back to the whole series and says so, and always goes
+  through `applyCar`. Never re-pick from the stored label text.
+  `tests/test_car_history.py`. (`vehicle-selection.md`)
+- **A VIN sends the engine of the Baumuster it names** (`vin9_bm`), never
+  the variant's first (320 prefixes sent a wrong engine until 2026-10-16);
+  a Baumuster sold under several names gets all their engines. The live
+  index gets `vin9_bm` at runtime from `vin2fin.json`. (`vehicle-selection.md`)
 - **Admin = loopback peer AND loopback Host**; no reverse proxy on the same
   PC; no handler built from manual text. (`shop-network.md`)
+- **Which API key pays is decided only in `config.pick_key`** (company key,
+  or the signed-in mechanic's own in "A key per mechanic" mode, for the
+  active AI provider). A mechanic with no key is refused -- never a fallback
+  to another key, nor to their key for another provider. Keys never
+  reach a phone (booleans, estimates only; the admin sees the last 4), and
+  `usage_log.key_ref` tags spend with "company" / "user:<id>", never the
+  key. Sign-in is by single-use 15-minute QR grants (hashes only), voided
+  when the dialog closes. (`shop-network.md`)
 - **WIS is never removed per model.** (`importing.md`)
 - **Never fetch from lemon-manuals.la over HTTP**; the LEMON download, when
   built, must follow what the user agreed (2026-10-09). (`importing.md`)
@@ -406,14 +490,17 @@ predates the end-view format. Features here degrade quietly by design.
 3. For UI work: drive a test box with the browser tools, and inject
    payloads into `renderAnswer()` rather than paying for answers.
    After any change to the vehicle picker (`#carInput`, Browse, VIN, the
-   variant menu, `loadVehicles`): `python tests/test_ui_picks.py` — free,
-   ~45 s, needs `pip install -r requirements-dev.txt` (Playwright; it drives
+   variant menu, `loadVehicles`, the recent-cars list -- that one also
+   `python tests/test_car_history.py`): `python tests/test_ui_picks.py` — free,
+   ~3 min, needs `pip install -r requirements-dev.txt` (Playwright; it drives
    the installed Edge/Chrome). It loads the real page against the index
    (opened `mode=ro`; `--index` to point elsewhere), makes every pick the UI
    can make — typed queries, VIN and FIN, Browse + reload, every one-line
-   suggestion (~2,500), every Variant option (~1,600), one VIN prefix per
-   variant (~430) — and checks the `variant=` each sends against the stored
-   `vehicles.variants`. Any non-GET or `/api/ask` request fails the run.
+   suggestion (~2,500), every Variant option (~1,300), every US VIN prefix
+   (~5,800, checked against `vin2fin.json`: Baumuster and engine sent), the
+   VIN dialog sending what the box sends — and checks the `variant=` each
+   sends against the stored `vehicles.variants`.
+   Any non-GET or `/api/ask` request fails the run.
    Known quirk it works around: typing "190 e 2.3 16" finds nothing —
    `carMatches` reads a bare "16" as the year 2016.
 4. For extraction changes: re-index (~40s) and re-run `eval.py`. Watch
@@ -428,7 +515,8 @@ With Mercedes WIS (English, passenger mode, schema 1.3 with images) in the
 same `index.db`: 272,607 records = 272,603 indexed + 4 figure-only, 531,847
 page rows (x1.95), index 3.5 GB, ~6 min via `rebuild_wis.py`. Images live
 outside the index: 272,181 graphics, 11 GB, in `wis_extract/images/`.
-`index.before-wis.db` is the pre-WIS backup the script restores;
+`index.before-wis.db` is the old pre-WIS backup (no longer used by the
+script; it predates EPC and later manuals, so never restore it);
 `index.v11.db` is the last schema-1.1 index, kept for rollback (both
 gitignored). `eval_wis.py`: 19/19 pass, 13 known-bad guards within their ceilings (checked 2026-10-12).
 
@@ -443,9 +531,13 @@ gitignored). `eval_wis.py`: 19/19 pass, 13 known-bad guards within their ceiling
 - Sibling-engine pages exist in the main tree identified only by their title
   (e.g. "Generator - 2.7L EcoBoost"). The prompt requires flagging
   applicability, but this is prompt-level, not structural.
-- The spend log lives inside the index. `rebuild_wis.py` carries it across a
-  WIS rebuild; any *other* way of rebuilding (deleting `index.db`, copying a
-  backup over it) still loses it.
+- The spend log lives inside the index. `rebuild_wis.py` and
+  `remove_manuals.py` leave it in place; any *other* way of rebuilding
+  (deleting `index.db`, copying a backup over it) still loses it.
+- **The in-place WIS rebuild has not run on the real 3.5 GB index yet**
+  (tested on sample data only). Removing ~530k WIS pages fires the FTS
+  delete trigger per chunk, so expect it to take longer than the old
+  backup restore; freed pages are reused by the re-ingest.
 - **WIS retrieval is checked by `eval_wis.py`, not by answers.** 19 cases,
   13 known-bad guards left (other engines' documents in the general pool,
   engine buckets not type-narrowed, title-only applicability). The right page
@@ -535,6 +627,10 @@ Still open, in rough order of value:
 7. The car box reads a bare two-digit word as a year ("190 e 2.3 16" → 2016).
 8. The LEMON download is not built (catalogue picking only); sizing it needs
    piece 16308, which the user has not yet OK'd fetching.
+9. **Gemini, xAI and DeepSeek have never answered a real question**
+   (`ai-providers.md`, "Not verified"): one cheap scoped paid question on
+   each, with the user's OK and their key, is the real test of the request
+   shapes and of the prompt on those models.
 
 Leftovers the user may delete (we never delete data):
 `autorundown_out/_previous_2026-10-07` (~15 GB), `index.v11.db`, the old

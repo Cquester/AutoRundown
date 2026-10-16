@@ -3,10 +3,10 @@
 A test box is AutoRundown running in a throwaway Linux container (Docker
 Engine inside WSL2 on the user's PC): a copy of this repo, serving invented
 sample data, with **no outbound network and nothing of the user's** -- not
-their files, index, settings, spend log or Claude sign-in. Ask works: a fake
-Anthropic API inside the box (`tools/fake_anthropic.py`, via `dev.py
---fake-api`) answers it from the passages the app sends, so the whole answer
-path runs for free. Its answers start "[fake API]".
+their files, index, settings, spend log or Claude sign-in. Ask works: fake
+AI APIs inside the box (`tools/fake_anthropic.py`, via `dev.py --fake-api`;
+Anthropic, Gemini, xAI and DeepSeek wire formats) answer it from the passages
+the app sends, so the whole answer path runs for free on any provider. Its answers start "[fake API]".
 Use one whenever you want to test "like a user", let an agent loose on the
 app, or show the user a change.
 

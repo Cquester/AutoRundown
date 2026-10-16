@@ -9,6 +9,8 @@ zeroconf>=0.130
 pystray>=0.19; sys_platform == "win32"
 Pillow>=10.1; sys_platform == "win32"
 cryptography>=42     # serve.py --https: the local CA (autorundown/tls.py)
+# QR codes in Shop setup (autorundown/qr.py): pure Python, no Pillow, SVG out
+segno>=1.6
 # PDFs in a folder import (importers/folder.py); they are untrusted files,
 # and versions before 6.19 have known parsing vulnerabilities
 pypdf>=6.19

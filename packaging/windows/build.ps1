@@ -115,7 +115,7 @@ Get-ChildItem $app -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurs
 if ($LASTEXITCODE) { throw "compileall failed" }
 
 # 4. smoke test the stage before packaging it
-& (Join-Path $py "python.exe") -c "import sqlite3; c = sqlite3.connect(':memory:'); c.execute('CREATE VIRTUAL TABLE t USING fts5(x)'); import autorundown.server, autorundown.launcher, lxml.html, anthropic, PIL.Image, ezdxf.recover, ezdxf.addons.drawing.svg; print('stage ok, sqlite', sqlite3.sqlite_version)"
+& (Join-Path $py "python.exe") -c "import sqlite3; c = sqlite3.connect(':memory:'); c.execute('CREATE VIRTUAL TABLE t USING fts5(x)'); import autorundown.server, autorundown.launcher, lxml.html, anthropic, segno, PIL.Image, ezdxf.recover, ezdxf.addons.drawing.svg; print('stage ok, sqlite', sqlite3.sqlite_version)"
 if ($LASTEXITCODE) { throw "stage smoke test failed" }
 
 # 5. MSI

@@ -2,3 +2,7 @@
 # tests/test_ui_picks.py drives the real page; it uses the installed Edge/Chrome,
 # so `playwright install` (a browser download) is not needed.
 playwright>=1.40
+# tests/test_vin_scan.py draws made-up VIN labels and barcodes (Code 39, Data
+# Matrix, QR) to read back; pystrich is pure Python, Apache-2.0
+Pillow>=12.3
+pystrich==0.20
