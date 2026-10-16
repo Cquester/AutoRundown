@@ -327,11 +327,11 @@ chose:
 |---|---|
 | **Manual page** | The page the answer points at, or any page you open. |
 | **Parts** | The Mercedes parts catalogue (EPC), when imported: each page's matching part lines -- number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334"). |
-| **Labour times** | Mercedes flat-rate times for the exact model (WIS). |
-| **Capacities** | The engine oil figure for your engine (WIS), and capacity lines from the car's pages. |
-| **Torque specs** | Torque lines from the car's pages, each linked to its page. |
+| **Labour times** | Mercedes flat-rate times for the exact model (WIS) -- empty until you ask or search, then the job itself (both versions where an automatic and a manual gearbox differ), with any other operations that mention it folded away below. |
+| **Capacities** | One table, fluid then capacity: the engine oil figure for your engine (WIS), then the capacities on the car's pages. |
+| **Torque specs** | One table, part then specification, as the manual prints it. |
 
-Lines that name only another engine or model are left out, and every line
+Values that name only another engine or model are left out, and every row
 links to the page it came from: tables often list several engines, so the page
 is where you confirm the row is yours. A WIS page opens in **Reading view** or
 **Original layout** (the page redrawn from WIS); a parts page opens as its list.
@@ -434,12 +434,13 @@ alongside BM25 — not before.
 
 ## Choosing an AI provider
 
-Shop setup → *AI answers* → **AI provider**: Anthropic (Claude, the
+Shop setup → *AI answers* → **Default AI provider**: Anthropic (Claude, the
 default), Google Gemini, xAI (Grok) or DeepSeek. Each has a **Get a key**
 button that opens that provider's API-key page: sign in and create a key,
-copy it, paste it in. Keys are kept per provider, so switching back and
-forth loses nothing; in "A key per mechanic" mode each mechanic needs a key
-for the provider in use.
+copy it, paste it in -- the key box has its own provider menu, so a second
+provider's key can be added without changing the default. Every provider
+with a key is offered in the question box's model menu (below); in "A key
+per mechanic" mode a mechanic sees the providers they have a key for.
 
 Whichever provider answers, the answer goes through the same checks: every
 value and page must be one the search actually returned, values for other
@@ -457,9 +458,19 @@ for the current terms.
 
 ## Choosing a model
 
-Pick it from the toolbar beside the question box; it applies to the next
-question immediately and saves the choice on that device. The PC's default
-is under Shop setup → *AI answers*; on the command line, `ask.py --model`
+Pick it from the menu beside the question box: every model of every
+provider with a key, grouped by provider, the default first. The model
+picked says which provider answers; the choice is remembered on that device
+until the default changes. The default is under Shop setup → *AI answers*,
+and **Models in the question box's menu** unticks the ones you don't want
+offered (the default always is). Out of the box the default is Sonnet 5:
+an answer is a few sentences and the page, so Opus costs more than it adds.
+**Check ... for newer models** asks that provider for its current model
+list (free: no tokens) and offers what the menu lacks, each with **Add**;
+an added model's price isn't known to AutoRundown, so its questions show
+"cost not tracked", and the prompts were tuned on the built-in models -- try
+one before relying on it.
+On the command line, `ask.py --model`
 (any provider's model; its company key pays).
 
 Prices as listed by each provider on 2026-10-16 (USD per million tokens):

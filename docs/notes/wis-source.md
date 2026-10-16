@@ -383,18 +383,37 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   UI: a tap target per printed code over the `<img>`, plus "Components on
   this diagram" (name, keyword search, linked document via `AW_SVGReferenz`).
   The full-size view has no tap targets.
-- **Option codes**: a dialog beside VIN (`/api/wis/sa`). A code means
-  different things per vehicle type (494 = "US version" on a car, a tyre on
-  a bus); the car's type (`FZG_ART`) picks one, others shown only if it has
-  none, all listed when the type is unknown.
+- **Option codes: removed 2026-10-16** (the user: nobody knows their car's
+  option codes). It was a dialog beside VIN (`/api/wis/sa`, `sa_codes`): a
+  code means different things per vehicle type (494 = "US version" on a
+  car, a tyre on a bus), so the car's type (`FZG_ART`) picked one. The
+  sidecar's `sa_code` tables are still pulled; reading a car's data card is
+  a possible later way back to them.
 - **Oil capacity** (`/api/wis/oil`) in the scope note **only once the engine
   is known**: a variant's engines, narrowed by the car box's year-picked
   family (an E 350 that is M272 or M276 by year showed both before that fix).
   Only 359 English rows / 35 series.
 - **Labour times** (`/api/wis/labour`, `wis_links.labour_*`; the "Labour
-  times" tab -- a dialog until 2026-10-15 -- opened by its tab, the button
-  beside Option codes or the link in the scope note once a variant is
-  picked). WIS ships Mercedes' ASRA flat rates. The chain:
+  times" tab -- a dialog until 2026-10-15; its button beside VIN and the
+  scope note's link went 2026-10-16: Ask or Search fills the tab, which is
+  empty before a question). **A search shows the job, not every operation
+  naming its words** (2026-10-16, the user: "a lot of labour times shown,
+  we should only show the correct one"): `_rank_labour` matches the words
+  against the operation's *core* -- its component, without the action
+  ("Remove/install"), the bracketed conditions and the equipment it applies
+  to ("Veh. with transmission 722.6") -- a word matching the words it
+  starts ("pad" -> "pads", never "change" in "exchanger"). The `best` are
+  the plain operations with the fewest extra words; add-on times ("(with
+  transm. removed)", "(Coolant drained)") and campaign items (group 02)
+  rank after, and anything that only mentions the words folds away under
+  "N other operations mention it". **Where the job differs by gearbox, both
+  are best** (the user: the car may be automatic or manual, so give both --
+  the car box does not know the gearbox): an automatic's operation brings
+  the manual's of the same group and action, and per-automatic operations
+  (722.6, 722.9) share a core and are both shown. On the real index:
+  "starter" 2 of 5 (Remove/install, Exchange), "transmission fluid change"
+  on a W210 E 320 the two automatic fluid changes plus the manual's
+  lubricant change, "brake pads" the 8-lining job. WIS ships Mercedes' ASRA flat rates. The chain:
   Baumuster (+ engine) -> `ASRA_Fahrzeug` -> family + type code ("book");
   a time is the row for the exact type code, else its group (`40` = 4x),
   else `00` -- never overlapping (all 478,402 operation x family cases);

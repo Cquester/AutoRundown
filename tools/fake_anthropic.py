@@ -169,6 +169,10 @@ GEMINI_SCHEMA_KEYS = {"$id", "$defs", "$ref", "$anchor", "type", "format", "titl
                       "additionalProperties", "required", "propertyOrdering"}
 # every request the fake answered, newest last: tests read the wire format here
 REQUESTS: list[dict] = []
+# the newer model each provider's model list offers (Shop setup's "Check for
+# new models"): invented, so nothing real is ever named as available
+FAKE_NEW = {"anthropic": "claude-fake-6", "gemini": "gemini-fake-5-flash",
+            "xai": "grok-fake-5", "deepseek": "deepseek-fake-r3"}
 
 
 def base_urls(port: int) -> dict:
@@ -229,6 +233,35 @@ class Handler(BaseHTTPRequestHandler):
 
     def error(self, status: int, kind: str, msg: str) -> None:
         self.reply(status, {"type": "error", "error": {"type": kind, "message": msg}})
+
+    # each provider's model list: the app's own models, one invented newer
+    # model (FAKE_NEW), and models that are not for text, which the app must
+    # leave out (embedding, image)
+    def do_GET(self):
+        path = self.path.split("?")[0]
+        REQUESTS.append({"path": path, "body": None})
+        key = (self.headers.get("x-api-key") or self.headers.get("x-goog-api-key")
+               or (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip())
+        if not key:
+            return self.error(401, "authentication_error", "fake API: no key")
+        if path == "/v1/models":
+            ids = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", FAKE_NEW["anthropic"]]
+            return self.reply(200, {"data": [{"type": "model", "id": i, "display_name": i.title(),
+                                              "created_at": "2026-10-01T00:00:00Z"} for i in ids],
+                                    "has_more": False, "first_id": ids[0], "last_id": ids[-1]})
+        if path == "/v1beta/models":
+            gen = ["gemini-4-argon", "gemini-3.8-flash", "gemini-3.5-flash-lite",
+                   FAKE_NEW["gemini"], "gemini-4-flash-image"]
+            return self.reply(200, {"models": [
+                {"name": f"models/{i}", "displayName": i, "supportedGenerationMethods":
+                 ["generateContent", "countTokens"]} for i in gen]
+                + [{"name": "models/gemini-embedding-002", "supportedGenerationMethods": ["embedContent"]}]})
+        if path in ("/xai/v1/models", "/deepseek/models"):
+            pid = "xai" if path.startswith("/xai") else "deepseek"
+            ids = {"xai": ["grok-4.7", "grok-4.3", "grok-imagine-image"],
+                   "deepseek": ["deepseek-v4-pro", "deepseek-flash"]}[pid] + [FAKE_NEW[pid]]
+            return self.reply(200, {"object": "list", "data": [{"id": i, "object": "model"} for i in ids]})
+        return self.error(404, "not_found_error", f"fake API: no route {self.path}")
 
     def do_POST(self):
         path = self.path.split("?")[0]

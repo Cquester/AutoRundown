@@ -337,6 +337,42 @@ _CAP_ROW_RE = re.compile(r"capa(?:c|ct)i?t?i?y|capacit|filling|fill(?:ing)? quan
 _DECIMAL_RE = re.compile(r"(?<![\d.,])\d{1,2}[.,]\d{1,2}\b(?![.,]?\d)")
 
 
+_UNIT_FIRST_RE = re.compile(r"\b(?:liters?|litres?|ltr)[\s\xa0]+\d+(?:[.,]\d+)?"
+                            r"(?:\s*(?:\.\.\.|to|-|/)?\s*\d+(?:[.,]\d+)?\b)*", re.I)
+
+
+_ANGLE_RE = re.compile(r"\+\s*\d+(?:[.,]\d+)?\s*(?:°|degrees?\b)", re.I)
+
+
+def value_row(line: str, kind: str, title: str = "") -> dict:
+    """One value line as a table row: {"name", "value"} -- "Brake caliper to
+    steering knuckle | M12 | 115 Nm" -> "Brake caliper to steering knuckle ·
+    M12", "115 Nm". The value is the text the line prints, never converted
+    or reworded: several values stay together ("184 lb-ft / 250 Nm"). A line
+    with nothing left to name it is named by its page's title."""
+    # WIS's tables give a unit, then a value per column: "Liter 1,1 1,1",
+    # "Liters 0.7...0.9 0.45 to 0.6" -- all of it is the value
+    rx = _UNIT_FIRST_RE if kind == "capacity" and _UNIT_FIRST_RE.search(line) else VALUE_RES[kind]
+    found = [m.group(0).strip() for m in rx.finditer(line)]
+    rest = rx.sub(" ", line)
+    if not found and kind == "capacity":
+        # WIS's bare numbers under a "in liters" header: "... filter 5.0"
+        found = [m.group(0) for m in _DECIMAL_RE.finditer(line)]
+        rest = _DECIMAL_RE.sub(" ", line)
+    # a turn after the torque is part of it: "40 Nm + 90 degrees"
+    angles = [" ".join(m.group(0).split()) for m in _ANGLE_RE.finditer(rest)] if kind == "torque" else []
+    if angles:
+        rest = _ANGLE_RE.sub(" ", rest)
+    rest = re.sub(r"\(\s*[/,;]?\s*\)", " ", rest)      # "(80 Nm)" taken out of its brackets
+    cells = [" ".join(c.split()).strip(" :;,-–=") for c in rest.split("|")]
+    name = " · ".join(c for c in cells if c and not re.fullmatch(r"[\W_]*", c))
+    # a sentence the value was taken out of: "Tighten the bolts to ."
+    name = re.sub(r"(?:[\s:;,.]+(?:to|at|of|with|is))*[\s:;,.=-]+$", "", name, flags=re.I)
+    if len(name) < 3:
+        name = title
+    return {"name": name, "value": " ".join([" / ".join(dict.fromkeys(found)), *angles]).strip()}
+
+
 def part_lines(snippet: str) -> list[str]:
     """The part lines of a parts snippet (`_parts_snippet`), without its header."""
     out, on = [], False

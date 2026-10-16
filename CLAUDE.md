@@ -18,7 +18,7 @@ broke:
 
 | Before you touch… | read |
 |---|---|
-| the WIS extractor, `importers/records.py`, WIS page rendering, images, "Original layout", `wis_links.py` (cross-refs, diagrams, option codes, oil, labour) | [`docs/notes/wis-source.md`](docs/notes/wis-source.md) |
+| the WIS extractor, `importers/records.py`, WIS page rendering, images, "Original layout", `wis_links.py` (cross-refs, diagrams, oil, labour) | [`docs/notes/wis-source.md`](docs/notes/wis-source.md) |
 | the car box, Browse, Variant menu, VIN (check digit, Scan VIN, `web/vendor/`), years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
 | `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import | [`docs/notes/importing.md`](docs/notes/importing.md) |
@@ -244,7 +244,7 @@ autorundown/
   config.py        ~/.autorundown/config.json (AUTORUNDOWN_HOME)
   importer_jobs.py import / remove / VM jobs started from Shop setup
   lemon_catalogue.py  LEMON torrent catalogue tree and picks
-  wis_links.py     WIS cross-refs, diagram hotspots, option codes, oil, labour
+  wis_links.py     WIS cross-refs, diagram hotspots, oil, labour
   wis_original.py  WIS "Original layout" renderer
   launcher.py autostart.py mdns.py   Windows tray, start at sign-in, autorundown.local
   web/index.html   the whole UI, one file
@@ -400,6 +400,17 @@ in `caveats`, and listed in `added_parts`. Only when a car or engine is
 chosen. Tests: `tests/test_citations.py`, and end to end through the fake
 API (`fake:onepart`) in `tests/test_epc_join.py`.
 
+**The right box's tabs are plain, and labour shows the job** (2026-10-16,
+the user's list). Capacities and Torque specs are one table each (Fluid /
+Capacity, Part / Specification: `search.value_row`, the value as printed,
+no paragraph). Labour times are empty until a question and show the job
+itself (`wis_links._rank_labour`), both gearboxes' versions where they
+differ -- the car box does not know the gearbox; other matches fold away.
+The Labour times and Option codes buttons beside VIN are gone (Option codes
+entirely: nobody knows them; a data-card read may bring them back). Tests:
+`tests/test_wis_links.py`, `tests/test_epc_join.py`, `test_answer_tabs.py`.
+Details: `wis-source.md`, `epc-source.md`.
+
 **Four AI providers, one set of checks** (2026-10-16). Anthropic (default),
 Google Gemini, xAI and DeepSeek answer through `providers.call`; switching is
 the Shop setup setting `Config.provider`. The citations rule is unchanged and
@@ -412,7 +423,13 @@ skip one for a provider. The Anthropic request is byte-for-byte what it was
 `google-genai` in the MSI). Prices carry the date checked and their source;
 an unknown price is logged as NULL ("cost not tracked"), never guessed.
 Keys are per provider, entered in Shop setup, never fetched or sent to a
-phone. Tests: `tests/test_providers.py`; details and what is unverified
+phone. The question box's model menu lists every model of every provider
+with a key (less `Config.hidden_models`, never the default); the model
+picked decides the provider, and `pick_key` is asked for that provider.
+The shipped default is Sonnet 5 (the user: Opus is overkill). Newer models
+come from the provider's own model list (Shop setup, a free GET) and are
+added by hand; an added model has no price (NULL, "cost not tracked") and a
+Claude one gets the plain request -- never guess a price for it. Tests: `tests/test_providers.py`; details and what is unverified
 (no real call to Gemini/xAI/DeepSeek yet): `ai-providers.md`.
 
 **Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert

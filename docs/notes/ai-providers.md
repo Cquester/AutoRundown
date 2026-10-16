@@ -1,8 +1,48 @@
 # AI providers (Anthropic, Gemini, xAI, DeepSeek)
 
 Added 2026-10-16 (branch `claude/ai-providers`, on `claude/accounts-signin`).
-Switching provider is a setting (Shop setup → AI answers → *AI provider*);
-the retrieval, the prompts and the safety checks are the same for all four.
+The default provider is a setting (Shop setup → AI answers → *Default AI
+provider*); the retrieval, the prompts and the safety checks are the same
+for all four.
+
+**One menu, every provider with a key (2026-10-16, the user: show every
+provider they have a key for, with a default, and a way to remove some).**
+The question box's model menu (`/api/models?menu=1`, `config.menu_models`)
+lists every model of every provider the requester has a key for (`pick_key`
+per provider: the company's, or their own in per-mechanic mode), grouped by
+provider, the default first; `Config.hidden_models` (Shop setup → "Models in
+the question box's menu") leaves some out, never the default. `/api/ask`
+takes the model and derives its provider (`providers.provider_of`; ids are
+unique across providers), then `pick_key(..., provider)` -- a model of a
+provider with no key gets the no-key refusal, a hidden one a 400. The
+toolbar pick is kept in the browser with the default it was made under, so
+a new default wins; it no longer saves the default (only Shop setup does).
+The company key box has its own provider menu, so adding a second key
+leaves the default alone. `/api/models` without `menu` is still the default
+provider's list (Shop setup's default-model select).
+
+**The shipped default is Sonnet 5, not Opus 5 (2026-10-16, the user: Opus
+is overkill).** An answer is one to three sentences, a values table and the
+page; Sonnet 5 is 2/10 against Opus's 5/25 and passed eval 7/7, Haiku 4.5
+too. A saved `model` in an existing config.json is left as it is.
+
+**Newer models from the provider's own list (2026-10-16).** Shop setup's
+"Check <provider> for newer models" -> `GET /api/settings/models/{provider}`
+(admin) -> `providers.list_models`: one GET on the company key, no tokens --
+Anthropic `models.list` (SDK), Gemini `v1beta/models` (only
+`generateContent` models), xAI / DeepSeek `/models` -- with non-text models
+left out (`_NOT_CHAT`: embedding, image, TTS, live...). What the menu lacks
+comes back with Add; `Config.extra_models` keeps the added ones and
+`providers.sync_added` (on every `config.load`) puts them in
+`PROVIDERS[...]["models"]`, so the menu, `/api/ask`'s checks and the spend
+log treat them as any model -- except **no price** (logged NULL, "cost not
+tracked"; never guessed from a sibling) and, for Claude, **the plain
+request** (no effort, no adaptive thinking: the list does not say which a
+model takes, and a model that predates them answers 400). Prices for one
+are added by hand to `PROVIDERS`, with the date checked, as for the others.
+Tested against the fakes (`FAKE_NEW` in `tools/fake_anthropic.py`, invented
+ids); **no real provider's list has been fetched yet** -- the response
+shapes are from each provider's API reference.
 
 ## The one call
 
@@ -91,7 +131,8 @@ Anthropic, as before, and "company:gemini" / "user:<id>:gemini" for the
 others, so each key's "spent since loaded" counts only its own spend. A
 mechanic's key for one provider never pays for another. The key-per-mechanic
 form edits the key of the active provider; switching provider keeps every
-key. `POST /api/settings` takes `provider` and `api_key` + `key_provider`.
+key. `POST /api/settings` takes `provider`, `api_key` + `key_provider` and
+`hidden_models`.
 
 ## "Get a key" links -- checked in a browser 2026-10-16
 

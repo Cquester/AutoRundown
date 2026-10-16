@@ -34,7 +34,8 @@ from pydantic import BaseModel, Field
 
 from . import auth, config, handoff, index, providers, qr, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
-from .search import get_page, part_lines, scope_ids, search, split_scope, value_lines
+from .search import (get_page, part_lines, scope_ids, search, split_scope, value_lines,
+                     value_row)
 
 jobs = importer_jobs.ImportJobs()
 
@@ -53,7 +54,8 @@ class AskBody(BaseModel):
     # the car's model year, when the user gave one ("2009 E550 4Matic")
     year: int | None = None
     # per-request override so the model can be switched between questions
-    # without saving settings first
+    # without saving settings first: any model in the requester's menu
+    # (config.menu_models), whichever provider it is from
     model: str | None = None
 
 
@@ -73,6 +75,10 @@ class SettingsBody(BaseModel):
     provider: str | None = Field(None, pattern="^(anthropic|gemini|xai|deepseek)$")
     # whose company key `api_key` is; default the active provider
     key_provider: str | None = Field(None, pattern="^(anthropic|gemini|xai|deepseek)$")
+    # models left out of the question box's menu (config.hidden_models)
+    hidden_models: list[str] | None = Field(None, max_length=50)
+    # a provider's newer models added from its model list (config.extra_models)
+    extra_models: dict[str, list[str]] | None = None
 
 
 class HandoffBody(BaseModel):
@@ -711,6 +717,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                                              other_engine=other_engine)
                     if not r["lines"]:
                         continue
+                    # the tab is a table: what, then the value as printed
+                    r["rows"] = [value_row(line, tab, r.get("title") or "") for line in r["lines"]]
                 seen.add(r["page_no"])
                 r.pop("body", None)
                 out.append(r)
@@ -736,17 +744,23 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     raise HTTPException(
                         402, f"Monthly limit reached (${spent:.2f} of ${cap:.2f}). "
                              "Keyword search still works; ask the shop to raise the limit.")
-            # whose key pays: the company's or this mechanic's own; with none
-            # for them, a plain refusal -- never somebody else's key
+            # the model picked in the question box says which provider answers;
+            # none picked: the default (Shop setup). A model hidden from the
+            # menu is refused, unless it is the default.
+            chosen = body.model or config.active_model(cfg)
+            provider = providers.provider_of(chosen)
+            if provider is None:
+                raise HTTPException(400, f"unknown model {chosen}")
+            if chosen in (cfg.hidden_models or []) and chosen != config.active_model(cfg):
+                raise HTTPException(400, f"{chosen} is turned off in Shop setup; pick another model.")
+            # whose key pays: the company's or this mechanic's own, for that
+            # provider; with none for them, a plain refusal -- never somebody
+            # else's key, nor their key for another provider
             try:
-                key = config.pick_key(cfg, who.user_id, who.admin)
+                key = config.pick_key(cfg, who.user_id, who.admin, provider)
             except config.NoKeyForRequest as exc:
                 raise HTTPException(400, str(exc))
             try:
-                provider = config.active_provider(cfg)
-                chosen = body.model or config.active_model(cfg)
-                if chosen not in providers.PROVIDERS[provider]["models"]:
-                    raise HTTPException(400, f"unknown model {chosen}")
                 result = query.ask(
                     conn, vehicle, body.question, key.key,
                     include_other_variants=body.include_other_variants,
@@ -859,28 +873,6 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if chosen:
             out.update(wis_links.labour_times(corpus, chosen, q, alt=synonyms.translate(q) or ""))
         return out
-
-    @app.get("/api/wis/sa/{doc_id}")
-    def api_wis_sa(doc_id: str, codes: str = Query(max_length=2000)) -> list[dict]:
-        """Option (SA) code descriptions from WIS, for codes off a data card."""
-        conn = db()
-        try:
-            vehicle = _vehicle_or_404(conn, doc_id)
-        finally:
-            conn.close()
-        types = []
-        try:
-            types = [v.get("vehicle_type") for v in json.loads(vehicle.get("variants") or "[]")]
-        except ValueError:
-            pass
-        # the series' own type: its variants' commonest
-        vtype = max(set(t for t in types if t), key=types.count, default="")
-        got = (wis_links.sa_codes(Path(vehicle["file_path"]), codes, vtype)
-               if _is_wis(vehicle) else None)
-        if got is None:
-            raise HTTPException(404, "Option codes come from the Mercedes WIS data, "
-                                     "which this car's manual is not part of.")
-        return got
 
     @app.get("/api/diagram/{doc_id}/{page_no}")
     def api_diagram(doc_id: str, page_no: str) -> dict:
@@ -1074,9 +1066,23 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         return {"ok": True}
 
     @app.get("/api/models")
-    def models() -> list[dict]:
-        """The active provider's models; price None = "cost not tracked"."""
-        return providers.model_list(config.active_provider(config.load()))
+    def models(request: Request, menu: bool = False) -> list[dict]:
+        """The default provider's models (Shop setup's default-model list);
+        with `menu`, the question box's menu instead -- every model of every
+        provider this requester has a key for, less the hidden ones, the
+        default first (config.menu_models); with no key at all, the default
+        provider's, so the menu still says what Ask would use. Price None =
+        "cost not tracked"."""
+        cfg = config.load()
+        if not menu:
+            return providers.model_list(config.active_provider(cfg))
+        who: auth.Who = request.state.who
+        ids = config.menu_models(cfg, who.user_id, who.admin)
+        if not ids:
+            return providers.model_list(config.active_provider(cfg))
+        rows = {m["id"]: m for pid in providers.PROVIDERS for m in providers.model_list(pid)}
+        return [{**rows[m], "provider_short": providers.PROVIDERS[rows[m]["provider"]]["short"]}
+                for m in ids]
 
     # -- import ------------------------------------------------------------
     # Browsing folders and starting an import reach into this PC's files and
@@ -1321,8 +1327,17 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                  "key_url": p["key_url"], "key_hint": p["key_hint"],
                  "price_source": p["price_source"],
                  "has_key": bool(config.company_key(cfg, pid)),
-                 "key_last4": config.key_last4(config.company_key(cfg, pid))}
+                 "key_last4": config.key_last4(config.company_key(cfg, pid)),
+                 "key_source": ("config" if (cfg.api_key if pid == "anthropic"
+                                             else (cfg.provider_keys or {}).get(pid))
+                                else "environment" if config.company_key(cfg, pid) else "none"),
+                 "key_env": p["env_key"],
+                 # the question box's menu: each model, and whether it is hidden
+                 "models": [{"id": m, "label": p["models"][m]["label"],
+                             "hidden": m in (cfg.hidden_models or []),
+                             "added": bool(p["models"][m].get("added"))} for m in p["models"]]}
                 for pid, p in providers.PROVIDERS.items()],
+            "hidden_models": list(cfg.hidden_models or []),
             # everyone, every source, this UTC month: "One company key" mode's total
             "month_questions": month_q,
             "month_spend_usd": round(month_usd, 4),
@@ -1342,6 +1357,21 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "config_path": str(config.CONFIG_PATH),
         }
 
+    @app.get("/api/settings/models/{provider}")
+    def check_models(provider: str) -> dict:
+        """What the provider's own model list offers that is not in the menu
+        yet (providers.list_models, on the company key): one GET, no tokens,
+        nothing spent. Admin only (ADMIN_PREFIXES)."""
+        if provider not in providers.PROVIDERS:
+            raise HTTPException(404, "Unknown AI provider.")
+        cfg = config.load()
+        try:
+            listed = providers.list_models(provider, config.company_key(cfg, provider))
+        except (providers.NoApiKey, providers.ApiUnavailable) as exc:
+            raise HTTPException(400, str(exc))
+        have = providers.PROVIDERS[provider]["models"]
+        return {"listed": len(listed), "new": [m for m in listed if m["id"] not in have]}
+
     @app.post("/api/settings")
     def post_settings(body: SettingsBody) -> dict:
         # check everything before changing anything
@@ -1358,6 +1388,18 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         provider = body.provider or config.active_provider(config.load())
         if body.model is not None and body.model not in providers.PROVIDERS[provider]["models"]:
             raise HTTPException(400, f"Unknown model {body.model!r}.")
+        if body.hidden_models is not None and (bad := [
+                m for m in body.hidden_models if providers.provider_of(m) is None]):
+            raise HTTPException(400, f"Unknown model {bad[0]!r}.")
+        if body.extra_models is not None:
+            for pid, ids in body.extra_models.items():
+                if pid not in providers.PROVIDERS or len(ids) > 30:
+                    raise HTTPException(400, f"Unknown AI provider {pid!r}.")
+                for mid in ids:
+                    other = providers.provider_of(mid)
+                    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,80}", mid) or (
+                            other and not providers.PROVIDERS[other]["models"][mid].get("added")):
+                        raise HTTPException(400, f"{mid!r} can't be added.")
         if body.api_key is not None and (not body.api_key.strip()
                                          or any(c.isspace() for c in body.api_key.strip())):
             raise HTTPException(400, "Paste the whole key, with no spaces.")
@@ -1376,6 +1418,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if body.provider is not None and body.model is None:
             # a model saved under the old provider means nothing to the new one
             cfg.model = config.active_model(cfg)
+        if body.hidden_models is not None:
+            cfg.hidden_models = list(dict.fromkeys(body.hidden_models))
+        if body.extra_models is not None:
+            cfg.extra_models = {pid: list(dict.fromkeys(ids))
+                                for pid, ids in body.extra_models.items() if ids}
+            providers.sync_added(cfg.extra_models)
+        # the default is always in the menu
+        cfg.hidden_models = [m for m in cfg.hidden_models or [] if m != config.active_model(cfg)]
         if body.api_key is not None:
             # a company key belongs to one provider; the Anthropic one stays `api_key`
             kp = body.key_provider or config.active_provider(cfg)

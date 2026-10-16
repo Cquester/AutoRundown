@@ -148,6 +148,13 @@ def main(argv=None):
         pick(pg, w211.get("model") or "W211")
         check("desktop: the tabs are at the top of the right box",
               pg.evaluate("document.querySelector('#resTabs').parentElement.id") == "right")
+        if pg.locator("#resTabs [data-tab=labour]").is_visible():
+            pg.click("#resTabs [data-tab=labour]")
+            check("before a question the Labour tab lists nothing",
+                  pg.locator("#labOut .empty").count() == 1 and pg.locator("#labOut table").count() == 0,
+                  pg.inner_text("#labOut"))
+        check("no Labour times or Option codes button beside VIN",
+              pg.locator("#labBtn, #saBtn, #saDlg").count() == 0)
         searches.clear()
         pg.fill("#q", QUESTION)
         pg.click("#askBtn")
@@ -166,7 +173,11 @@ def main(argv=None):
         check("a tab shows in the right box, the answer stays on the left",
               pg.locator("#rpTorque").is_visible() and pg.locator("#out .answer").is_visible()
               and not pg.locator("#srcout").is_visible())
-        check("the Torque tab lists value lines", pg.locator("#rpTorque .vlines li").count() > 0)
+        check("the Torque tab is one table: Part, Specification",
+              pg.locator("#rpTorque .spectab tbody tr").count() > 0
+              and pg.locator("#rpTorque .spectab th").all_inner_texts() == ["PART", "SPECIFICATION"],
+              pg.locator("#rpTorque .spectab th").all_inner_texts())
+        check("  ... with no paragraph above it", "tables often list" not in pg.inner_text("#rpTorque"))
         check("the Labour tab has no search box of its own (the question box fills it)",
               pg.locator("#tabLabour input").count() == 0)
 

@@ -309,6 +309,26 @@ def main() -> int:
         check("Capacities: the car's own capacity rows (unit only in the header)",
               any(r["page_no"] == "1002400" and any("changing oil and filter 5.0" in l for l in r["lines"])
                   for r in cp), cp)
+        tqrows = [x for r in tq if r["page_no"] == "1002306" for x in r.get("rows", [])]
+        check("Torque specs: each line also as a row -- what, and the value as printed",
+              any(x["value"] == "55 Nm" and "55" not in x["name"] and x["name"] for x in tqrows), tqrows)
+        cprows = [x for r in cp if r["page_no"] == "1002400" for x in r.get("rows", [])]
+        check("Capacities: a bare number under a 'in liters' header is the value",
+              any("changing oil and filter" in x["name"] and "5.0" in x["value"].split(" / ")
+                  and "5.0" not in x["name"] for x in cprows), cprows)
+        from autorundown.search import value_row
+        vr = [value_row("| 1 | Low-pressure service gauge port valve cap | 0.8 Nm (7 lb-in) |", "torque"),
+               value_row(": 59 lb.ft (80 Nm)", "torque", "Flexplate: Installation"),
+               value_row("Transmission oil Filling capacity Liter 1,8 1,8", "capacity"),
+               value_row("Tighten the caliper carrier bolts to 115 Nm.", "torque"),
+               value_row("Camshaft sprocket bolt: 40 Nm + 90 degrees", "torque")]
+        check("value rows: pipe cells joined, both units kept, no empty brackets, "
+              "no sentence ending, a turn kept with its torque", vr == [
+               {"name": "1 · Low-pressure service gauge port valve cap", "value": "0.8 Nm / 7 lb-in"},
+               {"name": "Flexplate: Installation", "value": "59 lb.ft / 80 Nm"},
+               {"name": "Transmission oil Filling capacity", "value": "Liter 1,8 1,8"},
+               {"name": "Tighten the caliper carrier bolts", "value": "115 Nm"},
+               {"name": "Camshaft sprocket bolt", "value": "40 Nm + 90 degrees"}], vr)
         check("Capacities: a bus page's 28 litres never reach this car",
               cp and "1002307" not in [r["page_no"] for r in cp], [r["page_no"] for r in cp])
         check("an unknown tab is refused", c.get(

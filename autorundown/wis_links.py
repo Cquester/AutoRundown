@@ -215,38 +215,12 @@ def has_diagram(corpus: Path, dok_id: int) -> bool:
     return bool(_rows(corpus, "SELECT 1 FROM diagram_name WHERE dok_id=? LIMIT 1", (dok_id,)))
 
 
-# -- reference data: option codes and oil capacities -------------------------
-
-SA_CODE_RE = re.compile(r"[0-9A-Z]{3}")
-
-
-# WIS's FzgArt codes, named as parse_vehicles.py writes a variant's
-# vehicle_type (FzgArt.tsv, English rows). smart has no option codes of its
-# own and uses the car list.
-FZG_ART = {"CAR": 1, "4xWD": 2, "Light transporter": 3, "Heavy transporter": 4,
-           "TRUCK": 5, "BUS": 8, "UNIMOG": 9, "smart": 1}
-
-
-def sa_codes(corpus: Path, text: str, vehicle_type: str = "") -> list[dict] | None:
-    """Option (SA) codes typed or pasted from a data card ("494 U10 P31",
-    "494/U10") -> [{code, name, other}]. One code means different things for
-    different vehicle types (494: "US version" on a car, a tyre on a bus), so
-    `name` is the meaning for this car's type and `other` the rest, shown
-    only when this type has none. None without the sidecar."""
-    if _db(corpus) is None:
-        return None
-    mine = FZG_ART.get(vehicle_type)
-    if vehicle_type == "TRUCK":
-        mine = None                         # three truck codes (5-7): list them all
-    out = []
-    for code in dict.fromkeys(SA_CODE_RE.findall((text or "").upper())):
-        rows = _rows(corpus, "SELECT vehicle_type, name FROM sa_code WHERE code=? "
-                             "ORDER BY vehicle_type", (code,)) or []
-        name = next((n for t, n in rows if t == mine), "")
-        other = [] if name else list(dict.fromkeys(n for _, n in rows))
-        out.append({"code": code, "name": name, "other": other})
-    return out
-
+# -- reference data: oil capacities ------------------------------------------
+#
+# The sidecar's option-code tables (sa_code, sa_number) are no longer read:
+# the Option codes dialog was removed (2026-10-16, the user: nobody knows
+# their car's option codes). Reading a car's data card is a possible later
+# way back to them.
 
 def oil(corpus: Path, series: str, engines: list[str]) -> list[dict]:
     """Engine oil capacity from WIS's service data (AW_AssystFuellmengen)
@@ -331,16 +305,105 @@ def labour_books(corpus: Path, baumuster: list[str], engines: list[str]) -> list
     return sorted(out, key=lambda b: (b["family"], b["type"]))
 
 
+# What a search for a job matches in an operation's text: its core -- the
+# component, without the action ("Remove/install"), the conditions in
+# brackets ("(with transm. removed)": a time for when other work is already
+# done) and the equipment it applies to ("Veh. with transmission 722.6").
+# Words of the question that name no component are dropped from it.
+_ACTIONS = re.compile(
+    r"\b(remove/install|disassemble/assemble|remove|install|replace|exchange|check|"
+    r"perform|clean|correct|adjust|retrofit|flush|rinse|seal|test|bleed|lubricate|"
+    r"deprogram|inspect|establish findings|if necessary|and|part\(s\))(?!\w)", re.I)
+_EQUIP = re.compile(r"\b(?:on\s+)?(?:veh\.?|vehicles?)\s+(?:with|w/|without)(?!\w).*$", re.I)
+_DEPENDENT = re.compile(r"\([^)]*\b(?:removed|installed|disconnected|drained|exposed|when|following|"
+                        r"after leak|prior to|with additional)\b[^)]*\)", re.I)
+_Q_DROP = {"replacement", "replacing", "replaced", "procedure", "removal", "installation",
+           "how", "to", "a", "an", "and", "on", "in", "labour", "labor", "time", "times",
+           "hours", "job", "flat", "rate", "remove", "install", "replace"}
+_GEARBOX = re.compile(r"\b(automatic|manual)\s+transm", re.I)
+
+
+def _core(text: str) -> str:
+    t = re.split(r"Acc\.[ -]?no|Invoice No", text)[0]
+    t = re.sub(r"^Operations?\s*:\s*", "", t)
+    t = _EQUIP.sub("", re.sub(r"\([^)]*\)", " ", t))
+    return " ".join(_ACTIONS.sub(" ", t).lower().split())
+
+
+def _action(text: str) -> str:
+    m = _ACTIONS.search(text.split("(")[0])
+    return m.group(1).lower() if m else ""
+
+
+def _rank_labour(items: list[dict], queries: list[list[str]], limit: int) -> dict:
+    """The operations a search names, best first: {"total", "best", "items"}.
+
+    `best` is how many of `items` (from the start) are the job itself: the
+    fewest extra words in the core, plain operations before add-on times
+    ("(with transm. removed)") and campaigns (group 02); the rest only
+    mention the words. Where a job is done differently on an automatic and a
+    manual gearbox, both are among the best -- the car box does not say which
+    gearbox the car has (nor which of a model's automatics, 722.6 or 722.9).
+    """
+    queries = [[w for w in ws if w not in _Q_DROP] for ws in queries]
+    queries = [ws for ws in queries if ws]
+    # a word matches a word it starts ("pad" -> "pads"), never one it is
+    # inside of ("change" is not in "exchanger")
+    def hits(ws, words):
+        return all(any(c.startswith(w) for c in words) for w in ws)
+    ranked = []
+    for i in items if queries else []:
+        core = _core(i["text"]).split()
+        in_core = [ws for ws in queries if hits(ws, core)]
+        if in_core:
+            tier = 2 if i["kg"] == "02" else (1 if _DEPENDENT.search(i["text"]) else 0)
+            extra = min(len([c for c in core if not any(c.startswith(w) for w in ws)])
+                        for ws in in_core)
+        elif any(hits(ws, re.findall(r"\w+", i["text"].lower())) for ws in queries):
+            tier, extra = 3, len(core)
+        else:
+            continue
+        ranked.append((tier, extra, i))
+    if not ranked:
+        return {"total": 0, "best": 0, "items": []}
+    ranked.sort(key=lambda r: (r[0], r[1], r[2]["op"]))
+    top = ranked[0][:2]
+    best = [r[2] for r in ranked if r[:2] == top][:8]
+    picked = {i["op"] for i in best}
+    # the other gearbox's version of a best operation: same repair group,
+    # same action, a word of its component in common
+    for b in list(best):
+        m = _GEARBOX.search(b["text"])
+        if not m:
+            continue
+        other = "manual" if m.group(1).lower() == "automatic" else "automatic"
+        words = {w for w in _core(b["text"]).split()
+                 if len(w) > 3 and w not in ("automatic", "manual", "transmission")}
+        for i in items:
+            if (i["op"] not in picked and i["kg"] == b["kg"]
+                    and _action(i["text"]) == _action(b["text"])
+                    and re.search(rf"\b{other}\s+transm", i["text"], re.I)
+                    and words & set(_core(i["text"]).split())):
+                best.append(i)
+                picked.add(i["op"])
+    # the rest: closest wording first ("Starter Exchange (with transm.
+    # removed)" before "Selector lever ... and starter lockout switch")
+    rest = sorted((r for r in ranked if r[2]["op"] not in picked), key=lambda r: (r[1], r[0]))
+    out = best + [r[2] for r in rest]
+    return {"total": len(out), "best": len(best), "items": out[:max(limit, len(best))]}
+
+
 def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
                  alt: str = "") -> dict:
-    """Flat-rate times in one book, optionally only operations whose text
-    holds every word of `q` -- or of `alt`, the manual's wording for it
-    ("water pump" -> "coolant pump", synonyms.py): {"total", "items":
-    [{group, op, text, minutes, hours}]}, by repair group and operation."""
+    """Flat-rate times in one book: {"total", "best", "items": [{group, op,
+    text, minutes, hours}]}. With `q` -- or `alt`, the manual's wording for
+    it ("water pump" -> "coolant pump", synonyms.py) -- only the operations
+    that name it, the job itself first (`best` of them, _rank_labour);
+    without, the whole book by repair group and operation."""
     try:
         sp, pl, fam, typ = book.split("-")
     except ValueError:
-        return {"total": 0, "items": []}
+        return {"total": 0, "best": 0, "items": []}
     groups = dict(_rows(corpus, "SELECT kg, name FROM labour_group") or [])
     raw = {}
     for kg, op, ta, value in _rows(
@@ -349,7 +412,7 @@ def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
             (sp, pl, fam, typ, typ[:1] + "0", "00")) or []:
         raw[(kg, op)] = value        # at most one of the three exists (never overlap)
     if not raw:
-        return {"total": 0, "items": []}
+        return {"total": 0, "best": 0, "items": []}
     forms = {(kg, cat): e for kg, cat, e in _rows(
         corpus, "SELECT kg, category, expr FROM labour_formula WHERE region=? AND sparte=? "
                 "AND pl=? AND family=?", (REGION, sp, pl, fam)) or []}
@@ -360,9 +423,6 @@ def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
         x = raw.get((kg, op))
         if not x or cat == "Z" or (kg, cat) not in forms:
             continue
-        low = text.lower()
-        if queries and not any(all(w in low for w in ws) for ws in queries):
-            continue
         try:
             minutes = _formula(forms[(kg, cat)])(x)
         except (ValueError, SyntaxError, ZeroDivisionError, OverflowError, TypeError):
@@ -372,4 +432,6 @@ def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
         items.append({"group": groups.get(kg, kg), "kg": kg, "op": f"{kg}-{op}", "text": text,
                       "minutes": round(minutes), "hours": round(minutes / 60, 1)})
     items.sort(key=lambda i: i["op"])
-    return {"total": len(items), "items": items[:limit]}
+    if queries:
+        return _rank_labour(items, queries, limit)
+    return {"total": len(items), "best": 0, "items": items[:limit]}
