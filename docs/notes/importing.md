@@ -216,13 +216,14 @@ does not live inside another app's terminal. Tests: `tests/test_epc_join.py`
 **WIS / EPC / Both, and the progress bar** (2026-10-16). "What to extract"
 is a segmented toggle: WIS, EPC, Both. **Both** is job mode `vm_both`: one
 POST, one job, made of two *parts* -- the WIS job's commands (`vm_pipeline.py
---steps <ticked>` then `rebuild_wis.py`/`ingest.py`), a 60 s pause (the PC
+--steps <ticked>` then `rebuild_wis.py`), a 60 s pause (the PC
 crashes under sustained I/O; the WIS part ends with an index rebuild), then
 the `vm_epc` commands. Nothing new runs: `ImportJobs.start` builds the parts
 from the same code as the two single jobs. The EPC part's commands are built
-when it starts, since the WIS part may change what the index holds (e.g.
-`rebuild_wis.py` restores `index.before-wis.db`, which has no EPC -- so
-whether EPC needs removing first is decided then). A failing command stops
+when it starts, since the WIS part may change what the index holds, so
+whether an older EPC needs removing first is decided then. (`rebuild_wis.py`
+now replaces WIS in place and keeps EPC; it used to restore
+`index.before-wis.db`, which had none.) A failing command stops
 the job: that part is `failed`, later ones `not started`, `failed_part` says
 which, and the log says "not starting EPC parts". Both is refused up front if
 the extractor predates EPC (`epc_problem`), so it can't fail hours in.

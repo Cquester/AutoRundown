@@ -143,7 +143,9 @@ def main() -> int:
         # the whole log (the status carries only its last 120 lines)
         log = (TMP / "home" / "import_job.log").read_text(encoding="utf-8").splitlines()
         idx =lambda pat: next((i for i, l in enumerate(log) if pat in l), -1)  # noqa: E731
-        i1, i_ing, i2, i_epc = (idx("== step 1 of 2: WIS"), idx("$ ingest.py"),
+        # the WIS part's import is rebuild_wis.py (it replaces WIS in place,
+        # or adds it to an index that has none)
+        i1, i_ing, i2, i_epc = (idx("== step 1 of 2: WIS"), idx("$ rebuild_wis.py"),
                                 idx("== step 2 of 2: EPC parts"), idx("--steps epc"))
         check("WIS ran, its import followed, then EPC started", -1 < i1 < i_ing < i2 < i_epc, (i1, i_ing, i2, i_epc))
         check("the pause between parts is in the log", idx("letting the PC settle") > i_ing)
