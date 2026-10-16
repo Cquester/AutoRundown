@@ -421,10 +421,10 @@
   .notfound{overflow-wrap:anywhere}
 
   /* -- header: a labelled gear; the importing banner under it */
-  a.btnlink{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:var(--tap);
+  a.btnlink, label.btnlink{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:var(--tap);
     padding:0 18px; border-radius:10px; background:var(--accent); color:var(--on-accent); font-weight:700;
-    text-decoration:none; white-space:nowrap}
-  a.btnlink.ghostlink{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
+    text-decoration:none; white-space:nowrap; cursor:pointer; margin:0}
+  a.btnlink.ghostlink, label.btnlink.ghostlink{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
   #settingsBtn{margin-left:auto}
   #settingsBtn[aria-current="page"]{border-color:var(--accent)}
   .banner{background:var(--accent-dim); color:var(--pill-text); padding:8px 16px; font-size:14px; font-weight:600}
@@ -583,7 +583,10 @@
       position:sticky; top:0; z-index:31; margin:0 -16px 10px; padding:6px 16px;
       background:var(--bg); border-bottom:1px solid var(--line)}
     .sheethead h2{margin:0; font-size:18px}
-    body.sheet header > .carbox{display:flex; max-width:none; margin-bottom:10px}
+    body.sheet header > .carbox{display:flex; max-width:none; margin-bottom:10px; flex-wrap:wrap}
+    /* the car box its own full row; Browse and Scan VIN share the next */
+    body.sheet header > .carbox .carfield{flex:1 0 100%}
+    body.sheet header > .carbox > button{flex:1 1 0}
     body.sheet header > .picker{display:flex; margin-bottom:10px}
     body.sheet header > .sheetmore{display:block}
     body.sheet header > #acctBtn{display:block; max-width:none; margin-top:16px}
@@ -998,7 +1001,7 @@
        with capture works over plain http on a phone, where the live camera
        (getUserMedia) is not allowed. -->
   <div class="scanrow">
-    <label class="btnlink ghostlink" id="vinScanLbl" for="vinPhoto" role="button" tabindex="0">Scan VIN (photo)</label>
+    <label class="btnlink ghostlink" id="vinScanLbl" for="vinPhoto" role="button" tabindex="0" title="Photograph the VIN or its barcode">Scan VIN</label>
     <input id="vinPhoto" type="file" accept="image/*" capture="environment" hidden>
     <label class="btnlink ghostlink" id="vinFileLbl" for="vinFile" role="button" tabindex="0"
            title="Use a photo already on this device">Choose a photo</label>

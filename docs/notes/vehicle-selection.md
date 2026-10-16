@@ -191,7 +191,7 @@ every VIN entered -- car box, VIN dialog, Scan VIN:
 - `looksLikeVin` now lets I/O/Q and hyphens through, so a mistyped VIN in
   the car box gets its own message instead of "No match".
 
-**Scan VIN (2026-10-16).** The VIN dialog has "Scan VIN (photo)" and
+**Scan VIN (2026-10-16).** The VIN dialog has "Scan VIN" (camera) and
 "Choose a photo"; on a phone the car sheet has a Scan VIN button that opens
 the dialog and the camera. The photo is read on the device: barcodes first
 (zxing-wasm 3.1.4: Code 39 -- with the import "I" some US labels add --
