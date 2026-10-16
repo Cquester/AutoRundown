@@ -120,6 +120,7 @@ python remove_manuals.py --source mercedes-wis    # remove all WIS (never one mo
 python rebuild_wis.py                             # replace the WIS part (~6 min; keeps spend log)
 python dev.py                                     # FREE, throwaway instance, :8757
 python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py
+python dev.py --fake-vm                           # FREE, Mercedes VM tab runs tools/fake_extractor
 python eval.py                                    # FREE retrieval check (F-150)
 python eval.py --answers                          # PAID, prints estimate
 python eval_wis.py                                # FREE, WIS retrieval + wrong-vehicle guards
@@ -134,6 +135,7 @@ python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
+python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~45 s, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
