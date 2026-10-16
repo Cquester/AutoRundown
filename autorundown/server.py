@@ -31,7 +31,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import auth, config, index, qr, query, tls
+from . import auth, config, index, providers, qr, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
 from .search import get_page, part_lines, scope_ids, search, split_scope, value_lines
 
@@ -68,6 +68,10 @@ class SettingsBody(BaseModel):
     require_signin: bool | None = None
     # "company" | "per_mechanic" (config.pick_key)
     key_mode: str | None = Field(None, pattern="^(company|per_mechanic)$")
+    # the AI provider answering questions (providers.py)
+    provider: str | None = Field(None, pattern="^(anthropic|gemini|xai|deepseek)$")
+    # whose company key `api_key` is; default the active provider
+    key_provider: str | None = Field(None, pattern="^(anthropic|gemini|xai|deepseek)$")
 
 
 class SigninBody(BaseModel):
@@ -387,7 +391,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "signed_in": who.user_id is not None,
             "name": who.label,
             "require_signin": cfg.require_signin,
-            "default_model": cfg.model or query.DEFAULT_MODEL,
+            "default_model": config.active_model(cfg),
+            "provider": config.active_provider(cfg),
             "https": request.url.scheme == "https",
         }
         out["key_mode"] = cfg.key_mode
@@ -635,8 +640,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             except config.NoKeyForRequest as exc:
                 raise HTTPException(400, str(exc))
             try:
-                chosen = body.model or cfg.model or query.DEFAULT_MODEL
-                if chosen not in query.MODELS:
+                provider = config.active_provider(cfg)
+                chosen = body.model or config.active_model(cfg)
+                if chosen not in providers.PROVIDERS[provider]["models"]:
                     raise HTTPException(400, f"unknown model {chosen}")
                 result = query.ask(
                     conn, vehicle, body.question, key.key,
@@ -644,7 +650,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     model=chosen, source="web", variant=body.variant,
                     engine=body.engine, year=body.year,
                     user_id=who.user_id, user_name=who.name or None,
-                    key_ref=key.ref)
+                    key_ref=key.ref, provider=provider)
             except (query.NoApiKey, query.ApiUnavailable) as exc:
                 raise HTTPException(400, str(exc))
             return result.as_dict()
@@ -905,11 +911,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/models")
     def models() -> list[dict]:
-        return [
-            {"id": mid, "label": spec["label"],
-             "price_in": spec["price_in"], "price_out": spec["price_out"]}
-            for mid, spec in query.MODELS.items()
-        ]
+        """The active provider's models; price None = "cost not tracked"."""
+        return providers.model_list(config.active_provider(config.load()))
 
     # -- import ------------------------------------------------------------
     # Browsing folders and starting an import reach into this PC's files and
@@ -1063,20 +1066,34 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             month_q, month_usd = index.month_total(conn)
         finally:
             conn.close()
+        active = config.active_provider(cfg)
+        key = config.company_key(cfg, active)
+        env = providers.PROVIDERS[active]["env_key"]
+        saved = cfg.api_key if active == "anthropic" else (cfg.provider_keys or {}).get(active)
         return {
             "key_mode": cfg.key_mode,
+            "provider": active,
+            # each provider's key page and whether its company key is set --
+            # never the key; the last 4 only
+            "providers": [
+                {"id": pid, "label": p["label"], "short": p["short"],
+                 "key_url": p["key_url"], "key_hint": p["key_hint"],
+                 "price_source": p["price_source"],
+                 "has_key": bool(config.company_key(cfg, pid)),
+                 "key_last4": config.key_last4(config.company_key(cfg, pid))}
+                for pid, p in providers.PROVIDERS.items()],
             # everyone, every source, this UTC month: "One company key" mode's total
             "month_questions": month_q,
             "month_spend_usd": round(month_usd, 4),
-            "company_key_last4": config.key_last4(cfg.resolved_key),
+            "company_key_last4": config.key_last4(key),
             "archive_dir": cfg.archive_dir,
             "index_path": app.state.index_path,  # the one in use, not the saved one
             "importer": cfg.importer,
-            "model": cfg.model,
+            "model": config.active_model(cfg),
             "extractor_dir": cfg.extractor_dir,
-            "has_api_key": bool(cfg.resolved_key),
-            "key_source": ("config" if cfg.api_key
-                           else "environment" if cfg.resolved_key else "none"),
+            "has_api_key": bool(key),
+            "key_source": ("config" if saved else "environment" if key else "none"),
+            "key_env": env,
             # None: not offered on this OS
             "autostart": autostart.is_enabled() if autostart.supported() else None,
             "phone_urls": _phone_urls(),
@@ -1097,19 +1114,34 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             if err:
                 raise HTTPException(400, err)
             body.extractor_dir = body.extractor_dir.strip()
-        if body.model is not None and body.model not in query.MODELS:
+        provider = body.provider or config.active_provider(config.load())
+        if body.model is not None and body.model not in providers.PROVIDERS[provider]["models"]:
             raise HTTPException(400, f"Unknown model {body.model!r}.")
+        if body.api_key is not None and (not body.api_key.strip()
+                                         or any(c.isspace() for c in body.api_key.strip())):
+            raise HTTPException(400, "Paste the whole key, with no spaces.")
         if body.autostart is not None and body.autostart != autostart.is_enabled():
             try:
                 autostart.set_enabled(body.autostart)
             except RuntimeError as exc:
                 raise HTTPException(400, str(exc))
         cfg = config.load()
-        for field_name in ("archive_dir", "index_path", "importer", "api_key",
-                           "model", "extractor_dir", "require_signin", "key_mode"):
+        for field_name in ("archive_dir", "index_path", "importer",
+                           "model", "extractor_dir", "require_signin", "key_mode",
+                           "provider"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)
+        if body.provider is not None and body.model is None:
+            # a model saved under the old provider means nothing to the new one
+            cfg.model = config.active_model(cfg)
+        if body.api_key is not None:
+            # a company key belongs to one provider; the Anthropic one stays `api_key`
+            kp = body.key_provider or config.active_provider(cfg)
+            if kp == "anthropic":
+                cfg.api_key = body.api_key.strip()
+            else:
+                cfg.provider_keys = {**(cfg.provider_keys or {}), kp: body.api_key.strip()}
         cfg.save()
         # only a new index path moves the server: saving anything else (the
         # model, sign-in) used to swap a `serve.py --index X` server onto the
@@ -1143,6 +1175,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                                                  "month_spend_usd": round(c, 4)},
                 "require_signin": cfg.require_signin,
                 "key_mode": cfg.key_mode,
+                "provider": config.active_provider(cfg),
                 "phone_urls": _phone_urls()}
 
     @app.post("/api/admin/users")
@@ -1224,16 +1257,18 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             aconn.close()
         cfg = config.load()
-        uid = str(user_id)
+        # a mechanic's key is for one provider: the one answering now
+        provider = config.active_provider(cfg)
         if body.remove:
-            cfg.mechanic_keys.pop(uid, None)
+            config.set_mechanic_entry(cfg, user_id, provider, None)
             cfg.save()
             return {"ok": True}
-        entry = dict(cfg.mechanic_keys.get(uid) or {})
+        entry = config.mechanic_entry(cfg, user_id, provider)
         new_key = (body.api_key or "").strip()
         if body.api_key is not None:
             if not new_key or any(c.isspace() for c in new_key):
-                raise HTTPException(400, "Paste the whole key (it starts sk-ant-).")
+                raise HTTPException(400, "Paste the whole key, with no spaces "
+                                         f"(it starts {providers.PROVIDERS[provider]['key_hint']}).")
             entry["api_key"] = new_key
         if not entry.get("api_key"):
             raise HTTPException(400, "Add this mechanic's API key first.")
@@ -1245,7 +1280,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if new_key or body.reset or not entry.get("since"):
             entry["since"] = _utc_now()
         entry.setdefault("loaded_usd", None)
-        cfg.mechanic_keys[uid] = entry
+        config.set_mechanic_entry(cfg, user_id, provider, entry)
         cfg.save()
         conn = db()
         try:
@@ -1300,9 +1335,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         estimate: the credit the owner said was loaded minus what this app
         logged on that key since then (Anthropic does not tell a normal key
         its balance)."""
-        e = cfg.mechanic_keys.get(str(user_id)) or {}
+        provider = config.active_provider(cfg)
+        e = config.mechanic_entry(cfg, user_id, provider)
         key = e.get("api_key") or ""
-        spent = index.key_spend_since(conn, f"user:{user_id}", e.get("since") or "") if key else 0.0
+        spent = (index.key_spend_since(conn, config.key_ref(provider, user_id), e.get("since") or "")
+                 if key else 0.0)
         loaded = e.get("loaded_usd")
         return {"has_key": bool(key), "last4": config.key_last4(key),
                 "since": e.get("since") or None, "loaded_usd": loaded,
