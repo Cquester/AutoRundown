@@ -692,12 +692,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             rows = ([r for group in zip_longest(*per) for r in group if r is not None]
                     if also else [r for hits in per for r in hits])
             # one row per page: a page whose two chunks both match is still
-            # one result, and the keyword list showed it twice
+            # one result, and the keyword list showed it twice. A page counts
+            # as seen only once a row for it is kept: its lines are picked by
+            # the query that found it, so a query whose words are not in its
+            # value lines must not hide the row another query would give
             seen, out = set(), []
             for r in rows:
                 if r["page_no"] in seen:
                     continue
-                seen.add(r["page_no"])
                 if tab == "parts":
                     r["lines"] = part_lines(r.get("body") or "")
                 elif tab in ("torque", "capacity"):
@@ -705,6 +707,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                                              other_engine=other_engine)
                     if not r["lines"]:
                         continue
+                seen.add(r["page_no"])
                 r.pop("body", None)
                 out.append(r)
             return out[:limit]

@@ -143,6 +143,7 @@ python tests/test_vin.py                          # VIN check digit, I/O/Q, typo
 python tests/test_vin_scan.py [--n 8]             # Scan VIN on generated barcodes/labels (~1 min, Playwright)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
 python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends the same car (~10 s, Playwright)
+python tests/test_answer_tabs.py [--index <db>]   # one question fills the right box's tabs (~15 s, Playwright)
 python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
@@ -319,6 +320,15 @@ citation in `_verify_citations` (invented -> dropped, falls back to the first
 real cited page; never counts on its own). A value is never "see Fig 15" --
 that rendered in big type as though it were a torque. **Not yet tried on a
 paid answer.**
+
+**One question fills the right box's tabs, without another AI call**
+(2026-10-16, the user's request). The right box has tabs -- Manual page,
+Parts, Labour times, Capacities, Torque specs; on a phone they are the bottom
+bar and open the Document view. Every Ask searches all of them with the AI's
+own search terms (`queries`), every Search with the words typed
+(`/api/search` `also=`, merged round-robin). The user chose this over the AI
+writing each tab: 3-5x the spend, and it would retell the manual. Do not add
+per-tab AI calls. Details: `docs/notes/epc-source.md` ("Result tabs").
 
 **A VIN is checked before it is decoded; a scanned one is never searched
 by itself** (2026-10-16). `vinCheck()` (index.html, `vin-check` block):

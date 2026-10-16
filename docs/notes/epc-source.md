@@ -212,6 +212,24 @@ Checked on WIS + EPC in a browser (desktop and 375 px), `test_ui_picks.py`
 (4,610 picks), and `test_epc_join.py` (each tab's kind; a bus page's
 capacity never reaching a car).
 
+**The tabs moved to the right box (2026-10-16, the user: "have the different
+tabs be for the right box. So a user asks a question and ai can populate
+everything in those fields").** The left holds the answer or the keyword
+list; the right box's tabs are Manual page (the page view) and the four
+above. Every Ask fills them all with the AI's own search terms (`queries`
+in the answer) and every Search with the words typed -- through
+`/api/search?tab=…&q=…&also=…`, `also` being up to 4 more queries merged
+round-robin with `q`, as the answer's retrieval is. No extra AI call: the
+user picked this over the AI writing each tab (3-5x the cost, and against
+"the answer points at the page, it does not retell it"). Labour times need
+every word of a query, so each term is tried alone, value words ("torque",
+"capacity") dropped, until one finds operations. Found while building it: a
+value tab dropped a page when the first query to reach it had no value
+line naming its words, even if a later query had -- a page now counts as
+seen only once a row for it is kept. On a phone the tabs stay the bottom
+bar; a tap opens the Document view on that tab. Test:
+`tests/test_answer_tabs.py` (the Ask is answered by the test, never sent).
+
 ## Joining WIS (found and built 2026-10-14)
 
 "Files under MODEL 115, the same vehicle WIS uses" was true of the *series

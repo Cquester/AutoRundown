@@ -302,13 +302,19 @@ python ask.py --list
 
 ## What you can look up
 
-Under the question box (on a phone: the bar at the bottom, with the short names
-Manual, Parts, Labour, Fluids, Torque), tabs pick what to search -- always within
-the car you chose:
+One question fills every source at once. The answer (or, for **Search**, the
+manual's matching pages) stays on the left; the **right box** has a tab for
+each source -- on a phone, the bar at the bottom with the short names Manual,
+Parts, Labour, Fluids, Torque, each opening the **Document** view. After
+**Ask**, every tab is searched with the same search terms the AI made from
+your question; after **Search**, with the words you typed. That is a keyword
+search, not another AI call, so the tabs cost nothing, and each tab shows how
+many results it has (a tab with none is dimmed). Always within the car you
+chose:
 
 | Tab | Shows |
 |---|---|
-| **Workshop** | The manual's pages. *Ask* answers here. |
+| **Manual page** | The page the answer points at, or any page you open. |
 | **Parts** | The Mercedes parts catalogue (EPC), when imported: each page's matching part lines -- number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334"). |
 | **Labour times** | Mercedes flat-rate times for the exact model (WIS). |
 | **Capacities** | The engine oil figure for your engine (WIS), and capacity lines from the car's pages. |
@@ -351,8 +357,9 @@ reads as this one's source.
 **On a phone** the screen is one column: the car as a single line at the top
 (tap **Change** for the car box, Browse, VIN, the scope note and Options, full
 screen), **Answer | Document** under it, the question docked at the bottom with
-**Ask** and a magnifier for the keyword search, and the tabs as a bottom bar
-(Manual, Parts, Labour, Fluids, Torque). An answer's page loads into
+**Ask** and a magnifier for the keyword search, and the right box's tabs as a
+bottom bar (Manual, Parts, Labour, Fluids, Torque; a tap opens that tab in
+**Document**). An answer's page loads into
 **Document** (a dot says one is waiting) and opens with *Open manual page*;
 the phone's Back, or a swipe to the right, returns to the answer.
 
