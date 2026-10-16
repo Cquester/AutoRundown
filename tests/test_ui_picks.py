@@ -313,7 +313,10 @@ def main(argv=None):
             return route.abort()
         if u.path == "/api/search":
             p = {k: v[0] for k, v in parse_qs(u.query).items()}
-            sent[p.get("q")] = p
+            # the manual search; a Search also fills the right box's other
+            # tabs with the same words (tab=...), checked in test_answer_tabs.py
+            if p.get("tab", "workshop") == "workshop":
+                sent[p.get("q")] = p
             return route.fulfill(json=[])
         route.continue_()
 

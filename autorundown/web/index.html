@@ -2190,8 +2190,11 @@ function showScope() {
   // the tabs follow a new variant / engine: a question already asked is
   // searched again for it (labour times and the oil figure are per model and
   // engine); without one, the tabs say what they will show
-  if (tabQuery) fillTabs(tabQuery.q, tabQuery.also);
+  // (only for the same car: another car starts with no question -- its
+  // answer area is empty, the tabs are too)
+  if (tabQuery && tabQuery.doc === docId()) fillTabs(tabQuery.q, tabQuery.also);
   else {
+    if (tabQuery) resetTabs();
     for (const t of ['parts', 'capacity', 'torque']) if (!$(PANE[t]).innerHTML.trim()) $(PANE[t]).innerHTML = tabEmpty(t);
     if (curTab === 'labour') showLabourTab();
     if (curTab === 'capacity') showOilCard();
@@ -3226,7 +3229,7 @@ async function labourFor(terms, seq) {
 function fillTabs(q, terms) {
   const seq = ++tabSeq, v = vehicles.find(x => x.doc_id === docId()), have = tabsFor(v);
   const also = terms.filter(t => t.toLowerCase() !== q.toLowerCase()).slice(0, 4);
-  tabQuery = {q, also};
+  tabQuery = {q, also, doc: docId()};
   for (const t of ['parts', 'capacity', 'torque']) if (have[t]) tabSearch(t, q, also, seq);
   if (have.labour) labourFor([...also, q], seq);
 }
