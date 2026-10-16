@@ -637,7 +637,7 @@ autorundown/             the app (everything the installer ships)
 serve.py                 start the server
 ingest.py                build / update the index
 ask.py                   command-line questions, keyword search, spend
-rebuild_wis.py           replace the Mercedes WIS part of the index (keeps the spend log)
+rebuild_wis.py           replace the Mercedes WIS part of the index in place (keeps other manuals and the spend log)
 remove_manuals.py        remove a manual (or all Mercedes WIS) from the index
 dev.py                   throwaway local instance with sample data (port 8757)
 eval.py, eval_wis.py     retrieval checks against a real index (free)

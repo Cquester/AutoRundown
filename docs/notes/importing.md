@@ -39,7 +39,9 @@ when the index is empty. A folder browser plus format detection
 is a corpus straight away — letting the other detectors walk its `images/`
 took 15 s), then a background job that runs **the same CLI**: `ingest.py
 --importer auto` (add / update, resumable) or, for a WIS corpus,
-`rebuild_wis.py` (replace the WIS part, keep other manuals and the spend log).
+`rebuild_wis.py` (replace the WIS part in place, keep other manuals -- EPC,
+LEMON, folder -- and the spend log; offered when the index already has WIS
+and the folder is a WIS corpus, see `wis-source.md`).
 One job at a time; the child runs with `PYTHONIOENCODING=utf-8` (a piped
 child on Windows otherwise dies printing "Coupé"); the log streams into the
 dialog. `/api/browse` and `/api/import` answer **only to localhost** (403 to

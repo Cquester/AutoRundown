@@ -29,11 +29,11 @@ macOS/Linux run from source (README), by the user's decision.
   own folder. Its `..\app` line is what lets `python ingest.py` import
   `autorundown`. Anything the installed app imports must live in `app\`.
 - **User data is outside the install** (`~/.autorundown`, `config.py`), so
-  upgrade and uninstall never touch the index or the spend log. The WIS
-  backup `index.before-wis.db` sits *next to the index it belongs to*:
-  `rebuild_wis.py --index` (default: the configured index) and
-  `importer_jobs.wis_backup()`. Before 2026-10-08 both used the repo folder,
-  so a dialog rebuild ignored the served index.
+  upgrade and uninstall never touch the index or the spend log.
+  `rebuild_wis.py --index` defaults to the configured index; before
+  2026-10-08 it used the repo folder, so a dialog rebuild ignored the served
+  index. (Its old pre-WIS backup `index.before-wis.db`, next to the index,
+  is no longer used since 2026-10-16: the rebuild is in place.)
 - `autorundown/launcher.py` is the shortcut target. The MSI shortcuts run
   `pythonw -m autorundown.launcher --background`: no console, output to
   `~/.autorundown/autorundown.log`, a pystray tray icon (Open / phone

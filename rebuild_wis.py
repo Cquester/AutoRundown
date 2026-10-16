@@ -2,32 +2,79 @@
 
     python rebuild_wis.py [--archive <corpus dir>] [--index index.db] [--importer records]
 
-Restores `index.before-wis.db` (the index as it was before WIS was added; it
-sits next to the index -- by default the configured one),
-carries over every usage-log row the backup doesn't have, then re-ingests the
-WIS corpus. Why this exists: the spend log lives inside the index, and
-rebuilding by restoring the backup silently threw away every paid question
-asked since the backup was taken -- that happened repeatedly before this
-script. Free: no API calls.
+Removes the WIS part in place (`remove_manuals.py --source mercedes-wis`),
+then re-ingests the WIS corpus. Every other manual -- LEMON and folder
+imports, the EPC parts catalogue -- and the spend log (usage_log) stay as
+they are, and are counted before and after to prove it. Free: no API calls.
+
+Why in place: this script used to restore `index.before-wis.db` (the index
+as it was before WIS was first added) and carry the newer usage-log rows
+across. That backup predates the EPC catalogue and every manual imported
+since, so a WIS-only rebuild silently dropped them (found 2026-10-16). The
+backup file is no longer read or written; it stays on disk as a rollback
+copy, and copying it over the index by hand is still never done.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 import sys
 from pathlib import Path
 
 import ingest
-from autorundown import config, index
+import remove_manuals
+from autorundown import config, importers
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_ARCHIVE = HERE.parent / "Mercedes Documents" / "autorundown_out" / "wis_extract"
+WIS = "mercedes-wis"
 
 
-def usage_rows(conn: sqlite3.Connection) -> tuple[list[str], list[tuple]]:
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(usage_log)") if r[1] != "id"]
-    return cols, [tuple(r) for r in conn.execute(
-        f"SELECT {', '.join(cols)} FROM usage_log ORDER BY id")]
+def corpus_sources(archive: Path) -> list[str]:
+    """source_type of every records corpus under `archive`."""
+    out = []
+    for cdir in importers.get("records")._corpus_dirs(archive):
+        try:
+            m = json.loads((cdir / "manifest.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            m = {}
+        out.append(m.get("source_type") or "")
+    return out
+
+
+def kept_snapshot(path: Path) -> tuple[dict, int]:
+    """What the rebuild must not touch: every non-WIS vehicle with its page
+    and chunk counts, and the number of usage-log rows."""
+    con = sqlite3.connect(path)
+    try:
+        rows = con.execute(
+            "SELECT v.doc_id, v.source_name, "
+            "(SELECT COUNT(*) FROM pages p WHERE p.doc_id=v.doc_id), "
+            "(SELECT COUNT(*) FROM chunks c WHERE c.doc_id=v.doc_id) "
+            "FROM vehicles v WHERE COALESCE(v.source_name, '') NOT LIKE ?",
+            (WIS + "%",)).fetchall()
+        usage = con.execute("SELECT COUNT(*) FROM usage_log").fetchone()[0]
+    finally:
+        con.close()
+    return {d: (s, p, c) for d, s, p, c in rows}, usage
+
+
+def check_kept(path: Path, kept: dict, usage: int, when: str) -> bool:
+    now, now_usage = kept_snapshot(path)
+    ok = True
+    if now != kept:
+        lost = sorted(set(kept) - set(now))
+        changed = sorted(d for d in kept if d in now and now[d] != kept[d])
+        print(f"! {when}: other manuals changed -- {len(lost)} gone {lost[:5]}, "
+              f"{len(changed)} changed {changed[:5]}", file=sys.stderr)
+        ok = False
+    if now_usage < usage:   # the server may log a question meanwhile; never fewer
+        print(f"! {when}: spend log shrank {usage} -> {now_usage} rows", file=sys.stderr)
+        ok = False
+    if ok:
+        print(f"{when}: {len(kept)} other manual(s) unchanged, spend log {now_usage} rows")
+    return ok
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,51 +85,39 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--importer", default="records")
     args = ap.parse_args(argv)
     live = Path(args.index).expanduser().resolve()
-    backup = live.with_name("index.before-wis.db")
-    print(f"index: {live}\nbackup: {backup}")
+    archive = Path(args.archive).expanduser()
+    print(f"index: {live}\narchive: {archive}")
 
-    if not backup.is_file():
-        print(f"no backup at {backup}; refusing to rebuild", file=sys.stderr)
-        return 1
+    # only a WIS corpus: anything else would be added on top while WIS is gone
+    if args.importer == "records":
+        sources = corpus_sources(archive) if archive.is_dir() else []
+        if not sources:
+            print(f"no records corpus under {archive}; refusing to rebuild", file=sys.stderr)
+            return 1
+        other = [s for s in sources if not s.startswith(WIS)]
+        if other:
+            print(f"{archive} holds {other[0] or 'an unnamed source'}, not Mercedes WIS; "
+                  f"refusing to rebuild", file=sys.stderr)
+            return 1
 
-    # 1. rows the backup doesn't have -- the spend since it was taken
-    cur = sqlite3.connect(live)
-    cols, now = usage_rows(cur)
-    cur.close()
-    bak = sqlite3.connect(backup)
-    bak_cols, before = usage_rows(bak)
-    # compare on the backup's columns: the live log may have gained columns
-    # since (user_id, user_name), and a wider row never equals a narrower one
-    pick = [cols.index(c) for c in bak_cols if c in cols]
-    seen = {tuple(r[i] for i in range(len(bak_cols)) if bak_cols[i] in cols) for r in before}
-    new = [r for r in now if tuple(r[i] for i in pick) not in seen]
-    print(f"usage log: {len(now)} rows now, {len(before)} in the backup, "
-          f"{len(new)} to carry over")
+    if live.is_file():
+        kept, usage = kept_snapshot(live)
+        print(f"keeping: {len(kept)} other manual(s), spend log {usage} rows")
+        # 1. remove WIS in place (refuses nothing else; checks the spend log itself)
+        rc = remove_manuals.main(["--index", str(live), "--source", WIS])
+        if rc:
+            return rc
+        if not check_kept(live, kept, usage, "after removing WIS"):
+            return 1
+    else:
+        kept, usage = {}, 0
 
-    # 2. restore the pre-WIS index (SQLite backup API; drop any stale WAL)
-    for side in (live.with_name(live.name + "-wal"), live.with_name(live.name + "-shm")):
-        side.unlink(missing_ok=True)
-    dst = sqlite3.connect(live)
-    bak.backup(dst)
-    bak.close()
-
-    # 3. put the carried-over spend back before anything else can fail
-    index._migrate(dst)  # the backup predates columns the live log has
-    if new:
-        dst.executemany(
-            f"INSERT INTO usage_log ({', '.join(cols)}) VALUES "
-            f"({', '.join('?' * len(cols))})", new)
-        dst.commit()
-    check = dst.execute("SELECT COUNT(*) FROM usage_log").fetchone()[0]
-    dst.close()
-    if check != len(before) + len(new):
-        print(f"usage log mismatch after restore: {check}", file=sys.stderr)
-        return 1
-    print(f"usage log restored: {check} rows")
-
-    # 4. re-ingest WIS
-    return ingest.main(["--archive", args.archive, "--index", str(live),
-                        "--importer", args.importer])
+    # 2. re-ingest WIS
+    rc = ingest.main(["--archive", str(archive), "--index", str(live),
+                      "--importer", args.importer])
+    if rc:
+        return rc
+    return 0 if check_kept(live, kept, usage, "after re-ingesting WIS") else 1
 
 
 if __name__ == "__main__":

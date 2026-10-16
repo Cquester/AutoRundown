@@ -25,13 +25,10 @@ FOLDER_SCAN_CAP = 5000   # stop counting files here: a folder import of a whole
                          # drive must not make the preview hang
 
 
-def wis_backup(index_path: str | Path) -> Path:
-    """The pre-WIS backup sits next to the index it belongs to (rebuild_wis.py)."""
-    return Path(index_path).with_name("index.before-wis.db")
-
-
 def can_rebuild_wis(index_path: str | Path) -> bool:
-    return wis_backup(index_path).is_file()
+    """A WIS rebuild replaces the WIS already in the index (rebuild_wis.py
+    removes it in place, then re-ingests); with none there, it is an add."""
+    return manuals(index_path)["wis"]["entries"] > 0
 
 
 def extractor_candidates() -> list[Path]:
@@ -135,18 +132,21 @@ def describe(path: Path, index_path: str | Path) -> dict:
     name = imp.name
     if name == "records":
         corp = imp._corpus_dirs(path)
-        bits = []
+        bits, types = [], []
         for cdir in corp[:3]:
             try:
                 m = json.loads((cdir / "manifest.json").read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
             img = m.get("images") or {}
+            types.append(m.get("source_type") or "")
             bits.append(
                 f"{m.get('source_type', 'records')} ({(m.get('language') or {}).get('iso', '?')}), "
                 f"{m.get('record_count', '?'):,} documents, schema {m.get('schema_version', '?')}"
                 + (f", {img.get('converted', 0):,} images" if img else ""))
-        return {"importer": name, "rebuildable": can_rebuild_wis(index_path),
+        # rebuild only from a WIS corpus: rebuild_wis.py refuses any other
+        wis = bool(types) and all(t.startswith("mercedes-wis") for t in types)
+        return {"importer": name, "rebuildable": wis and can_rebuild_wis(index_path),
                 "summary": "Normalized corpus: " + ("; ".join(bits) or "found")}
     if name == "lemon":
         n = len(imp._vehicle_dirs(path))
@@ -492,7 +492,7 @@ class ImportJobs:
                         "--out-root", str(path.parent)]
                 if steps:
                     pipe += ["--steps", steps]
-                cmds = [pipe, rebuild if can_rebuild_wis(index_path) else add]
+                cmds = [pipe, rebuild]
                 if mode == "vm_both":
                     # WIS, then the EPC parts catalogue from the same VM: the
                     # two existing jobs back to back, EPC only if WIS succeeded
@@ -522,8 +522,8 @@ class ImportJobs:
                     cmd += ["--compact"]
                 cmds = [cmd]
             elif mode == "rebuild_wis":
-                # restores index.before-wis.db over the live index, carries the
-                # spend log across, re-ingests -- see rebuild_wis.py
+                # removes WIS in place, re-ingests; every other manual and the
+                # spend log stay -- see rebuild_wis.py
                 cmds = [rebuild]
             else:
                 cmds = [add]
