@@ -49,6 +49,11 @@ def post(c: TestClient, path: str, body: dict | None = None, origin: str | None 
 idx = TMP / "index.db"
 conn = index.connect(idx)
 conn.execute("INSERT INTO vehicles(doc_id, make, model) VALUES ('v1','Ford','F-150')")
+ARCH = TMP / "archive"
+(ARCH / "images").mkdir(parents=True)
+(ARCH / "images" / "x.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+conn.execute("INSERT INTO vehicles(doc_id, make, model, file_path) VALUES ('v2','Ford','F-250',?)",
+             (str(ARCH),))
 conn.commit()
 conn.close()
 APP = server.create_app(str(idx), TMP / "auth.db")
@@ -142,6 +147,32 @@ check(post(phone, "/api/ask", {"doc_id": "v1", "question": "x" * 5000}).status_c
 check(all("file_path" not in v for v in phone.get("/api/vehicles").json()),
       "a phone doesn't see this PC's folders in the vehicle list")
 check(all("file_path" in v for v in pc.get("/api/vehicles").json()), "  ... this PC does")
+
+print("no API map, and odd image names")
+for path in ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"):
+    check(phone.get(path).status_code == 404 and pc.get(path).status_code == 404,
+          f"{path} is not served (it mapped every route for the LAN; /docs ran CDN script)")
+check(phone.get("/api/image/v2/x.png").status_code == 200, "a real picture is served")
+for name in ("x.png%00.db", "x%00.png", "%00"):
+    r = phone.get(f"/api/image/v2/{name}")
+    check(r.status_code == 404 and r.headers.get("x-content-type-options") == "nosniff",
+          f"image name {name!r}: 404 with the security headers (a NUL was an unhandled 500)")
+check(phone.get("/api/image/v2/..%2f..%2findex.db").status_code == 404, "  ... and no way out of images/")
+
+if os.name != "nt":
+    print("private files (Linux/macOS)")
+    import stat  # noqa: E402
+    home = TMP / "newhome"
+    config.make_private_dir(home)
+    check(stat.S_IMODE(home.stat().st_mode) == 0o700, "a new app folder is 0700")
+    c = auth.connect(home / "auth.db")
+    c.close()
+    check(stat.S_IMODE((home / "auth.db").stat().st_mode) == 0o600, "a new auth.db is 0600 (was 0644)")
+    loose = TMP / "loose.db"
+    loose.touch()
+    os.chmod(loose, 0o644)
+    auth.connect(loose).close()
+    check(stat.S_IMODE(loose.stat().st_mode) == 0o600, "an older 0644 auth.db is tightened")
 
 print("accounts")
 r = post(pc, "/api/admin/users", {"name": "Sam", "monthly_cap_usd": 0.05})

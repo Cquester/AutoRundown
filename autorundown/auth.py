@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import os
 import secrets
 import sqlite3
 import time
@@ -82,7 +83,16 @@ def _h(secret: str) -> str:
 
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
     path = Path(path or AUTH_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    config.make_private_dir(path.parent)
+    if os.name != "nt":
+        # token and code hashes: readable by this user only (sqlite made it
+        # 0644). Created private, not chmod'ed after; its -wal/-shm files
+        # take the same mode. An older one made 0644 is tightened.
+        try:
+            os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+        except FileExistsError:
+            if path.stat().st_mode & 0o077:
+                os.chmod(path, 0o600)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)

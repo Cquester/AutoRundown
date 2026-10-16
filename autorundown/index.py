@@ -12,6 +12,7 @@ import re
 import sqlite3
 from pathlib import Path
 
+from . import config
 from .importers.base import PageRecord, VehicleRecord
 
 MAX_CHUNK = 2400
@@ -217,7 +218,10 @@ def connect(path: str | Path, setup: bool = True) -> sqlite3.Connection:
     the first page load after an upgrade)."""
     path = Path(path)
     if setup:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.parent == config.APP_DIR:
+            config.make_private_dir(path.parent)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
     # an import job writes in another process; wait for it rather than fail
     conn = sqlite3.connect(str(path), timeout=30)
     conn.row_factory = sqlite3.Row

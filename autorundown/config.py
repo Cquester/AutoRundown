@@ -18,6 +18,17 @@ DEFAULT_INDEX = APP_DIR / "index.db"
 _SAVE_LOCK = threading.Lock()
 
 
+def make_private_dir(path: Path) -> None:
+    """mkdir -p, the last folder private (0700) when it is created on
+    Linux/macOS: it holds the API key, the index with every question asked,
+    and auth.db. Windows is left as before (the user profile is already
+    private, and a mode there means ACLs since Python 3.13)."""
+    if os.name == "nt":
+        path.mkdir(parents=True, exist_ok=True)
+    else:
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+
 @dataclass
 class Config:
     archive_dir: str = ""
@@ -45,7 +56,7 @@ class Config:
         was half-written failed with a JSON error (111 of 400 requests made
         during repeated saves). Written whole to a private temp file, then
         swapped in."""
-        APP_DIR.mkdir(parents=True, exist_ok=True)
+        make_private_dir(APP_DIR)
         data = json.dumps(asdict(self), indent=2).encode("utf-8")
         with _SAVE_LOCK:
             tmp = CONFIG_PATH.with_name(f".config.{os.getpid()}.{threading.get_ident()}.tmp")
