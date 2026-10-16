@@ -103,7 +103,7 @@ def main() -> int:
         check("an unknown page is still 404",
               app.get(f"/api/page/{c176}/9999999").status_code, 404)
 
-        print("wiring diagrams, option codes, oil")
+        print("wiring diagrams, oil")
         c201 = ids["201"]
         check("no diagram data: the page says so", page.get("diagram"), False)
         with sqlite3.connect(cdir / wis_links.NAME) as c:
@@ -137,14 +137,6 @@ def main() -> int:
               [("1002297", False)])
         check("a page without data: 404",
               app.get(f"/api/diagram/{c201}/1002297").status_code, 404)
-
-        check("option codes: this car type's meaning; others only if it has none",
-              [(r["code"], r["name"], r["other"]) for r in wis_links.sa_codes(cdir, "494, 14u zz", "CAR")],
-              [("494", "US version", []), ("14U", "", ["44 standard seats"])])
-        sa = app.get(f"/api/wis/sa/{c201}", params={"codes": "494"}).json()
-        check("vehicle type unknown: every meaning, none picked",
-              [(r["code"], r["name"], r["other"]) for r in sa],
-              [("494", "", ["US version", "Bias-ply tyres"])])
 
         conn = index.connect(idx)
         names = [v["name"] for v in __import__("json").loads(
@@ -224,6 +216,41 @@ def main() -> int:
         check("a chosen book is used", r["book"], "00-00-07-51")
         check("an unknown book is not", app.get(
             f"/api/wis/labour/{c201}?variant={v26}&book=00-00-99-99").json()["book"], None)
+
+        # a search shows the job itself, not every operation naming its words
+        def op(o, text):
+            return {"group": "", "kg": o[:2], "op": o, "text": text, "minutes": 1, "hours": 0.0}
+        book = [op("00-2080", "Oil change service: Engine oil and filter change Perform"),
+                op("00-6020", "Lubricant level in manual transmission Correct (with additional oil level checks/oil changes)"),
+                op("00-6450", "Lubricant change in manual transmission Perform (with additional oil changes)"),
+                op("00-6470", "Fluid change with filter service in automatic transmission Perform (with additional oil changes)"),
+                op("02-2538", "Starter wiring harness replace Work Instructions 54/20/10 - I Invoice No. 54 900 12"),
+                op("15-7100", "Starter Remove/install"),
+                op("15-7170", "Starter Exchange"),
+                op("15-7175", "Starter Exchange (with transm. removed)"),
+                op("18-3122", "Oil filter housing with heat exchanger Remove/install"),
+                op("27-1280", "Selector lever linkage rod and starter lockout switch Check, adjust if necessary"),
+                op("27-2028", "Remove/install automatic transmission On veh. with transmission 722.6"),
+                op("27-2029", "Remove/install automatic transmission On veh. with transmission 722.9")]
+        rank = lambda q: wis_links._rank_labour(book, [q.split()], 200)
+        r = rank("starter")
+        check("the job first: the plain operations are the best, add-ons and campaigns after",
+              ([i["op"] for i in r["items"][:r["best"]]], [i["op"] for i in r["items"][r["best"]:]]),
+              (["15-7100", "15-7170"], ["15-7175", "27-1280", "02-2538"]))
+        r = rank("oil change")
+        check("a word matches the words it starts, not one it is inside of (exchanger)",
+              [i["op"] for i in r["items"][:r["best"]]], ["00-2080"])
+        check("... and the operations that only mention it come after",
+              "18-3122" in [i["op"] for i in r["items"]], False)
+        r = rank("transmission fluid change")
+        check("an automatic gearbox's job brings the manual one's: the car may have either",
+              [i["op"] for i in r["items"][:r["best"]]], ["00-6470", "00-6450"])
+        r = rank("transmission removal")
+        check("one job per automatic (722.6, 722.9): both; 'removal' names no component",
+              [i["op"] for i in r["items"][:r["best"]]], ["27-2028", "27-2029"])
+        check("words that name no job: nothing", rank("how to replace")["total"], 0)
+        r = app.get(f"/api/wis/labour/{c201}?variant={v23}&q=brake").json()
+        check("the route says how many are the job itself", (r["best"], r["total"]), (1, 1))
         try:
             wis_links._formula('__import__("os").system("x")')
             check("a formula that is not arithmetic is refused", False, True)

@@ -38,12 +38,20 @@ class Config:
     importer: str = "auto"
     # the company's Anthropic key (the key of before providers existed)
     api_key: str = ""
-    model: str = "claude-opus-5"
+    model: str = "claude-sonnet-5"
     # which AI answers: "anthropic" | "gemini" | "xai" | "deepseek" (providers.py)
     provider: str = "anthropic"
     # the company keys of the other providers: {"gemini": "AIza...", ...}.
     # Entered in Shop setup, never fetched; never sent to a phone.
     provider_keys: dict = field(default_factory=dict)
+    # models left out of the question box's model menu (Shop setup). The menu
+    # lists every model of every provider that has a key; `provider` + `model`
+    # are its default, which is never hidden.
+    hidden_models: list = field(default_factory=list)
+    # a provider's newer models the shop added from its model list (Shop
+    # setup, providers.list_models): {"anthropic": ["claude-..."], ...}.
+    # Price not known: their questions are logged "cost not tracked".
+    extra_models: dict = field(default_factory=dict)
     # the Mercedes WIS extractor (vm_pipeline.py lives there); "" = this
     # repo's extractor/. Its data goes outside the repo: see extractor/wis_paths.py
     extractor_dir: str = ""
@@ -125,6 +133,27 @@ def active_model(cfg: Config) -> str:
     from .providers import PROVIDERS
     p = PROVIDERS[active_provider(cfg)]
     return cfg.model if cfg.model in p["models"] else p["default_model"]
+
+
+def menu_models(cfg: Config, user_id: int | None, admin: bool) -> list[str]:
+    """The question box's model menu for this requester: every model of
+    every provider they have a key for (pick_key: the company's, or their
+    own in per-mechanic mode), less the hidden ones; the default first.
+    Empty when they have no key at all."""
+    from .providers import PROVIDERS
+    out = []
+    for pid, p in PROVIDERS.items():
+        try:
+            if not pick_key(cfg, user_id, admin, pid).key:
+                continue
+        except NoKeyForRequest:
+            continue
+        out += [m for m in p["models"] if m not in (cfg.hidden_models or [])]
+    default = active_model(cfg)
+    if default in out:          # absent when the default provider has no key for them
+        out.remove(default)
+        out.insert(0, default)
+    return out
 
 
 def company_key(cfg: Config, provider: str = "anthropic") -> str:
@@ -220,5 +249,12 @@ def load() -> Config:
             cfg.mechanic_keys = {}
         if not isinstance(cfg.provider_keys, dict):
             cfg.provider_keys = {}
-        return cfg
-    return Config()
+        if not isinstance(cfg.hidden_models, list):
+            cfg.hidden_models = []
+        if not isinstance(cfg.extra_models, dict):
+            cfg.extra_models = {}
+    else:
+        cfg = Config()
+    from .providers import sync_added
+    sync_added(cfg.extra_models)       # the added models join the providers' tables
+    return cfg

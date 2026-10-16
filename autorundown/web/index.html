@@ -439,8 +439,17 @@
   .plines td{padding:4px 8px 4px 0; vertical-align:top; border-top:1px solid var(--line)}
   .plines .pn{white-space:nowrap; font-weight:700}
   .plines .nt{color:var(--muted); font-size:13px}
-  .vlines{margin:6px 0 0; padding-left:18px; font-size:14px}
-  .vlines li{margin:3px 0}
+  /* Torque specs / Capacities: what, then the value as printed */
+  .menurow{display:flex; flex-wrap:wrap; gap:0 28px}
+  .menurow label.check{margin-top:0}
+  .spectab{width:100%; border-collapse:collapse; font-size:15px; margin:0 0 12px}
+  .spectab th{text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--muted); font-weight:600; padding:6px 8px; border-bottom:1px solid var(--line)}
+  .spectab td{padding:8px; border-bottom:1px solid var(--line); vertical-align:top}
+  .spectab td.val{white-space:nowrap; text-align:right; width:1%}
+  .spectab th:last-child{text-align:right}
+  .spectab .hit{padding:0; text-align:left; font:inherit; color:inherit}
+  @media (max-width:700px){ .spectab td.val{white-space:normal; width:auto; max-width:45%} }
   .tabhit{padding:10px 14px; border-top:1px solid var(--line)}
   .tabhit:first-child{border-top:0}
   @media (max-width:700px){ .plines .nt{display:block} .plines td{display:block; border-top:0; padding:2px 0}
@@ -811,8 +820,6 @@
     <select id="vehicle" aria-label="Model"></select>
     <select id="variant" aria-label="Variant (optional)" hidden></select>
     <button class="ghost" id="vinBtn" title="Find the vehicle from a VIN">VIN</button>
-    <button class="ghost" id="saBtn" title="What the option codes on a data card mean" hidden>Option codes</button>
-    <button class="ghost" id="labBtn" title="Mercedes flat-rate labour times for this model" hidden>Labour times</button>
   </div>
   <div class="sheetmore" id="sheetMore"></div>
   <button class="ghost" id="acctBtn" title="Your account" hidden></button>
@@ -1097,7 +1104,8 @@
 
       <section class="setsec" id="sec-ai" hidden>
         <h2>AI answers</h2>
-        <label for="sProvider">AI provider <span class="muted">(whose AI answers the questions)</span></label>
+        <label for="sProvider">Default AI provider <span class="muted">(whose AI answers, unless the
+          question box's model menu picks another)</span></label>
         <div class="row nowrap"><select id="sProvider"></select><span class="savedmark" id="mProvider" role="status"></span></div>
         <div class="help">Answers are checked the same way whichever provider writes them: a value or page
           the search didn't find is removed, and an answer left with no page behind it is not shown.</div>
@@ -1121,13 +1129,21 @@
         </fieldset>
         <div class="help" id="monthTotal"></div>
         <label for="sKey" id="sKeyLabel">Anthropic API key</label>
-        <div class="row nowrap"><input id="sKey" type="password" autocomplete="off" spellcheck="false">
+        <div class="row nowrap"><select id="sKeyProv" aria-label="Whose key" style="flex:0 0 auto; width:auto"></select>
+          <input id="sKey" type="password" autocomplete="off" spellcheck="false">
           <button type="button" id="saveKey" disabled>Save key</button></div>
         <div class="help" id="keyStatus"></div>
         <div class="savedmark" id="mKey" role="status"></div>
         <label for="sModel">Default AI model <span class="muted">(phones can pick their own)</span></label>
         <div class="row nowrap"><select id="sModel"></select><span class="savedmark" id="mModel" role="status"></span></div>
         <div class="help" id="modelPrice"></div>
+        <fieldset class="setgroup" id="menuSec">
+          <legend>Models in the question box's menu</legend>
+          <div class="help">Every model of each provider with a key is offered; untick the ones you
+            don't want, to keep the menu short. The default is always offered.</div>
+          <div id="menuModels"></div>
+          <span class="savedmark" id="mMenu" role="status"></span>
+        </fieldset>
         <div id="mechKeysSec" hidden>
           <h3 class="subhead">Mechanics' keys</h3>
           <div class="help">Make one <span class="provShort">Anthropic</span> key per mechanic (“Get a key” above),
@@ -1232,21 +1248,6 @@
   </div>
 </dialog>
 
-<dialog id="saDlg">
-  <h3 style="margin:0 0 4px">Option codes</h3>
-  <div class="muted">Type or paste the codes from the car's data card (e.g. 494 U10 P31).
-    Descriptions come from Mercedes WIS; the lookup is local.</div>
-  <label for="saInput">Codes</label>
-  <div class="vinrow">
-    <input id="saInput" type="text" autocapitalize="characters" spellcheck="false"
-           placeholder="494 U10 P31">
-    <button id="saFind">Look up</button>
-  </div>
-  <div id="saOut" style="margin-top:10px"></div>
-  <div class="row" style="margin-top:16px; justify-content:flex-end">
-    <button class="ghost" id="saClose">Close</button>
-  </div>
-</dialog>
 
 
 
@@ -2213,18 +2214,6 @@ async function showOil(v) {
   $('#scopeNote').appendChild(span);
 }
 
-// A "Labour times" link at the end of the scope note once the exact model is
-// known; times are per model type, so a whole series has none to show.
-function showLabourLink(v) {
-  $('#labLink')?.remove();
-  if (!WIS_SOURCE.test(v.source_name || '') || variantIdx() === null) return;
-  const b = document.createElement('button');
-  b.type = 'button'; b.id = 'labLink'; b.className = 'xref'; b.textContent = 'Labour times';
-  b.style.marginLeft = '6px';
-  b.onclick = openLabour;
-  $('#scopeNote').appendChild(b);
-}
-
 function showScope() {
   const v = vehicles.find(x => x.doc_id === docId());
   const note = $('#scopeNote');
@@ -2244,9 +2233,8 @@ function showScope() {
     if (curTab === 'capacity') showOilCard();
   }
   if (!out.innerHTML.trim()) out.innerHTML = emptyState();
-  $('#saBtn').hidden = $('#labBtn').hidden = !WIS_SOURCE.test(v?.source_name || '');
   if (!v || !v._variants.length) { note.hidden = true; return; }
-  setTimeout(() => { showLabourLink(v); showOil(v); });
+  setTimeout(() => showOil(v));
   note.classList.remove('pickhint');
   if (carPick && carPick.engine) {
     note.textContent = `${carPick.label} — ${carPick.sub}. Searches the ${v.model} manual without `
@@ -2292,32 +2280,35 @@ function showScope() {
 const variants = () => $('#variants').checked;
 const model = () => $('#model').value || undefined;
 
-// The toolbar picker is the live one; changing it also saves the default so
-// the choice survives a reload, and keeps the Settings copy in step.
-// On another device (only the PC may change settings) the choice is
-// remembered in that browser and sent with each question instead.
+// The question box's model menu: every model of every AI provider this
+// device has a key for (less the ones Shop setup hides), grouped by
+// provider; the model picked says which provider answers. Its first entry
+// is the default (Shop setup). A pick is remembered in this browser until
+// the default changes -- it no longer saves the default itself.
 const MODEL_KEY = 'autorundown.model';
+let menuList = [];
 async function loadModels(pending) {
-  const got = pending ? await pending : await api('/api/models');
+  const got = pending ? await pending : await api('/api/models?menu=1');
   if (got instanceof Error) throw got;
-  modelList = got;
+  menuList = got;
   let current = me.default_model;
-  if (!me.admin) try { current = localStorage.getItem(MODEL_KEY) || current; } catch (_) {}
-  $('#model').innerHTML = modelList.map(m =>
-    `<option value="${esc(m.id)}">${esc(m.label.split(' — ')[0])}</option>`).join('');
-  if (current && modelList.some(m => m.id === current)) $('#model').value = current;
+  try {
+    const kept = JSON.parse(localStorage.getItem(MODEL_KEY) || 'null');
+    if (kept && kept.d === me.default_model) current = kept.m;
+  } catch (_) {}
+  const opt = m => `<option value="${esc(m.id)}">${esc(m.label.split(' — ')[0])}`
+    + `${m.id === me.default_model ? ' (default)' : ''}</option>`;
+  const groups = [...new Set(menuList.map(m => m.provider))];
+  $('#model').innerHTML = groups.length < 2 ? menuList.map(opt).join('')
+    : groups.map(g => `<optgroup label="${esc(menuList.find(m => m.provider === g).provider_short || g)}">`
+        + menuList.filter(m => m.provider === g).map(opt).join('') + '</optgroup>').join('');
+  $('#model').value = menuList.some(m => m.id === current) ? current : (menuList[0]?.id || '');
 }
 
-$('#model').onchange = async () => {
-  if (!me.admin) {
-    try { localStorage.setItem(MODEL_KEY, $('#model').value); } catch (_) {}
-    return;
-  }
-  await api('/api/settings', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({model: $('#model').value})
-  });
-  if ($('#sModel').options.length) $('#sModel').value = $('#model').value;
+$('#model').onchange = () => {
+  try {
+    localStorage.setItem(MODEL_KEY, JSON.stringify({m: $('#model').value, d: me.default_model}));
+  } catch (_) {}
 };
 
 // On a phone the source panel covers the screen. It opens only when asked
@@ -3133,7 +3124,7 @@ if (narrow()) $('#q').placeholder = 'Ask about this car…';   // the Workshop t
 // a Search, with the words typed. Keyword searches only -- no extra AI call,
 // and every row links to its manual or catalogue page. The left side holds
 // the answer (or the keyword list); the tabs never replace it.
-let curTab = 'workshop', tabQuery = null, tabSeq = 0;
+let curTab = 'workshop', tabQuery = null, tabSeq = 0, labQuery = '';
 const PANE = {workshop: '#srcout', parts: '#rpParts', labour: '#tabLabour',
               capacity: '#rpCapacity', torque: '#rpTorque'};
 // which tabs this car has: parts only with a parts catalogue joined (or a
@@ -3156,13 +3147,15 @@ function tabEmpty(t) {
   if (!docId() || !label) return '';
   const what = {parts: 'the parts it names from the parts catalogue (part numbers, which models they fit)',
                 capacity: 'the capacities (litres, quarts) the manual prints for it',
-                torque: 'the torque values the manual prints for it'}[t];
+                torque: 'the torque values the manual prints for it',
+                labour: 'the flat-rate labour times for the job'}[t];
   return `<div class="empty">Ask a question or search: ${what} for <b>${esc(label)}</b> show here.</div>`;
 }
 // what the tab shows before any question, or after the car changed
 function resetTabs() {
   tabQuery = null; ++tabSeq;
   for (const t of ['parts', 'capacity', 'torque']) $(PANE[t]).innerHTML = tabEmpty(t);
+  labQuery = ''; $('#labOut').innerHTML = tabEmpty('labour');
   document.querySelectorAll('#resTabs .tcount').forEach(c => { c.hidden = true; c.textContent = ''; });
   document.querySelectorAll('#resTabs button').forEach(b => b.classList.remove('none'));
 }
@@ -3207,13 +3200,6 @@ function partLinesHtml(lines) {
       + `<td>${esc(m[5].trim())}</td><td class="nt">${esc(m[6].trim().replace(/^;\s*/, ''))}</td></tr>`;
   }).join('') + `</tbody></table>`;
 }
-// the value in a torque / capacity line, made to stand out like the manual's
-const VALUE_HL = {
-  torque: /\b\d+(?:[.,]\d+)?\s*(?:-\s*\d+(?:[.,]\d+)?\s*)?(?:N\s?·?\s?m|Nm|lb[.\- ]?ft|ft[.\- ]?lbs?)\b|\bNm\s+\d+(?:[.,]\d+)?\b/gi,
-  capacity: /\b\d+[.,]\d+[\s\xa0\xc2]*[lL]\b|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:ltr|litres?|liters?|qts?|quarts?|ml|cm3|gal)\b|\b(?:liters?|litres?|ltr|qts?|quarts?)[\s\xa0\xc2]+\d+(?:[.,]\d+)?(?:\s+\d+(?:[.,]\d+)?)*\b/gi,
-};
-const valueLinesHtml = (lines, kind) => `<ul class="vlines">` + lines.map(l =>
-  `<li>${esc(l).replace(VALUE_HL[kind], '<span class="torque">$&</span>')}</li>`).join('') + `</ul>`;
 
 // One tab of the right box for the current question: q is what was typed,
 // also the AI's search terms (after an Ask). The server merges them
@@ -3228,23 +3214,39 @@ async function tabSearch(tab, q, also, seq) {
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
       + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
     if (seq !== tabSeq) return;
-    setCount(tab, rows.length);
     const none = {parts: 'No part in this car’s parts catalogue matches this question.',
                   torque: 'No torque value for this question in this car’s manual pages.',
                   capacity: 'No capacity for this question in this car’s manual pages.'}[tab];
-    pane.innerHTML = withDoc(doc, () => resultsFor(label)
-      + `<div class="muted" style="margin:0 0 8px">For: <b>${esc(q)}</b>`
-      + (also.length ? ` &middot; searched ${also.map(esc).join(' &middot; ')}` : '') + `</div>`
-      + (tab !== 'parts' && rows.length ? `<div class="muted" style="margin:0 0 8px">Lines from the
-          manual pages below; tables often list several engines or models &mdash; open the page to
-          check the row is yours.</div>` : '')
+    const head = resultsFor(label) + `<div class="muted" style="margin:0 0 8px">For: <b>${esc(q)}</b></div>`;
+    if (tab !== 'parts') {
+      // Torque specs and Capacities: one table, what then the value as the
+      // manual prints it (the user, 2026-10-16: "just give a table"); each
+      // row opens the page it is from
+      const seen = new Set(), list = [];
+      for (const r of rows) for (const x of r.rows || []) {
+        const k = (x.name + '|' + x.value).toLowerCase();
+        if (!x.value || seen.has(k)) continue;
+        seen.add(k); list.push({...x, page_no: r.page_no, title: r.title});
+      }
+      setCount(tab, list.length);
+      pane.innerHTML = withDoc(doc, () => head + (list.length
+        ? `<table class="spectab"><thead><tr><th>${tab === 'torque' ? 'Part' : 'Fluid'}</th>`
+          + `<th>${tab === 'torque' ? 'Specification' : 'Capacity'}</th></tr></thead><tbody>`
+          + list.map(x => `<tr><td><button type="button" class="hit" ${pageAttrs(x.page_no)}
+              title="${esc(x.title)}">${esc(x.name)}</button></td>`
+            + `<td class="val"><span class="torque">${esc(x.value)}</span></td></tr>`).join('') + `</tbody></table>`
+        : `<div class="card"><div class="notfound">${none}</div></div>`));
+      if (tab === 'capacity') showOilCard();
+      return;
+    }
+    setCount(tab, rows.length);
+    pane.innerHTML = withDoc(doc, () => head
       + (rows.length ? `<div class="card" style="padding:0">` + rows.map(r =>
           `<div class="tabhit"><button type="button" class="hit" style="padding:0" ${pageAttrs(r.page_no)}>
              <div class="t">${esc(r.title)}</div><div class="s">${esc(r.section_path)}</div></button>`
-          + (r.lines?.length ? (tab === 'parts' ? partLinesHtml(r.lines) : valueLinesHtml(r.lines, tab)) : '')
+          + (r.lines?.length ? partLinesHtml(r.lines) : '')
           + `</div>`).join('') + `</div>`
         : `<div class="card"><div class="notfound">${none}</div></div>`));
-    if (tab === 'capacity') showOilCard();
   } catch (e) {
     if (seq === tabSeq) pane.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   }
@@ -3257,7 +3259,7 @@ async function labourFor(terms, seq) {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
   labFor = docId() + '::' + variantIdx();
-  if (variantIdx() === null) { labQuery = ''; await loadLabour(); setCount('labour', null); return; }
+  if (variantIdx() === null) { labQuery = terms.at(-1) || ''; await loadLabour(); setCount('labour', null); return; }
   for (const t of terms) {
     const words = t.replace(LAB_STOP, ' ').replace(/\s+/g, ' ').trim();
     if (!words) continue;
@@ -3284,24 +3286,27 @@ async function showOilCard() {
   $('#oilCard')?.remove();
   if (!v || !WIS_SOURCE.test(v.source_name || '')) return;
   const n = variantIdx(), eng = engineSel();
-  let html;
   if (n === null && !eng) {
-    html = 'Pick your exact model or engine above for its engine oil capacity.';
-  } else {
-    let rows = [];
-    try {
-      rows = await api(`/api/wis/oil/${encodeURIComponent(v.doc_id)}?`
-        + (n === null ? '' : `variant=${n}&`) + (eng ? `engine=${encodeURIComponent(eng)}` : ''));
-    } catch { return; }
-    if (!rows.length) return;
-    const many = new Set(rows.map(r => r.engine)).size > 1;
-    html = '<b>Engine oil capacity</b> (WIS service data): ' + rows.map(r =>
-      `<span class="torque">${esc(String(r.litres).replace(/\.0$/, ''))} ${esc(r.unit)}</span>`
-      + (many ? ` (${esc(r.engine)})` : '') + (r.note ? ` ${esc(r.note)}` : '')).join('; ');
+    if (seq === oilCardSeq) $('#rpCapacity').insertAdjacentHTML('afterbegin', '<div class="muted" '
+      + 'id="oilCard" style="margin-bottom:8px">Pick your exact model or engine above for its engine oil capacity.</div>');
+    return;
   }
-  if (seq !== oilCardSeq) return;
+  let rows = [];
+  try {
+    rows = await api(`/api/wis/oil/${encodeURIComponent(v.doc_id)}?`
+      + (n === null ? '' : `variant=${n}&`) + (eng ? `engine=${encodeURIComponent(eng)}` : ''));
+  } catch { return; }
+  if (!rows.length || seq !== oilCardSeq) return;
+  // first rows of the tab's own table (or a table of its own before a question)
+  const many = new Set(rows.map(r => r.engine)).size > 1;
+  const body = rows.map(r => `<tr><td>Engine oil${many ? ` (${esc(r.engine)})` : ''}${r.note ? ` ${esc(r.note)}` : ''}`
+    + ` <span class="muted">(WIS service data)</span></td>`
+    + `<td class="val"><span class="torque">${esc(String(r.litres).replace(/\.0$/, ''))} ${esc(r.unit)}</span></td></tr>`).join('');
   $('#oilCard')?.remove();
-  $('#rpCapacity').insertAdjacentHTML('afterbegin', `<div class="card" id="oilCard">${html}</div>`);
+  const tab = $('#rpCapacity .spectab thead');
+  if (tab) tab.insertAdjacentHTML('afterend', `<tbody id="oilCard">${body}</tbody>`);
+  else $('#rpCapacity').insertAdjacentHTML('afterbegin', `<table class="spectab" id="oilCard"><thead><tr>`
+    + `<th>Fluid</th><th>Capacity</th></tr></thead><tbody>${body}</tbody></table>`);
 }
 
 $('#askBtn').onclick = ask;
@@ -3374,14 +3379,8 @@ async function loadSetup() {
   $('#sSignin').checked = !!s.require_signin;
   showProvider(s);
   showKeyMode(s);
-  const prov = curProvider(s);
-  $('#sKey').placeholder = s.has_api_key ? 'leave empty to keep the saved key' : prov.key_hint;
-  $('#keyStatus').innerHTML = s.has_api_key
-    ? `<span style="color:var(--good)">&#10003; Key saved</span>`
-      + (s.key_source === 'environment' ? ` (from the ${esc(s.key_env)} environment variable)` : '')
-      + '. Type a new one only to replace it.'
-    : `<span style="color:var(--warn)">No ${esc(prov.short)} key yet.</span> Ask is off until you add one; `
-      + `keyword search works without it. “Get a key” above opens ${esc(prov.short)}’s key page.`;
+  showKeyFor(s);
+  showMenuModels(s);
   const phone = s.phone_urls || [];
   $('#sPhone').innerHTML = phone.length
     ? 'On a phone on the same wifi, open:' + phone.map(u =>
@@ -3467,12 +3466,97 @@ $('#sProvider').onchange = async () => {
     if (setupData.key_mode === 'per_mechanic') loadKeys();
   } else $('#sProvider').value = was;
 };
+// The company key box is for one provider at a time: the default one,
+// unless "Key for" picks another -- so a second provider's key can be added
+// without making it the default.
+let keyProv = null;
+function showKeyFor(s) {
+  const list = s.providers || [];
+  if (!list.some(p => p.id === keyProv)) keyProv = s.provider;
+  $('#sKeyProv').innerHTML = list.map(p =>
+    `<option value="${esc(p.id)}">${esc(p.short)}${p.has_key ? '' : ' — no key'}</option>`).join('');
+  $('#sKeyProv').value = keyProv;
+  const p = list.find(x => x.id === keyProv) || curProvider(s);
+  const per = s.key_mode === 'per_mechanic';
+  $('#sKeyLabel').textContent = per ? `This PC’s ${p.short} API key (for questions asked on this PC)`
+                                    : `${p.short} API key`;
+  $('#sKey').placeholder = p.has_key ? 'leave empty to keep the saved key' : p.key_hint;
+  $('#keyStatus').innerHTML = p.has_key
+    ? `<span style="color:var(--good)">&#10003; Key saved</span>`
+      + (p.key_source === 'environment' ? ` (from the ${esc(p.key_env)} environment variable)` : '')
+      + '. Type a new one only to replace it.'
+    : p.id === s.provider
+      ? `<span style="color:var(--warn)">No ${esc(p.short)} key yet.</span> Ask is off until you add one; `
+        + `keyword search works without it. “Get a key” above opens ${esc(p.short)}’s key page.`
+      : `<span class="muted">No ${esc(p.short)} key.</span> With one, its models join the question box’s menu.`
+        + ` <a href="${esc(p.key_url)}" target="_blank" rel="noopener noreferrer">Get ${/^[AEIOU]/i.test(p.short) ? 'an' : 'a'} ${esc(p.short)} key</a>.`;
+}
+$('#sKeyProv').onchange = () => { keyProv = $('#sKeyProv').value; showKeyFor(setupData); };
+// the question box's menu: every model of a provider with a company key;
+// unticked = hidden (config.hidden_models); the default can't be unticked
+function showMenuModels(s) {
+  const withKey = (s.providers || []).filter(p => p.has_key);
+  $('#menuModels').innerHTML = withKey.length ? withKey.map(p => `<div class="help" style="margin-top:8px">`
+      + `<b>${esc(p.short)}</b></div><div class="menurow">` + (p.models || []).map(m => {
+        const def = m.id === s.model;
+        return (m.added && !def ? '<span style="display:flex; align-items:center; gap:10px">' : '')
+          + `<label class="check"><input type="checkbox" data-menu="${esc(m.id)}"`
+          + `${m.hidden && !def ? '' : ' checked'}${def ? ' disabled' : ''}> ${esc(m.added ? m.id : m.label.split(' — ')[0])}`
+          + `${def ? ' <span class="muted">(default)</span>' : ''}`
+          + `${m.added ? ' <span class="muted">(added · cost not tracked)</span>' : ''}</label>`
+          + (m.added && !def ? `<button type="button" class="ghost" data-unadd="${esc(p.id)}" data-id="${esc(m.id)}">`
+            + `Remove</button></span>` : '');
+      }).join('') + '</div>'
+      + `<div class="row" style="margin-top:4px"><button type="button" class="ghost" data-check="${esc(p.id)}">`
+      + `Check ${esc(p.short)} for newer models</button></div>`
+      + `<div class="help" id="newm-${esc(p.id)}"></div>`).join('')
+    : '<div class="help">No provider has a key yet.</div>';
+}
+$('#menuModels').onchange = async e => {
+  const box = e.target.closest('input[data-menu]');
+  if (!box) return;
+  const hidden = [...document.querySelectorAll('#menuModels input[data-menu]')]
+    .filter(b => !b.checked).map(b => b.dataset.menu);
+  if (await saveSetting({hidden_models: hidden}, '#mMenu')) { await loadSetup(); loadModels().catch(() => {}); }
+  else box.checked = !box.checked;
+};
+// The provider's own model list (one GET on its key, no tokens, no cost):
+// what it offers that the menu lacks, each with Add. An added model has no
+// known price, so its questions show "cost not tracked".
+const addedModels = () => Object.fromEntries((setupData.providers || []).map(p =>
+  [p.id, (p.models || []).filter(m => m.added).map(m => m.id)]));
+async function saveAdded(extra) {
+  if (await saveSetting({extra_models: extra}, '#mMenu')) { await loadSetup(); loadModels().catch(() => {}); }
+}
+$('#menuModels').onclick = async e => {
+  const b = e.target.closest('button[data-check], button[data-add], button[data-unadd]');
+  if (!b || b.disabled) return;
+  if (b.dataset.check) {
+    const pid = b.dataset.check, out = $(`#newm-${pid}`);
+    b.disabled = true;
+    out.innerHTML = '<span class="spinner"></span> asking for its model list&hellip;';
+    try {
+      const r = await api(`/api/settings/models/${encodeURIComponent(pid)}`);
+      out.innerHTML = r.new.length
+        ? `Not in the menu yet (prompts were tuned on the models above; try one before relying on it):`
+          + `<div class="menurow" style="margin-top:4px">` + r.new.map(m =>
+            `<button type="button" class="ghost" data-add="${esc(pid)}" data-id="${esc(m.id)}">Add ${esc(m.id)}</button>`).join('')
+          + '</div>'
+        : `Nothing newer: the ${r.listed} text model${r.listed === 1 ? '' : 's'} it lists are all here.`;
+    } catch (err) { out.innerHTML = `<span class="errnote">${esc(err.message)}</span>`; }
+    b.disabled = false;
+    return;
+  }
+  const extra = addedModels(), pid = (b.dataset.add || b.dataset.unadd), id = b.dataset.id;
+  extra[pid] = b.dataset.add ? [...(extra[pid] || []), id] : (extra[pid] || []).filter(x => x !== id);
+  b.disabled = true;
+  await saveAdded(extra);
+};
 // -- who pays for AI answers: one company key, or a key per mechanic --
 function showKeyMode(s) {
-  const per = s.key_mode === 'per_mechanic', short = curProvider(s).short;
+  const per = s.key_mode === 'per_mechanic';
   document.querySelectorAll('input[name=keyMode]').forEach(r => { r.checked = r.value === s.key_mode; });
-  $('#sKeyLabel').textContent = per ? `This PC’s ${short} API key (for questions asked on this PC)`
-                                    : `${short} API key`;
+  if (s.providers) showKeyFor(s);
   const n = s.month_questions || 0;
   $('#monthTotal').innerHTML = (per ? 'Everyone together this month: ' : '<b>Spent this month</b>, everyone, all AI providers: ')
     + `${n} question${n === 1 ? '' : 's'}, <b>${money(s.month_spend_usd)}</b>`
@@ -3548,7 +3632,7 @@ $('#mechKeys').onclick = async e => {
 $('#sModel').onchange = async () => {
   showModelPrice();
   const v = $('#sModel').value;
-  if (await saveSetting({model: v}, '#mModel')) { me.default_model = v; $('#model').value = v; }
+  if (await saveSetting({model: v}, '#mModel')) { me.default_model = v; await loadSetup(); loadModels().catch(() => {}); }
 };
 $('#sSignin').onchange = async e => {
   const v = e.target.checked;
@@ -3563,7 +3647,9 @@ $('#saveKey').onclick = async () => {
   const k = $('#sKey').value.trim();
   if (!k) return;
   $('#saveKey').disabled = true;
-  if (await saveSetting({api_key: k, key_provider: curProvider(setupData).id}, '#mKey')) { $('#sKey').value = ''; await loadSetup(); }
+  if (await saveSetting({api_key: k, key_provider: keyProv || curProvider(setupData).id}, '#mKey')) {
+    $('#sKey').value = ''; await loadSetup(); loadModels().catch(() => {});
+  }
   markDirty();
 };
 $('#sKey').addEventListener('keydown', e => { if (e.key === 'Enter') $('#saveKey').click(); });
@@ -4274,41 +4360,14 @@ $('#vinBtn').onclick = () => openVinDialog();
 $('#sheetScanBtn').onclick = () => { openVinDialog(false); $('#vinPhoto').click(); };
 $('#vinClose').onclick = () => $('#vinDlg').close();
 
-// Option codes (WIS SACode): each code's meaning for this car's vehicle
-// type; a code with none for it shows what it means on other types, marked.
-$('#saBtn').onclick = () => {
-  $('#saOut').innerHTML = '';
-  $('#saDlg').showModal();
-  $('#saInput').focus();
-};
-$('#saClose').onclick = () => $('#saDlg').close();
-async function saLookup() {
-  const codes = $('#saInput').value.trim();
-  if (!codes) return;
-  $('#saOut').innerHTML = '<span class="spinner"></span>';
-  try {
-    const rows = await api(`/api/wis/sa/${encodeURIComponent(docId())}?codes=${encodeURIComponent(codes)}`);
-    $('#saOut').innerHTML = rows.length ? `<div class="tablewrap"><table><tbody>` + rows.map(r =>
-      `<tr><td><b>${esc(r.code)}</b></td><td>${r.name ? esc(r.name)
-        : r.other.length ? `<span class="muted">Not a code for this kind of vehicle. On others: `
-                           + `${r.other.map(esc).join('; ')}</span>`
-        : '<span class="muted">Unknown code</span>'}</td></tr>`).join('')
-      + `</tbody></table></div>` : '<div class="muted">No codes found in that text.</div>';
-  } catch (e) {
-    $('#saOut').innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
-  }
-}
-$('#saFind').onclick = saLookup;
-
 // Labour times (WIS ASRA flat rates) for the exact model picked. A model in
 // several books (build-date splits) shows a chooser and no times until one
 // is picked -- which applies depends on the chassis number.
 let labSeq = 0;
-// Labour times are a tab of the right box: the button and the scope note's
-// link open it. It has no search box of its own -- the question box fills
-// it (labourFor), and labQuery is the words it last searched.
-let labQuery = '';
-function openLabour() { setTab('labour'); openRight(); }
+// Labour times are a tab of the right box, empty until a question: it has
+// no search box of its own -- the question box fills it (labourFor), and
+// labQuery is the words it last searched. (Its own button beside VIN and a
+// link in the scope note were removed, 2026-10-16: Ask or Search finds it.)
 function showLabourTab() {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
@@ -4323,6 +4382,8 @@ let labFor = '';
 async function loadLabour() {
   const seq = ++labSeq, n = variantIdx(), eng = engineSel();
   const out = $('#labOut');
+  // nothing before a question: a model's book has a thousand operations or more
+  if (!labQuery) { out.innerHTML = tabEmpty('labour'); return 0; }
   if (n === null) {
     out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
       + 'Variant): labour times are per model type.</div>';
@@ -4353,26 +4414,25 @@ async function loadLabour() {
       + '<b>Search</b> its name in the question box, e.g. <i>water pump</i>.</div>';
     return 0;
   }
-  let last = '';
-  out.innerHTML = (labQuery ? `<div class="muted" style="margin-bottom:6px">For: <b>${esc(labQuery)}</b></div>` : '')
-    + `<div class="tablewrap"><table><tbody>` + r.items.map(i => {
-    const head = i.group !== last ? `<tr><th colspan="2" style="text-align:left">${esc(i.group)}</th></tr>` : '';
-    last = i.group;
-    return head + `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
-      + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
-      + ` <span class="muted" style="font-size:12px">${i.minutes} min</span></td></tr>`;
-  }).join('') + `</tbody></table></div>`
-    + (r.total > r.items.length
-        ? `<div class="muted" style="margin-top:6px">Showing ${r.items.length} of ${r.total} — ask or search to narrow.</div>` : '');
-  return r.items.length;
+  // the job itself (r.best of them: both gearboxes' where they differ);
+  // operations that only mention the words fold away below it
+  const best = r.best || r.items.length;
+  const rowsHtml = items => `<div class="tablewrap"><table><tbody>` + items.map(i =>
+    `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
+    + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
+    + ` <span class="muted" style="font-size:12px">${i.minutes} min</span></td></tr>`).join('') + `</tbody></table></div>`;
+  const more = r.items.slice(best);
+  out.innerHTML = `<div class="muted" style="margin-bottom:6px">For: <b>${esc(labQuery)}</b></div>`
+    + rowsHtml(r.items.slice(0, best))
+    + (more.length ? `<details style="margin-top:8px"><summary class="muted">${r.total - best} other `
+        + `operation${r.total - best === 1 ? '' : 's'} mention it</summary>${rowsHtml(more)}</details>` : '');
+  return best;
 }
-$('#labBtn').onclick = openLabour;
 // a book picked: the question's terms again, in that book
 $('#labBook').addEventListener('change', () => {
   if (tabQuery && tabQuery.doc === docId()) labourFor([...tabQuery.also, tabQuery.q], tabSeq);
   else loadLabour();
 });
-$('#saInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saLookup(); } });
 // The dialog picks the car exactly as a VIN typed in the car box does
 // (carFromVin + applyCar): same variant, same engine, same year. It used to
 // set the dropdowns itself and send no engine at all.
@@ -5213,7 +5273,7 @@ async function start() {
   showGate('<span class="spinner"></span> Starting AutoRundown…');
   for (;;) {
     const vehiclesReq = api('/api/vehicles').catch(e => e);
-    const modelsReq = api('/api/models').catch(e => e);
+    const modelsReq = api('/api/models?menu=1').catch(e => e);
     try {
       const m = await loadMe();
       if (m.require_signin && !m.admin && !m.signed_in) {

@@ -200,7 +200,14 @@ vehicle is joined into the WIS car, so the UI took it for a WIS page). Now
 before EPC), **Parts** (the joined catalogue, each row with its matching
 part lines, `search.part_lines`), **Labour times** (the dialog moved into a
 tab), **Capacities** (WIS's oil figure + capacity lines), **Torque specs**
-(torque lines). Value lines come from `search.value_lines`: WIS prints
+(torque lines). Since 2026-10-16 Capacities and Torque specs are one table
+each -- Fluid / Capacity, Part / Specification, no paragraph (the user:
+"just give a table") -- from `search.value_row`, which splits a value line
+into what it is and the value as printed (pipe cells joined; "59 lb.ft /
+80 Nm" kept whole, never converted; WIS's "Liter 1,8 1,8" all value; a turn
+"+ 90 degrees" with its torque; a line with nothing left to name it named by
+its page title). `/api/search` returns `rows` beside `lines`; each row opens
+its page; WIS's oil figure is the Capacities table's first rows. Value lines come from `search.value_lines`: WIS prints
 "Nm 50" and "Liter 6,5" unit-first, and capacity rows often unit-less under
 a header ("Oil capactiy in liters ... changing oil and filter 5.0"); a line
 must name one of the question's words (or its page title must), and a line

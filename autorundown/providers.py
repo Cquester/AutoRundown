@@ -67,7 +67,9 @@ PROVIDERS: dict[str, dict] = {
         "key_hint": "sk-ant-…",
         "env_key": "ANTHROPIC_API_KEY",
         "price_source": "https://platform.claude.com/docs/en/about-claude/pricing",
-        "default_model": "claude-opus-5",
+        # Sonnet, not Opus (the user, 2026-10-16: Opus is overkill for a
+        # lookup that points at a page): ~2/5 of Opus's price per question
+        "default_model": "claude-sonnet-5",
         "models": {
             "claude-opus-5": {
                 "label": "Opus 5 — most capable",
@@ -226,6 +228,72 @@ def model_list(provider: str) -> list[dict]:
 def base_url(provider: str) -> str:
     p = PROVIDERS[provider]
     return (os.environ.get(p.get("base_env", "")) or p.get("base_url", "")).rstrip("/")
+
+
+# -- models added in Shop setup -------------------------------------------------
+#
+# A provider's newer models, found with list_models and added by the shop
+# (Config.extra_models). They join PROVIDERS[...]["models"] so everything
+# that reads that table -- the menu, the checks on /api/ask, the spend log --
+# treats them alike, with two differences: no price is known for them
+# (logged as cost NULL, "cost not tracked"; never guessed), and an added
+# Claude model is sent the plain request (no effort, no adaptive thinking:
+# an older model refuses those with a 400, and the list does not say which
+# a model takes). Prompts were tuned on the built-in models only.
+
+def sync_added(extra: dict) -> None:
+    """Make PROVIDERS hold exactly the added models in `extra`
+    ({provider: [model id, ...]}), on top of the built-in ones."""
+    for pid, p in PROVIDERS.items():
+        want = [m for m in (extra or {}).get(pid) or [] if isinstance(m, str)]
+        for mid in [m for m, spec in p["models"].items() if spec.get("added") and m not in want]:
+            del p["models"][mid]
+        for mid in want:
+            if mid not in p["models"] and provider_of(mid) is None:
+                p["models"][mid] = {"label": f"{mid} — added, cost not tracked",
+                                    "price_in": None, "price_out": None, "added": True,
+                                    "adaptive": False, "effort": False}
+
+
+# what list_models leaves out: models that are not for answering text
+_NOT_CHAT = re.compile(r"embed|image|imagine|vision|tts|audio|speech|live|realtime|"
+                       r"transcri|moderation|aqa|veo|imagen|lyria|robotics|computer-use", re.I)
+
+
+def list_models(provider: str, api_key: str) -> list[dict]:
+    """The text models the provider says this key can use, [{id, label}],
+    newest-looking first as the provider lists them. One GET, no tokens, no
+    cost. Raises NoApiKey / ApiUnavailable like call()."""
+    if not api_key:
+        raise NoApiKey(no_key_message(provider))
+    if provider == "anthropic":
+        import anthropic
+        try:
+            page = anthropic.Anthropic(api_key=api_key).models.list(limit=100)
+            rows = [(m.id, getattr(m, "display_name", "") or m.id) for m in page.data]
+        except anthropic.APIError as exc:
+            raise _friendly_anthropic_error(exc) from None
+        keep = [(i, n) for i, n in rows if i.startswith("claude")]
+    elif provider == "gemini":
+        data = _get_json("gemini", f"{base_url('gemini')}/v1beta/models?pageSize=1000",
+                         {"x-goog-api-key": api_key})
+        keep = [(m["name"].removeprefix("models/"), m.get("displayName") or "")
+                for m in data.get("models") or [] if isinstance(m, dict) and m.get("name")
+                and "generateContent" in (m.get("supportedGenerationMethods") or [])]
+        keep = [(i, n) for i, n in keep if i.startswith("gemini")]
+    elif provider in ("xai", "deepseek"):
+        data = _get_json(provider, f"{base_url(provider)}/models",
+                         {"Authorization": f"Bearer {api_key}"})
+        keep = [(m["id"], m["id"]) for m in data.get("data") or [] if isinstance(m, dict) and m.get("id")]
+    else:
+        raise ApiUnavailable(f"Unknown AI provider {provider!r}.")
+    seen, out = set(), []
+    for mid, name in keep:
+        if mid in seen or _NOT_CHAT.search(mid) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,80}", mid):
+            continue
+        seen.add(mid)
+        out.append({"id": mid, "label": name or mid})
+    return out
 
 
 # -- the call -----------------------------------------------------------------
@@ -412,6 +480,21 @@ def _post_json(provider: str, url: str, headers: dict, body: dict) -> dict:
         except ValueError:
             raise ApiUnavailable(f"The {label} API sent a reply that is not JSON.") from None
     raise ApiUnavailable(f"The {label} API did not answer.")   # not reached
+
+
+def _get_json(provider: str, url: str, headers: dict) -> dict:
+    """A GET (the model list): no retries, a short wait -- the person is
+    looking at Shop setup, not waiting on an answer."""
+    label = PROVIDERS[provider]["short"]
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as resp:
+            return json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        raise _friendly_http_error(provider, exc.code, exc.read().decode("utf-8", "replace")) from None
+    except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError):
+        raise ApiUnavailable(f"Could not reach the {label} API. Check the network connection.") from None
+    except ValueError:
+        raise ApiUnavailable(f"The {label} API sent a reply that is not JSON.") from None
 
 
 def _error_message(text: str) -> str:

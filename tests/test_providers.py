@@ -264,7 +264,71 @@ row = conn.execute("SELECT provider, model, key_ref FROM usage_log ORDER BY id D
 check("  ... logged as gemini / gemini-3.5-flash-lite / company:gemini",
       tuple(row) == ("gemini", "gemini-3.5-flash-lite", "company:gemini"), tuple(row))
 r = phone.post("/api/ask", json={"doc_id": vehicle["doc_id"], "question": "q", "model": "claude-opus-5"})
-check("a model of another provider is refused", r.status_code == 400, r.status_code)
+check("a model of a provider with no key is refused", r.status_code == 400, r.status_code)
+
+print("\n-- the question box's model menu: every provider with a key --")
+XKEY = "xai-test-not-real-XXXX"
+pc.post("/api/settings", json={"api_key": XKEY, "key_provider": "xai"})
+s = pc.get("/api/settings").json()
+check("a second provider's key is added without changing the default",
+      s["provider"] == "gemini" and config.load().provider_keys.get("xai") == XKEY, s["provider"])
+menu = [m["id"] for m in phone.get("/api/models", params={"menu": 1}).json()]
+check("the menu: the default first, then the rest of Gemini's and all of xAI's; no Anthropic (no key)",
+      menu == ["gemini-3.8-flash", "gemini-4-argon", "gemini-3.5-flash-lite", "grok-4.7", "grok-4.3"], menu)
+check("  ... /api/models without menu is still the default provider's (Shop setup's list)",
+      [m["id"] for m in pc.get("/api/models").json()] == list(providers.PROVIDERS["gemini"]["models"]))
+r = phone.post("/api/ask", json={"doc_id": vehicle["doc_id"], "question": "brake caliper bolt torque",
+                                 "model": "grok-4.3"})
+row = conn.execute("SELECT provider, model, key_ref FROM usage_log ORDER BY id DESC").fetchone()
+check("a model from the menu picks its provider: xAI answers on the xAI key",
+      r.status_code == 200 and r.json()["usage"]["provider"] == "xai"
+      and tuple(row) == ("xai", "grok-4.3", "company:xai"), (r.status_code, tuple(row)))
+r = pc.post("/api/settings", json={"hidden_models": ["grok-4.7", "gemini-3.8-flash"]})
+s = pc.get("/api/settings").json()
+menu = [m["id"] for m in phone.get("/api/models", params={"menu": 1}).json()]
+check("a hidden model leaves the menu; the default can't be hidden",
+      r.status_code == 200 and s["hidden_models"] == ["grok-4.7"] and "grok-4.7" not in menu
+      and menu[0] == "gemini-3.8-flash", (s["hidden_models"], menu))
+check("  ... Shop setup lists each provider's models with hidden marked",
+      [m["id"] for p in s["providers"] if p["id"] == "xai" for m in p["models"] if m["hidden"]] == ["grok-4.7"])
+r = phone.post("/api/ask", json={"doc_id": vehicle["doc_id"], "question": "q", "model": "grok-4.7"})
+check("a hidden model is refused", r.status_code == 400 and "turned off" in r.json()["detail"], r.json())
+check("an unknown model can't be hidden",
+      pc.post("/api/settings", json={"hidden_models": ["gpt-9"]}).status_code == 400)
+pc.post("/api/settings", json={"hidden_models": []})
+
+print("\n-- newer models from each provider's own list (free: a GET, no tokens) --")
+check("Anthropic's list (the SDK's models.list): the new one is there",
+      fake_anthropic.FAKE_NEW["anthropic"] in [m["id"] for m in providers.list_models("anthropic", KEY)])
+r = pc.get("/api/settings/models/gemini").json()
+check("Gemini: only what the menu lacks; image and embedding models left out",
+      [m["id"] for m in r["new"]] == ["gemini-fake-5-flash"], r)
+r = pc.get("/api/settings/models/xai").json()
+check("xAI: the same", [m["id"] for m in r["new"]] == ["grok-fake-5"], r)
+r = pc.get("/api/settings/models/anthropic")
+check("no company key for the provider: a plain refusal, nothing sent",
+      r.status_code == 400 and "No Anthropic API key" in r.json()["detail"], r.json())
+check("a phone can't ask the provider's list", phone.get("/api/settings/models/xai").status_code == 403)
+r = pc.post("/api/settings", json={"extra_models": {"xai": ["grok-fake-5"]}})
+menu = phone.get("/api/models", params={"menu": 1}).json()
+added = next((m for m in menu if m["id"] == "grok-fake-5"), None)
+check("an added model joins the menu, its price not known (cost not tracked)",
+      r.status_code == 200 and added and added["price_in"] is None and added["provider"] == "xai", added)
+r = phone.post("/api/ask", json={"doc_id": vehicle["doc_id"], "question": "brake caliper bolt torque",
+                                 "model": "grok-fake-5"})
+row = conn.execute("SELECT provider, model, cost_usd FROM usage_log ORDER BY id DESC").fetchone()
+check("  ... answers through its provider, logged with cost NULL, never a guess",
+      r.status_code == 200 and tuple(row) == ("xai", "grok-fake-5", None), (r.status_code, tuple(row)))
+check("  ... and the provider's list no longer offers it as new",
+      pc.get("/api/settings/models/xai").json()["new"] == [])
+check("another provider's built-in model can't be added",
+      pc.post("/api/settings", json={"extra_models": {"xai": ["claude-opus-5"]}}).status_code == 400)
+check("an unknown provider can't be given models",
+      pc.post("/api/settings", json={"extra_models": {"openai": ["gpt-9"]}}).status_code == 400)
+pc.post("/api/settings", json={"extra_models": {}})
+r = phone.post("/api/ask", json={"doc_id": vehicle["doc_id"], "question": "q", "model": "grok-fake-5"})
+check("removed: out of the menu and refused",
+      r.status_code == 400 and "grok-fake-5" not in [m["id"] for m in phone.get("/api/models", params={"menu": 1}).json()])
 uid = pc.post("/api/admin/users", json={"name": "Sam"}).json()["id"]
 pc.post("/api/settings", json={"key_mode": "per_mechanic"})
 r = pc.post(f"/api/admin/users/{uid}/key", json={"api_key": "AIza-sam-not-real-SAMG"})
