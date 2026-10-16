@@ -431,7 +431,15 @@ def _friendly_http_error(provider: str, status: int, text: str) -> ApiUnavailabl
     p = PROVIDERS[provider]
     label, msg = p["short"], _error_message(text)
     low = msg.lower()
-    if status == 402 or any(w in low for w in ("insufficient balance", "credit", "billing")):
+    if status == 429:
+        if provider == "gemini":
+            return ApiUnavailable(
+                "Rate limited, or over the key's quota, by the Gemini API. Wait a "
+                "moment and retry. Gemini's free tier allows only a limited number of "
+                "requests a minute and a day; a key on a project with billing turned "
+                f"on has higher limits. ({msg})")
+        return ApiUnavailable(f"Rate limited by the {label} API. Wait a moment and retry.")
+    if status == 402 or any(w in low for w in ("insufficient balance", "credit")):
         return ApiUnavailable(
             f"Out of API credit on the {label} account: the key is valid, but there "
             f"is no balance left. Top up in the {label} console ({p['key_url']}).")
@@ -439,11 +447,6 @@ def _friendly_http_error(provider: str, status: int, text: str) -> ApiUnavailabl
         return ApiUnavailable(
             f"The {label} API key was rejected. Check it in Shop setup > AI answers, "
             f"or create a new one at {p['key_url']}.")
-    if status == 429:
-        extra = (" Gemini's free tier allows only a few requests a minute and a "
-                 "day; a key on a paid (billing) project has higher limits."
-                 if provider == "gemini" else "")
-        return ApiUnavailable(f"Rate limited by the {label} API. Wait a moment and retry.{extra}")
     if 400 <= status < 500:
         return ApiUnavailable(f"The {label} API rejected the request: {msg}")
     return ApiUnavailable(f"{label} API error {status}: {msg}")
