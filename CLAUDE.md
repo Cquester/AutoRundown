@@ -418,7 +418,7 @@ predates the end-view format. Features here degrade quietly by design.
    suggestion (~2,500), every Variant option (~1,300), every US VIN prefix
    (~5,800, checked against `vin2fin.json`: Baumuster and engine sent), the
    VIN dialog sending what the box sends — and checks the `variant=` each
-   sends against the stored `vehicles.variants`. ~3 min on the real index.
+   sends against the stored `vehicles.variants`.
    Any non-GET or `/api/ask` request fails the run.
    Known quirk it works around: typing "190 e 2.3 16" finds nothing —
    `carMatches` reads a bare "16" as the year 2016.
