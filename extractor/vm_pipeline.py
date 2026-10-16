@@ -25,10 +25,18 @@ in order, each resumable -- a re-run skips what is already pulled:
                                                drawings decoded to PNG, resumable
                                                per catalog -> <out>/epc_extract
 
-What it will NOT do to the VM: take or restore snapshots, change network
-adapters, or touch the guest's firewall. It only starts it headless, stops
-it, and reads the database (SELECT only). If the database isn't reachable it
-says what to set up, once, by hand (see README.md "Bring-up").
+What it does to the VM: before a run (or `--check --boot`) boots it, it takes
+its own snapshot, "AutoRundown-auto-<date>-<time>" (`SNAPSHOT <name>`) --
+unless it took one in the last 6 hours -- so a run that leaves Windows broken
+can be rolled back (the user, 2026-10-16). It never deletes a snapshot
+(deleting merges disk images: heavy disk I/O on a PC that has crashed under
+it) and never restores one by itself: `--restore NAME` does, asked for
+from Shop setup, after taking "AutoRundown-before-rollback-<...>" of the
+current state so the rollback can be undone. `--list-snapshots` lists them.
+Otherwise it only starts the VM headless, stops it, and reads the database
+(SELECT only); it never changes network adapters or touches the guest's
+firewall. If the database isn't reachable it says what to set up, once, by
+hand (see README.md "Bring-up").
 
 It never pulls the plug on Windows (2026-10-16: a forced power-off after the
 database didn't answer left the guest in Startup Repair). A shutdown that
@@ -213,6 +221,78 @@ def find_db(vm: str, port: int, subnet: str) -> str | None:
     return None
 
 
+# -- snapshots: ours, to roll back to -------------------------------------------
+
+AUTO_PREFIX = "AutoRundown-auto-"
+AUTO_EVERY_S = 6 * 3600       # at most one automatic snapshot per 6 hours
+TOO_MANY = 5                  # more of ours than this: say to tidy up
+
+
+def snapshots(vm: str) -> list[dict]:
+    """[{name, uuid, description, current}] oldest first."""
+    out, cur = {}, ""
+    for line in vbox("snapshot", vm, "list", "--machinereadable", check=False).splitlines():
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        v = v.strip('"')
+        if k == "CurrentSnapshotName":
+            cur = v
+        for field in ("SnapshotName", "SnapshotUUID", "SnapshotDescription"):
+            if k == field or k.startswith(field + "-"):
+                idx = k[len(field):]
+                out.setdefault(idx, {})[field[8:].lower() or "name"] = v
+    # keys SnapshotName, SnapshotName-1, SnapshotName-1-1 ...: listed parent
+    # first, so this order is oldest first along the current branch
+    snaps = list(out.values())
+    for s in snaps:
+        s["current"] = s.get("name") == cur
+    return snaps
+
+
+def _stamp(name: str) -> float:
+    """The time in one of our names (AutoRundown-auto-20261016-131500), or 0."""
+    try:
+        return time.mktime(time.strptime(name.rsplit("-", 2)[-2] + name.rsplit("-", 1)[-1], "%Y%m%d%H%M%S"))
+    except (ValueError, IndexError):
+        return 0.0
+
+
+def auto_snapshot(vm: str, why: str) -> str:
+    """Our own snapshot before the run boots the VM (VirtualBox allows one
+    of a running VM too: a few seconds' pause). Skipped if we took one in
+    the last 6 hours -- a retry is not a new risk."""
+    ours = [s["name"] for s in snapshots(vm) if s.get("name", "").startswith(AUTO_PREFIX)]
+    recent = max((_stamp(n) for n in ours), default=0.0)
+    if time.time() - recent < AUTO_EVERY_S:
+        log(f"snapshot: using {max(ours, key=_stamp)} (taken in the last 6 hours)")
+        return ""
+    name = AUTO_PREFIX + time.strftime("%Y%m%d-%H%M%S")
+    try:
+        vbox("snapshot", vm, "take", name, "--description",
+             f"Taken by AutoRundown before {why}. Roll back to it from Shop setup if the run "
+             f"leaves Windows broken.")
+    except RuntimeError as exc:
+        die(f"could not take a snapshot of {vm} before the run: {exc}")
+    log(f"SNAPSHOT {name}")
+    return name
+
+
+def restore_snapshot(vm: str, name: str) -> None:
+    """Roll the VM back to `name` -- asked for by a person, never automatic.
+    The current state is snapshotted first, so this can be undone."""
+    if name not in {s.get("name") for s in snapshots(vm)}:
+        die(f"{vm} has no snapshot named {name!r}")
+    if vm_state(vm) == "running":
+        die(f"{vm} is running: shut it down (or close its window, saving its state) before rolling back")
+    keep = "AutoRundown-before-rollback-" + time.strftime("%Y%m%d-%H%M%S")
+    vbox("snapshot", vm, "take", keep, "--description",
+         f"The state before rolling back to {name}; restore this to undo the rollback.")
+    log(f"SNAPSHOT {keep} (the state before the rollback, to undo it)")
+    vbox("snapshot", vm, "restore", name)
+    log(f"rolled {vm} back to {name}")
+
+
 def windows_up(vm: str) -> bool:
     """Windows in the guest has started its services: Guest Additions report
     run level 2 (userland) or 3 (desktop). 0 while it boots -- or while it
@@ -358,6 +438,15 @@ def preflight(vm: str, steps: list[str], out: Path, subnet: str, java: str, jar:
     else:
         levels.append(check("vm", "ok", f"{vm} is off and ready to start."))
     if online:
+        ours = [s["name"] for s in snapshots(vm) if s.get("name", "").startswith(AUTO_PREFIX)]
+        recent = max((_stamp(n) for n in ours), default=0.0)
+        note = (f"Uses the snapshot {max(ours, key=_stamp)}, taken in the last 6 hours."
+                if time.time() - recent < AUTO_EVERY_S else
+                "A snapshot of the VM is taken before it starts, to roll back to if Windows breaks.")
+        levels.append(check("snapshot", "warn", f"{note} There are {len(ours)} AutoRundown snapshots: "
+                                                "delete old ones in VirtualBox (Snapshots) to free disk "
+                                                "space -- AutoRundown never deletes them.")
+                      if len(ours) > TOO_MANY else check("snapshot", "ok", note))
         hostonly = [k for k, v in info.items() if k.startswith("nic") and v.strip('"') == "hostonly"]
         if not hostonly:
             levels.append(check("network", "fail", f"{vm} has no host-only network adapter: this PC "
@@ -558,6 +647,10 @@ def main(argv=None) -> int:
                     help="say whether the run would work (CHECK lines), without booting")
     ap.add_argument("--boot", action="store_true",
                     help="with --check: also boot the VM, check Windows and the databases")
+    ap.add_argument("--list-snapshots", action="store_true",
+                    help="the VM's snapshots: name, ours (auto/rollback) or not, current, description")
+    ap.add_argument("--restore", default="",
+                    help="roll the VM back to this snapshot (the current state is snapshotted first)")
     args = ap.parse_args(argv)
     global SHOT_DIR
 
@@ -570,6 +663,16 @@ def main(argv=None) -> int:
         ap.error("--vm is required (see --list-vms)")
     if args.vm not in {n for n, _ in list_vms()}:
         die(f"no VM named {args.vm!r}; --list-vms shows them")
+    if args.list_snapshots:
+        for sn in snapshots(args.vm):
+            ours = sn.get("name", "").startswith(("AutoRundown-auto-", "AutoRundown-before-rollback-"))
+            print("\t".join(["SNAP", sn.get("name", ""), "ours" if ours else "",
+                             "current" if sn["current"] else "",
+                             sn.get("description", "").replace("\t", " ").replace("\n", " ")]))
+        return 0
+    if args.restore:
+        restore_snapshot(args.vm, args.restore)
+        return 0
     steps = [s for s in args.steps.split(",") if s]
     bad = [s for s in steps if s not in ALL_STEPS]
     if bad:
@@ -580,6 +683,7 @@ def main(argv=None) -> int:
         levels = preflight(args.vm, steps, out, args.subnet, args.java, args.jar)
         if args.boot and "fail" not in levels:
             SHOT_DIR = out
+            auto_snapshot(args.vm, "a VM test")
             levels += boot_check(args.vm, steps, args.subnet, args.wait, args.port, args.epc_port)
         log("check: " + ("ready" if "fail" not in levels else "NOT ready -- see the CHECK lines"))
         return 0 if "fail" not in levels else 2
@@ -596,6 +700,7 @@ def main(argv=None) -> int:
     if online:
         JAVA, STAGE = find_java(args.java), stage_scripts(find_jar(args.jar))
         log(f"VM {args.vm}; Java {JAVA}; output {out}")
+        auto_snapshot(args.vm, f"an extraction ({','.join(steps)})")
         # the database the first step needs: WIS (2054), or EPC (2034) alone
         port = args.epc_port if online == ["epc"] else args.port
         ip = vm_up(args.vm, port, args.subnet, args.wait)

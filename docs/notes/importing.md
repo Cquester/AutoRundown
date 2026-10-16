@@ -282,9 +282,28 @@ closed and the extractor kept running on its own).
   index without the manuals it was replacing. An extractor that ignores the
   cancel is ended after `CANCEL_GRACE` (15 min). The extractor also stops
   the same way when the server process (`AR_PARENT_PID`) goes away.
-Real VM checked read-only with `--check` only (no boot); the rest on the
-fake extractor ("Windows won't start (fake)", "No network (fake)").
-Tests: `tests/test_vm_jobs.py`.
+- **Our own snapshot, and rolling back** (the user, the same day: "we
+  should create a snapshot just for us"). Before a run or a VM test boots
+  the VM, `auto_snapshot` takes "AutoRundown-auto-<date>-<time>" (`SNAPSHOT
+  <name>`, kept as the job's `snapshot`), unless ours from the last 6 hours
+  exists -- retries don't pile them up. Never deleted automatically:
+  deleting merges disk images, heavy I/O on this PC; the check warns past
+  5. Shop setup → *Snapshots and rolling back* lists them (`GET
+  /api/vms/snapshots`, `--list-snapshots`) and rolls back (job mode
+  `vm_rollback`, `--restore NAME`), refused while the VM runs; it first
+  takes "AutoRundown-before-rollback-<...>", so a rollback can be undone.
+  After a run fails with a screenshot the section opens with the run's own
+  snapshot chosen. A snapshot taken just before a run is the VM as it was
+  then: if Windows was already broken, pick an older one.
+Real VM, 2026-10-16: `--check` (read-only); **Test the VM** resumed the
+saved Startup-Repair state, waited 10 min, took the screenshot and saved the
+VM again (never powered off); **Cancel** during a test: STOP, ACPI
+shutdown ignored by Startup Repair, screenshot, state saved after 2 min,
+job `cancelled` -- that run found a crash in the shutdown loop (a set
+changing while iterated; fixed, tested). The healthy path (Windows up, DB
+answering) and a real snapshot/rollback were not run yet: Windows in the VM
+was broken. The rest on the fake extractor ("Windows won't start (fake)",
+"No network (fake)"). Tests: `tests/test_vm_jobs.py`.
 
 **Testing it without a VM**: `tools/fake_extractor/` is a stand-in
 `vm_pipeline.py` (plus empty `pull_epc.js`/`epc_fv4.js` and a `wis_paths.py`

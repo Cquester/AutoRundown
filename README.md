@@ -118,7 +118,9 @@ files. "Start when I sign in" runs it as you, in the background.
   and shuts it down. **Cancel** stops a run and shuts the VM down cleanly; a
   re-run resumes. The VM is never switched off by force: if Windows doesn't
   start, the tab shows a picture of the VM's screen and the VM is paused
-  there for you to open in VirtualBox.
+  there for you to open in VirtualBox. Before each run AutoRundown takes its
+  own **snapshot** of the VM; *Snapshots and rolling back* restores one (the
+  VM as it was is snapshotted first, so that can be undone too).
   **After updating AutoRundown, update the extractor copy too** (copy a
   current extractor folder over it): the check says so when it's too old.
   **If your manuals are already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,

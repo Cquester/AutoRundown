@@ -160,6 +160,29 @@ def check_vm(vm: str, steps: str) -> dict:
             "out_root": info.get("out_root", "")}
 
 
+def list_snapshots(vm: str) -> dict:
+    """The VM's snapshots (vm_pipeline.py --list-snapshots), oldest first:
+    which are ours (taken before a run, or before a rollback) and which is
+    the current one."""
+    info = list_vms()
+    if info.get("error"):
+        return {"snapshots": [], "error": str(info["error"])}
+    if vm not in {v["name"] for v in info["vms"]}:
+        return {"snapshots": [], "error": f"There is no VirtualBox VM named {vm!r}."}
+    r = subprocess.run([sys.executable, str(Path(info["extractor"]) / "vm_pipeline.py"), "--vm", vm,
+                        "--list-snapshots"], capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=60, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    snaps = []
+    for line in r.stdout.splitlines():
+        p = line.split("\t")
+        if len(p) >= 5 and p[0] == "SNAP" and p[1]:
+            snaps.append({"name": p[1], "ours": p[2] == "ours", "current": p[3] == "current",
+                          "description": p[4]})
+    if r.returncode != 0 or (not snaps and "SNAP" not in r.stdout and r.stdout.strip()):
+        return {"snapshots": snaps, "error": "This extractor copy can't list snapshots; update it."}
+    return {"snapshots": snaps}
+
+
 def describe(path: Path, index_path: str | Path) -> dict:
     """What an import of `path` would do, cheaply -- no full scan."""
     try:
@@ -582,6 +605,11 @@ class ImportJobs:
                              ("epc", "EPC parts", lambda: self._epc_cmds(epc, index_path, vm))]
             elif mode == "vm_epc":
                 cmds = self._epc_cmds(path, index_path, vm)
+            elif mode == "vm_rollback":
+                # a person asked to roll the VM back to a snapshot; the
+                # extractor snapshots the current state first, so it can be undone
+                ext = find_extractor()
+                cmds = [[*py, str(ext / "vm_pipeline.py"), "--vm", vm, "--restore", steps]]
             elif mode == "vm_check":
                 # boot the VM and see Windows start and the databases answer
                 # (vm_pipeline.py --check --boot); changes nothing, imports nothing
@@ -654,6 +682,11 @@ class ImportJobs:
             with self._lock:
                 if self._job:
                     self._job["screen_path"] = m.group(1).strip()
+        m = re.search(r"\] SNAPSHOT (\S+)", line)
+        if m:
+            with self._lock:
+                if self._job:         # the snapshot this run took, to roll back to
+                    self._job["snapshot"] = m.group(1)
         f = getattr(self, "_file", None)
         if f:
             try:

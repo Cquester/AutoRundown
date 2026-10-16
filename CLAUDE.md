@@ -327,7 +327,10 @@ database didn't answer left the real VM's Windows 7 in Startup Repair. Now
 `vm_down` saves the VM's state when ACPI shutdown doesn't finish, a saved
 state is resumed (not discarded), and Windows not starting (Guest Additions
 run level) stops the run with a screenshot of the VM's screen. Do not bring
-back `controlvm poweroff` or `discardstate`. The VM list has no default;
+back `controlvm poweroff` or `discardstate`. Before a run boots the VM it
+takes its own snapshot ("AutoRundown-auto-…", one per 6 h, never deleted
+automatically) and Shop setup can roll back to any snapshot, snapshotting
+the current state first. The VM list has no default;
 `vm_pipeline.py --check` (and `--check --boot`, "Test the VM") gates a run;
 Cancel stops the pull and shuts the VM down cleanly, and the extractor stops
 by itself if the server goes away. Details: `docs/notes/importing.md`.

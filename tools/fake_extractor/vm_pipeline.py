@@ -95,6 +95,47 @@ def write_png(path: Path) -> None:
                      + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
+# pretend snapshots, one JSON file per run's output folder
+def _snap_file(out: Path) -> Path:
+    return out / "fake_snapshots.json"
+
+
+def fake_snaps(out: Path) -> dict:
+    try:
+        return json.loads(_snap_file(out).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def snaps_for(out: Path, vm: str) -> list[dict]:
+    return fake_snaps(out).get(vm) or [{"name": "Baseline (fake)", "current": True}]
+
+
+def save_snaps(out: Path, vm: str, snaps: list[dict]) -> None:
+    allv = fake_snaps(out)
+    allv[vm] = snaps
+    out.mkdir(parents=True, exist_ok=True)
+    _snap_file(out).write_text(json.dumps(allv), encoding="utf-8")
+
+
+def take_snap(out: Path, vm: str, name: str) -> None:
+    snaps = snaps_for(out, vm)
+    for s in snaps:
+        s["current"] = False
+    snaps.append({"name": name, "current": True})
+    save_snaps(out, vm, snaps)
+
+
+def auto_snapshot(out: Path) -> None:
+    ours = [s["name"] for s in snaps_for(out, VM) if s["name"].startswith("AutoRundown-auto-")]
+    if ours and time.time() - os.path.getmtime(_snap_file(out)) < 6 * 3600:
+        log(f"snapshot: using {ours[-1]} (taken in the last 6 hours)")
+        return
+    name = "AutoRundown-auto-" + time.strftime("%Y%m%d-%H%M%S")
+    take_snap(out, VM, name)
+    log(f"SNAPSHOT {name}")
+
+
 def windows_wont_start(out: Path) -> None:
     log("database not answering yet. Once, inside the VM: log in to Windows, start "
         "'Mercedes WSM EPC' (it starts the database), put the network adapter on "
@@ -144,6 +185,8 @@ def main(argv=None) -> int:
     ap.add_argument("--steps", default="docs,applic,vehicles,images,build")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--boot", action="store_true")
+    ap.add_argument("--list-snapshots", action="store_true")
+    ap.add_argument("--restore", default="")
     args, _ = ap.parse_known_args(argv)
     global VM
     if args.list_vms:
@@ -153,6 +196,26 @@ def main(argv=None) -> int:
     if args.vm not in {n for n, _ in VMS}:
         die(f"no VM named {args.vm!r}; --list-vms shows them")
     VM = args.vm
+    snap_out = Path(args.out_root)
+    if args.list_snapshots:
+        for s in snaps_for(snap_out, VM):
+            ours = s["name"].startswith(("AutoRundown-auto-", "AutoRundown-before-rollback-"))
+            print("\t".join(["SNAP", s["name"], "ours" if ours else "", "current" if s["current"] else "",
+                             "a pretend snapshot"]))
+        return 0
+    if args.restore:
+        snaps = snaps_for(snap_out, VM)
+        if args.restore not in {s["name"] for s in snaps}:
+            die(f"{VM} has no snapshot named {args.restore!r}")
+        keep = "AutoRundown-before-rollback-" + time.strftime("%Y%m%d-%H%M%S")
+        take_snap(snap_out, VM, keep)
+        log(f"SNAPSHOT {keep} (the state before the rollback, to undo it)")
+        snaps = snaps_for(snap_out, VM)
+        for s in snaps:
+            s["current"] = s["name"] == args.restore
+        save_snaps(snap_out, VM, snaps)
+        log(f"rolled {VM} back to {args.restore}")
+        return 0
     steps = [s for s in args.steps.split(",") if s]
     bad = [s for s in steps if s not in ALL_STEPS]
     if bad:
@@ -162,6 +225,8 @@ def main(argv=None) -> int:
     if args.check:
         levels = [check("vm", "ok", f"{VM} is off and ready to start.")]
         if online:
+            levels.append(check("snapshot", "ok", "A snapshot of the VM is taken before it starts, "
+                                                  "to roll back to if Windows breaks."))
             levels.append(check("network", "fail", f"{VM} has no host-only network adapter: this PC "
                                                    "cannot reach its database.")
                           if "No network" in VM else check("network", "ok", "Host-only network adapter."))
@@ -169,6 +234,7 @@ def main(argv=None) -> int:
         levels += [check("scripts", "ok", "The extractor has every script these steps need."),
                    check("disk", "ok", f"500 GB free for {out}.")]
         if args.boot and "fail" not in levels:
+            auto_snapshot(out)
             log(f"starting {VM} headless")
             if "won't start" in VM:
                 try:
@@ -188,6 +254,7 @@ def main(argv=None) -> int:
         return 0 if "fail" not in levels else 2
     if online:
         log(f"VM {args.vm}; Java fake-java; output {out}")
+        auto_snapshot(out)
         log(f"starting {args.vm} headless")
         if "won't start" in args.vm:
             windows_wont_start(out)

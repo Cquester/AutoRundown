@@ -399,6 +399,9 @@
   .vmscreen img{display:block; max-width:100%; border:1px solid var(--line); border-radius:6px}
   .vmscreen figcaption{font-size:13px; margin-top:4px}
   #impCancel{min-height:44px}
+  .vmsnaps{margin:12px 0 0; border:1px solid var(--line); border-radius:10px; padding:8px 12px}
+  .vmsnaps summary{cursor:pointer; font-weight:600; min-height:32px; display:flex; align-items:center}
+  .vmsnaps select{flex:1 1 220px; min-width:0}
   .dirlist{max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px}
   .dirlist button{display:block; width:100%; text-align:left; background:none; border:0;
     border-bottom:1px solid var(--line); color:var(--text); padding:7px 10px; font:inherit; cursor:pointer}
@@ -1022,12 +1025,26 @@
       <button type="button" class="ghost" id="impVmTest">Test the VM</button>
       <span class="muted">Starts it, checks Windows comes up and the database answers, then shuts it down. Imports nothing.</span>
     </div>
+    <!-- our own snapshots: one before each run / VM test, to roll back to -->
+    <details class="vmsnaps" id="impVmSnaps" hidden>
+      <summary>Snapshots and rolling back</summary>
+      <p class="muted">Before each run and each VM test AutoRundown takes a snapshot of the VM (at most one
+        every 6 hours). If a run leaves Windows broken, roll back to the one taken before it. Rolling back
+        first takes a snapshot of the VM as it is, so it can be undone. AutoRundown never deletes snapshots:
+        tidy old ones up in VirtualBox.</p>
+      <label for="impSnap">Roll back to</label>
+      <div class="row" style="gap:8px; align-items:center">
+        <select id="impSnap"></select>
+        <button type="button" class="ghost" id="impRollback">Roll back the VM</button>
+      </div>
+      <p class="muted" id="impSnapNote" style="margin:6px 0 0"></p>
+    </details>
     <div id="impEpcOpts" hidden>
     <p class="muted" style="margin:10px 0 0">Pulls every passenger-car parts catalogue (chassis and engines)
       with its exploded drawings, then replaces the parts catalogue in the index. Part numbers then show
       under each car alongside its manual. A first full run takes several hours; a re-run resumes where it
       stopped and reuses drawings already pulled. Starts the VM headless, reads the EPC database (read only)
-      and shuts it down; it never takes snapshots or changes the VM's settings.</p>
+      and shuts it down; it takes a snapshot first, to roll back to, and never changes the VM's settings.</p>
     </div>
     <div id="impWisOpts">
     <label>Steps (each one resumes where it stopped)</label>
@@ -1039,8 +1056,8 @@
       <label style="margin:0"><input type="checkbox" value="build" checked> Build corpus</label>
     </div>
     <p class="muted" style="margin:10px 0 0">Starts the VM headless, reads the Mercedes database (read only),
-      then shuts it down and rebuilds the Mercedes part of the index. It never takes snapshots or changes
-      the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
+      then shuts it down and rebuilds the Mercedes part of the index. It takes a snapshot of the VM first,
+      to roll back to, and never changes the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
       off in between); a re-run skips what is already pulled.</p>
     </div>
     </div>
@@ -1060,7 +1077,8 @@
                 <figure class="vmscreen" id="impScreen" hidden>
                   <img alt="The virtual machine's screen when the extractor stopped">
                   <figcaption class="muted">The VM's screen when the extractor stopped. Open the VM in
-                    VirtualBox to fix it (it was paused there, not switched off).</figcaption>
+                    VirtualBox to fix it (it was paused there, not switched off), or roll it back to the
+                    snapshot taken before the run (Snapshots and rolling back, above).</figcaption>
                 </figure>
               </div>
               <span class="muted" id="impStatus" role="status"></span>
@@ -4730,7 +4748,8 @@ const impDur = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600
 const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'remove_wis'
   ? 'removing Mercedes WIS' : s.mode === 'remove_epc' ? 'removing Mercedes EPC'
   : s.mode === 'vm' ? 'Mercedes VM extract' : s.mode === 'vm_epc' ? 'Mercedes EPC extract'
-  : s.mode === 'vm_both' ? 'Mercedes WIS + EPC extract' : s.mode === 'vm_check' ? 'VM test' : 'import';
+  : s.mode === 'vm_both' ? 'Mercedes WIS + EPC extract' : s.mode === 'vm_check' ? 'VM test'
+  : s.mode === 'vm_rollback' ? 'VM rollback' : 'import';
 function impShow(s) {
   const log = $('#impLog');
   $('#jobIdle').hidden = s.state !== 'idle';
@@ -4800,6 +4819,12 @@ async function impWatch() {
     if (s.state !== 'running') {
       clearInterval(impPoll); impPoll = null;
       manLoad();
+      // a VM job ended: its snapshots changed; a broken Windows points at the
+      // snapshot taken before the run, ready to roll back to
+      if (/^vm/.test(s.mode || '') && impTab() === 'vm' && $('#impVm').value === s.vm) {
+        impVmSnaps(s.snapshot);
+        if (s.screen) $('#impVmSnaps').open = true;
+      }
       if (catRoot) catRefresh();
       if (s.state === 'done') {
         loadVehicles().then(() => {
@@ -4876,6 +4901,7 @@ async function impVms() {
     if (r.vms.some(v => v.name === keep)) $('#impVm').value = keep;
     $('#impVmNote').innerHTML = `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`;
     impVmCheck();
+    impVmSnaps();
   } catch (e) { noVm(e.message); }
 }
 // what a run on the chosen VM needs, checked without booting it
@@ -4909,6 +4935,36 @@ async function impVmCheck() {
   $('#impStart').disabled = !vmReady || running;
   $('#impVmTest').disabled = !vmReady || running;
 }
+// the VM's snapshots, newest first; ours (before a run, before a rollback) say so
+async function impVmSnaps(prefer) {
+  const vm = $('#impVm').value, box = $('#impVmSnaps');
+  box.hidden = !vm;
+  if (!vm) return;
+  try {
+    const r = await api(`/api/vms/snapshots?vm=${encodeURIComponent(vm)}`);
+    if (vm !== $('#impVm').value) return;
+    const snaps = [...(r.snapshots || [])].reverse();
+    $('#impSnap').innerHTML = snaps.map(s => `<option value="${esc(s.name)}">${esc(s.name)}`
+      + (s.current ? ' (the VM runs on this one now)' : '') + (s.ours ? '' : ' · not AutoRundown\'s') + '</option>').join('');
+    const pick = prefer && snaps.some(s => s.name === prefer) ? prefer
+      : (snaps.find(s => s.ours && /auto-/.test(s.name)) || snaps[0] || {}).name;
+    if (pick) $('#impSnap').value = pick;
+    $('#impRollback').disabled = !snaps.length || impLast?.state === 'running';
+    $('#impSnapNote').textContent = r.error || (snaps.length ? '' : 'This VM has no snapshots yet.');
+  } catch (e) { $('#impSnapNote').textContent = e.message; }
+}
+$('#impVm').addEventListener('change', () => impVmSnaps());
+$('#impRollback').onclick = async () => {
+  const vm = $('#impVm').value, snap = $('#impSnap').value;
+  if (!snap || !confirm(`Roll ${vm} back to "${snap}"? Everything done inside the VM since then is undone. `
+      + 'A snapshot of the VM as it is now is taken first, so this can be undone. '
+      + 'The VM must be shut down (or its window closed, saving its state).')) return;
+  try {
+    impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: '', mode: 'vm_rollback', vm, snapshot: snap})}));
+    impWatch();
+  } catch (e) { $('#impStatus').textContent = e.message; }
+};
 $('#impVm').addEventListener('change', impVmCheck);
 $('#impSteps').addEventListener('change', impVmCheck);
 $('#impVmTest').onclick = async () => {
@@ -4961,7 +5017,8 @@ function impProg(s) {
   box.hidden = false;
   const parts = s.parts && s.parts.length ? s.parts : [{label: '', state: s.state}];
   const n = parts.length, i = Math.min(s.part || 0, n - 1);
-  const name = lb => lb || (s.mode === 'vm_epc' ? 'EPC parts' : s.mode === 'vm_check' ? 'VM test' : 'WIS');
+  const name = lb => lb || (s.mode === 'vm_epc' ? 'EPC parts' : s.mode === 'vm_check' ? 'VM test'
+    : s.mode === 'vm_rollback' ? 'VM rollback' : 'WIS');
   const step = n > 1 ? `Step ${i + 1} of ${n}: ${name(parts[i].label)}` : name(parts[0].label);
   const p = s.progress || {};
   const bar = $('#vpBar'), fill = bar.firstElementChild;

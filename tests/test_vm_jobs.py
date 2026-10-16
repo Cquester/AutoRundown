@@ -267,6 +267,24 @@ def main() -> int:
               s["checks"])
         check("... and has no picture", not s["screen"] and pc.get("/api/import/screen").status_code == 404)
 
+        print("\n-- our own snapshot before a run, and rolling back --")
+        sn = pc.get("/api/vms/snapshots", params={"vm": "Mercedes EWA (fake)"}).json()
+        ours = [x["name"] for x in sn["snapshots"] if x["ours"]]
+        check("the runs above took our snapshot (one, reused within 6 h)",
+              len([o for o in ours if o.startswith("AutoRundown-auto-")]) == 1, sn)
+        r = pc.post("/api/import", json={"path": "", "mode": "vm_rollback", "vm": "Mercedes EWA (fake)",
+                                         "snapshot": "Baseline (fake)"})
+        check("a rollback starts", r.status_code == 200, r.text)
+        s = wait(pc, [])
+        check("it keeps the state before the rollback first, then restores",
+              s["state"] == "done" and any("SNAPSHOT AutoRundown-before-rollback-" in l for l in s["log"])
+              and any("back to Baseline (fake)" in l for l in s["log"]), s["log"][-4:])
+        sn = pc.get("/api/vms/snapshots", params={"vm": "Mercedes EWA (fake)"}).json()
+        check("... and the VM now runs on the snapshot rolled back to",
+              [x["name"] for x in sn["snapshots"] if x["current"]] == ["Baseline (fake)"], sn)
+        check("rolling back to a snapshot that isn't there is refused", pc.post("/api/import", json={
+            "path": "", "mode": "vm_rollback", "vm": "Mercedes EWA (fake)", "snapshot": "nope"}).status_code == 400)
+
         print("\n-- Cancel --")
         os.environ["AR_FAKE_VM_DELAY"] = "0.3"           # slow enough to cancel mid-pull
         r = pc.post("/api/import", json={"path": "", "mode": "vm_both", "vm": "Mercedes EWA (fake)",
@@ -310,10 +328,11 @@ def main() -> int:
         check("a phone cannot start or read an import", phone.post(
             "/api/import", json={"path": "", "mode": "vm_both", "vm": "x"}).status_code == 403
               and phone.get("/api/import").status_code == 403)
-        check("... nor cancel one, check a VM or see its screen",
+        check("... nor cancel one, check a VM, see its screen or its snapshots",
               phone.post("/api/import/cancel").status_code == 403
               and phone.get("/api/vms/check", params={"vm": "x"}).status_code == 403
-              and phone.get("/api/import/screen").status_code == 403)
+              and phone.get("/api/import/screen").status_code == 403
+              and phone.get("/api/vms/snapshots", params={"vm": "x"}).status_code == 403)
         bare = TMP / "too_old"
         bare.mkdir()
         (bare / "vm_pipeline.py").write_text(

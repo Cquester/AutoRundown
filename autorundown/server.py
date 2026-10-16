@@ -132,6 +132,8 @@ class ImportBody(BaseModel):
     # mode "vm_both": "vm" then "vm_epc" as one job; EPC only if WIS succeeded
     vm: str = ""
     steps: str = ""
+    # mode "vm_rollback": the snapshot to roll the VM back to
+    snapshot: str = Field("", max_length=200)
     # mode "lemon": the vehicle folders to import, relative to path
     # mode "remove": the doc_ids to remove (LEMON / folder manuals only)
     vehicles: list[str] = []
@@ -619,8 +621,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         """Is an import running? Any device may ask: the page shows "search
         shows partial results until it finishes" while one is. No log, no paths."""
         st = jobs.status()
-        # a VM test (vm_check) imports nothing: search is not partial then
-        return {"importing": st.get("state") == "running" and st.get("mode") != "vm_check"}
+        # a VM test or rollback imports nothing: search is not partial then
+        return {"importing": st.get("state") == "running"
+                             and st.get("mode") not in ("vm_check", "vm_rollback")}
 
     @app.get("/api/vehicles")
     def vehicles(request: Request) -> Response:
@@ -1158,6 +1161,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         """Will a run on this VM work? Checked without booting it."""
         return importer_jobs.check_vm(vm, vm_steps(what, steps))
 
+    @app.get("/api/vms/snapshots")
+    def api_vm_snapshots(vm: str = Query(max_length=200)) -> dict:
+        return importer_jobs.list_snapshots(vm)
+
     @app.get("/api/import")
     def api_import_status() -> dict:
         return jobs.status()
@@ -1179,6 +1186,19 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/import")
     def api_import_start(body: ImportBody) -> dict:
+        if body.mode == "vm_rollback":
+            # roll the VM back to one of its snapshots (asked for by a person;
+            # the extractor snapshots the current state first)
+            snaps = importer_jobs.list_snapshots(body.vm)
+            if snaps.get("error"):
+                raise HTTPException(400, snaps["error"])
+            if body.snapshot not in {s["name"] for s in snaps["snapshots"]}:
+                raise HTTPException(400, f"{body.vm} has no snapshot named {body.snapshot!r}.")
+            try:
+                return jobs.start(Path("."), app.state.index_path, "vm_rollback", vm=body.vm,
+                                  steps=body.snapshot)
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
         if body.mode in ("vm", "vm_epc", "vm_both", "vm_check"):
             info = importer_jobs.list_vms()
             if info.get("error"):
