@@ -693,11 +693,12 @@ def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         model: str = DEFAULT_MODEL, source: str = "cli",
         variant: int | None = None, engine: str | None = None,
         year: int | None = None, user_id: int | None = None,
-        user_name: str | None = None) -> Result:
+        user_name: str | None = None, key_ref: str | None = None) -> Result:
     """Answer one question, recording what it cost.
 
     `source` tags the spend as web/cli/eval so a bill can be attributed later;
-    `user_id`/`user_name` tag it with the signed-in mechanic, if any.
+    `user_id`/`user_name` tag it with the signed-in mechanic, if any;
+    `key_ref` with whose key paid (config.pick_key: "company" | "user:<id>").
     """
     usage = Usage(model=model)
     try:
@@ -709,7 +710,7 @@ def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         if usage.calls:
             from .index import log_usage
             log_usage(conn, source, vehicle["doc_id"], question, usage,
-                      user_id, user_name)
+                      user_id, user_name, key_ref)
 
 
 def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,

@@ -19,16 +19,19 @@ import json
 import re
 import socket
 import sqlite3
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, RedirectResponse,
+                               Response)
 from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import auth, config, index, query, tls
+from . import auth, config, index, qr, query, tls
 from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
 from .search import get_page, part_lines, scope_ids, search, split_scope, value_lines
 
@@ -63,10 +66,12 @@ class SettingsBody(BaseModel):
     # Windows: start in the background at sign-in (autostart.py)
     autostart: bool | None = None
     require_signin: bool | None = None
+    # "company" | "per_mechanic" (config.pick_key)
+    key_mode: str | None = Field(None, pattern="^(company|per_mechanic)$")
 
 
 class SigninBody(BaseModel):
-    code: str
+    code: str = Field(max_length=40)
 
 
 # dollars a month: -5 used to be stored (the mechanic was refused for good)
@@ -83,6 +88,17 @@ class UserUpdateBody(BaseModel):
     disabled: bool | None = None
     monthly_cap_usd: Cap | None = None
     clear_cap: bool = False
+
+
+class MechanicKeyBody(BaseModel):
+    """A mechanic's own API key ("A key per mechanic"). A new key, or
+    `reset` ("topped up / new key"), starts the spend count again from now;
+    `loaded_usd` is the credit the owner says is on the key at that moment."""
+    api_key: str | None = Field(None, max_length=300)
+    loaded_usd: Cap | None = None
+    clear_loaded: bool = False
+    reset: bool = False
+    remove: bool = False
 
 
 class LemonPickBody(BaseModel):
@@ -142,8 +158,9 @@ def _wis_page(conn, vehicle: dict, page_no: str) -> tuple[dict | None, bool]:
 
 # answer to any device, signed in or not: the page itself, so it can show
 # the sign-in screen, and the CA a phone must install before trusting HTTPS
+# and /signin, where a sign-in QR's link lands
 PUBLIC_PATHS = {"/", "/manifest.webmanifest", "/ca.crt", "/api/me",
-                "/api/auth/signin", "/api/auth/signout"}
+                "/api/auth/signin", "/api/auth/signout", "/signin"}
 # answer to the PC running the server only -- they read and change this PC's
 # files, settings and API key, and manage accounts
 ADMIN_PREFIXES = ("/api/settings", "/api/browse", "/api/vms", "/api/import",
@@ -424,18 +441,41 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "default_model": cfg.model or query.DEFAULT_MODEL,
             "https": request.url.scheme == "https",
         }
+        out["key_mode"] = cfg.key_mode
         if who.user_id is not None:
             conn, aconn = db(), adb()
             try:
                 out["month_spend_usd"] = round(index.month_spend(conn, who.user_id), 4)
+                out["month_questions"] = index.month_questions(conn, who.user_id)
                 out["monthly_cap_usd"] = auth.monthly_cap(aconn, who.user_id)
+                if cfg.key_mode == "per_mechanic":
+                    # their own key's estimate -- never the key, nor its last 4
+                    k = _key_status(conn, cfg, who.user_id)
+                    out["own_key"] = {f: k[f] for f in
+                                      ("has_key", "loaded_usd", "spent_usd", "remaining_usd")}
             finally:
                 conn.close()
                 aconn.close()
         return out
 
+    def _set_token_cookie(request: Request, response: Response, token: str) -> None:
+        # a phone that was signed in as someone else is now this mechanic;
+        # its old token is ended, not left behind
+        old = request.cookies.get(auth.COOKIE)
+        if old:
+            conn = adb()
+            try:
+                auth.revoke_token(conn, old)
+            finally:
+                conn.close()
+        response.set_cookie(auth.COOKIE, token, max_age=auth.TOKEN_DAYS * 86400,
+                            httponly=True, samesite="lax",
+                            secure=request.url.scheme == "https")
+
     @app.post("/api/auth/signin")
     def api_signin(request: Request, body: SigninBody, response: Response) -> dict:
+        """The typed code under a sign-in QR (for a phone whose camera can't
+        scan it): same grant, same single use and 15 minutes."""
         addr = request.client.host if request.client else ""
         if throttle.blocked(addr):
             raise HTTPException(429, "Too many wrong codes. Wait 15 minutes, or ask for a new code.")
@@ -446,12 +486,39 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             conn.close()
         if token is None:
             throttle.fail(addr)
-            raise HTTPException(400, "That code is wrong or has expired. Ask for a new one.")
+            raise HTTPException(400, "That code is wrong, used or has expired. "
+                                     "Ask for a new sign-in QR.")
         throttle.ok(addr)
-        response.set_cookie(auth.COOKIE, token, max_age=auth.TOKEN_DAYS * 86400,
-                            httponly=True, samesite="lax",
-                            secure=request.url.scheme == "https")
+        _set_token_cookie(request, response, token)
         return {"ok": True}
+
+    @app.get("/signin")
+    def signin_link(request: Request, t: str = Query("", max_length=200)) -> Response:
+        """Where a sign-in QR lands: the phone's camera opened
+        /signin?t=<token>. The token is used up here (hash looked up, expiry
+        and single use checked), the session cookie set, and the phone sent
+        to / -- so the token leaves the address bar and its history entry.
+        A failure goes to /#signin=<why>, where the page says so."""
+        addr = request.client.host if request.client else ""
+        no_store = {"Cache-Control": "no-store"}
+        # a camera app or a typed address is Sec-Fetch-Site "none"; a link
+        # or a hidden frame on another site must not sign this phone in
+        if _cross_site(request):
+            return RedirectResponse("/#signin=refused", 303, headers=no_store)
+        if throttle.blocked(addr):
+            return RedirectResponse("/#signin=wait", 303, headers=no_store)
+        conn = adb()
+        try:
+            token = auth.redeem_link(conn, t, request.headers.get("user-agent", ""))
+        finally:
+            conn.close()
+        if token is None:
+            throttle.fail(addr)
+            return RedirectResponse("/#signin=expired", 303, headers=no_store)
+        throttle.ok(addr)
+        response = RedirectResponse("/", 303, headers=no_store)
+        _set_token_cookie(request, response, token)
+        return response
 
     @app.post("/api/auth/signout")
     def api_signout(request: Request, response: Response) -> dict:
@@ -499,7 +566,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             cfg = config.load()
-            out = {**index.stats(conn), "has_api_key": bool(cfg.resolved_key)}
+            who: auth.Who = request.state.who
+            try:   # a key this requester may use (theirs, in per-mechanic mode)
+                has_key = bool(config.pick_key(cfg, who.user_id, who.admin).key)
+            except config.NoKeyForRequest:
+                has_key = False
+            out = {**index.stats(conn), "has_api_key": has_key}
             if request.state.who.admin:  # this PC's paths are its own business
                 out.update(index_path=app.state.index_path, archive_dir=cfg.archive_dir)
             return out
@@ -608,16 +680,23 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     raise HTTPException(
                         402, f"Monthly limit reached (${spent:.2f} of ${cap:.2f}). "
                              "Keyword search still works; ask the shop to raise the limit.")
+            # whose key pays: the company's or this mechanic's own; with none
+            # for them, a plain refusal -- never somebody else's key
+            try:
+                key = config.pick_key(cfg, who.user_id, who.admin)
+            except config.NoKeyForRequest as exc:
+                raise HTTPException(400, str(exc))
             try:
                 chosen = body.model or cfg.model or query.DEFAULT_MODEL
                 if chosen not in query.MODELS:
                     raise HTTPException(400, f"unknown model {chosen}")
                 result = query.ask(
-                    conn, vehicle, body.question, cfg.resolved_key,
+                    conn, vehicle, body.question, key.key,
                     include_other_variants=body.include_other_variants,
                     model=chosen, source="web", variant=body.variant,
                     engine=body.engine, year=body.year,
-                    user_id=who.user_id, user_name=who.name or None)
+                    user_id=who.user_id, user_name=who.name or None,
+                    key_ref=key.ref)
             except (query.NoApiKey, query.ApiUnavailable) as exc:
                 raise HTTPException(400, str(exc))
             return result.as_dict()
@@ -1048,7 +1127,17 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/settings")
     def get_settings() -> dict:
         cfg = config.load()
+        conn = db()
+        try:
+            month_q, month_usd = index.month_total(conn)
+        finally:
+            conn.close()
         return {
+            "key_mode": cfg.key_mode,
+            # everyone, every source, this UTC month: "One company key" mode's total
+            "month_questions": month_q,
+            "month_spend_usd": round(month_usd, 4),
+            "company_key_last4": config.key_last4(cfg.resolved_key),
             "archive_dir": cfg.archive_dir,
             "index_path": app.state.index_path,  # the one in use, not the saved one
             "importer": cfg.importer,
@@ -1086,7 +1175,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 raise HTTPException(400, str(exc))
         cfg = config.load()
         for field_name in ("archive_dir", "index_path", "importer", "api_key",
-                           "model", "extractor_dir", "require_signin"):
+                           "model", "extractor_dir", "require_signin", "key_mode"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)
@@ -1109,26 +1198,129 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
             aconn.close()
-        for u in users:
-            q, c = spend.get(u["id"], (0, 0.0))
-            u.update(month_questions=q, month_spend_usd=round(c, 4))
+        cfg = config.load()
+        conn = db()
+        try:
+            for u in users:
+                q, c = spend.get(u["id"], (0, 0.0))
+                u.update(month_questions=q, month_spend_usd=round(c, 4),
+                         key=_key_status(conn, cfg, u["id"]))
+        finally:
+            conn.close()
         q, c = spend.get(None, (0, 0.0))
         return {"users": users, "unattributed": {"month_questions": q,
                                                  "month_spend_usd": round(c, 4)},
-                "require_signin": config.load().require_signin,
+                "require_signin": cfg.require_signin,
+                "key_mode": cfg.key_mode,
                 "phone_urls": _phone_urls()}
 
     @app.post("/api/admin/users")
     def admin_add_user(body: NewUserBody) -> dict:
+        """Adds the mechanic; the page then opens their sign-in QR."""
         aconn = adb()
         try:
-            uid = auth.add_user(aconn, body.name, body.monthly_cap_usd)
-            return {"id": uid, "code": auth.new_code(aconn, uid),
-                    "minutes": auth.CODE_MINUTES}
+            return {"id": auth.add_user(aconn, body.name, body.monthly_cap_usd)}
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         finally:
             aconn.close()
+
+    @app.get("/api/admin/site-qr")
+    def admin_site_qr() -> dict:
+        """A QR that opens AutoRundown on a phone, and the addresses to write
+        under it. It holds the LAN address, not autorundown.local: a camera
+        app on an Android phone often can't resolve .local names, while an
+        address always works (a home-screen icon added from autorundown.local
+        survives the PC getting a new address, so both are written out)."""
+        base = _qr_base()
+        return {"url": base, "svg": qr.svg(base + "/") if base else "",
+                "urls": _phone_urls()}
+
+    # -- sign-in QRs: one per dialog, single use, 15 minutes ---------------
+    @app.post("/api/admin/users/{user_id}/qr")
+    def admin_new_qr(user_id: int) -> dict:
+        base = _qr_base()
+        if not base:
+            raise HTTPException(409, "This PC has no network address, so a phone can't reach it.")
+        aconn = adb()
+        try:
+            g = auth.new_grant(aconn, user_id)
+        except KeyError:
+            raise HTTPException(404, "No such user.")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        finally:
+            aconn.close()
+        link = f"{base}/signin?t={g.link_token}"
+        # the link and the code go to this page once and are not kept
+        return {"grant_id": g.id, "svg": qr.svg(link), "url": link, "code": g.code,
+                "expires_in": max(0, round(g.expires - time.time())),
+                "minutes": auth.CODE_MINUTES, "site": base}
+
+    def _grant_of(aconn, user_id: int, grant_id: int) -> None:
+        row = aconn.execute("SELECT user_id FROM grants WHERE id=?", (grant_id,)).fetchone()
+        if row is None or row["user_id"] != user_id:   # another mechanic's QR
+            raise HTTPException(404, "No such sign-in QR for this mechanic.")
+
+    @app.get("/api/admin/users/{user_id}/qr/{grant_id}")
+    def admin_qr_status(user_id: int, grant_id: int) -> dict:
+        """pending | used | voided | expired: the dialog closes itself on used."""
+        aconn = adb()
+        try:
+            _grant_of(aconn, user_id, grant_id)
+            return {"state": auth.grant_status(aconn, grant_id)}
+        finally:
+            aconn.close()
+
+    @app.post("/api/admin/users/{user_id}/qr/{grant_id}/void")
+    def admin_void_qr(user_id: int, grant_id: int) -> dict:
+        """The dialog was closed: its QR and code stop working at once."""
+        aconn = adb()
+        try:
+            _grant_of(aconn, user_id, grant_id)
+            auth.void_grant(aconn, grant_id)
+        finally:
+            aconn.close()
+        return {"ok": True}
+
+    # -- "A key per mechanic" (admin only) --------------------------------
+    @app.post("/api/admin/users/{user_id}/key")
+    def admin_mechanic_key(user_id: int, body: MechanicKeyBody) -> dict:
+        aconn = adb()
+        try:
+            if aconn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone() is None:
+                raise HTTPException(404, "No such user.")
+        finally:
+            aconn.close()
+        cfg = config.load()
+        uid = str(user_id)
+        if body.remove:
+            cfg.mechanic_keys.pop(uid, None)
+            cfg.save()
+            return {"ok": True}
+        entry = dict(cfg.mechanic_keys.get(uid) or {})
+        new_key = (body.api_key or "").strip()
+        if body.api_key is not None:
+            if not new_key or any(c.isspace() for c in new_key):
+                raise HTTPException(400, "Paste the whole key (it starts sk-ant-).")
+            entry["api_key"] = new_key
+        if not entry.get("api_key"):
+            raise HTTPException(400, "Add this mechanic's API key first.")
+        if body.clear_loaded:
+            entry["loaded_usd"] = None
+        elif body.loaded_usd is not None:
+            entry["loaded_usd"] = body.loaded_usd
+        # a new key, or "topped up / new key": count spend from now
+        if new_key or body.reset or not entry.get("since"):
+            entry["since"] = _utc_now()
+        entry.setdefault("loaded_usd", None)
+        cfg.mechanic_keys[uid] = entry
+        cfg.save()
+        conn = db()
+        try:
+            return {"ok": True, "key": _key_status(conn, cfg, user_id)}
+        finally:
+            conn.close()
 
     @app.post("/api/admin/users/{user_id}")
     def admin_update_user(user_id: int, body: UserUpdateBody) -> dict:
@@ -1141,18 +1333,6 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             aconn.close()
         return {"ok": True}
-
-    @app.post("/api/admin/users/{user_id}/code")
-    def admin_new_code(user_id: int) -> dict:
-        aconn = adb()
-        try:
-            return {"code": auth.new_code(aconn, user_id), "minutes": auth.CODE_MINUTES}
-        except KeyError:
-            raise HTTPException(404, "No such user.")
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-        finally:
-            aconn.close()
 
     @app.post("/api/admin/users/{user_id}/signout")
     def admin_sign_out(user_id: int) -> dict:
@@ -1171,7 +1351,39 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         hosts += [ip for ip in ips if ":" not in ip and not ip.startswith("127.")]
         return [f"{scheme}://{h}:{app.state.port}" for h in hosts]
 
+    def _qr_base() -> str:
+        """The address a QR sends a phone to: this PC's LAN address (the one
+        its default route uses, not a WSL/VPN adapter's), else the first
+        address found; "" when there is none."""
+        scheme = "https" if app.state.https else "http"
+        ip = lan_ip()
+        if not ip.startswith("127."):
+            return f"{scheme}://{ip}:{app.state.port}"
+        mdns = app.state.mdns_name
+        urls = [u for u in _phone_urls() if not (mdns and f"//{mdns}:" in u)]
+        return urls[0] if urls else ""
+
+    def _key_status(conn, cfg: config.Config, user_id: int) -> dict:
+        """A mechanic's own key as the admin may see it: never the key, only
+        whether there is one and its last 4. Remaining is AutoRundown's own
+        estimate: the credit the owner said was loaded minus what this app
+        logged on that key since then (Anthropic does not tell a normal key
+        its balance)."""
+        e = cfg.mechanic_keys.get(str(user_id)) or {}
+        key = e.get("api_key") or ""
+        spent = index.key_spend_since(conn, f"user:{user_id}", e.get("since") or "") if key else 0.0
+        loaded = e.get("loaded_usd")
+        return {"has_key": bool(key), "last4": config.key_last4(key),
+                "since": e.get("since") or None, "loaded_usd": loaded,
+                "spent_usd": round(spent, 4),
+                "remaining_usd": round(loaded - spent, 4) if key and loaded is not None else None}
+
     return app
+
+
+def _utc_now() -> str:
+    """usage_log.ts's own format (SQLite datetime('now'), UTC)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def lan_ip() -> str:

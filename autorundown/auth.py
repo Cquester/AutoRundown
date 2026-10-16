@@ -7,9 +7,12 @@ Rules (the user's decisions, 2026-10-09):
 - Mechanic accounts are optional (`Config.require_signin`). Off: anyone on
   the network can search and ask, as before. On: every other device must sign
   in with a one-time code the admin issues, and gets a long-lived token.
-- No passwords. A code is single-use, 8 characters, valid 15 minutes, and
-  is exchanged for a 32-byte random token kept as a cookie. Only hashes of
-  codes and tokens are stored, so a copied auth.db signs nobody in.
+- No passwords. The admin opens a sign-in QR for a mechanic (2026-10-16): a
+  "grant" holding a link token (in the QR) and a typed fallback code (8
+  characters, under the QR). Either one works once, for 15 minutes, and
+  using one uses both; closing the dialog voids the grant. The phone gets a
+  32-byte random token kept as a cookie. Only hashes of link tokens, codes
+  and cookie tokens are stored, so a copied auth.db signs nobody in.
 
 Accounts live in their own `auth.db` next to config.json, not in the index:
 the index gets rebuilt, and accounts must not go with it. Spend stays in the
@@ -56,10 +59,25 @@ CREATE TABLE IF NOT EXISTS tokens(
     last_used REAL,
     device    TEXT                  -- User-Agent at sign-in, for the admin list
 );
+-- before 2026-10-16: typed codes alone. Kept so an old auth.db opens; it is
+-- emptied at connect (a code lived 15 minutes, so nothing of value is lost)
 CREATE TABLE IF NOT EXISTS codes(
     hash      TEXT PRIMARY KEY,
     user_id   INTEGER NOT NULL REFERENCES users(id),
     expires   REAL NOT NULL
+);
+-- one sign-in QR as the admin opened it: the link in the QR and the typed
+-- code under it. Used, voided or expired, both hashes are cleared and the
+-- row stays a little while so the admin's dialog can say what happened
+CREATE TABLE IF NOT EXISTS grants(
+    id        INTEGER PRIMARY KEY,
+    user_id   INTEGER NOT NULL REFERENCES users(id),
+    link_hash TEXT UNIQUE,           -- sha256 of the QR link's token
+    code_hash TEXT UNIQUE,           -- sha256 of the typed code
+    created   REAL NOT NULL,
+    expires   REAL NOT NULL,
+    used_at   REAL,                  -- set when a phone signed in with it
+    voided    INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -96,6 +114,11 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    # codes from before sign-in QRs: at most 15 minutes old, now unusable
+    # (phones already signed in keep their tokens)
+    if conn.execute("SELECT 1 FROM codes LIMIT 1").fetchone():
+        conn.execute("DELETE FROM codes")
+        conn.commit()
     return conn
 
 
@@ -193,7 +216,7 @@ def update_user(conn: sqlite3.Connection, user_id: int, *,
         conn.execute("UPDATE users SET disabled=? WHERE id=?", (int(disabled), user_id))
         if disabled:  # sign out every device at once
             conn.execute("DELETE FROM tokens WHERE user_id=?", (user_id,))
-            conn.execute("DELETE FROM codes WHERE user_id=?", (user_id,))
+            _void(conn, "user_id=?", (user_id,))
     if clear_cap:
         conn.execute("UPDATE users SET monthly_cap_usd=NULL WHERE id=?", (user_id,))
     elif cap is not None:
@@ -206,42 +229,108 @@ def sign_out_all(conn: sqlite3.Connection, user_id: int) -> None:
     conn.commit()
 
 
-def new_code(conn: sqlite3.Connection, user_id: int) -> str:
-    """A one-time sign-in code. Issuing one cancels any earlier unused code."""
+@dataclass
+class Grant:
+    """A sign-in QR as issued: the secrets exist only in this object, which
+    goes to the admin's page once; auth.db keeps their hashes."""
+    id: int
+    user_id: int
+    link_token: str      # goes in the QR: /signin?t=<link_token>
+    code: str            # typed fallback, 8 characters
+    expires: float
+
+
+def _void(conn: sqlite3.Connection, where: str, args: tuple) -> None:
+    """Make grants unusable (clear both hashes); the row stays for status."""
+    conn.execute(f"UPDATE grants SET link_hash=NULL, code_hash=NULL, voided=1 "
+                 f"WHERE used_at IS NULL AND voided=0 AND ({where})", args)
+
+
+def new_grant(conn: sqlite3.Connection, user_id: int) -> Grant:
+    """A one-time sign-in QR (and its typed code) for one mechanic. Opening a
+    new one voids any earlier unused one for that mechanic; finished grants
+    older than a day are forgotten."""
     row = conn.execute("SELECT disabled FROM users WHERE id=?", (user_id,)).fetchone()
     if row is None:
         raise KeyError(user_id)
     if row["disabled"]:
         raise ValueError("That user is disabled; enable them first.")
+    now = time.time()
+    _void(conn, "user_id=? OR expires<?", (user_id, now))
+    conn.execute("DELETE FROM grants WHERE expires<?", (now - 86400,))
+    link = secrets.token_urlsafe(32)
     code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LEN))
-    conn.execute("DELETE FROM codes WHERE user_id=? OR expires<?", (user_id, time.time()))
-    conn.execute("INSERT INTO codes VALUES (?,?,?)",
-                 (_h(code), user_id, time.time() + CODE_MINUTES * 60))
+    expires = now + CODE_MINUTES * 60
+    cur = conn.execute(
+        "INSERT INTO grants(user_id, link_hash, code_hash, created, expires) VALUES (?,?,?,?,?)",
+        (user_id, _h(link), _h(code), now, expires))
     conn.commit()
-    return code
+    return Grant(cur.lastrowid, user_id, link, code, expires)
+
+
+def void_grant(conn: sqlite3.Connection, grant_id: int) -> None:
+    """The admin closed the dialog: that QR and its code stop working."""
+    _void(conn, "id=?", (grant_id,))
+    conn.commit()
+
+
+def grant_status(conn: sqlite3.Connection, grant_id: int) -> str:
+    """pending | used | voided | expired | unknown -- for the admin's dialog."""
+    row = conn.execute("SELECT * FROM grants WHERE id=?", (grant_id,)).fetchone()
+    if row is None:
+        return "unknown"
+    if row["used_at"]:
+        return "used"
+    if row["voided"]:
+        return "voided"
+    return "expired" if row["expires"] <= time.time() else "pending"
 
 
 def normalize_code(code: str) -> str:
     return "".join(c for c in (code or "").upper() if c.isalnum())
 
 
-def redeem_code(conn: sqlite3.Connection, code: str, device: str = "") -> str | None:
-    """Exchange a code for a token. None if the code is wrong or stale."""
-    code = normalize_code(code)
+def _redeem(conn: sqlite3.Connection, column: str, secret: str, device: str) -> str | None:
+    """Use a grant (by its link token or its code): one use, unexpired, the
+    mechanic enabled. Returns a new cookie token, or None."""
+    now = time.time()
     row = conn.execute(
-        """SELECT c.user_id FROM codes c JOIN users u ON u.id=c.user_id
-           WHERE c.hash=? AND c.expires>? AND u.disabled=0""",
-        (_h(code), time.time())).fetchone()
+        f"""SELECT g.id, g.user_id FROM grants g JOIN users u ON u.id=g.user_id
+            WHERE g.{column}=? AND g.expires>? AND g.used_at IS NULL AND g.voided=0
+              AND u.disabled=0""",
+        (_h(secret), now)).fetchone()
     if row is None:
         return None
-    conn.execute("DELETE FROM codes WHERE hash=?", (_h(code),))  # single use
+    # single use: both the link and the code die here. The WHERE makes two
+    # phones racing on one grant safe -- only one UPDATE changes a row
+    cur = conn.execute(
+        "UPDATE grants SET used_at=?, link_hash=NULL, code_hash=NULL "
+        "WHERE id=? AND used_at IS NULL AND voided=0", (now, row["id"]))
+    if cur.rowcount != 1:
+        conn.commit()
+        return None
     token = secrets.token_urlsafe(32)
-    now = time.time()
     conn.execute("INSERT INTO tokens VALUES (?,?,?,?,?,?)",
                  (_h(token), row["user_id"], now, now + TOKEN_DAYS * 86400, now,
                   (device or "")[:200]))
     conn.commit()
     return token
+
+
+def redeem_code(conn: sqlite3.Connection, code: str, device: str = "") -> str | None:
+    """Exchange a typed code for a token. None if the code is wrong or stale."""
+    code = normalize_code(code)
+    if len(code) != CODE_LEN:
+        return None
+    return _redeem(conn, "code_hash", code, device)
+
+
+def redeem_link(conn: sqlite3.Connection, link_token: str, device: str = "") -> str | None:
+    """Exchange a QR link's token for a cookie token. None if wrong or stale."""
+    link_token = (link_token or "").strip()
+    if not 20 <= len(link_token) <= 100:
+        return None
+    return _redeem(conn, "link_hash", link_token, device)
 
 
 def user_for_token(conn: sqlite3.Connection, token: str | None) -> Who | None:

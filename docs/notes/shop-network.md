@@ -20,12 +20,55 @@ of it; every request would then come from loopback.
 
 **Mechanic accounts are optional** (`Config.require_signin`, default off =
 open LAN as before). No passwords: the admin issues an 8-character code
-(15 min, single use, no 0/O/1/I/L), a phone swaps it for a 32-byte token in
+(15 min, single use, no 0/O/1/I/L; since 2026-10-16 the fallback under a
+sign-in QR, see below), a phone swaps it for a 32-byte token in
 an HttpOnly cookie (365 days). Only SHA-256 hashes of codes and tokens are
 stored. Disabling a user deletes their tokens at once. 10 wrong codes from
 one address = 429 for 15 min. Cross-site POSTs are refused by `Origin` check
 (`_origin_ok`), for the admin too. Accounts are in `~/.autorundown/auth.db`,
 **not in the index**, so a rebuild cannot lose them.
+
+**Sign-in QRs replace typed codes (2026-10-16).** The admin's "Sign-in QR"
+button (and adding a mechanic) opens a dialog: `POST
+/api/admin/users/{id}/qr` makes a *grant* (`auth.db` table `grants`) with a
+32-byte link token (in the QR: `<lan>/signin?t=…`) and an 8-character typed
+code (shown under the QR for a camera that can't scan -- kept, same alphabet,
+same throttle). Only SHA-256 hashes are stored; the secrets go to the
+admin's page once. Using either one uses both (one conditional UPDATE, so
+two phones racing get one sign-in); 15 minutes, checked on the server;
+closing the dialog (or leaving the page: `pagehide` + keepalive) voids it;
+opening a new one voids the mechanic's older one; disabling a mechanic voids
+theirs. `GET /signin` is public: throttled like the code, refused when
+`Sec-Fetch-Site` says another site sent the phone there (a camera app is
+"none"), sets the usual cookie (and ends the phone's previous token, if it
+was someone else), and 303s to `/` with `Cache-Control: no-store`, so the
+token leaves the address bar. Failures go to `/#signin=expired|refused|wait`
+and the page says why. The dialog polls `GET …/qr/{grant}` and shows
+"signed in" when used; a grant id under another mechanic is 404.
+Migration: the old `codes` table is emptied at connect (codes lived 15
+minutes); tokens are untouched, so signed-in phones stay signed in. The QR
+holds the PC's LAN address (`lan_ip()`), not autorundown.local: Android
+camera apps often can't resolve .local; both addresses are written beside
+the site QR. QRs are SVG from `segno` (pure Python, `qr.py`).
+
+**Whose key pays (2026-10-16).** `Config.key_mode` = `"company"` (default)
+or `"per_mechanic"`; `Config.mechanic_keys = {"<user id>": {"api_key",
+"loaded_usd", "since"}}` in config.json (0600, atomic). `config.pick_key(cfg,
+user_id, admin)` is the one place that chooses: company mode and the PC ->
+`api_key`/env; a mechanic -> their own key, or `NoKeyForRequest` (a plain 400,
+never a fallback); a device not signed in, in per-mechanic mode -> refused.
+Spend is tagged `usage_log.key_ref` ("company" / "user:<id>", never the key).
+Anthropic gives an ordinary key no balance (cost reports need an Admin key
+with analytics scope), so "remaining" = `loaded_usd` minus the logged spend
+with that key_ref since `since`; a new key or "Topped up / new key" resets
+`since`. The admin sees the last 4; a phone gets only its own
+`own_key {has_key, loaded_usd, spent_usd, remaining_usd}` in `/api/me`, and
+`/api/stats.has_api_key` says whether *it* may ask. Per-mechanic routes:
+`POST /api/admin/users/{id}/key` (`api_key`, `loaded_usd`, `reset`,
+`clear_loaded`, `remove`). `/api/settings` adds `key_mode`, this month's
+`month_questions` / `month_spend_usd` (everyone, every source) and
+`company_key_last4`. A provider other than Anthropic would add to
+`pick_key`/`mechanic_keys`, not around them.
 
 **Spend per mechanic.** `usage_log` gained `user_id`, `user_name` (nullable,
 `ADDED_COLUMNS`); the name is a snapshot so reports survive account changes.
