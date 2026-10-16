@@ -16,7 +16,15 @@ remove_manuals.py on a temporary index -- through the real routes:
 - one job at a time; a fresh client (a reloaded page) sees the running
   job's step and progress;
 - the old safeguards: an extractor without the EPC pull refuses Both up
-  front, and no VirtualBox gives the setup message.
+  front, and no VirtualBox gives the setup message;
+- the chosen VM is checked first (`/api/vms/check`): a VM without a
+  host-only network is not ready and a run on it is refused; an extractor
+  too old to check says to update it;
+- "Test the VM" (vm_check): Windows not starting gives a failed check and a
+  picture of the screen (/api/import/screen), never a power-off; a good VM
+  passes both databases;
+- Cancel: the job ends `cancelled`, the extractor stops and shuts the VM
+  down, nothing after it runs, and the next job is unaffected.
 """
 from __future__ import annotations
 
@@ -194,6 +202,62 @@ def main() -> int:
                                          "steps": "docs,nope"})
         check("an unknown step is refused for Both too", r.status_code == 400, r.status_code)
 
+        print("\n-- checked before it runs: the VM the user chose --")
+        ck = pc.get("/api/vms/check", params={"vm": "Mercedes EWA (fake)", "what": "both"}).json()
+        check("a good VM is ready, with a row per need",
+              ck["ready"] and {"vm", "network", "java", "jdbc", "scripts", "disk"} <= {c["key"] for c in ck["checks"]},
+              ck)
+        ck = pc.get("/api/vms/check", params={"vm": "No network (fake)", "what": "wis"}).json()
+        check("no host-only network: not ready, and says so",
+              not ck["ready"] and any(c["key"] == "network" and c["level"] == "fail" for c in ck["checks"]), ck)
+        r = pc.post("/api/import", json={"path": "", "mode": "vm", "vm": "No network (fake)", "steps": "docs"})
+        check("... and an extraction on it is refused before anything starts",
+              r.status_code == 400 and "host-only" in r.text, r.text)
+        check("an unknown VM is refused by the check",
+              not pc.get("/api/vms/check", params={"vm": "nope", "what": "wis"}).json()["ready"])
+
+        print("\n-- Test the VM: Windows won't start -> a picture of its screen --")
+        r = pc.post("/api/import", json={"path": "", "mode": "vm_check", "vm": "Windows won't start (fake)",
+                                         "steps": "docs"})
+        check("the VM test starts", r.status_code == 200, r.text)
+        s = wait(pc, [])
+        check("it fails, and took a picture of the screen", s["state"] == "failed" and s["screen"], s["state"])
+        check("its result is in the checks", any(c["key"] == "db_wis" and c["level"] == "fail"
+                                                for c in s["checks"]), s["checks"])
+        check("... saying Windows did not start", "did not start" in s["progress"]["error"], s["progress"])
+        r = pc.get("/api/import/screen")
+        check("the picture is served as a PNG", r.status_code == 200 and r.content[:4] == b"\x89PNG",
+              r.status_code)
+        check("it never powered the VM off", not any("powering off" in l for l in s["log"]))
+        r = pc.post("/api/import", json={"path": "", "mode": "vm_check", "vm": "Mercedes EWA (fake)",
+                                         "steps": "docs,epc"})
+        s = wait(pc, [])
+        check("a good VM passes, checking both databases",
+              s["state"] == "done" and {"db_wis", "db_epc"} <= {c["key"] for c in s["checks"] if c["level"] == "ok"},
+              s["checks"])
+        check("... and has no picture", not s["screen"] and pc.get("/api/import/screen").status_code == 404)
+
+        print("\n-- Cancel --")
+        os.environ["AR_FAKE_VM_DELAY"] = "0.3"           # slow enough to cancel mid-pull
+        r = pc.post("/api/import", json={"path": "", "mode": "vm_both", "vm": "Mercedes EWA (fake)",
+                                         "steps": "docs,build"})
+        time.sleep(2.0)
+        r = pc.post("/api/import/cancel")
+        check("cancel is accepted while it runs", r.status_code == 200 and r.json()["cancelling"], r.text)
+        s = wait(pc, [])
+        os.environ["AR_FAKE_VM_DELAY"] = "0.03"
+        check("the job ends cancelled, not failed", s["state"] == "cancelled", s["state"])
+        check("the extractor stopped and shut the VM down",
+              any("STOP: cancelled" in l for l in s["log"]) and any("shutting Mercedes EWA (fake) down" in l
+                                                                    for l in s["log"]), s["log"][-6:])
+        check("nothing after it ran: no import, EPC not started",
+              not any("rebuild_wis.py" in l or "--steps epc" in l for l in s["log"])
+              and [p["state"] for p in s["parts"]] == ["cancelled", "not started"], s["parts"])
+        check("cancelling with nothing running is a 409", pc.post("/api/import/cancel").status_code == 409)
+        check("the next job is not cancelled by the old request",
+              pc.post("/api/import", json={"path": "", "mode": "vm_epc", "vm": "Mercedes EWA (fake)"}).status_code == 200
+              and wait(pc, [])["state"] == "done")
+
         print("\n-- safeguards --")
         old = TMP / "old_extractor"
         shutil.copytree(FAKE, old, ignore=shutil.ignore_patterns("*.js", "__pycache__"))
@@ -216,6 +280,20 @@ def main() -> int:
         check("a phone cannot start or read an import", phone.post(
             "/api/import", json={"path": "", "mode": "vm_both", "vm": "x"}).status_code == 403
               and phone.get("/api/import").status_code == 403)
+        check("... nor cancel one, check a VM or see its screen",
+              phone.post("/api/import/cancel").status_code == 403
+              and phone.get("/api/vms/check", params={"vm": "x"}).status_code == 403
+              and phone.get("/api/import/screen").status_code == 403)
+        bare = TMP / "too_old"
+        bare.mkdir()
+        (bare / "vm_pipeline.py").write_text(
+            # lists its VMs, but knows no --check (argparse would exit 2)
+            "import sys\nif '--list-vms' in sys.argv:\n    print('Old VM\\toff'); sys.exit(0)\nsys.exit(2)\n",
+            encoding="utf-8")
+        pc.post("/api/settings", json={"extractor_dir": str(bare)})
+        ck = pc.get("/api/vms/check", params={"vm": "Old VM", "what": "wis"}).json()
+        check("an extractor too old to check a VM is not ready, and says to update it",
+              not ck["ready"] and "too old" in ck["checks"][0]["message"], ck)
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print(f"\n{'all passed' if not fails else f'{fails} FAILED'}")

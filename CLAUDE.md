@@ -321,6 +321,17 @@ real cited page; never counts on its own). A value is never "see Fig 15" --
 that rendered in big type as though it were a torque. **Not yet tried on a
 paid answer.**
 
+**The extractor never powers the VM off; the user picks and checks the VM;
+every run can be cancelled** (2026-10-16). A forced power-off after the
+database didn't answer left the real VM's Windows 7 in Startup Repair. Now
+`vm_down` saves the VM's state when ACPI shutdown doesn't finish, a saved
+state is resumed (not discarded), and Windows not starting (Guest Additions
+run level) stops the run with a screenshot of the VM's screen. Do not bring
+back `controlvm poweroff` or `discardstate`. The VM list has no default;
+`vm_pipeline.py --check` (and `--check --boot`, "Test the VM") gates a run;
+Cancel stops the pull and shuts the VM down cleanly, and the extractor stops
+by itself if the server goes away. Details: `docs/notes/importing.md`.
+
 **One question fills the right box's tabs, without another AI call**
 (2026-10-16, the user's request). The right box has tabs -- Manual page,
 Parts, Labour times, Capacities, Torque specs; on a phone they are the bottom

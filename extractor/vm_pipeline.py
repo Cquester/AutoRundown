@@ -2,6 +2,8 @@
 
     python vm_pipeline.py --vm "Mercedes_Ultimate_207" [--out-root DIR] [--steps ...]
     python vm_pipeline.py --list-vms
+    python vm_pipeline.py --vm X --steps ... --check          # will it work? (no boot)
+    python vm_pipeline.py --vm X --steps ... --check --boot   # ... and boot it to see
 
 Runs the same pieces the manual procedure does (CLAUDE.md in AutoRundown),
 in order, each resumable -- a re-run skips what is already pulled:
@@ -28,6 +30,24 @@ adapters, or touch the guest's firewall. It only starts it headless, stops
 it, and reads the database (SELECT only). If the database isn't reachable it
 says what to set up, once, by hand (see README.md "Bring-up").
 
+It never pulls the plug on Windows (2026-10-16: a forced power-off after the
+database didn't answer left the guest in Startup Repair). A shutdown that
+doesn't finish saves the VM's state instead, and a saved state is resumed,
+not discarded. If Windows itself doesn't come up, it saves a picture of the
+VM's screen (`VM_SCREEN <path>`), saves the VM's state and stops, so the
+cause is visible instead of guessed.
+
+`--check` lists, without booting, what the run needs: VirtualBox, the VM, a
+host-only network, Java, the JDBC driver, the scripts for the chosen steps,
+free disk space -- one `CHECK <key> <ok|warn|fail> <message>` line each,
+exit 0 / 2. `--check --boot` also boots the VM and checks Windows starts and
+the databases answer, then shuts it down cleanly.
+
+Cancelling: the caller creates the file named in AR_CANCEL_FILE; the run
+stops the pull it is in (each one resumes), shuts the VM down cleanly and
+exits 3. It does the same if the process in AR_PARENT_PID (the web server
+that started it) goes away -- on 2026-10-16 a closed server left a run going.
+
 Two properties of this setup shape the batching (see CLAUDE.md): the in-VM
 database resets its connection after ~19.5k graphics in one session, and the
 host has hard-powered-off under sustained heavy I/O -- so images go in 15k
@@ -42,6 +62,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -61,6 +82,57 @@ def log(msg: str) -> None:
 def die(msg: str) -> "None":
     log("STOP: " + msg)
     sys.exit(1)
+
+
+# -- cancelling ----------------------------------------------------------------
+
+CANCEL_FILE = os.environ.get("AR_CANCEL_FILE", "")
+PARENT_PID = int(os.environ.get("AR_PARENT_PID") or 0)
+EXIT_CANCELLED = 3
+_cancel_why = ""
+
+
+def _parent_alive(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+        k.CloseHandle(h)
+        return bool(ok) and code.value == 259      # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)                            # POSIX only: signal 0 tests, it does not kill
+        return True
+    except OSError:
+        return False
+
+
+def cancelled() -> bool:
+    """True once the caller asked to stop (AR_CANCEL_FILE) or went away."""
+    global _cancel_why
+    if not _cancel_why:
+        if CANCEL_FILE and Path(CANCEL_FILE).exists():
+            _cancel_why = "cancelled"
+        elif PARENT_PID and not _parent_alive(PARENT_PID):
+            _cancel_why = "the web server that started this run stopped"
+    return bool(_cancel_why)
+
+
+def stop_if_cancelled() -> None:
+    if cancelled():
+        log(f"STOP: {_cancel_why}; what was pulled so far is kept, a re-run resumes")
+        sys.exit(EXIT_CANCELLED)
+
+
+def sleep(seconds: float) -> None:
+    """time.sleep that a cancel cuts short."""
+    end = time.time() + seconds
+    while time.time() < end:
+        stop_if_cancelled()
+        time.sleep(min(1.0, max(0.0, end - time.time())))
 
 
 # -- tools -------------------------------------------------------------------
@@ -137,39 +209,75 @@ def find_db(vm: str, port: int, subnet: str) -> str | None:
     return None
 
 
+def windows_up(vm: str) -> bool:
+    """Windows in the guest has started its services: Guest Additions report
+    run level 2 (userland) or 3 (desktop). 0 while it boots -- or while it
+    sits in Startup Repair, which never gets that far."""
+    for line in vbox("showvminfo", vm, "--machinereadable", check=False).splitlines():
+        if line.startswith("GuestAdditionsRunLevel="):
+            return line.split("=", 1)[1].strip('"') in ("2", "3")
+    return False
+
+
+def screenshot(vm: str) -> str:
+    """A picture of the VM's screen, for the person reading why it stopped."""
+    path = SHOT_DIR / "vm_screen.png"
+    try:
+        path.unlink(missing_ok=True)
+        vbox("controlvm", vm, "screenshotpng", str(path))
+        log(f"VM_SCREEN {path}")
+        return str(path)
+    except (OSError, RuntimeError) as exc:
+        log(f"(no picture of the VM's screen: {exc})")
+        return ""
+
+
+def save_state(vm: str, why: str) -> None:
+    """Freeze the VM where it is (never a power-off: that can leave Windows
+    in Startup Repair). Starting it again in VirtualBox resumes it there."""
+    log(f"saving {vm}'s state ({why}); open it in VirtualBox to see it as it is")
+    vbox("controlvm", vm, "savestate", check=False)
+    STARTED.discard(vm)
+
+
 def vm_up(vm: str, port: int, subnet: str, wait_s: int) -> str:
-    """Boot (if needed) and return the DB's address; a second cold boot if the
-    first one never brings the database up. Seen once in the from-scratch
-    run: after 12 clean batches, one boot left the DB dark for 10 minutes."""
+    """Boot (if needed) and return the DB's address. If Windows came up but
+    the database didn't, one more boot after a clean shutdown (seen once in
+    the from-scratch run: after 12 clean batches, one boot left the DB dark
+    for 10 minutes). If Windows itself never came up, stop: a picture of the
+    screen and the VM's state are kept, nothing is forced off."""
     for attempt in (1, 2):
         ip = _vm_up_once(vm, port, subnet, wait_s, final=attempt == 2)
         if ip:
             return ip
-        log("database never came up; powering off for one more cold boot")
+        log("database never came up; shutting down cleanly for one more boot")
         vm_down(vm)
-        time.sleep(60)
+        sleep(60)
     die("unreachable")   # _vm_up_once(final=True) already stopped with the reason
 
 
 def _vm_up_once(vm: str, port: int, subnet: str, wait_s: int, final: bool) -> str | None:
     state = vm_state(vm)
     if state == "saved":
-        # a state saved under another VirtualBox version may not resume; a
-        # cold boot is what a power-off would give the guest anyway
-        log("VM has a saved state; discarding it for a clean boot")
-        vbox("discardstate", vm)
-        state = "poweroff"
+        # resumed as it was: discarding a saved state is a power-off for the
+        # guest. (A state saved under another VirtualBox version may not
+        # resume; then it says so and stops.)
+        log("VM has a saved state; resuming it")
     if state not in ("running",):
         log(f"starting {vm} headless")
-        vbox("startvm", vm, "--type", "headless")
+        try:
+            vbox("startvm", vm, "--type", "headless")
+        except RuntimeError as exc:
+            die(f"VirtualBox could not start {vm}: {exc}")
         STARTED.add(vm)
     deadline = time.time() + wait_s
     told = False
     while time.time() < deadline:
+        stop_if_cancelled()
         ip = find_db(vm, port, subnet)
         if ip:
             log(f"database answering at {ip}:{port}; letting it settle 30 s")
-            time.sleep(30)
+            sleep(30)
             return ip
         if not told and time.time() > deadline - wait_s + 120:
             log("database not answering yet. Once, inside the VM: log in to Windows, start "
@@ -177,13 +285,22 @@ def _vm_up_once(vm: str, port: int, subnet: str, wait_s: int, final: bool) -> st
                 "host-only and turn Windows Firewall off. Still checking...")
             told = True
         time.sleep(5)
+    if not windows_up(vm):
+        screenshot(vm)
+        save_state(vm, "Windows did not start")
+        die(f"Windows in {vm} did not start within {wait_s // 60} min -- see the picture of "
+            f"its screen. Open the VM in VirtualBox and get Windows to start (e.g. let Startup "
+            f"Repair finish), shut it down from the Start menu, then run this again.")
     if final:
-        die(f"database not reachable on port {port} within {wait_s} s on two boots "
+        screenshot(vm)
+        die(f"Windows is up but the database is not reachable on port {port} on two boots "
             f"-- see the message above.")
     return None
 
 
 def vm_down(vm: str) -> None:
+    """A clean shutdown (ACPI power button). If Windows doesn't finish in
+    2 min, the VM's state is saved -- never a power-off."""
     if vm_state(vm) != "running":
         return
     log(f"shutting {vm} down")
@@ -192,8 +309,120 @@ def vm_down(vm: str) -> None:
         if vm_state(vm) == "poweroff":
             return
         time.sleep(5)
-    log("no clean shutdown after 2 min; powering off")
-    vbox("controlvm", vm, "poweroff", check=False)
+    screenshot(vm)
+    save_state(vm, "no clean shutdown after 2 min")
+
+
+# -- will it work? ---------------------------------------------------------------
+
+# the scripts each step runs (the epc ones: an older extractor copy has none)
+STEP_SCRIPTS = {"docs": ["pull.js"], "applic": ["pull_applic.js", "pull_applic2.js"],
+                "vehicles": ["pull_vehicles.js"], "links": ["pull_links.js"],
+                "images": ["pull_images.js"], "epc": ["pull_epc.js", "epc_fv4.js"],
+                "build": ["parse.py", "apply_applic.py", "parse_vehicles.py", "parse_links.py",
+                          "convert_images.py", "apply_images.py"]}
+# free space wanted on the output drive: images are ~11 GB converted plus the
+# raw pull; the rest is a few GB
+NEED_GB = {"images": 30, "epc": 10}
+
+
+def check(key: str, level: str, msg: str) -> str:
+    print(f"CHECK\t{key}\t{level}\t{msg}", flush=True)
+    return level
+
+
+def preflight(vm: str, steps: list[str], out: Path, subnet: str, java: str, jar: str) -> list[str]:
+    """What this run needs, without booting anything: one CHECK line each."""
+    levels = []
+    online = [s for s in steps if s != "build"]
+    names = {n: st for n, st in list_vms()}
+    if vm not in names:
+        return [check("vm", "fail", f"There is no VirtualBox VM named {vm!r}.")]
+    info = dict(l.split("=", 1) for l in vbox("showvminfo", vm, "--machinereadable").splitlines()
+                if "=" in l)
+    state = info.get("VMState", "").strip('"')
+    if state == "running":
+        levels.append(check("vm", "warn", f"{vm} is already running: the run uses it as it is and "
+                                          "leaves it running. Close any VirtualBox window on it."))
+    elif state == "saved":
+        levels.append(check("vm", "warn", f"{vm} has a saved state: it will be resumed where it was "
+                                          "(not discarded). If Windows was stuck, open it in "
+                                          "VirtualBox and sort that out first."))
+    elif state in ("aborted", "gurumeditation", "stuck"):
+        levels.append(check("vm", "warn", f"{vm} was last stopped abnormally ({state}): Windows may "
+                                          "run a disk check or Startup Repair on its next boot."))
+    else:
+        levels.append(check("vm", "ok", f"{vm} is off and ready to start."))
+    if online:
+        hostonly = [k for k, v in info.items() if k.startswith("nic") and v.strip('"') == "hostonly"]
+        if not hostonly:
+            levels.append(check("network", "fail", f"{vm} has no host-only network adapter: this PC "
+                                                   "cannot reach its database. In VirtualBox: Settings "
+                                                   "-> Network -> Adapter 1 -> Host-only Adapter."))
+        else:
+            host_ips = [l.split(":", 1)[1].strip() for l in vbox("list", "hostonlyifs", check=False).splitlines()
+                        if l.startswith("IPAddress:")]
+            if not any(ip.startswith(subnet + ".") for ip in host_ips):
+                levels.append(check("network", "warn", f"The host-only network is not on {subnet}.x "
+                                                       f"(found {', '.join(host_ips) or 'none'}); the "
+                                                       "database may not be found."))
+            else:
+                levels.append(check("network", "ok", "Host-only network adapter."))
+        ga = vbox("guestproperty", "get", vm, "/VirtualBox/GuestAdd/Version", check=False)
+        if "Value:" not in ga:
+            levels.append(check("guest", "warn", "No Guest Additions seen in this VM: whether Windows "
+                                                 "started can't be told apart from the database not "
+                                                 "answering."))
+        j = java if java and Path(java).is_file() else next(
+            (str(p) for base in (home() / "ewa_extract", home()) for p in base.glob("**/sun_jre/bin/java.exe")),
+            shutil.which("java") or "")
+        levels.append(check("java", "ok", f"Java: {j}") if j else
+                      check("java", "fail", "Java was not found (the EWA install's sun_jre\\bin\\java.exe)."))
+        jr = jar if jar and Path(jar).is_file() else next((str(p) for p in home().glob("**/tbjdbc.jar")), "")
+        levels.append(check("jdbc", "ok", "Transbase JDBC driver found.") if jr else
+                      check("jdbc", "fail", "tbjdbc.jar (the Transbase JDBC driver) was not found."))
+    missing = [f for s in steps for f in STEP_SCRIPTS.get(s, []) if not (HERE / f).is_file()]
+    levels.append(check("scripts", "fail", f"This extractor copy ({HERE}) is missing {', '.join(missing)}: "
+                                           "copy a current extractor folder over it.") if missing else
+                  check("scripts", "ok", "The extractor has every script these steps need."))
+    try:
+        check_outside_repo(out)
+        out.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(out).free / 1e9
+        need = max([NEED_GB.get(s, 5) for s in steps] or [5])
+        levels.append(check("disk", "ok", f"{free:,.0f} GB free for {out}.") if free >= need else
+                      check("disk", "warn" if free >= need / 3 else "fail",
+                            f"Only {free:,.0f} GB free for {out}; these steps want about {need} GB."))
+    except (OSError, SystemExit) as exc:
+        levels.append(check("disk", "fail", f"The output folder {out} can't be used: {exc}"))
+    return levels
+
+
+def boot_check(vm: str, steps: list[str], subnet: str, wait_s: int, wis_port: int,
+               epc_port: int) -> list[str]:
+    """Boot the VM and see that Windows starts and the databases answer; shut
+    it down cleanly afterwards if this check started it."""
+    levels = []
+    ports = ([("WIS", wis_port)] if any(s in steps for s in STEP_SCRIPTS if s not in ("epc", "build"))
+             else []) + ([("EPC", epc_port)] if "epc" in steps else [])
+    started = vm_state(vm) != "running"
+    first = True
+    for name, port in ports:
+        log(f"checking the {name} database (port {port})")
+        try:
+            ip = _vm_up_once(vm, port, subnet, wait_s if first else 120, final=True)
+            first = False
+            levels.append(check(f"db_{name.lower()}", "ok", f"Windows started and the {name} database "
+                                                           f"answers at {ip}:{port}."))
+        except SystemExit:
+            if cancelled():
+                raise
+            levels.append(check(f"db_{name.lower()}", "fail", f"The {name} database did not answer -- "
+                                                             "see the log and the picture of the VM's screen."))
+            return levels
+    if started:
+        vm_down(vm)
+    return levels
 
 
 # -- running the pieces ----------------------------------------------------------
@@ -212,6 +441,14 @@ def run(cmd: list[str], env: dict, cwd: Path) -> int:
     p = subprocess.Popen(cmd, cwd=cwd, env={**os.environ, **env, "PYTHONIOENCODING": "utf-8"},
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                          encoding="utf-8", errors="replace", bufsize=1)
+
+    def watch() -> None:       # a cancel stops the pull (each one resumes where it stopped)
+        while p.poll() is None:
+            if cancelled():
+                p.terminate()
+                return
+            time.sleep(1)
+    threading.Thread(target=watch, daemon=True).start()
     for line in p.stdout:
         line = line.rstrip()
         # Nashorn stack traces are dozens of lines of noise; keep the message
@@ -220,7 +457,9 @@ def run(cmd: list[str], env: dict, cwd: Path) -> int:
         if not LAST_FATAL:
             LAST_FATAL = next((m for m in FATAL_MARKERS if m in line), "")
         print("    " + line, flush=True)
-    return p.wait()
+    rc = p.wait()
+    stop_if_cancelled()        # stopped by a cancel: not a failure to retry
+    return rc
 
 
 def stage_scripts(jar: str) -> Path:
@@ -311,7 +550,12 @@ def main(argv=None) -> int:
                     help="the EPC database (a separate Transbase instance from WIS's)")
     ap.add_argument("--epc-catalogs", default="all,engines",
                     help="pull_epc.js AR_CATNUM: all (chassis), engines, or catalog numbers")
+    ap.add_argument("--check", action="store_true",
+                    help="say whether the run would work (CHECK lines), without booting")
+    ap.add_argument("--boot", action="store_true",
+                    help="with --check: also boot the VM, check Windows and the databases")
     args = ap.parse_args(argv)
+    global SHOT_DIR
 
     VBOX = find_vbox()
     if args.list_vms:
@@ -328,7 +572,15 @@ def main(argv=None) -> int:
         ap.error(f"unknown step(s) {bad}")
 
     out = Path(args.out_root)
+    if args.check:
+        levels = preflight(args.vm, steps, out, args.subnet, args.java, args.jar)
+        if args.boot and "fail" not in levels:
+            SHOT_DIR = out
+            levels += boot_check(args.vm, steps, args.subnet, args.wait, args.port, args.epc_port)
+        log("check: " + ("ready" if "fail" not in levels else "NOT ready -- see the CHECK lines"))
+        return 0 if "fail" not in levels else 2
     check_outside_repo(out)
+    SHOT_DIR = out
     extract, vehicles, applic2, images, links = (
         out / "wis_extract", out / "wis_vehicles", out / "wis_applic2",
         out / "wis_images", out / "wis_links")
@@ -347,7 +599,7 @@ def main(argv=None) -> int:
 
         def cycle(port: int = args.port) -> str:
             vm_down(args.vm)
-            time.sleep(60)          # let the host settle between heavy runs
+            sleep(60)               # let the host settle between heavy runs
             return vm_up(args.vm, port, args.subnet, args.wait)
 
         def pull(script: str, out_dir: Path, what: str, env: dict | None = None,
@@ -444,6 +696,7 @@ def main(argv=None) -> int:
 
 VBOX = JAVA = ""
 STAGE = Path(".")
+SHOT_DIR = Path(tempfile.gettempdir())   # vm_screen.png goes here (the output folder, once known)
 STARTED: set[str] = set()     # VMs this run booted -- shut down however it ends
 
 if __name__ == "__main__":

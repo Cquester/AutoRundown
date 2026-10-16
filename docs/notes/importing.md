@@ -243,6 +243,49 @@ the VM tab with the toggle on that job's choice. The job state lives in the
 server process, as before: a server restart still loses it (the log file
 stays).
 
+**Choose the VM, check it, cancel it, never pull the plug** (2026-10-16,
+the user, after a real run: the database never answered, the pipeline
+forced the VM off after a 2-min shutdown wait, and Windows 7 came back in
+Startup Repair -- seen in a `screenshotpng` of the VM; the server was then
+closed and the extractor kept running on its own).
+- **The VM is chosen, not defaulted**: the list starts on "Choose the
+  virtual machine…"; Extract and *Test the VM* stay off until one is chosen
+  and its check passes.
+- **The check, without booting** (`vm_pipeline.py --check`, `GET
+  /api/vms/check?vm=&what=&steps=`): one `CHECK <key> <ok|warn|fail> <msg>`
+  line each -- the VM exists; its state (running / saved / aborted are
+  warnings, said in words); a host-only adapter (fail without) on the
+  `--subnet`; Guest Additions (without them "Windows didn't start" can't be
+  told from "the database isn't answering"); Java; `tbjdbc.jar`; every
+  script the chosen steps run (an older extractor copy lacks the EPC ones);
+  free disk (images ~30 GB). An extractor too old to know `--check` prints
+  no CHECK lines: that is a failure saying to update the copy. `POST
+  /api/import` runs the same check and refuses with the failing messages.
+- **Test the VM** (job mode `vm_check`, `--check --boot`): boots it, checks
+  Windows starts and the WIS / EPC database (as the steps need) answers,
+  shuts it down cleanly if it started it; imports nothing. The results join
+  the checklist (`status().checks`).
+- **No forced power-off.** `vm_down` asks Windows to shut down (ACPI) and,
+  after 2 min, **saves the VM's state** instead of powering off; a saved
+  state is **resumed**, no longer discarded (discarding is a power-off for
+  the guest). When the database doesn't answer, `windows_up()` reads the
+  Guest Additions run level: 2/3 = Windows is up (the DB is the problem: one
+  more boot after a clean shutdown, as before); below that = Windows never
+  started: a screenshot (`VM_SCREEN <out>/vm_screen.png`), the state saved,
+  STOP. The page shows that picture (`GET /api/import/screen`).
+- **Cancel** (`POST /api/import/cancel`, a button in the progress bar while
+  any job runs). The server writes `<app dir>/import_cancel`; the extractor
+  (`AR_CANCEL_FILE`) stops the pull it is in -- each one resumes -- shuts the
+  VM down cleanly and exits 3; the job ends `cancelled` (not failed), later
+  parts `not started`. An index step (ingest, rebuild, remove) is left to
+  finish, then nothing after it starts: ending one half-way could leave the
+  index without the manuals it was replacing. An extractor that ignores the
+  cancel is ended after `CANCEL_GRACE` (15 min). The extractor also stops
+  the same way when the server process (`AR_PARENT_PID`) goes away.
+Real VM checked read-only with `--check` only (no boot); the rest on the
+fake extractor ("Windows won't start (fake)", "No network (fake)").
+Tests: `tests/test_vm_jobs.py`.
+
 **Testing it without a VM**: `tools/fake_extractor/` is a stand-in
 `vm_pipeline.py` (plus empty `pull_epc.js`/`epc_fv4.js` and a `wis_paths.py`
 writing to a temp folder, never `AR_OUT_ROOT`). It lists three pretend VMs --

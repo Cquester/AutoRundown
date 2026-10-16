@@ -117,6 +117,49 @@ def list_vms() -> dict:
     return {"extractor": str(ext), "vms": vms, "out_root": str(out_root)}
 
 
+VM_STEPS = {"wis": "docs,applic,vehicles,images,build", "epc": "epc",
+            "both": "docs,applic,vehicles,images,build,epc"}
+
+
+def parse_checks(text: str) -> list[dict]:
+    """The pipeline's `CHECK <key> <level> <message>` lines."""
+    out = []
+    for line in text.splitlines():
+        p = line.split("\t", 3)
+        if len(p) == 4 and p[0] == "CHECK" and p[2] in ("ok", "warn", "fail"):
+            out.append({"key": p[1], "level": p[2], "message": p[3]})
+    return out
+
+
+def check_vm(vm: str, steps: str) -> dict:
+    """Will a run on this VM work? The extractor's own `--check` (no boot):
+    the VM, its network, Java, the JDBC driver, the scripts the steps need,
+    disk space. An extractor too old to have --check says so as a failure --
+    it is also the one without the EPC puller and the safe shutdown."""
+    info = list_vms()
+    if info.get("error"):
+        return {"ready": False, "checks": [{"key": "extractor", "level": "fail", "message": str(info["error"])}]}
+    if vm not in {v["name"] for v in info["vms"]}:
+        return {"ready": False, "checks": [{"key": "vm", "level": "fail",
+                                            "message": f"There is no VirtualBox VM named {vm!r}."}]}
+    ext = Path(info["extractor"])
+    try:
+        r = subprocess.run([sys.executable, str(ext / "vm_pipeline.py"), "--vm", vm, "--steps", steps,
+                            "--out-root", str(info["out_root"]), "--check"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
+                           env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        checks = parse_checks(r.stdout)
+    except subprocess.TimeoutExpired:
+        checks = [{"key": "extractor", "level": "fail", "message": "The check took over 90 s; is VirtualBox busy?"}]
+    if not checks:
+        checks = [{"key": "extractor", "level": "fail",
+                   "message": f"The Mercedes extractor at {ext} is too old to check a VM before a run "
+                              f"(and to stop one safely). Copy a current extractor folder over it, or "
+                              f"point Shop setup → Advanced → Mercedes extractor folder at one."}]
+    return {"ready": all(c["level"] != "fail" for c in checks), "checks": checks,
+            "out_root": info.get("out_root", "")}
+
+
 def describe(path: Path, index_path: str | Path) -> dict:
     """What an import of `path` would do, cheaply -- no full scan."""
     try:
@@ -433,11 +476,45 @@ class ImportJobs:
     # `dev.py --fake-vm` shortens it (AUTORUNDOWN_PART_PAUSE) for test runs.
     PART_PAUSE = float(os.environ.get("AUTORUNDOWN_PART_PAUSE") or 60)
 
+    # a cancelled extractor gets this long to stop its pull and shut the VM
+    # down cleanly before it is ended (the VM may then still be running)
+    CANCEL_GRACE = float(os.environ.get("AUTORUNDOWN_CANCEL_GRACE") or 900)
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._job: dict | None = None
         self._log: collections.deque[str] = collections.deque(maxlen=400)
         self._progress = Progress()
+        self._proc: subprocess.Popen | None = None
+        self._cancel_at = 0.0
+
+    @staticmethod
+    def cancel_file() -> Path:
+        from . import config
+        return config.APP_DIR / "import_cancel"
+
+    def cancel(self) -> dict:
+        """Stop the running job. The extractor sees the cancel file, stops its
+        pull and shuts the VM down cleanly; an index step (ingest, rebuild,
+        remove) is left to finish -- ending one half-way could leave the
+        index without the manuals it was replacing -- and nothing after it
+        starts."""
+        with self._lock:
+            if not self._job or self._job["state"] != "running":
+                raise RuntimeError("Nothing is running.")
+            self._job["cancelling"] = True
+            self._cancel_at = time.time()
+        try:
+            self.cancel_file().parent.mkdir(parents=True, exist_ok=True)
+            self.cancel_file().write_text("cancel\n", encoding="utf-8")
+        except OSError:
+            pass
+        self._note("== cancel asked: stopping after the current step (the VM is shut down cleanly)")
+        return self.status()
+
+    def _cancelled(self) -> bool:
+        with self._lock:
+            return bool(self._job and self._job.get("cancelling"))
 
     def status(self) -> dict:
         with self._lock:
@@ -447,6 +524,10 @@ class ImportJobs:
             j["parts"] = [dict(p) for p in j.get("parts", [])]
             j["log"] = list(self._log)[-120:]
             j["progress"] = self._progress.as_dict()
+            j["checks"] = parse_checks("\n".join(self._log))
+            # a picture of the VM's screen, when the extractor took one
+            j["screen"] = bool(j.get("screen_path") and Path(j["screen_path"]).is_file())
+            j.pop("screen_path", None)
             end = j.get("finished") or time.time()
             j["elapsed"] = round(end - j["started"])
             j["ago"] = round(time.time() - j["finished"]) if j.get("finished") else 0
@@ -501,6 +582,12 @@ class ImportJobs:
                              ("epc", "EPC parts", lambda: self._epc_cmds(epc, index_path, vm))]
             elif mode == "vm_epc":
                 cmds = self._epc_cmds(path, index_path, vm)
+            elif mode == "vm_check":
+                # boot the VM and see Windows start and the databases answer
+                # (vm_pipeline.py --check --boot); changes nothing, imports nothing
+                ext = find_extractor()
+                cmds = [[*py, str(ext / "vm_pipeline.py"), "--vm", vm, "--out-root", str(path.parent),
+                         "--steps", steps or VM_STEPS["wis"], "--check", "--boot"]]
             elif mode == "lemon":
                 # the picked vehicle folders only, read as LEMON whatever else
                 # the folder holds
@@ -531,6 +618,10 @@ class ImportJobs:
                 parts = [("", "", cmds)]
             self._log.clear()
             self._progress = Progress()
+            try:
+                self.cancel_file().unlink(missing_ok=True)   # a cancel is for one job
+            except OSError:
+                pass
             self._job = {"state": "running", "path": str(path), "mode": mode, "vm": vm,
                          "started": time.time(), "finished": None, "returncode": None,
                          # what the UI's progress bar names: "Step 1 of 2: WIS"
@@ -558,6 +649,11 @@ class ImportJobs:
     def _note(self, line: str) -> None:
         self._log.append(line)
         self._progress.feed(line)
+        m = re.search(r"VM_SCREEN (.+\.png)\s*$", line)
+        if m:
+            with self._lock:
+                if self._job:
+                    self._job["screen_path"] = m.group(1).strip()
         f = getattr(self, "_file", None)
         if f:
             try:
@@ -565,6 +661,12 @@ class ImportJobs:
                     w.write(line + "\n")
             except OSError:
                 pass
+
+    def screen_path(self) -> Path | None:
+        """The picture of the VM's screen the running / last job took."""
+        with self._lock:
+            p = (self._job or {}).get("screen_path")
+        return Path(p) if p and Path(p).is_file() else None
 
     def _set_part(self, i: int, state: str) -> None:
         with self._lock:
@@ -581,11 +683,17 @@ class ImportJobs:
         many = len(parts) > 1
         for i, cmds in enumerate(parts):
             label = self._job["parts"][i]["label"]
+            if self._cancelled():
+                break
             if many and i:
                 self._note(f"== waiting {self.PART_PAUSE:g} s before step {i + 1} of {len(parts)} "
                            f"({label}): letting the PC settle after the index rebuild")
                 self._progress.reset(f"Waiting {self.PART_PAUSE:g} s before starting")
-                time.sleep(self.PART_PAUSE)
+                end = time.time() + self.PART_PAUSE
+                while time.time() < end and not self._cancelled():
+                    time.sleep(0.5)
+                if self._cancelled():
+                    break
             if many:
                 self._note(f"== step {i + 1} of {len(parts)}: {label}")
             self._set_part(i, "running")
@@ -596,9 +704,16 @@ class ImportJobs:
                     self._note(f"! could not start {label}: {exc}")
                     cmds, rc = [], -1
             for cmd in cmds:
+                if self._cancelled():
+                    rc = 3
+                    break
                 rc = self._run(cmd)
                 if rc != 0:
                     break
+            if self._cancelled():
+                rc = 3
+                self._set_part(i, "cancelled")
+                break
             if rc != 0:
                 self._set_part(i, "failed")
                 if many:
@@ -607,14 +722,24 @@ class ImportJobs:
                                + (f"; not starting {rest}" if rest else ""))
                 break
             self._set_part(i, "done")
+        cancelled = self._cancelled()
+        if cancelled:
+            with self._lock:
+                for p in self._job["parts"]:
+                    if p["state"] == "pending":
+                        p["state"] = "not started"
+        end_state = "cancelled" if cancelled else "done" if rc == 0 else "failed"
         # the closing line first: once the state says finished, a reader of the
         # file (or a test) must find it complete
-        self._note(f"== job {'done' if rc == 0 else 'failed'} (exit {rc}) "
-                   f"{time.strftime('%Y-%m-%d %H:%M:%S')}")
+        self._note(f"== job {end_state} (exit {rc}) {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        try:
+            self.cancel_file().unlink(missing_ok=True)
+        except OSError:
+            pass
         with self._lock:
             self._job["returncode"] = rc
             self._job["finished"] = time.time()
-            self._job["state"] = "done" if rc == 0 else "failed"
+            self._job["state"] = end_state
 
     def _run(self, cmd: list[str]) -> int:
         shown = [Path(cmd[2]).name, *cmd[3:]] if cmd[1:2] == ["-u"] and len(cmd) > 2 else cmd
@@ -622,13 +747,31 @@ class ImportJobs:
         try:
             # a piped child on Windows prints in the ANSI code page and dies on
             # "Coupé"; force UTF-8 both ways
-            env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+            # the extractor stops (and shuts the VM down cleanly) when the cancel
+            # file appears, or when this server's process goes away
+            env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1",
+                   "AR_CANCEL_FILE": str(self.cancel_file()), "AR_PARENT_PID": str(os.getpid())}
             proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True, env=env,
                                     encoding="utf-8", errors="replace", bufsize=1)
+            self._proc = proc
+            pipeline = Path(cmd[2]).name == "vm_pipeline.py" if len(cmd) > 2 else False
+
+            def grace() -> None:
+                # an extractor that ignores the cancel (or hangs) is ended after
+                # CANCEL_GRACE; an index step is never ended half-way
+                while proc.poll() is None:
+                    if pipeline and self._cancelled() and time.time() - self._cancel_at > self.CANCEL_GRACE:
+                        self._note(f"! the extractor did not stop within {self.CANCEL_GRACE:g} s; "
+                                   "ending it (the VM may still be running)")
+                        proc.kill()
+                        return
+                    time.sleep(1)
+            threading.Thread(target=grace, daemon=True).start()
             for line in proc.stdout:
                 self._note(line.rstrip("\n"))
             rc = proc.wait()
+            self._proc = None
         except Exception as exc:  # failed to launch
             self._note(f"! could not start: {exc}")
             rc = -1
