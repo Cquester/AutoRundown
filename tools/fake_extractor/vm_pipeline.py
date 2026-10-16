@@ -1,0 +1,205 @@
+"""A stand-in for extractor/vm_pipeline.py -- FREE, for tests and test boxes.
+
+Never talks to VirtualBox or a database. It takes the same arguments as the
+real pipeline, prints the same kind of lines (the ones the Shop setup
+progress bar reads: "== images: N graphics ...", "catalog X (i/N, ...",
+"$ python parse.py", "STOP: ..."), sleeps a little between them, and writes
+a tiny invented corpus where the real one would go, so the job's next step
+(rebuild_wis.py / ingest.py) has something real to import.
+
+    Shop setup -> Advanced -> Mercedes extractor folder = <repo>/tools/fake_extractor
+    python dev.py --fake-vm     (does that for you)
+
+`--list-vms` lists three pretend VMs; the name picks the path:
+
+    Mercedes EWA (fake)            every step succeeds
+    Fails in documents (fake)      the WIS document pull stops (exit 1)
+    Fails in EPC (fake)            WIS works, the EPC pull stops (exit 1)
+
+AR_FAKE_VM_DELAY  seconds between progress lines (default 0.15)
+AR_FAKE_VM_OUT    where the corpus goes (default: <temp>/ar_fake_vm_out; never
+                  AR_OUT_ROOT, which may name the real corpus)
+
+Not shipped (tools/ is not in the MSI) and never found unless the extractor
+folder setting points here.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from wis_paths import out_root  # noqa: E402
+
+VMS = [("Mercedes EWA (fake)", "poweroff"), ("Fails in documents (fake)", "poweroff"),
+       ("Fails in EPC (fake)", "poweroff")]
+ALL_STEPS = ["docs", "applic", "vehicles", "images", "build", "links", "epc"]
+DELAY = float(os.environ.get("AR_FAKE_VM_DELAY") or 0.15)
+
+
+def log(msg: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+    time.sleep(DELAY)
+
+
+def sub(msg: str) -> None:
+    """A line from a child script, the way the real pipeline relays it."""
+    print(f"    [{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+    time.sleep(DELAY)
+
+
+def die(msg: str) -> None:
+    log("STOP: " + msg)
+    raise SystemExit(1)
+
+
+def wis_record(dok_id: int, title: str, body: str, series: list[str]) -> dict:
+    return {
+        "dok_id": dok_id, "dok_nr_id": 1000000 + dok_id, "dok_type": 1, "lang": "en",
+        "title": title, "fzg_art_bits": "0010" + "0" * 28, "fzg_art_indices": [2],
+        "kurzgueltigkeit_id": 98393, "cluster": 8, "body_format": "sids",
+        "applicability_notes": ["MODEL " + ", ".join(series)], "cross_refs": [],
+        "image_refs": [], "figures": [], "body_text": body,
+        "sids_header": 'ASCII-SIDS2.00,"18.06.2016","HP 9000/700"',
+        "model_series": series, "baumuster": [], "model_year_from": None,
+        "model_year_to": None, "applies_all_series": False,
+    }
+
+
+def write_corpus(cdir: Path, source: str, records: list[dict]) -> None:
+    cdir.mkdir(parents=True, exist_ok=True)
+    with (cdir / "records.jsonl").open("w", encoding="utf-8", newline="\n") as f:
+        for r in records:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    (cdir / "manifest.json").write_text(json.dumps({
+        "schema_version": "1.3", "source_type": source, "source_id": "fake-vm",
+        "language": {"iso": "en"}, "record_count": len(records),
+        "records_file": "records.jsonl"}), encoding="utf-8")
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--vm")
+    ap.add_argument("--list-vms", action="store_true")
+    ap.add_argument("--out-root", default=str(out_root()))
+    ap.add_argument("--steps", default="docs,applic,vehicles,images,build")
+    args, _ = ap.parse_known_args(argv)
+    if args.list_vms:
+        for name, state in VMS:
+            print(f"{name}\t{state}")
+        return 0
+    if args.vm not in {n for n, _ in VMS}:
+        die(f"no VM named {args.vm!r}; --list-vms shows them")
+    steps = [s for s in args.steps.split(",") if s]
+    bad = [s for s in steps if s not in ALL_STEPS]
+    if bad:
+        ap.error(f"unknown step(s) {bad}")
+    out = Path(args.out_root)
+    online = [s for s in steps if s != "build"]
+    if online:
+        log(f"VM {args.vm}; Java fake-java; output {out}")
+        log(f"starting {args.vm} headless")
+        log("database answering at 192.168.56.101:2054; letting it settle 30 s")
+    if "docs" in steps:
+        log("== documents (resumable; the DB sometimes drops -- the VM is power-cycled and the pull resumes)")
+        log("$ java -cp tbjdbc.jar jdk.nashorn.tools.Shell pull.js")
+        sub("PULL start url=jdbc:transbase://192.168.56.101:2054/wisnet lang=2 out=x watermark=-1 (fresh)")
+        sub("total docs for lang 2 = 25000")
+        for n in range(5000, 25001, 5000):
+            if "Fails in documents" in args.vm and n == 15000:
+                sub("ABORT body query failed at DokID 1015000: java.sql.SQLException: connection reset")
+                log("document pull stopped (attempt 1); power-cycling and resuming")
+                log(f"shutting {args.vm} down")
+                die("document pull kept stopping; re-run to resume")
+            sub(f"progress: {n} pulled, 3 no-body, at DokID {1000000 + n}")
+        sub("PULL done: pulled=25000 no_body=12 lastDokID=1025000")
+    if "applic" in steps:
+        log("== model applicability")
+        log("$ java -cp tbjdbc.jar jdk.nashorn.tools.Shell pull_applic.js")
+        sub("W_Baumusterzeile rows = 33085")
+        sub("W_Dok2Reihe rows = 812345")
+        log("$ java -cp tbjdbc.jar jdk.nashorn.tools.Shell pull_applic2.js")
+        for t in ("W_DokWS", "W_DokWC"):
+            sub(f"{t} rows = 120000")
+    if "vehicles" in steps:
+        log("== vehicle names and VIN tables")
+        log("$ java -cp tbjdbc.jar jdk.nashorn.tools.Shell pull_vehicles.js")
+        for t in ("ASRA_FahrzeugII", "USTypBM2TypBM", "FIN_Prefix"):
+            sub(f"{t} rows = 7577  (6 columns)")
+    if "images" in steps:
+        log("== images: 3,000 graphics, 0 already pulled; 1,000 per batch, VM off between batches")
+        for b in range(3):
+            log("$ java -cp tbjdbc.jar jdk.nashorn.tools.Shell pull_images.js")
+            for ok in (400, 800):
+                sub(f"progress: row {b * 1000 + ok}/3000 ok={ok} missing=0 MB={ok // 10}")
+            sub("batch limit 1000 reached")
+            log(f"batch: +1,000 -> {(b + 1) * 1000:,} / 3,000")
+            if b < 2:
+                log(f"shutting {args.vm} down")
+                log(f"starting {args.vm} headless")
+    if "epc" in steps:
+        log("== EPC parts catalogue (all,engines); resumes per catalog, drawings already on disk are reused")
+        log("$ java -Xmx1024m -cp tbjdbc.jar jdk.nashorn.tools.Shell pull_epc.js")
+        sub("catalogs to pull: 6")
+        for i, cat in enumerate(("040", "050", "060", "300", "301", "302"), 1):
+            if "Fails in EPC" in args.vm and i == 4:
+                sub("java.lang.OutOfMemoryError: Java heap space")
+                die("EPC pull failed with OutOfMemoryError -- a problem in the pull itself")
+            sub(f"catalog {cat} ({i}/6, series 201): 40 records, 900 parts; images {{}}; 2 s")
+        sub("SA options: 400")
+        for i in (200, 400):
+            sub(f"  SA {i}/400: {i // 4} records so far")
+        sub("DONE: 340 records in records.jsonl")
+        write_corpus(out / "epc_extract" / "epc_en", "mercedes-epc", [{
+            "dok_id": 9000001, "lang": "en", "body_format": "sids",
+            "title": "Parts: model 201 (EPC catalog 040), group 18 / subgroup 015 OIL FILTER",
+            "body_text": "Parts: oil filter\n\nCallout | Part number | Name | Fits | Notes\n"
+                         "010 | A 102 180 00 09 (A1021800009, 1021800009) | OIL FILTER | qty 1, all models |",
+            "model_series": ["201"], "baumuster": [], "engine_series": [],
+            "applicability_notes": ["MODEL 201"], "cross_refs": [], "image_refs": [],
+            "figures": [], "image_files": [], "source_type": "mercedes-epc"}])
+        log(f"EPC corpus ready: {out / 'epc_extract'}")
+    if online:
+        log(f"shutting {args.vm} down")
+    if "build" in steps:
+        log("== offline build")
+        log("$ python parse.py")
+        print("parse: out=x lang=2\n  25000 bodies\n  25000 docs", flush=True)
+        for i in (5000, 10000, 15000, 20000, 25000):
+            print(f"  parsed {i}...", flush=True)
+            time.sleep(DELAY)
+        log("$ python apply_applic.py --rebuild-join")
+        log("$ python parse_vehicles.py")
+        log("$ python parse_links.py")
+        log("$ python convert_images.py --jobs 3")
+        print("0 already converted, 3000 to do, 3 workers", flush=True)
+        for n in (1000, 2000, 3000):
+            print(f"  {n}/3000  0 failed  500/s  eta 0 min", flush=True)
+            time.sleep(DELAY)
+        log("$ python apply_images.py")
+        # the dev box's own sample corpus, if dev.py made one: the same doc_ids
+        # as its index, so the import resumes instead of adding cars twice
+        sample = HERE.parents[1] / "sample_corpus" / "wis_en"
+        if (sample / "manifest.json").is_file():
+            import shutil
+            dst = out / "wis_extract" / "wis_en"
+            shutil.rmtree(dst, ignore_errors=True)
+            shutil.copytree(sample, dst)
+        else:
+            write_corpus(out / "wis_extract" / "wis_en", "mercedes-wis-virtualbox", [
+                wis_record(1002296, "Remove/install front brake pads",
+                           "Unscrew the brake caliper. Tighten the caliper bolts to 30 Nm.", ["201"]),
+                wis_record(1002297, "Engine oil and filter change",
+                           "Drain the engine oil. Drain plug 25 Nm.", ["201"])])
+        log(f"corpus ready: {out / 'wis_extract'}")
+    log("done")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

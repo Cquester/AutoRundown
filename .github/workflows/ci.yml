@@ -74,7 +74,7 @@ jobs:
           for t in tests/test_citations.py tests/test_records.py tests/test_access.py \
                    tests/test_lemon_import.py tests/test_lemon_catalogue.py \
                    tests/test_remove_manuals.py tests/test_wis_links.py tests/test_fake_api.py \
-                   tests/test_epc_join.py tests/test_car_history.py; do
+                   tests/test_epc_join.py tests/test_car_history.py tests/test_vm_jobs.py; do
             echo "::group::$t"
             start=$SECONDS
             python "$t" || { echo "::error::$t failed"; rc=1; }

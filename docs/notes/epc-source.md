@@ -320,7 +320,7 @@ so in `caveats` rather than guessing.
    **Built 2026-10-15** (see "Footnotes" below).
 4. **Gearbox catalogs** -- need a car -> gearbox map first.
 5. **Site integration: built 2026-10-15, not yet run from the site.** The
-   Mercedes VM tab's "Parts catalogue (EPC)" choice (`docs/notes/importing.md`).
+   Mercedes VM tab's "EPC" (or "Both") choice (`docs/notes/importing.md`).
    **No clock or DHCP change after all:** the EPC database answered with the
    VM's `biossystemtimeoffset` at 0 (2026-10-14) -- the 2008 clock matters to
    the EPC *program's* licence, not to reading its database -- and the

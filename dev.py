@@ -5,6 +5,7 @@ nothing it does touches your real index, settings, accounts or spend log.
     python dev.py --empty    # no index: the first-start import dialog
     python dev.py --reset    # delete .dev/ and build the samples again
     python dev.py --fake-api # Ask answers from a fake Anthropic API (free)
+    python dev.py --fake-vm  # Mercedes VM tab runs tools/fake_extractor (free)
 
 Everything lives in `.dev/` in this repo (gitignored): its own
 AUTORUNDOWN_HOME (config, sign-in accounts, TLS), its own index. The samples
@@ -18,6 +19,11 @@ would spend real money -- keyword search, the picker, the page view and
 imports are all free. With --fake-api, Ask runs its whole real path against
 tools/fake_anthropic.py on port+1 instead: nothing is sent to Anthropic, even
 if a real key is typed into Settings (the API address is the fake's).
+
+With --fake-vm, the extractor folder is set to tools/fake_extractor: the
+Mercedes VM tab lists pretend VMs and its jobs run a stand-in vm_pipeline.py
+(progress lines, a tiny corpus in .dev/fake_vm_out) -- no VirtualBox, no
+database. The pause between the two parts of a WIS + EPC run is 5 s here.
 """
 from __future__ import annotations
 
@@ -76,6 +82,8 @@ def main() -> int:
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--fake-api", action="store_true",
                     help="answer Ask from tools/fake_anthropic.py on port+1 (free)")
+    ap.add_argument("--fake-vm", action="store_true",
+                    help="the Mercedes VM tab runs tools/fake_extractor (free, no VirtualBox)")
     args = ap.parse_args()
 
     if args.reset and DEV.exists():
@@ -108,6 +116,12 @@ def main() -> int:
     cfg = home / "config.json"
     conf = json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else {}
     conf.update(archive_dir=str(DEV / "lemon"), index_path=str(index))
+    if args.fake_vm:
+        conf["extractor_dir"] = str(ROOT / "tools" / "fake_extractor")
+        env["AR_FAKE_VM_OUT"] = str(DEV / "fake_vm_out")
+        env["AUTORUNDOWN_PART_PAUSE"] = "5"
+    elif conf.get("extractor_dir", "").endswith("fake_extractor"):
+        conf["extractor_dir"] = ""        # a --fake-vm run before this one set it
     cfg.write_text(json.dumps(conf, indent=2), encoding="utf-8")
 
     host = "0.0.0.0" if args.lan else "127.0.0.1"

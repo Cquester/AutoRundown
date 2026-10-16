@@ -11,6 +11,7 @@ from __future__ import annotations
 import collections
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -249,25 +250,231 @@ def manuals(index_path: str | Path) -> dict:
     return out
 
 
+_STAMP = re.compile(r"^\[\d\d:\d\d:\d\d\]\s*")
+_SCRIPT = re.compile(r"([\w.-]+\.(?:py|js))$")
+# what the build step's scripts are doing, in the order vm_pipeline.py runs them
+_BUILD = {"parse.py": "Build: reading documents", "apply_applic.py": "Build: model links",
+          "parse_vehicles.py": "Build: vehicles", "parse_links.py": "Build: diagram links",
+          "convert_images.py": "Build: converting images", "apply_images.py": "Build: placing images"}
+
+
+class Progress:
+    """How far a job has got, read from the lines it logs -- the same lines a
+    person watching the log reads. Never invents a total: `total` is set only
+    when a script printed one (images "a / b", EPC "catalog (i/N", ingest
+    "found N vehicle(s)", ...); otherwise the UI shows the phase and the count
+    with an indeterminate bar. A line it doesn't know changes nothing."""
+
+    def __init__(self) -> None:
+        self.reset("Starting")
+
+    def reset(self, phase: str) -> None:
+        self.phase, self.done, self.total, self.unit = phase, None, None, ""
+        self.detail = self.activity = self.error = ""
+        self._base = 0           # images pulled before the running batch
+        self._fresh_total = None  # pull.js: only a fresh pull has a real total
+        self._idx = 0            # ingest.py: vehicles started
+
+    def as_dict(self) -> dict:
+        return {"phase": self.phase, "done": self.done, "total": self.total, "unit": self.unit,
+                "detail": self.detail, "activity": self.activity, "error": self.error}
+
+    def _set(self, done, total=None, unit=None) -> None:
+        self.done = int(done)
+        if total is not None:
+            self.total = int(total) or None
+        if unit is not None:
+            self.unit = unit
+        if self.total and self.done > self.total:
+            self.done = self.total
+
+    def feed(self, raw: str) -> None:
+        try:
+            self._feed(raw)
+        except Exception:            # progress is a nicety; it must never break a job
+            pass
+
+    def _feed(self, raw: str) -> None:
+        line = raw.strip()
+        while _STAMP.match(line):
+            line = _STAMP.sub("", line, count=1)
+        if not line:
+            return
+        num = lambda s: int(s.replace(",", ""))      # noqa: E731
+        if line.startswith("$ "):
+            toks = line[2:].split()
+            script = next((m.group(1) for t in toks if (m := _SCRIPT.search(t))), "")
+            if script in _BUILD:
+                self.reset(_BUILD[script])
+            elif script == "vm_pipeline.py":
+                self.reset("Starting the VM")
+            elif script == "rebuild_wis.py":
+                self.reset("Rebuilding the Mercedes index")
+            elif script == "ingest.py":
+                self.reset("Adding to the index")
+            elif script == "remove_manuals.py":
+                self.reset("Removing the old data from the index")
+            else:                       # a pull starting (java ... pull.js): the VM is up
+                self.activity = ""
+            return
+        if line.startswith("STOP: "):
+            self.error = line[6:]
+            return
+        if line.startswith("starting ") and line.endswith(" headless"):
+            self.activity = "starting the VM"
+        elif line.startswith("database answering"):
+            self.activity = "database up"
+        elif line.startswith("database not answering") or line.startswith("database never came up"):
+            self.activity = "waiting for the database"
+        elif line.startswith("shutting ") and line.endswith(" down"):
+            self.activity = "shutting the VM down"
+        elif "power-cycling and resuming" in line:
+            self.activity = "connection dropped; restarting the VM and resuming"
+        elif line.startswith("== documents"):
+            self.reset("Documents")
+            self.unit = "documents"
+        elif line.startswith("== model applicability"):
+            self.reset("Model links")
+        elif line.startswith("== vehicle names"):
+            self.reset("Vehicles & VIN tables")
+            self.unit = "tables"
+        elif line.startswith("== diagram links"):
+            self.reset("Diagram links")
+        elif m := re.match(r"== images: ([\d,]+) graphics, ([\d,]+) already pulled", line):
+            self.reset("Images")
+            self._base = num(m.group(2))
+            self._set(self._base, num(m.group(1)), "graphics")
+        elif line.startswith("== EPC parts catalogue"):
+            self.reset("Parts catalogues")
+            self.unit = "catalogs"
+        elif line.startswith("== offline build"):
+            self.reset("Building the corpus")
+        # -- pull.js (documents)
+        elif m := re.match(r"PULL start .*\((fresh|resume)\)", line):
+            self.detail = "fresh pull" if m.group(1) == "fresh" else "resuming"
+        elif m := re.match(r"total docs for lang \S+ = (\d+)", line):
+            self._fresh_total = int(m.group(1))     # printed only on a fresh pull
+            self._set(0, self._fresh_total)
+            self.detail = ""
+        elif m := re.match(r"progress: (\d+) pulled", line):
+            self._set(m.group(1))
+            if not self._fresh_total:               # a resume: pulled this run, of an unknown rest
+                self.detail = "this run (resumed)"
+        elif m := re.match(r"PULL done: pulled=(\d+)", line):
+            self._set(m.group(1))
+        # -- applicability / vehicle tables
+        elif m := re.match(r"(W_Baumusterzeile|W_Dok2Reihe) rows = (\d+)", line):
+            self.detail = f"{m.group(1)}: {int(m.group(2)):,} rows"
+        elif m := re.match(r"dok2reihe (\d+)\.\.\.", line):
+            self.detail = f"W_Dok2Reihe: {int(m.group(1)):,} rows so far"
+        elif m := re.match(r"(\w+) rows = (\d+)", line):
+            self._set((self.done or 0) + 1, unit="tables")
+            self.detail = f"{m.group(1)}: {int(m.group(2)):,} rows"
+        # -- diagram links
+        elif m := re.match(r"batch (\d+)/(\d+)\s", line + " "):
+            self._set(m.group(1), m.group(2), "batches")
+        # -- images: vm_pipeline's per-batch line, pull_images.js within a batch
+        elif m := re.match(r"batch: \+[\d,]+ -> ([\d,]+) / ([\d,]+)", line):
+            self._base = num(m.group(1))
+            self._set(self._base, num(m.group(2)), "graphics")
+        elif m := re.match(r"progress: row \d+/\d+ ok=(\d+)", line):
+            if self.total:
+                self._set(self._base + int(m.group(1)))
+        # -- pull_epc.js
+        elif m := re.match(r"catalogs to pull: (\d+)", line):
+            self._set(0, m.group(1), "catalogs")
+        elif m := re.match(r"resume: (\d+) catalogs already done", line):
+            self.detail = f"{int(m.group(1)):,} catalogs done in an earlier run"
+        elif m := re.match(r"catalog (\S+) \((\d+)/(\d+)", line):
+            self._set(m.group(2), m.group(3), "catalogs")
+            self.detail = f"catalog {m.group(1)}"
+        elif m := re.match(r"SA options: (\d+)", line):
+            self.reset("Option codes")
+            self._set(0, m.group(1), "options")
+        elif m := re.match(r"SA (\d+)/(\d+):", line):
+            self._set(m.group(1), m.group(2), "options")
+        elif m := re.match(r"DONE: (\d+) records", line):
+            self.detail = f"{int(m.group(1)):,} records"
+        # -- build scripts
+        elif m := re.match(r"(\d+) docs$", line):
+            self._set(0, m.group(1), "documents")
+        elif m := re.match(r"parsed (\d+)\.\.\.", line):
+            self._set(m.group(1))
+        elif m := re.match(r"(\d+) already converted, (\d+) to do", line):
+            self._set(0, m.group(2), "images")
+        elif m := re.match(r"(\d+)/(\d+)\s+\d+ failed", line):
+            self._set(m.group(1), m.group(2), "images")
+        elif line.startswith(("corpus ready:", "EPC corpus ready:")):
+            self.detail = "corpus ready"
+        # -- ingest.py / rebuild_wis.py
+        elif m := re.match(r"found (\d+) vehicle\(s\)", line):
+            self._set(0, m.group(1), "vehicles")
+        elif m := re.match(r"=== (.+) ===$", line):
+            self._idx += 1
+            self._set(self._idx - 1)
+            self.detail = m.group(1)
+        elif m := re.match(r"done: \d+ new pages", line):
+            self._set(self._idx)
+        elif m := re.match(r"(\d+) pages\s+\d+ chunks", line):
+            self.activity = f"{int(m.group(1)):,} pages"
+        elif m := re.match(r"usage log restored", line):
+            self.detail = "spend log kept"
+        # -- remove_manuals.py
+        elif m := re.match(r"removing: (\d+) manual", line):
+            self._set(0, m.group(1), "entries")
+        elif m := re.match(r"\[(\d+)/(\d+)\]", line):
+            self._set(m.group(1), m.group(2), "entries")
+
+
 class ImportJobs:
+    # seconds between the two parts of a "both" run: the WIS part ends with
+    # rebuilding the index (heavy disk), and this PC has crashed under
+    # sustained I/O -- vm_pipeline.py pauses 60 s between heavy runs too.
+    # `dev.py --fake-vm` shortens it (AUTORUNDOWN_PART_PAUSE) for test runs.
+    PART_PAUSE = float(os.environ.get("AUTORUNDOWN_PART_PAUSE") or 60)
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._job: dict | None = None
         self._log: collections.deque[str] = collections.deque(maxlen=400)
+        self._progress = Progress()
 
     def status(self) -> dict:
         with self._lock:
             if not self._job:
                 return {"state": "idle"}
             j = dict(self._job)
+            j["parts"] = [dict(p) for p in j.get("parts", [])]
             j["log"] = list(self._log)[-120:]
+            j["progress"] = self._progress.as_dict()
             end = j.get("finished") or time.time()
             j["elapsed"] = round(end - j["started"])
             j["ago"] = round(time.time() - j["finished"]) if j.get("finished") else 0
             return j
 
+    @staticmethod
+    def _epc_cmds(path: Path, index_path: str, vm: str) -> list[list[str]]:
+        """Pull the EPC parts catalogue into <out_root>/epc_extract, then
+        replace the EPC part of the index with it (an older EPC import is
+        removed first, so the index matches the corpus exactly). Built when
+        the part starts: in a "both" run the WIS part before it may have
+        changed what the index holds."""
+        py = [sys.executable, "-u"]
+        ext = find_extractor()
+        cmds = [[*py, str(ext / "vm_pipeline.py"), "--vm", vm,
+                 "--out-root", str(path.parent), "--steps", "epc"]]
+        if manuals(index_path)["epc"]["entries"]:
+            cmds.append([*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path),
+                         "--source", "mercedes-epc"])
+        cmds.append([*py, str(ROOT / "ingest.py"), "--archive", str(path),
+                     "--index", str(index_path), "--importer", "records"])
+        return cmds
+
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
               steps: str = "", only: list[str] | None = None, compact: bool = False) -> dict:
+        """`parts` are run one after the other, each a list of commands (or a
+        function giving them, called when that part starts); the first
+        failing command stops the job, and later parts are never started."""
         with self._lock:
             if self._job and self._job["state"] == "running":
                 raise RuntimeError("An import is already running.")
@@ -276,7 +483,8 @@ class ImportJobs:
                        "--index", str(index_path)]
             add = [*py, str(ROOT / "ingest.py"), "--archive", str(path),
                    "--index", str(index_path), "--importer", "auto"]
-            if mode == "vm":
+            parts = None
+            if mode in ("vm", "vm_both"):
                 # extract from the VM into <out_root>/wis_extract, then build the
                 # index from it -- the same two things done by hand
                 ext = find_extractor()
@@ -285,18 +493,14 @@ class ImportJobs:
                 if steps:
                     pipe += ["--steps", steps]
                 cmds = [pipe, rebuild if can_rebuild_wis(index_path) else add]
+                if mode == "vm_both":
+                    # WIS, then the EPC parts catalogue from the same VM: the
+                    # two existing jobs back to back, EPC only if WIS succeeded
+                    epc = path.parent / "epc_extract"
+                    parts = [("wis", "WIS", cmds),
+                             ("epc", "EPC parts", lambda: self._epc_cmds(epc, index_path, vm))]
             elif mode == "vm_epc":
-                # pull the EPC parts catalogue into <out_root>/epc_extract, then
-                # replace the EPC part of the index with it (an older EPC import
-                # is removed first, so the index matches the corpus exactly)
-                ext = find_extractor()
-                cmds = [[*py, str(ext / "vm_pipeline.py"), "--vm", vm,
-                         "--out-root", str(path.parent), "--steps", "epc"]]
-                if manuals(index_path)["epc"]["entries"]:
-                    cmds.append([*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path),
-                                 "--source", "mercedes-epc"])
-                cmds.append([*py, str(ROOT / "ingest.py"), "--archive", str(path),
-                             "--index", str(index_path), "--importer", "records"])
+                cmds = self._epc_cmds(path, index_path, vm)
             elif mode == "lemon":
                 # the picked vehicle folders only, read as LEMON whatever else
                 # the folder holds
@@ -323,11 +527,18 @@ class ImportJobs:
                 cmds = [rebuild]
             else:
                 cmds = [add]
+            if parts is None:
+                parts = [("", "", cmds)]
             self._log.clear()
+            self._progress = Progress()
             self._job = {"state": "running", "path": str(path), "mode": mode, "vm": vm,
-                         "started": time.time(), "finished": None, "returncode": None}
+                         "started": time.time(), "finished": None, "returncode": None,
+                         # what the UI's progress bar names: "Step 1 of 2: WIS"
+                         "parts": [{"key": k, "label": lb, "state": "pending"} for k, lb, _ in parts],
+                         "part": 0, "failed_part": None}
             self._file_start(mode, vm)
-        threading.Thread(target=self._run_all, args=(cmds,), daemon=True).start()
+        threading.Thread(target=self._run_all, args=([c for _, _, c in parts],),
+                         daemon=True).start()
         return self.status()
 
     # The log is also written to <app dir>/import_job.log as it arrives: the
@@ -346,6 +557,7 @@ class ImportJobs:
 
     def _note(self, line: str) -> None:
         self._log.append(line)
+        self._progress.feed(line)
         f = getattr(self, "_file", None)
         if f:
             try:
@@ -354,12 +566,47 @@ class ImportJobs:
             except OSError:
                 pass
 
-    def _run_all(self, cmds: list[list[str]]) -> None:
+    def _set_part(self, i: int, state: str) -> None:
+        with self._lock:
+            self._job["parts"][i]["state"] = state
+            if state == "running":
+                self._job["part"] = i
+            if state == "failed":
+                self._job["failed_part"] = i
+                for p in self._job["parts"][i + 1:]:
+                    p["state"] = "not started"
+
+    def _run_all(self, parts: list) -> None:
         rc = 0
-        for cmd in cmds:
-            rc = self._run(cmd)
+        many = len(parts) > 1
+        for i, cmds in enumerate(parts):
+            label = self._job["parts"][i]["label"]
+            if many and i:
+                self._note(f"== waiting {self.PART_PAUSE:g} s before step {i + 1} of {len(parts)} "
+                           f"({label}): letting the PC settle after the index rebuild")
+                self._progress.reset(f"Waiting {self.PART_PAUSE:g} s before starting")
+                time.sleep(self.PART_PAUSE)
+            if many:
+                self._note(f"== step {i + 1} of {len(parts)}: {label}")
+            self._set_part(i, "running")
+            if callable(cmds):
+                try:
+                    cmds = cmds()
+                except Exception as exc:
+                    self._note(f"! could not start {label}: {exc}")
+                    cmds, rc = [], -1
+            for cmd in cmds:
+                rc = self._run(cmd)
+                if rc != 0:
+                    break
             if rc != 0:
+                self._set_part(i, "failed")
+                if many:
+                    rest = ", ".join(p["label"] for p in self._job["parts"][i + 1:])
+                    self._note(f"== step {i + 1} of {len(parts)} ({label}) failed"
+                               + (f"; not starting {rest}" if rest else ""))
                 break
+            self._set_part(i, "done")
         # the closing line first: once the state says finished, a reader of the
         # file (or a test) must find it complete
         self._note(f"== job {'done' if rc == 0 else 'failed'} (exit {rc}) "
