@@ -67,8 +67,19 @@ with that key_ref since `since`; a new key or "Topped up / new key" resets
 `POST /api/admin/users/{id}/key` (`api_key`, `loaded_usd`, `reset`,
 `clear_loaded`, `remove`). `/api/settings` adds `key_mode`, this month's
 `month_questions` / `month_spend_usd` (everyone, every source) and
-`company_key_last4`. A provider other than Anthropic would add to
-`pick_key`/`mechanic_keys`, not around them.
+`company_key_last4`.
+
+**Keys per AI provider (2026-10-16).** `pick_key(cfg, user_id, admin,
+provider=None)` picks the key of the active provider (`Config.provider`):
+the Anthropic company key is still `api_key`, the others
+`provider_keys[provider]`; a mechanic's non-Anthropic keys sit under
+`mechanic_keys["<id>"]["providers"]`. key_ref gains ":<provider>" for
+non-Anthropic keys ("company:gemini", "user:7:gemini"), so old rows still
+count for the Anthropic keys. A mechanic's key for one provider never pays
+for another; switching provider keeps every key. `/api/settings` adds
+`provider` and `providers` (per provider: label, key page, `has_key`,
+last 4 -- never a key); `/api/me` adds `provider`. Details:
+`ai-providers.md`.
 
 **Send this car to the desk (2026-10-16, `handoff.py`).** The user's story:
 scan or type a VIN on a phone in the bay, walk to the PC, and the car is

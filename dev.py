@@ -17,8 +17,10 @@ run next to the real one (8756) and isn't on the shop network.
 No API key is copied in: Ask stays off unless you add one in Settings, which
 would spend real money -- keyword search, the picker, the page view and
 imports are all free. With --fake-api, Ask runs its whole real path against
-tools/fake_anthropic.py on port+1 instead: nothing is sent to Anthropic, even
-if a real key is typed into Settings (the API address is the fake's).
+tools/fake_anthropic.py on port+1 instead, for every AI provider (Anthropic,
+Gemini, xAI, DeepSeek): nothing is sent to any of them, even if a real key is
+typed into Shop setup (every provider's API address is the fake's). Only the
+Anthropic key is preset; type any dummy key for the others.
 
 With --fake-vm, the extractor folder is set to tools/fake_extractor: the
 Mercedes VM tab lists pretend VMs and its jobs run a stand-in vm_pipeline.py
@@ -92,15 +94,18 @@ def main() -> int:
     home.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "AUTORUNDOWN_HOME": str(home),
            "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
-    env.pop("ANTHROPIC_API_KEY", None)   # never spend by accident from here
-    env.pop("ANTHROPIC_BASE_URL", None)
+    # never spend by accident from here: no provider's key or address is inherited
+    for name in ("ANTHROPIC", "GEMINI", "XAI", "DEEPSEEK"):
+        env.pop(f"{name}_API_KEY", None)
+        env.pop(f"{name}_BASE_URL", None)
     if args.fake_api:
         sys.path.insert(0, str(ROOT / "tools"))
         import fake_anthropic
         fake = fake_anthropic.serve(args.port + 1)
         threading.Thread(target=fake.serve_forever, daemon=True).start()
-        # the SDK reads both; the address is what keeps a real key from spending
-        env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{args.port + 1}"
+        # every provider's address is the fake's: that is what keeps a real
+        # key typed into Shop setup from spending (providers.py reads these)
+        env.update(fake_anthropic.base_urls(args.port + 1))
         env["ANTHROPIC_API_KEY"] = "sk-fake-dev-not-a-real-key"
 
     if args.empty:

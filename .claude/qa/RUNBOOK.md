@@ -7,8 +7,8 @@ Read this first. It is the same for every agent in `.claude/agents/qa-*.md`.
 The app under test runs in a **test box** (`tools/container/box.sh`,
 Docker in WSL): a Linux container holding a copy of the repo at `/work`,
 serving `dev.py`'s sample data, with no outbound network. Ask is answered
-by a fake Anthropic API inside the box (`tools/fake_anthropic.py`), so it is
-free.
+by fake AI APIs inside the box (`tools/fake_anthropic.py`; every provider in
+Shop setup, any dummy key), so it is free.
 You run on the PC, as a subagent of a local session, and work on the box
 **from outside only**. The orchestrator starts one box per chat with
 `wsl -d Ubuntu -- bash tools/container/box.sh up` and hands you the

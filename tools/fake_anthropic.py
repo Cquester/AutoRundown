@@ -1,15 +1,26 @@
-"""A stand-in for the Anthropic Messages API, for test boxes and dev.py -- FREE.
+"""A stand-in for the AI APIs, for test boxes and dev.py -- FREE.
 
     python tools/fake_anthropic.py [--port 8758]
 
-Then point the app at it (dev.py --fake-api does both):
+Fakes every provider's wire format on one port (autorundown/providers.py):
 
-    ANTHROPIC_BASE_URL=http://127.0.0.1:8758  ANTHROPIC_API_KEY=sk-fake-...
+    /v1/messages                               Anthropic Messages API
+    /v1beta/models/<model>:generateContent     Google Gemini
+    /xai/v1/chat/completions                   xAI (OpenAI-compatible)
+    /deepseek/chat/completions                 DeepSeek (OpenAI-compatible)
+
+Then point the app at it (dev.py --fake-api does it; `base_urls(port)`):
+
+    ANTHROPIC_BASE_URL=http://127.0.0.1:8758  GEMINI_BASE_URL=http://127.0.0.1:8758
+    XAI_BASE_URL=http://127.0.0.1:8758/xai/v1 DEEPSEEK_BASE_URL=http://127.0.0.1:8758/deepseek
 
 The app's own code path runs unchanged -- the real SDK, `messages.parse`,
-`_verify_citations`, the spend log, the UI -- only the reply is made up here.
-Nothing leaves the machine and nothing is billed. Every answer starts with
-"[fake API]" so a screenshot of one can't be mistaken for a real answer.
+providers.py's HTTPS calls, `_verify_citations`, the spend log, the UI --
+only the reply is made up here. Nothing leaves the machine and nothing is
+billed. Every answer starts with "[fake API]" so a screenshot of one can't
+be mistaken for a real answer. Each provider's request is checked the way
+that API would (its key header; Gemini's JSON-schema subset; xAI's strict
+json_schema; DeepSeek's JSON mode, which needs the word "json" in the prompt).
 
 The answer is built from the passages the app sent, the way a well-behaved
 model would answer: the best-matching page as `document_page`, and the
@@ -27,9 +38,14 @@ model only takes now and then:
     fake:nocredit   HTTP 400 "credit balance is too low"
     fake:slow       waits 8 s before answering
     fake:onepart    cites a parts page but gives only one of its current part numbers
+    fake:otherengine adds a value for engine M103 on a cited page (other-vehicle check)
+    fake:malformed  the planner gets prose, the answer JSON of the wrong shape
 
-The request is checked like the real API checks it: `thinking` or an
-`effort` on a model that doesn't take them is a 400 (query.MODELS).
+All of them work on every provider; a refusal, an overload and "no credit"
+are sent the way that provider sends them.
+
+The Anthropic request is checked like the real API checks it: `thinking` or
+an `effort` on a model that doesn't take them is a 400 (query.MODELS).
 """
 from __future__ import annotations
 
@@ -127,6 +143,10 @@ def answer(prompt: str) -> dict:
     if "fake:badcite" in q:
         specs.append({"name": "Invented bolt", "value": "999 Nm", "applicability": "",
                       "source_pages": ["999999"]})
+    if "fake:otherengine" in q:
+        # a row for another engine, on a real page: what _drop_other_vehicles removes
+        specs.append({"name": "Other engine's bolt", "value": "10 Nm",
+                      "applicability": "M103 (103.942) only", "source_pages": [best["page"]]})
     what = "the values it uses are below" if specs else "it prints no torque values"
     return {
         "found": True,
@@ -141,11 +161,64 @@ def answer(prompt: str) -> dict:
     }
 
 
+PLANNER_START = "You turn a mechanic's question"
+# what Gemini's responseJsonSchema accepts (ai.google.dev/api/generate-content)
+GEMINI_SCHEMA_KEYS = {"$id", "$defs", "$ref", "$anchor", "type", "format", "title",
+                      "description", "enum", "items", "prefixItems", "minItems",
+                      "maxItems", "minimum", "maximum", "anyOf", "oneOf", "properties",
+                      "additionalProperties", "required", "propertyOrdering"}
+# every request the fake answered, newest last: tests read the wire format here
+REQUESTS: list[dict] = []
+
+
+def base_urls(port: int) -> dict:
+    """The environment that points every provider of the app at this fake."""
+    root = f"http://127.0.0.1:{port}"
+    return {"ANTHROPIC_BASE_URL": root, "GEMINI_BASE_URL": root,
+            "XAI_BASE_URL": f"{root}/xai/v1", "DEEPSEEK_BASE_URL": f"{root}/deepseek"}
+
+
+def gemini_schema_problem(node, path="schema") -> str:
+    """A keyword outside Gemini's supported subset, or ""."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k not in GEMINI_SCHEMA_KEYS:
+                return f"{path}: unsupported keyword {k!r}"
+            if k in ("properties", "$defs"):
+                for name, sub in v.items():
+                    bad = gemini_schema_problem(sub, f"{path}.{k}.{name}")
+                    if bad:
+                        return bad
+            elif isinstance(v, (dict, list)):
+                bad = gemini_schema_problem(v, f"{path}.{k}")
+                if bad:
+                    return bad
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            bad = gemini_schema_problem(v, f"{path}[{i}]")
+            if bad:
+                return bad
+    return ""
+
+
+def reply_text(system: str, prompt: str) -> tuple[str, bool]:
+    """(the model's text, declined?) -- the same for every provider."""
+    q = field(prompt, "Question")
+    planning = system.startswith(PLANNER_START)
+    if "fake:malformed" in q:
+        # prose where JSON was asked for; then JSON of the wrong shape
+        return (("Sure! Here are some queries: brake torque" if planning
+                 else json.dumps({"found": "maybe", "specs": "Caliper bolt 999 Nm",
+                                  "source_pages": 7})), False)
+    body = plan(prompt) if planning else answer(prompt)
+    return json.dumps(body), ("fake:refusal" in q and not planning)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # one line per call, no headers
         print(f"fake_anthropic: {fmt % args}", flush=True)
 
-    def reply(self, status: int, body: dict) -> None:
+    def reply(self, status: int, body) -> None:
         data = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -158,9 +231,32 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(status, {"type": "error", "error": {"type": kind, "message": msg}})
 
     def do_POST(self):
-        if self.path.split("?")[0] != "/v1/messages":
-            return self.error(404, "not_found_error", f"fake API: no route {self.path}")
+        path = self.path.split("?")[0]
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        REQUESTS.append({"path": path, "body": req})
+        if path == "/v1/messages":
+            return self.anthropic(req)
+        m = re.fullmatch(r"/v1beta/models/([^/:]+):generateContent", path)
+        if m:
+            return self.gemini(m.group(1), req)
+        if path == "/xai/v1/chat/completions":
+            return self.openai_compat("xai", req)
+        if path == "/deepseek/chat/completions":
+            return self.openai_compat("deepseek", req)
+        return self.error(404, "not_found_error", f"fake API: no route {self.path}")
+
+    @staticmethod
+    def rare(q: str) -> str | None:
+        """The words that make every provider fail its own way."""
+        if "fake:slow" in q:
+            time.sleep(8)
+        for word in ("fake:error", "fake:nocredit"):
+            if word in q:
+                return word
+        return None
+
+    # -- Anthropic ------------------------------------------------------------
+    def anthropic(self, req: dict):
         model = req.get("model", "")
         if not self.headers.get("x-api-key"):
             return self.error(401, "authentication_error", "x-api-key header is required")
@@ -177,27 +273,107 @@ class Handler(BaseHTTPRequestHandler):
         system = system if isinstance(system, str) else " ".join(b.get("text", "") for b in system)
         msg = req["messages"][-1]["content"]
         prompt = msg if isinstance(msg, str) else " ".join(b.get("text", "") for b in msg)
-        q = field(prompt, "Question")
-        if "fake:error" in q:
+        rare = self.rare(field(prompt, "Question"))
+        if rare == "fake:error":
             return self.error(529, "overloaded_error", "Overloaded (fake)")
-        if "fake:nocredit" in q:
+        if rare == "fake:nocredit":
             return self.error(400, "invalid_request_error",
                               "Your credit balance is too low to access the Anthropic API.")
-        if "fake:slow" in q:
-            time.sleep(8)
-
-        planning = system.startswith("You turn a mechanic's question")
-        stop = "refusal" if ("fake:refusal" in q and not planning) else "end_turn"
-        body = plan(prompt) if planning else answer(prompt)
-        text = json.dumps(body)
+        text, declined = reply_text(system, prompt)
         self.reply(200, {
             "id": "msg_fake", "type": "message", "role": "assistant", "model": model,
             "content": [{"type": "text", "text": text}],
-            "stop_reason": stop, "stop_sequence": None,
+            "stop_reason": "refusal" if declined else "end_turn", "stop_sequence": None,
             # rough token counts, so the spend log and caps have numbers to show
             "usage": {"input_tokens": len(prompt) // 4 + len(system) // 4,
                       "output_tokens": len(text) // 4},
         })
+
+    # -- Google Gemini: generateContent ----------------------------------------
+    def gemini_error(self, code: int, status: str, msg: str):
+        self.reply(code, {"error": {"code": code, "message": msg, "status": status}})
+
+    def gemini(self, model: str, req: dict):
+        if not self.headers.get("x-goog-api-key"):
+            return self.gemini_error(403, "PERMISSION_DENIED",
+                                     "Method doesn't allow unregistered callers (fake)")
+        cfg = req.get("generationConfig") or {}
+        if cfg.get("responseMimeType") != "application/json" or not isinstance(
+                cfg.get("responseJsonSchema"), dict):
+            return self.gemini_error(400, "INVALID_ARGUMENT",
+                                     "fake API: expected responseMimeType application/json "
+                                     "and a responseJsonSchema")
+        bad = gemini_schema_problem(cfg["responseJsonSchema"])
+        if bad:
+            return self.gemini_error(400, "INVALID_ARGUMENT", f"fake API: {bad}")
+        system = " ".join(p.get("text", "") for p in
+                          (req.get("systemInstruction") or {}).get("parts", []))
+        prompt = " ".join(p.get("text", "") for p in (req.get("contents") or [{}])[-1].get("parts", []))
+        rare = self.rare(field(prompt, "Question"))
+        if rare == "fake:error":
+            return self.gemini_error(503, "UNAVAILABLE", "The model is overloaded (fake).")
+        if rare == "fake:nocredit":
+            return self.gemini_error(429, "RESOURCE_EXHAUSTED",
+                                     "You exceeded your current quota (fake).")
+        text, declined = reply_text(system, prompt)
+        usage = {"promptTokenCount": (len(prompt) + len(system)) // 4,
+                 "candidatesTokenCount": len(text) // 4, "thoughtsTokenCount": 25}
+        usage["totalTokenCount"] = sum(usage.values())
+        cand = ({"content": {"role": "model", "parts": []}, "finishReason": "SAFETY", "index": 0}
+                if declined else
+                {"content": {"role": "model", "parts": [{"text": text}]},
+                 "finishReason": "STOP", "index": 0})
+        self.reply(200, {"candidates": [cand], "usageMetadata": usage, "modelVersion": model})
+
+    # -- xAI and DeepSeek: chat completions -------------------------------------
+    def openai_compat(self, provider: str, req: dict):
+        auth = self.headers.get("Authorization") or ""
+        if not auth.startswith("Bearer ") or len(auth) < 12:
+            return self.reply(401, {"error": {"message": "Incorrect API key provided (fake)",
+                                              "type": "authentication_error"}})
+        msgs = req.get("messages") or []
+        system = " ".join(m.get("content", "") for m in msgs if m.get("role") == "system")
+        prompt = next((m.get("content", "") for m in reversed(msgs) if m.get("role") == "user"), "")
+        rf = req.get("response_format") or {}
+        if provider == "xai":
+            js = rf.get("json_schema") or {}
+            if rf.get("type") != "json_schema" or not isinstance(js.get("schema"), dict) \
+                    or not js.get("name") or js.get("strict") is not True:
+                return self.reply(400, {"code": "Client specified an invalid argument",
+                                        "error": "fake API: expected a strict json_schema response_format"})
+        elif rf.get("type") != "json_object" or "json" not in (system + prompt).lower():
+            return self.reply(400, {"error": {
+                "message": "fake API: expected response_format json_object and the word "
+                           "'json' in the prompt", "type": "invalid_request_error"}})
+        rare = self.rare(field(prompt, "Question"))
+        if rare == "fake:error":
+            return self.reply(503, {"error": {"message": "Service unavailable (fake)",
+                                              "type": "server_error"}})
+        if rare == "fake:nocredit":
+            if provider == "deepseek":
+                return self.reply(402, {"error": {"message": "Insufficient Balance (fake)",
+                                                  "type": "unknown_error"}})
+            return self.reply(403, {"code": "The caller does not have permission",
+                                    "error": "Your team has run out of credits (fake)."})
+        text, declined = reply_text(system, prompt)
+        p_tok, c_tok = (len(prompt) + len(system)) // 4, len(text) // 4
+        usage = {"prompt_tokens": p_tok, "completion_tokens": c_tok}
+        if provider == "xai":   # reasoning beside completion, as xAI's sample shows it
+            usage["completion_tokens_details"] = {"reasoning_tokens": 40}
+            usage["total_tokens"] = p_tok + c_tok + 40
+        else:
+            usage["total_tokens"] = p_tok + c_tok
+        if declined:
+            message = ({"role": "assistant", "content": None,
+                        "refusal": "I can't help with that (fake)."} if provider == "xai"
+                       else {"role": "assistant", "content": ""})
+            finish = "stop" if provider == "xai" else "content_filter"
+        else:
+            message, finish = {"role": "assistant", "content": text}, "stop"
+        self.reply(200, {"id": "chatcmpl-fake", "object": "chat.completion",
+                         "model": req.get("model", ""),
+                         "choices": [{"index": 0, "message": message, "finish_reason": finish}],
+                         "usage": usage})
 
 
 def serve(port: int) -> ThreadingHTTPServer:
@@ -208,7 +384,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--port", type=int, default=8758)
     port = ap.parse_args().port
-    print(f"fake Anthropic API on http://127.0.0.1:{port}", flush=True)
+    print(f"fake AI APIs (Anthropic, Gemini, xAI, DeepSeek) on http://127.0.0.1:{port}",
+          flush=True)
     serve(port).serve_forever()
 
 

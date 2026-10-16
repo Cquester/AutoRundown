@@ -165,7 +165,10 @@ ADDED_COLUMNS = {
         "user_name": "TEXT",     # the name at the time, so a report survives
                                  # a renamed or removed account
         "key_ref": "TEXT",       # whose key paid: "company" | "user:<id>"
-    },                           # (config.pick_key); NULL = before 2026-10-16
+                                 # (config.pick_key); NULL = before 2026-10-16;
+                                 # ":gemini" etc. after it for other providers
+        "provider": "TEXT",      # "anthropic" | "gemini" | "xai" | "deepseek"
+    },                           # (providers.py); NULL = before providers = anthropic
 }
 
 
@@ -410,16 +413,18 @@ def connector_pages(conn: sqlite3.Connection, doc_id: str,
 def log_usage(conn: sqlite3.Connection, source: str, doc_id: str,
               question: str, usage, user_id: int | None = None,
               user_name: str | None = None, key_ref: str | None = None) -> None:
-    """Record one question's spend. Never let logging break a good answer."""
+    """Record one question's spend. Never let logging break a good answer.
+    cost_usd is NULL when the model's price is not known ("cost not tracked")."""
     try:
         conn.execute(
             """INSERT INTO usage_log
                (ts, source, model, doc_id, question, calls,
-                input_tokens, output_tokens, cost_usd, user_id, user_name, key_ref)
-               VALUES (datetime('now'),?,?,?,?,?,?,?,?,?,?,?)""",
+                input_tokens, output_tokens, cost_usd, user_id, user_name, key_ref,
+                provider)
+               VALUES (datetime('now'),?,?,?,?,?,?,?,?,?,?,?,?)""",
             (source, usage.model, doc_id, question[:500], usage.calls,
              usage.input_tokens, usage.output_tokens, usage.cost_usd,
-             user_id, user_name, key_ref),
+             user_id, user_name, key_ref, getattr(usage, "provider", None)),
         )
         conn.commit()
     except sqlite3.Error:
@@ -488,7 +493,8 @@ def key_spend_since(conn: sqlite3.Connection, key_ref: str, since: str) -> float
 
 def recent_usage(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     return [dict(r) for r in conn.execute(
-        """SELECT ts, source, model, question, cost_usd
+        """SELECT ts, source, COALESCE(provider, 'anthropic') AS provider, model,
+                  question, cost_usd
            FROM usage_log ORDER BY id DESC LIMIT ?""", (limit,))]
 
 

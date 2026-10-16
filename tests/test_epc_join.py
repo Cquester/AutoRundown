@@ -222,19 +222,35 @@ def main() -> int:
         from autorundown import query
         fake = fake_anthropic.serve(0)
         threading.Thread(target=fake.serve_forever, daemon=True).start()
-        old_base = os.environ.get("ANTHROPIC_BASE_URL")
-        os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{fake.server_address[1]}"
+        urls = fake_anthropic.base_urls(fake.server_address[1])
+        old_env = {k: os.environ.get(k) for k in urls}
+        os.environ.update(urls)
+        i2316 = next(i for i, x in enumerate(variants) if x["name"] == "190 E 2.3 16")
         try:
-            i2316 = next(i for i, x in enumerate(variants) if x["name"] == "190 E 2.3 16")
             res = query.ask(conn, w201, "spark plug part number fake:onepart",
                             "sk-fake-test-not-a-real-key", model="claude-haiku-4-5",
                             source="eval", variant=i2316).as_dict()
+            # the same checks on every provider: the answer comes back
+            # through the same code whoever wrote it (providers.py)
+            others = {}
+            for m in ("gemini-3.5-flash-lite", "grok-4.3", "deepseek-flash"):
+                others[m] = (
+                    query.ask(conn, w201, "spark plug part number fake:onepart",
+                              "test-key-not-real", model=m, source="eval",
+                              variant=i2316).as_dict(),
+                    query.ask(conn, w201, "spark plug part number fake:otherengine",
+                              "test-key-not-real", model=m, source="eval",
+                              variant=i2316).as_dict())
+            res_other = query.ask(conn, w201, "spark plug part number fake:otherengine",
+                                  "sk-fake-test-not-a-real-key", model="claude-haiku-4-5",
+                                  source="eval", variant=i2316).as_dict()
         finally:
             fake.shutdown()
-            if old_base is None:
-                os.environ.pop("ANTHROPIC_BASE_URL", None)
-            else:
-                os.environ["ANTHROPIC_BASE_URL"] = old_base
+            for k, v in old_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
         vals = [s["value"] for s in res["specs"]]
         check("the fake gave one current plug and cited the M102 parts page",
               res["found"] and res["document_page"].startswith("P") and vals[:1] == ["A 004 159 51 03"], res)
@@ -246,6 +262,17 @@ def main() -> int:
         check("added_parts says what the check added",
               [a["value"] for a in res["added_parts"]] == ["A 004 159 52 03 (A0041595203)"], res["added_parts"])
         check("the caveat tells the mechanic", "also lists for this car" in res["caveats"], res["caveats"])
+        gone = [s["name"] for s in res_other["other_vehicle_specs"]]
+        check("a value for engine M103 on a cited page is moved to other_vehicle_specs",
+              gone == ["Other engine's bolt"]
+              and all(s["name"] != "Other engine's bolt" for s in res_other["specs"]), res_other)
+        for m, (one, oth) in others.items():
+            check(f"{m}: the omitted plug is added, as on Anthropic",
+                  [a["value"] for a in one["added_parts"]] == [a["value"] for a in res["added_parts"]]
+                  and one["specs"] == res["specs"], one)
+            check(f"{m}: the other engine's value is removed, as on Anthropic",
+                  [s["name"] for s in oth["other_vehicle_specs"]] == gone
+                  and oth["specs"] == res_other["specs"], oth)
         conn.close()
 
         print("\n-- server: listing and drawings --")

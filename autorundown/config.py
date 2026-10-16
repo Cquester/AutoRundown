@@ -1,8 +1,9 @@
 """Configuration: archive path, index path, API key.
 
 Key resolution order (spec 1.7): explicit config file -> OS keychain -> env var.
-The key is only ever sent to Anthropic. Which key pays for a given request
-(the company's, or a mechanic's own) is decided in one place: `pick_key`.
+A key is only ever sent to its own AI provider (providers.py). Which key pays
+for a given request (the company's, or a mechanic's own, for the provider in
+use) is decided in one place: `pick_key`.
 """
 from __future__ import annotations
 
@@ -35,8 +36,14 @@ class Config:
     archive_dir: str = ""
     index_path: str = str(DEFAULT_INDEX)
     importer: str = "auto"
+    # the company's Anthropic key (the key of before providers existed)
     api_key: str = ""
     model: str = "claude-opus-5"
+    # which AI answers: "anthropic" | "gemini" | "xai" | "deepseek" (providers.py)
+    provider: str = "anthropic"
+    # the company keys of the other providers: {"gemini": "AIza...", ...}.
+    # Entered in Shop setup, never fetched; never sent to a phone.
+    provider_keys: dict = field(default_factory=dict)
     # the Mercedes WIS extractor (vm_pipeline.py lives there); "" = this
     # repo's extractor/. Its data goes outside the repo: see extractor/wis_paths.py
     extractor_dir: str = ""
@@ -52,8 +59,11 @@ class Config:
     key_mode: str = "company"
     # per_mechanic mode: {"<auth.db user id>": {"api_key": "sk-ant-...",
     #   "loaded_usd": 20.0 | None,   # credit the owner says is on the key
-    #   "since": "YYYY-MM-DD HH:MM:SS"}}  # UTC; spend counts from here
-    # Never sent to a phone, never logged; the admin sees the last 4 only.
+    #   "since": "YYYY-MM-DD HH:MM:SS",  # UTC; spend counts from here
+    #   "providers": {"gemini": {"api_key", "loaded_usd", "since"}, ...}}}
+    # The top level is the Anthropic key; other providers' keys sit under
+    # "providers" (mechanic_entry). Never sent to a phone, never logged; the
+    # admin sees the last 4 only.
     mechanic_keys: dict = field(default_factory=dict)
 
     @property
@@ -104,26 +114,97 @@ class KeyChoice:
     ref: str
 
 
-def pick_key(cfg: Config, user_id: int | None, admin: bool) -> KeyChoice:
+def active_provider(cfg: Config) -> str:
+    from .providers import PROVIDERS, DEFAULT_PROVIDER
+    return cfg.provider if cfg.provider in PROVIDERS else DEFAULT_PROVIDER
+
+
+def active_model(cfg: Config) -> str:
+    """The saved model when it is one of the active provider's, else that
+    provider's default (a model saved under another provider)."""
+    from .providers import PROVIDERS
+    p = PROVIDERS[active_provider(cfg)]
+    return cfg.model if cfg.model in p["models"] else p["default_model"]
+
+
+def company_key(cfg: Config, provider: str = "anthropic") -> str:
+    """The company key for a provider: config file first, then environment
+    (ANTHROPIC_API_KEY, GEMINI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY)."""
+    from .providers import PROVIDERS
+    if provider == "anthropic":
+        return cfg.resolved_key
+    saved = (cfg.provider_keys or {}).get(provider) or ""
+    env = PROVIDERS.get(provider, {}).get("env_key", "")
+    return saved or (os.environ.get(env, "") if env else "")
+
+
+def key_ref(provider: str, user_id: int | None = None) -> str:
+    """usage_log.key_ref: "company" / "user:<id>" for Anthropic (as before
+    providers existed, so old rows still count), with ":<provider>" after it
+    for the others -- a mechanic's Gemini key is counted apart from his
+    Anthropic key."""
+    base = "company" if user_id is None else f"user:{user_id}"
+    return base if provider == "anthropic" else f"{base}:{provider}"
+
+
+def mechanic_entry(cfg: Config, user_id: int | str, provider: str = "anthropic") -> dict:
+    """A mechanic's key entry for one provider: {api_key, loaded_usd, since}."""
+    entry = cfg.mechanic_keys.get(str(user_id)) or {}
+    if provider == "anthropic":
+        return {k: v for k, v in entry.items() if k != "providers"}
+    return dict((entry.get("providers") or {}).get(provider) or {})
+
+
+def set_mechanic_entry(cfg: Config, user_id: int | str, provider: str,
+                       new: dict | None) -> None:
+    """Store (or with None, remove) a mechanic's key for one provider,
+    leaving their keys for the other providers alone."""
+    uid = str(user_id)
+    entry = dict(cfg.mechanic_keys.get(uid) or {})
+    others = dict(entry.get("providers") or {})
+    if provider == "anthropic":
+        entry = dict(new or {})
+    else:
+        entry = {k: v for k, v in entry.items() if k != "providers"}
+        if new:
+            others[provider] = dict(new)
+        else:
+            others.pop(provider, None)
+    if others:
+        entry["providers"] = others
+    if entry:
+        cfg.mechanic_keys[uid] = entry
+    else:
+        cfg.mechanic_keys.pop(uid, None)
+
+
+def pick_key(cfg: Config, user_id: int | None, admin: bool,
+             provider: str | None = None) -> KeyChoice:
     """THE place that decides which API key pays for a request.
 
-    company mode: the company key for everyone (empty -> query.NoApiKey as
-    before). per_mechanic mode: the PC (admin) uses the company key; a
-    signed-in mechanic uses their own key, and with none set is refused -- it
-    never falls back to the company key or another mechanic's; a device that
+    For the provider in use (default: the active one; a key is only ever for
+    its own provider). company mode: the company key for everyone (empty ->
+    query.NoApiKey as before). per_mechanic mode: the PC (admin) uses the
+    company key; a signed-in mechanic uses their own key for this provider,
+    and with none set is refused -- it never falls back to the company key,
+    another mechanic's, or their own key for another provider; a device that
     is not signed in is refused too (it has no key of its own)."""
+    from .providers import PROVIDERS
+    provider = provider or active_provider(cfg)
+    label = PROVIDERS.get(provider, {}).get("short", provider)
     if cfg.key_mode != "per_mechanic" or admin:
-        return KeyChoice(cfg.resolved_key, "company")
+        return KeyChoice(company_key(cfg, provider), key_ref(provider))
     if user_id is None:
         raise NoKeyForRequest(
             "AI answers in this shop use each mechanic's own API key. Sign in "
             "(ask for a sign-in QR at the shop PC) to ask; keyword search works without it.")
-    entry = cfg.mechanic_keys.get(str(user_id)) or {}
+    entry = mechanic_entry(cfg, user_id, provider)
     if not entry.get("api_key"):
         raise NoKeyForRequest(
-            "No API key is set up for you yet. Ask the shop to add your key in "
+            ("No API key" if provider == "anthropic" else f"No {label} API key")
+            + " is set up for you yet. Ask the shop to add your key in "
             "Shop setup > AI answers; keyword search still works.")
-    return KeyChoice(entry["api_key"], f"user:{user_id}")
+    return KeyChoice(entry["api_key"], key_ref(provider, user_id))
 
 
 def key_last4(key: str) -> str:
@@ -137,5 +218,7 @@ def load() -> Config:
         cfg = Config(**{k: v for k, v in raw.items() if k in known})
         if not isinstance(cfg.mechanic_keys, dict):   # hand-edited file
             cfg.mechanic_keys = {}
+        if not isinstance(cfg.provider_keys, dict):
+            cfg.provider_keys = {}
         return cfg
     return Config()

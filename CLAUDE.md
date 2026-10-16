@@ -1,12 +1,12 @@
 # AutoRundown — working notes for Claude
 
 Local repair-manual search over the user's own service-manual archive.
-Retrieval is local (SQLite FTS5); the only network call is to the Anthropic
-API. Read `README.md` for the product description — this file is the working
+Retrieval is local (SQLite FTS5); the only network call is to the AI
+provider's API (Anthropic by default; Gemini, xAI or DeepSeek by setting). Read `README.md` for the product description — this file is the working
 context: what is already decided, what is already tried, and what will break.
 
 **Status: working end to end.** Importers (LEMON HTML, Mercedes WIS via
-`records`, plain folders), index, retrieval, Claude query layer, web UI with
+`records`, plain folders), index, retrieval, AI query layer (four providers), web UI with
 Shop setup, shop-network access, Windows MSI with CI and releases. Not built:
 macOS/Linux packages (they run from source, by the user's decision), code
 signing, the LEMON torrent download.
@@ -24,6 +24,7 @@ broke:
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
+| `providers.py`, the AI provider selector, prices, `tools/fake_anthropic.py`'s provider fakes | [`docs/notes/ai-providers.md`](docs/notes/ai-providers.md) |
 | the EPC parts source — `extractor/pull_epc.js`, `epc_fv4.js`, the EPC↔WIS join (`index.link_sources`) (not in the live index yet) | [`docs/notes/epc-source.md`](docs/notes/epc-source.md) |
 
 ---
@@ -119,7 +120,7 @@ python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder ma
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
 python rebuild_wis.py                             # replace the WIS part (~6 min; keeps spend log)
 python dev.py                                     # FREE, throwaway instance, :8757
-python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py
+python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py (all 4 providers)
 python dev.py --fake-vm                           # FREE, Mercedes VM tab runs tools/fake_extractor
 python eval.py                                    # FREE retrieval check (F-150)
 python eval.py --answers                          # PAID, prints estimate
@@ -134,6 +135,7 @@ python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
+python tests/test_providers.py                    # Ask on all 4 AI providers vs the fakes (~20 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
@@ -158,14 +160,17 @@ powershell -File tools/sandbox/start.ps1 [-Source] # fresh install in Windows Sa
 when Docker/WSL is unavailable). It builds sample data (invented text) into
 `.dev/`, runs with its own `AUTORUNDOWN_HOME` there and serves on
 localhost:8757, so the real index, spend log and the real server on 8756 are
-never touched. It drops `ANTHROPIC_API_KEY`, so Ask costs nothing unless
-someone types a key into its Shop setup. `--fake-api` (what a box runs)
-points the SDK at `tools/fake_anthropic.py` on port+1 via
-`ANTHROPIC_BASE_URL`, so Ask runs its whole real path -- planner, search,
-`_verify_citations`, spend log, UI -- with made-up replies, and even a real
-key typed into Settings goes only to the fake. Words in a question pick the
-rare paths (`fake:badcite`, `fake:steps`, `fake:notfound`, `fake:refusal`,
-`fake:error`, `fake:nocredit`, `fake:slow`). It proves the app's plumbing,
+never touched. It drops every provider's `*_API_KEY` / `*_BASE_URL`, so Ask
+costs nothing unless someone types a key into its Shop setup. `--fake-api`
+(what a box runs) points all four providers at `tools/fake_anthropic.py` on
+port+1 (`ANTHROPIC_BASE_URL`, `GEMINI_BASE_URL`, `XAI_BASE_URL`,
+`DEEPSEEK_BASE_URL`), so Ask runs its whole real path -- planner, search,
+`_verify_citations`, spend log, UI -- with made-up replies on any provider,
+and even a real key typed into Settings goes only to the fake (only the
+Anthropic key is preset; type any dummy key for the others). Words in a
+question pick the rare paths on every provider (`fake:badcite`,
+`fake:steps`, `fake:notfound`, `fake:refusal`, `fake:error`,
+`fake:nocredit`, `fake:slow`, `fake:malformed`, `fake:otherengine`). It proves the app's plumbing,
 not the real model's judgement: prompt changes still need one scoped paid
 answer. One of the three sample LEMON
 vehicles is imported, two are left for the import page; `--empty` gives the
@@ -219,7 +224,9 @@ autorundown/
   index.py         FTS5 schema, chunking, dedup, connectors, usage log, migrations
   search.py        BM25 + mandatory vehicle filter, scopes, round-robin merge
   synonyms.py      shop words -> manual words for keyword search
-  query.py         Claude planner + answerer + citation / other-vehicle checks
+  query.py         planner + answerer + citation / other-vehicle checks
+  providers.py     the AI providers (Anthropic SDK; Gemini, xAI, DeepSeek over HTTPS),
+                   their models, prices, schemas and errors
   server.py        FastAPI local server; admin-only routes, hardening
   auth.py          the PC is admin; sign-in QRs (grants), tokens, caps
   handoff.py       cars a phone sends to the desk (auth.db `handoffs`)
@@ -349,6 +356,21 @@ in `caveats`, and listed in `added_parts`. Only when a car or engine is
 chosen. Tests: `tests/test_citations.py`, and end to end through the fake
 API (`fake:onepart`) in `tests/test_epc_join.py`.
 
+**Four AI providers, one set of checks** (2026-10-16). Anthropic (default),
+Google Gemini, xAI and DeepSeek answer through `providers.call`; switching is
+the Shop setup setting `Config.provider`. The citations rule is unchanged and
+provider-blind: whatever answered, the reply is validated against the same
+schema (malformed → "no parsable answer", never a crash) and then goes
+through `_verify_citations`, `_drop_other_vehicles` and `_add_omitted_parts`
+exactly as before -- do not move any of them into a provider, and do not
+skip one for a provider. The Anthropic request is byte-for-byte what it was
+(recorded and compared). The others use the stdlib (no `openai` /
+`google-genai` in the MSI). Prices carry the date checked and their source;
+an unknown price is logged as NULL ("cost not tracked"), never guessed.
+Keys are per provider, entered in Shop setup, never fetched or sent to a
+phone. Tests: `tests/test_providers.py`; details and what is unverified
+(no real call to Gemini/xAI/DeepSeek yet): `ai-providers.md`.
+
 **Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert
 units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part
@@ -390,8 +412,9 @@ in `docs/notes/`. The ones most likely to be undone by accident:
 - **Admin = loopback peer AND loopback Host**; no reverse proxy on the same
   PC; no handler built from manual text. (`shop-network.md`)
 - **Which API key pays is decided only in `config.pick_key`** (company key,
-  or the signed-in mechanic's own in "A key per mechanic" mode). A mechanic
-  with no key is refused -- never a fallback to another key. Keys never
+  or the signed-in mechanic's own in "A key per mechanic" mode, for the
+  active AI provider). A mechanic with no key is refused -- never a fallback
+  to another key, nor to their key for another provider. Keys never
   reach a phone (booleans, estimates only; the admin sees the last 4), and
   `usage_log.key_ref` tags spend with "company" / "user:<id>", never the
   key. Sign-in is by single-use 15-minute QR grants (hashes only), voided
@@ -569,6 +592,10 @@ Still open, in rough order of value:
 7. The car box reads a bare two-digit word as a year ("190 e 2.3 16" → 2016).
 8. The LEMON download is not built (catalogue picking only); sizing it needs
    piece 16308, which the user has not yet OK'd fetching.
+9. **Gemini, xAI and DeepSeek have never answered a real question**
+   (`ai-providers.md`, "Not verified"): one cheap scoped paid question on
+   each, with the user's OK and their key, is the real test of the request
+   shapes and of the prompt on those models.
 
 Leftovers the user may delete (we never delete data):
 `autorundown_out/_previous_2026-10-07` (~15 GB), `index.v11.db`, the old
