@@ -312,9 +312,10 @@
   .seg input:focus-visible + span{outline:2px solid var(--text); outline-offset:-3px}
   .seg label:hover input:not(:checked) + span{color:var(--text)}
   /* extraction progress at the bottom of the Mercedes VM tab */
-  .vmprog{margin-top:16px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2)}
+  .impbar{flex-wrap:wrap}
+  .vmprog{flex:1 1 100%; padding:10px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2)}
   .vp-head{font-weight:600; overflow-wrap:anywhere}
-  .vp-track{position:relative; height:10px; margin:10px 0 8px; border-radius:5px; overflow:hidden; background:var(--line)}
+  .vp-track{position:relative; height:10px; margin:8px 0 6px; border-radius:5px; overflow:hidden; background:var(--line)}
   .vp-fill{height:100%; width:0; border-radius:5px; background:var(--accent); transition:width .4s ease}
   .vp-track.indet .vp-fill{position:absolute; width:30%; animation:vpslide 1.6s ease-in-out infinite}
   .vp-track.done .vp-fill{background:var(--good)}
@@ -326,7 +327,8 @@
   }
   .vp-sub{font-size:14px; color:var(--muted); overflow-wrap:anywhere}
   .vp-sub .err{color:var(--bad); font-weight:600}
-  .vp-parts{margin:8px 0 0; padding-left:20px; font-size:14px}
+  .vp-parts{margin:6px 0 0; padding-left:20px; font-size:14px}
+  @media (max-width:700px){ .vp-parts{display:none} }   /* the head already says Step i of n */
   .vp-parts li{margin:2px 0}
   .vp-parts .st{color:var(--muted)}
   .vp-parts .st.done{color:var(--good)} .vp-parts .st.failed{color:var(--bad); font-weight:600}
@@ -787,16 +789,17 @@
     </div>
     <div class="manuals" id="impWisManuals"></div>
     <div class="manuals" id="impEpcManuals"></div>
-    <!-- extraction progress, read from the job on the server (survives a reload) -->
-    <div class="vmprog" id="impVmProg" hidden>
-      <div class="vp-head" id="vpHead"></div>
-      <div class="vp-track" id="vpBar" role="progressbar" aria-labelledby="vpHead"><div class="vp-fill"></div></div>
-      <div class="vp-sub" id="vpSub"></div>
-      <ol class="vp-parts" id="vpParts" hidden></ol>
-    </div>
   </div>
             </div>
             <div class="impbar">
+              <!-- Mercedes VM extraction progress, read from the job on the server
+                   (survives a reload); in the sticky bar so it stays in view -->
+              <div class="vmprog" id="impVmProg" hidden>
+                <div class="vp-head" id="vpHead"></div>
+                <div class="vp-track" id="vpBar" role="progressbar" aria-labelledby="vpHead"><div class="vp-fill"></div></div>
+                <div class="vp-sub" id="vpSub"></div>
+                <ol class="vp-parts" id="vpParts" hidden></ol>
+              </div>
               <span class="muted" id="impStatus" role="status"></span>
               <button id="impStart" type="button">Import</button>
             </div>
@@ -3261,9 +3264,11 @@ impVmWhatShow();
 // moving (indeterminate) bar and its counts, never a made-up percentage.
 const VP_STATE = {pending: 'waiting', running: 'running', done: 'done ✓', failed: 'failed',
                   'not started': 'not started'};
+let impLast = null;     // the last job status, to redraw the bar on a tab change
 function impProg(s) {
+  impLast = s;
   const box = $('#impVmProg');
-  if (!s || s.state === 'idle' || !/^vm/.test(s.mode || '') || (s.state !== 'running' && !impSawRunning)) {
+  if (!s || impTab() !== 'vm' || s.state === 'idle' || !/^vm/.test(s.mode || '') || (s.state !== 'running' && !impSawRunning)) {
     box.hidden = true; return;
   }
   box.hidden = false;
@@ -3327,6 +3332,7 @@ function impShowSource() {
   $('#impCatPanel').hidden = tab !== 'lemon';
   $('#impFolderManuals').hidden = tab !== 'folder' || !(manData && manData.folder.length);
   $('#impVmPanel').hidden = tab !== 'vm';
+  impProg(impLast);
   $('#impLemon').hidden = src !== 'lemon'; $('#impModes').innerHTML = '';
   $('#impStart').hidden = src === 'catalogue';
   $('#impStart').textContent = tab === 'vm' ? 'Extract & import' : 'Import';
