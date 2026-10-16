@@ -239,6 +239,17 @@ refuses those requests from them.
   told so; their questions never go on another key. Questions asked on the PC
   itself still use the PC's key.
 
+**From the phone to the desk.** Pick the car on a phone in the bay -- type
+it, Browse, or type or paste its VIN -- and tap **Send this car to the desk**.
+The PC shows *Car waiting from Daxton: 1987 Mercedes-Benz 190 E 2.3 16 (VIN
+…) -- Open*; Open picks the same car, model and engine there, ready for the
+big-screen diagrams and parts views. The PC lists the latest five from every
+mechanic; a mechanic's other devices see only their own. Cars disappear
+after 24 hours, when opened, or with the ×. With sign-in off there are no
+names: a car sent from a phone that isn't signed in also shows on every
+other device on the network that isn't signed in (the phone says so under
+the button).
+
 With sign-in off, anyone who can reach the PC on the network can search and
 ask (on your API key), as before. Either way, also keep customers off that
 network: put the PC on the staff network, not the guest wifi (most routers
@@ -560,6 +571,7 @@ autorundown/             the app (everything the installer ships)
   query.py               Claude planner + answerer + citation verification
   server.py              local web server (FastAPI)
   auth.py                the PC is admin; optional mechanic accounts, sign-in QRs
+  handoff.py             cars sent from a phone to the desk ("Send this car to the desk")
   qr.py                  QR codes as SVG (segno)
   tls.py                 local certificate authority for --https
   importer_jobs.py       imports started from Shop setup

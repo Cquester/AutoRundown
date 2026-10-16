@@ -20,7 +20,7 @@ broke:
 |---|---|
 | the WIS extractor, `importers/records.py`, WIS page rendering, images, "Original layout", `wis_links.py` (cross-refs, diagrams, option codes, oil, labour) | [`docs/notes/wis-source.md`](docs/notes/wis-source.md) |
 | the car box, Browse, Variant menu, VIN, years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
-| `auth.py`, sign-in, spend caps, HTTPS, request hardening | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
+| `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
@@ -136,6 +136,7 @@ python tests/test_wis_links.py                    # WIS cross-refs/diagrams/code
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
+python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
 python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends the same car (~10 s, Playwright)
 python tools/check_js.py                          # index.html's JS parses (needs node)
@@ -221,6 +222,7 @@ autorundown/
   query.py         Claude planner + answerer + citation / other-vehicle checks
   server.py        FastAPI local server; admin-only routes, hardening
   auth.py          the PC is admin; sign-in QRs (grants), tokens, caps
+  handoff.py       cars a phone sends to the desk (auth.db `handoffs`)
   qr.py            QR codes as inline SVG (segno, pure Python)
   tls.py           local CA for --https
   config.py        ~/.autorundown/config.json (AUTORUNDOWN_HOME)

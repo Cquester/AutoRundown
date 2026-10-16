@@ -70,6 +70,45 @@ with that key_ref since `since`; a new key or "Topped up / new key" resets
 `company_key_last4`. A provider other than Anthropic would add to
 `pick_key`/`mechanic_keys`, not around them.
 
+**Send this car to the desk (2026-10-16, `handoff.py`).** The user's story:
+scan or type a VIN on a phone in the bay, walk to the PC, and the car is
+waiting there. A phone (any device but the PC) has a **Send this car to the
+desk** button under the scope note; it is a button, not automatic, so only
+cars the mechanic means to hand over reach the desk (every car typed while
+looking something up would otherwise pile up there). `POST /api/handoff`
+stores the *structured pick* -- `doc_id`, variant index, engine families,
+year, VIN -- in `auth.db` table `handoffs` (not the index: a rebuild must
+not touch it). `check_pick` validates it against `index.vehicles` (known,
+listed doc_id; variant in range of the stored order; engines among that
+car's/variant's `engine_families` or `engine_by_bm`; year 1900..now+2; VIN
+`[A-HJ-NPR-Z0-9]{10,17}`) and builds the label from the index; a label sent
+by the phone is ignored. The PC cannot send (it is the desk). 30 sends per
+sender per 10 minutes (in memory, 429); 10 kept per sender, 200 in all;
+24 h expiry; Origin check like every POST. **Who sees what**: the PC sees
+all (the latest 5, labelled with the sender's name -- a snapshot, like
+`usage_log.user_name`); a signed-in mechanic sees only their own, from any of
+their devices; a device not signed in (possible only with sign-in off) sees
+only cars sent by devices not signed in -- a shop-wide list, which the phone
+says under the button ("Sign-in is off in this shop, so a car sent from here
+is shown on the desk PC and on any device on the shop network that is not
+signed in. Its VIN goes with it."). That is no wider than sign-in off
+already is: such a device can use the whole site. With sign-in required, a
+device not signed in is 401 at `who_is_asking` like every other route.
+Dismiss (`POST /api/handoff/{id}/dismiss`) works only on a car the caller
+can see; anything else is 404. The desk (`#deskCars`, under the header)
+asks `GET /api/handoff` every 15 s while the page is visible and at once on
+focus (other devices every 60 s) -- no websockets: one small SQLite read,
+and the PC is right there. **Open** re-checks the pick against the page's
+own `/api/vehicles` list (`waitingEntry`), applies it with `applyCar` -- the
+car box's own path, so `variant=`/`engine=`/`year` are exactly what a typed
+pick sends -- restores "Any M272" from Browse, and dismisses it. Names and
+labels are escaped (`esc`), ids are numbers. The sending device hides its
+own sends (`localStorage` `autorundown.sentToDesk`). Hook for a VIN scanner:
+`applyCar(carFromVin(vin))`, then `sendToDesk()`. Tests:
+`tests/test_handoff.py`; driven end to end in a box (phone signed in by QR
+link, VIN typed, sent; desk opens it; the search carries the same
+doc_id/variant/engine).
+
 **Spend per mechanic.** `usage_log` gained `user_id`, `user_name` (nullable,
 `ADDED_COLUMNS`); the name is a snapshot so reports survive account changes.
 A monthly cap (`users.monthly_cap_usd`, UTC calendar month) is checked
