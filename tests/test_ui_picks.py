@@ -30,7 +30,9 @@ not from the page:
     corpus, read here, not by the server): the variant, the Baumuster and the
     engine sent. Testing only each variant's first prefix hid that the page
     sent the variant's FIRST Baumuster's engine for all of them (E 320
-    WDBJF65J0 = 210.065, M112, searched the M104; 2026-10-16);
+    WDBJF65J0 = 210.065, M112, searched the M104; 2026-10-16). Each VIN is
+    built with a right check digit; then each one mistyped in one character
+    must give the series only (no variant, engine or year);
   - a reload: the remembered pick (`autorundown.vehicle.v3`) still names
     the same car.
 
@@ -87,6 +89,41 @@ YEAR_CODES = "ABCDEFGHJKLMNPRSTVWXY"
 def year_char(y):
     """VIN position 10 for a model year (1980 = A, 2001 = 1 ... 2010 = A)."""
     return str(y - 2000) if 2001 <= y <= 2009 else YEAR_CODES[(y - 1980) % 30]
+
+
+VIN_VAL = dict(zip("ABCDEFGHJKLMNPRSTUVWXYZ", [1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 7, 9, 2, 3, 4, 5, 6, 7, 8, 9]))
+VIN_VAL.update({str(d): d for d in range(10)})
+VIN_WEIGHT = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2]
+
+
+def check_digit(vin):
+    r = sum(VIN_VAL[c] * w for c, w in zip(vin, VIN_WEIGHT)) % 11
+    return "X" if r == 10 else str(r)
+
+
+def valid_vin(vin):
+    """The same 17-character VIN with its last two serial digits changed so
+    that position 9 (taken from Mercedes' table) is its right check digit:
+    the page decodes a US VIN exactly only then. A FIN-form prefix (digits
+    at 4-6) has no check digit and is returned as it is."""
+    if vin[3:6].isdigit():
+        return vin
+    for a in range(10):
+        for b in range(10):
+            v = vin[:15] + str(a) + str(b)
+            if check_digit(v) == vin[8]:
+                return v
+    return vin
+
+
+def typo_vin(vin):
+    """One character of positions 4-8 changed to another of a different
+    ISO 3779 value: what the check digit must catch."""
+    for i in (4, 5, 6, 7):
+        for c in "0123456789ABCDEFGHJKLMNPRSTUVWXYZ":
+            if VIN_VAL[c] != VIN_VAL[vin[i]]:
+                return vin[:i] + c + vin[i + 1:]
+    return vin
 
 
 def engine_fams(x, bm):
@@ -147,7 +184,7 @@ class Truth:
                         fail(f"VIN prefix {k} ({x['name']}): not in vin2fin.json")
                         continue
                     ys = sorted(years_in((x.get("us_years") or {}).get(bm)))
-                    vin = k + (year_char(ys[0]) if ys else "H") + "F123456"
+                    vin = valid_vin(k + (year_char(ys[0]) if ys else "H") + "F123456")
                     by.setdefault(k, (vin, bm, []))[2].append((d, i, engine_fams(x, bm)))
         return list(by.values())
 
@@ -371,7 +408,7 @@ def main(argv=None):
         print("\n2. VINs")
         page.click("#browseBtn")            # the VIN button sits in the Browse row
         vin_cases = truth.vin_cases()
-        two = [("WDBDA34D4HF123456", "201.034", "190 E 2.3 16"),
+        two = [(valid_vin("WDBDA34D4HF123456"), "201.034", "190 E 2.3 16"),
                ("WDB2010341F123456", "201.034", "190 E 2.3 16")]
         # and one whose Baumuster is not its variant's first and has another
         # engine: the case the page got wrong
@@ -559,6 +596,22 @@ def main(argv=None):
             check_scope(truth, p["doc_id"], p, f"VIN {vin}")
         print(f"   {len(rows)} VIN prefixes, {n_eng} with a known engine, {n_shared} naming a "
               f"Baumuster sold under several names with other engines ({time.time() - t0:.0f} s)")
+
+        # 7. the same VINs with one character of 5-8 mistyped: the check
+        # digit fails, so only the series -- no variant, engine or year
+        print("\n7. mistyped US VINs (check digit) give the series only")
+        typos = [typo_vin(c[0]) for c in vin_cases if not c[0][3:6].isdigit()]
+        rows = page.evaluate("""vins => vins.map(v => { const e = carFromVin(v);
+            return {vin: v, error: e.error || null, variant: e.variant ?? null, engine: e.engine || null,
+                    year: e.year || null, warn: e.warn || ''}; })""", typos)
+        for r in rows:
+            if r["error"]:
+                continue            # the typo made the series code unknown: refused, also safe
+            if r["variant"] is not None or r["engine"] or r["year"] or "check digit" not in r["warn"].lower():
+                fail(f"mistyped VIN {r['vin']}: variant={r['variant']} engine={r['engine']} "
+                     f"year={r['year']} warn={r['warn']!r}")
+        print(f"   {len(rows)} mistyped VINs, {sum(1 for r in rows if r['error'])} refused, "
+              f"the rest series only")
 
         browser.close()
     srv.should_exit = True
