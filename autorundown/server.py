@@ -21,6 +21,7 @@ import socket
 import sqlite3
 import time
 from datetime import datetime, timezone
+from itertools import zip_longest
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -643,13 +644,20 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                    include_other_variants: bool = False,
                    variant: int | None = None,
                    engine: str | None = Query(None, max_length=64),
-                   tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$")) -> list[dict]:
+                   tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$"),
+                   also: list[str] = Query(default=[])) -> list[dict]:
         """Keyword search for one of the UI's tabs, always within the car.
 
         workshop: the manual's pages only (as before the parts catalogue);
         parts: the joined parts catalogue only, each row with the page's
         matching part lines; torque / capacity: manual pages that print such
-        a value, each row with those lines."""
+        a value, each row with those lines.
+
+        `also`: more keyword queries for the same question -- the AI's search
+        terms after an Ask, so each tab of the right box shows what that
+        question finds there (free: no AI call). Merged round-robin with `q`,
+        like the answer's own retrieval, so one query can't crowd out another."""
+        also = [a.strip()[:200] for a in also if a.strip()][:4]
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
@@ -671,12 +679,18 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # cover"), then the user's own words
             alt = synonyms.translate(q)
             extra = {"torque": " torque", "capacity": " capacity"}.get(tab, "")
-            rows = []
-            for query_text in ([alt, q] if alt else [q]):
-                for r in search(conn, scope, query_text + extra, limit * 2,
-                                include_other_variants=include_other_variants):
+            texts = list(dict.fromkeys(([alt, q] if alt else [q]) + also))
+            per = []
+            for query_text in texts:
+                hits = search(conn, scope, query_text + extra, limit * 2,
+                              include_other_variants=include_other_variants)
+                for r in hits:
                     r["query"] = query_text
-                    rows.append(r)
+                per.append(hits)
+            # with the AI's terms: round-robin across the queries; without,
+            # the manual's wording then the user's, as before
+            rows = ([r for group in zip_longest(*per) for r in group if r is not None]
+                    if also else [r for hits in per for r in hits])
             # one row per page: a page whose two chunks both match is still
             # one result, and the keyword list showed it twice
             seen, out = set(), []

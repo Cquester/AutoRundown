@@ -395,14 +395,22 @@
   /* import sources as folder tabs */
   .srctabs{display:flex; gap:4px; margin-top:14px; border-bottom:1px solid var(--line);
     overflow-x:auto; scrollbar-width:none}
-  /* the results' tabs: Workshop, Parts, Labour times, Capacities, Torque specs.
-     The look of .srctabs, but its own class: the Shop setup import code binds
-     every ".srctabs button" to its own tab handler, which took these over. */
+  /* the right box's tabs: Manual page, Parts, Labour times, Capacities,
+     Torque specs. The look of .srctabs, but its own class: the Shop setup
+     import code binds every ".srctabs button" to its own tab handler. */
   .restabs{display:flex; gap:4px; margin:0 0 12px; border-bottom:1px solid var(--line);
     overflow-x:auto; scrollbar-width:none}
-  .restabs button{flex:none; min-height:40px; background:transparent; color:var(--muted);
-    border:1px solid transparent; border-bottom:0; border-radius:10px 10px 0 0; padding:0 16px;
-    font-weight:600; margin-bottom:-1px}
+  .restabs button{flex:none; min-height:44px; background:transparent; color:var(--muted);
+    border:1px solid transparent; border-bottom:0; border-radius:10px 10px 0 0; padding:0 12px;
+    font-weight:600; margin-bottom:-1px; white-space:nowrap}
+  /* how many results this question has there; a tab with none is dimmed */
+  .tcount{margin-left:6px; font-size:12px; font-weight:700; background:var(--panel-2); color:var(--muted);
+    border:1px solid var(--line); border-radius:10px; padding:0 6px}
+  .restabs button.none{opacity:.55}
+  /* at the top of the right box, staying in view while the page scrolls */
+  #right > .restabs{position:sticky; top:-16px; z-index:2; background:var(--pane);
+    margin:-16px -16px 12px; padding:8px 10px 0}
+  @media (max-width:900px){ #right > .restabs{top:40px; margin:0 -16px 12px} }
   .restabs button[aria-selected="true"]{background:var(--panel-2); color:var(--text);
     border-color:var(--line); border-bottom:1px solid var(--panel-2)}
   .restabs button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
@@ -707,12 +715,12 @@
     .segdot{display:inline-block; width:9px; height:9px; margin-left:7px; border-radius:50%;
       background:var(--accent); vertical-align:1px}
     .viewseg button[aria-selected="true"] .segdot{background:var(--pill-text)}
-    #out, #tabLabour, #right{order:1; flex:1 1 auto; min-height:0; overflow-y:auto;
+    #out, #right{order:1; flex:1 1 auto; min-height:0; overflow-y:auto;
       -webkit-overflow-scrolling:touch; overscroll-behavior:contain; padding:10px 14px 16px}
     #right{position:static; inset:auto; transform:none; transition:none; z-index:auto;
       border:0; background:var(--pane)}
     body:not(.docview) #right{display:none}
-    body.docview #out, body.docview #tabLabour{display:none}
+    body.docview #out{display:none}
     .panelbar{display:none}
     .docgo{display:block; color:var(--accent); font-weight:700; font-size:14px; margin-top:4px}
 
@@ -725,10 +733,6 @@
     #searchBtn{width:48px; padding:0; display:inline-flex; align-items:center; justify-content:center}
     #searchBtn .lbl{display:none}
     #searchBtn .ico{display:block; width:22px; height:22px}
-    /* on the other tabs a search is the main action and Enter runs it */
-    body[data-tab]:not([data-tab="workshop"]) #searchBtn{background:var(--accent); color:var(--on-accent); border-color:transparent}
-    body[data-tab]:not([data-tab="workshop"]) #askBtn{background:var(--panel-2); color:var(--text);
-      border:1px solid var(--line); font-weight:600}
 
     /* the tabs as a bottom bar: every one on screen */
     .restabs{order:3; flex:none; margin:0; gap:0; overflow:visible; border-bottom:0;
@@ -741,6 +745,8 @@
     .restabs button .ico{display:block; width:23px; height:23px}
     .restabs button[aria-selected="true"]{color:var(--accent); box-shadow:inset 0 3px 0 var(--accent)}
     body.kbd .restabs{display:none}
+    .restabs button{position:relative}
+    .restabs .tcount{position:absolute; top:5px; left:calc(50% + 7px); margin:0; font-size:10px; padding:0 5px}
 
     /* the values: name across the top, value and page side by side under it */
     .spectable, .spectable tbody{display:block}
@@ -829,19 +835,29 @@
       <span class="muted" id="sendDeskNote" role="status"></span>
       <div class="muted" id="sendDeskHelp" hidden></div>
     </div>
-    <!-- what to look up: the manual, the parts catalogue, labour times and two
-         kinds of value, each its own list (the parts catalogue's pages mixed
-         into the manual's results made both hard to read) -->
-    <div class="restabs" id="resTabs" role="tablist" aria-label="What to look up">
+    <!-- the right box's tabs: what one question finds in each source -- the
+         manual page, the parts catalogue, labour times and two kinds of
+         value. Filled after every Ask or Search from the same search terms
+         (the AI's, after an Ask), with no extra AI call. Here on a phone (the
+         bottom bar); moved to the top of the right box on wider screens. -->
+    <div class="restabs" id="resTabs" role="tablist" aria-label="What this question finds">
       <!-- on a phone this is the bottom bar: an icon and data-short as the label -->
-      <button type="button" role="tab" data-tab="workshop" data-short="Manual" aria-selected="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/></svg>Workshop</button>
-      <button type="button" role="tab" data-tab="parts" data-short="Parts" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>Parts</button>
-      <button type="button" role="tab" data-tab="labour" data-short="Labour" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>Labour times</button>
-      <button type="button" role="tab" data-tab="capacity" data-short="Fluids" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11z"/></svg>Capacities</button>
-      <button type="button" role="tab" data-tab="torque" data-short="Torque" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5a4.5 4.5 0 0 0-4.2 6.1L4 16.9 7.1 20l6.3-6.3a4.5 4.5 0 0 0 6.1-4.2l-2.7 2.7-2.9-.6-.6-2.9z"/></svg>Torque specs</button>
+      <button type="button" role="tab" data-tab="workshop" data-short="Manual" aria-selected="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/></svg>Manual page</button>
+      <button type="button" role="tab" data-tab="parts" data-short="Parts" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>Parts<span class="tcount" hidden></span></button>
+      <button type="button" role="tab" data-tab="labour" data-short="Labour" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>Labour times<span class="tcount" hidden></span></button>
+      <button type="button" role="tab" data-tab="capacity" data-short="Fluids" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11z"/></svg>Capacities<span class="tcount" hidden></span></button>
+      <button type="button" role="tab" data-tab="torque" data-short="Torque" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5a4.5 4.5 0 0 0-4.2 6.1L4 16.9 7.1 20l6.3-6.3a4.5 4.5 0 0 0 6.1-4.2l-2.7 2.7-2.9-.6-.6-2.9z"/></svg>Torque specs<span class="tcount" hidden></span></button>
     </div>
     <div id="out"></div>
-    <div id="tabLabour" hidden>
+  </section>
+
+  <section class="pane" id="right">
+    <div class="panelbar"><button class="ghost" type="button" id="closeRight">&larr; Back</button></div>
+    <div id="srcout" data-pane="workshop"><p class="muted">The manual page for an answer appears here.</p></div>
+    <div id="rpParts" data-pane="parts" hidden></div>
+    <div id="rpCapacity" data-pane="capacity" hidden></div>
+    <div id="rpTorque" data-pane="torque" hidden></div>
+    <div id="tabLabour" data-pane="labour" hidden>
       <div class="muted" id="labCar"></div>
       <div class="muted" style="font-size:13px; margin-top:4px">Mercedes flat rates from WIS
         (international), in hours. Extra-work items are not included. The lookup is local.</div>
@@ -855,11 +871,6 @@
       </div>
       <div id="labOut" style="margin-top:10px"></div>
     </div>
-  </section>
-
-  <section class="pane" id="right">
-    <div class="panelbar"><button class="ghost" type="button" id="closeRight">&larr; Back</button></div>
-    <div id="srcout"><p class="muted">Cited pages and diagrams appear here.</p></div>
   </section>
 </main>
 
@@ -1621,9 +1632,10 @@ function carBoxMatches() {
 function carChanged() {
   if (docId() === shownDoc) return;
   shownDoc = docId();
-  tabHtml = {};                       // each tab's results were for the old car
-  out.innerHTML = curTab === 'workshop' ? emptyState() : '';
-  srcout.innerHTML = '<p class="muted">Cited pages and diagrams appear here.</p>';
+  resetTabs();                        // each tab's results were for the old car
+  out.innerHTML = emptyState();
+  srcout.innerHTML = '<p class="muted">The manual page for an answer appears here.</p>';
+  setTab('workshop');
   hideRight();
   $('#segDot').hidden = true;
 }
@@ -2175,11 +2187,16 @@ function showScope() {
   updateSendDesk();
   syncTabs();
   updatePill();
-  // the open tab follows a new variant / engine: labour times and the oil
-  // figure are per model and engine
-  if (curTab === 'labour') showLabourTab();
-  else if (curTab === 'capacity') { if (!out.innerHTML.trim()) out.innerHTML = tabEmpty('capacity'); showOilCard(); }
-  else if (!out.innerHTML.trim()) out.innerHTML = tabEmpty(curTab);
+  // the tabs follow a new variant / engine: a question already asked is
+  // searched again for it (labour times and the oil figure are per model and
+  // engine); without one, the tabs say what they will show
+  if (tabQuery) fillTabs(tabQuery.q, tabQuery.also);
+  else {
+    for (const t of ['parts', 'capacity', 'torque']) if (!$(PANE[t]).innerHTML.trim()) $(PANE[t]).innerHTML = tabEmpty(t);
+    if (curTab === 'labour') showLabourTab();
+    if (curTab === 'capacity') showOilCard();
+  }
+  if (!out.innerHTML.trim()) out.innerHTML = emptyState();
   $('#saBtn').hidden = $('#labBtn').hidden = !WIS_SOURCE.test(v?.source_name || '');
   if (!v || !v._variants.length) { note.hidden = true; return; }
   setTimeout(() => { showLabourLink(v); showOil(v); });
@@ -2367,9 +2384,12 @@ function placeForWidth() {
   if (phone() && !inSheet) {
     $('#sheetMore').append($('#scopeNote'), $('#sendDeskRow'), $('#opts'));
   } else if (!phone() && inSheet) {
-    $('#resTabs').before($('#opts'), $('#scopeNote'), $('#sendDeskRow'));
+    $('#out').before($('#opts'), $('#scopeNote'), $('#sendDeskRow'));
     closeSheetNow();
   }
+  // the right box's tabs: its top on a wide screen, the bottom bar on a phone
+  if (phone() && $('#resTabs').parentElement === $('#right')) $('#out').before($('#resTabs'));
+  else if (!phone() && $('#resTabs').parentElement !== $('#right')) $('#srcout').before($('#resTabs'));
   if (typeof drawDeskCars === 'function') drawDeskCars();
 }
 PHONE.addEventListener('change', placeForWidth);
@@ -2752,11 +2772,14 @@ async function ask() {
   $('#askBtn').disabled = true;
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching the manual&hellip;</div>`;
   try {
-    renderAnswer(await api('/api/ask', {
+    const d = await api('/api/ask', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({doc_id:doc, question:q, include_other_variants:variants(),
                             model:model(), variant:variantIdx(), engine:engineSel(), year:yearSel()})
-    }, 240000), doc, label);
+    }, 240000);
+    renderAnswer(d, doc, label);
+    // the right box's other tabs, from the AI's own search terms (free)
+    if (docId() === doc) fillTabs(q, d.queries || []);
   } catch (e) {
     out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   } finally {
@@ -2774,6 +2797,7 @@ async function keywordSearch() {
   const seq = ++searchSeq, doc = docId(), label = carBoxLabel;
   toAnswerView();
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
+  fillTabs(q, [q]);                   // the right box's tabs, for the same words
   try {
     const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}`
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
@@ -2970,6 +2994,7 @@ let pageSeq = 0;
 async function showPage(pageNo, doc, open = true) {
   doc = doc || docId();
   const seq = ++pageSeq;      // the page clicked last wins, not the slowest
+  setTab('workshop');         // a page opens on the right box's Manual page tab
   srcout.innerHTML = `<span class="spinner"></span>`;
   if (open) openRight();
   try {
@@ -3054,18 +3079,16 @@ document.addEventListener('click', e => {
 
 $('#closeRight').onclick = closeRight;
 if (narrow()) $('#q').placeholder = 'Ask about this car…';   // the Workshop tab's; setTab sets the others
-// -- result tabs: Workshop, Parts, Labour times, Capacities, Torque specs -----
-// One results area; each tab keeps what it last showed, so switching back
-// does not lose it. The question box is shared: Ask answers on Workshop,
-// Search searches the open tab. Every tab searches within the chosen car.
-let curTab = 'workshop', tabHtml = {};
-const TAB_HINT = {
-  workshop: 'Torque for the front caliper anchor plate bolts?',
-  parts: 'A part — e.g. glow plug, oil filter, front brake pads',
-  labour: 'An operation — e.g. water pump, brake pads',
-  capacity: 'What to fill — e.g. engine oil, coolant, transmission',
-  torque: "What's being tightened — e.g. cylinder head, wheel bolts",
-};
+// -- the right box's tabs: Manual page, Parts, Labour times, Capacities,
+// Torque specs. One question fills them all (the user, 2026-10-16: "a user
+// asks a question and AI can populate everything in those fields"): after an
+// Ask, each tab is searched with the AI's own search terms (d.queries); after
+// a Search, with the words typed. Keyword searches only -- no extra AI call,
+// and every row links to its manual or catalogue page. The left side holds
+// the answer (or the keyword list); the tabs never replace it.
+let curTab = 'workshop', tabQuery = null, tabSeq = 0;
+const PANE = {workshop: '#srcout', parts: '#rpParts', labour: '#tabLabour',
+              capacity: '#rpCapacity', torque: '#rpTorque'};
 // which tabs this car has: parts only with a parts catalogue joined (or a
 // parts-only car), labour times and the oil figure only from WIS
 function tabsFor(v) {
@@ -3084,33 +3107,40 @@ function syncTabs() {
 function tabEmpty(t) {
   const label = carBoxLabel || currentCarLabel();
   if (!docId() || !label) return '';
-  if (t === 'workshop') return emptyState();
-  const what = {parts: 'the parts catalogue (part numbers, which models they fit, quantities)',
-                capacity: 'capacities (litres, quarts) printed in the manual',
-                torque: 'torque values printed in the manual'}[t];
-  return `<div class="empty">Search ${what} for <b>${esc(label)}</b>.</div>`;
+  const what = {parts: 'the parts it names from the parts catalogue (part numbers, which models they fit)',
+                capacity: 'the capacities (litres, quarts) the manual prints for it',
+                torque: 'the torque values the manual prints for it'}[t];
+  return `<div class="empty">Ask a question or search: ${what} for <b>${esc(label)}</b> show here.</div>`;
+}
+// what the tab shows before any question, or after the car changed
+function resetTabs() {
+  tabQuery = null; ++tabSeq;
+  for (const t of ['parts', 'capacity', 'torque']) $(PANE[t]).innerHTML = tabEmpty(t);
+  document.querySelectorAll('#resTabs .tcount').forEach(c => { c.hidden = true; c.textContent = ''; });
+  document.querySelectorAll('#resTabs button').forEach(b => b.classList.remove('none'));
+}
+function setCount(t, n) {
+  const b = document.querySelector(`#resTabs [data-tab="${t}"]`), c = b?.querySelector('.tcount');
+  if (!c) return;
+  c.hidden = n === null; c.textContent = n === null ? '' : String(n);
+  b.classList.toggle('none', n === 0);
 }
 function setTab(t) {
-  if (t === curTab && !$('#resTabs').hidden) { if (t === 'labour') showLabourTab(); return; }
-  if (curTab !== 'labour') tabHtml[curTab] = out.innerHTML;
   curTab = t;
   document.body.dataset.tab = t;
   document.querySelectorAll('#resTabs [data-tab]').forEach(b => {
     b.setAttribute('aria-selected', b.dataset.tab === t);
     b.tabIndex = b.dataset.tab === t ? 0 : -1;
   });
-  $('#tabLabour').hidden = t !== 'labour';
-  out.hidden = t === 'labour';
-  $('#q').placeholder = narrow() && t === 'workshop' ? 'Ask about this car…' : TAB_HINT[t];
-  if (t === 'labour') { showLabourTab(); return; }
-  out.innerHTML = tabHtml[t] || tabEmpty(t);
+  for (const [k, sel] of Object.entries(PANE)) $(sel).hidden = k !== t;
+  if (t === 'labour' && !tabQuery) showLabourTab();
   if (t === 'capacity') showOilCard();
 }
 document.body.dataset.tab = curTab;
-// a tab's results are in the Answer view (a phone)
+// a tab is a view of the right box: on a phone it opens the Document view
 document.querySelectorAll('#resTabs [data-tab]').forEach(b => b.onclick = () => {
-  if (phone()) closeRight();
   setTab(b.dataset.tab);
+  openRight();
 });
 $('#resTabs').addEventListener('keydown', e => {
   if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
@@ -3138,24 +3168,26 @@ const VALUE_HL = {
 const valueLinesHtml = (lines, kind) => `<ul class="vlines">` + lines.map(l =>
   `<li>${esc(l).replace(VALUE_HL[kind], '<span class="torque">$&</span>')}</li>`).join('') + `</ul>`;
 
-let tabSeq = 0;
-async function tabSearch(tab) {
-  const q = $('#q').value.trim();
-  if (!q) { $('#q').focus(); $('#q').placeholder = TAB_HINT[tab]; return; }
-  if (!carBoxMatches()) return;
-  const seq = ++tabSeq, doc = docId(), label = carBoxLabel;
-  toAnswerView();
-  out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
+// One tab of the right box for the current question: q is what was typed,
+// also the AI's search terms (after an Ask). The server merges them
+// round-robin, as the answer's own retrieval does.
+async function tabSearch(tab, q, also, seq) {
+  const pane = $(PANE[tab]), doc = docId(), label = carBoxLabel;
+  pane.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
   try {
     const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}&tab=${tab}`
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
+      + also.map(a => `&also=${encodeURIComponent(a)}`).join('')
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
       + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
-    if (seq !== tabSeq || curTab !== tab) return;
-    const none = {parts: 'No part in this car’s parts catalogue matches.',
-                  torque: 'No torque value found for that in this car’s manual pages.',
-                  capacity: 'No capacity found for that in this car’s manual pages.'}[tab];
-    out.innerHTML = withDoc(doc, () => resultsFor(label)
+    if (seq !== tabSeq) return;
+    setCount(tab, rows.length);
+    const none = {parts: 'No part in this car’s parts catalogue matches this question.',
+                  torque: 'No torque value for this question in this car’s manual pages.',
+                  capacity: 'No capacity for this question in this car’s manual pages.'}[tab];
+    pane.innerHTML = withDoc(doc, () => resultsFor(label)
+      + `<div class="muted" style="margin:0 0 8px">For: <b>${esc(q)}</b>`
+      + (also.length ? ` &middot; searched ${also.map(esc).join(' &middot; ')}` : '') + `</div>`
       + (tab !== 'parts' && rows.length ? `<div class="muted" style="margin:0 0 8px">Lines from the
           manual pages below; tables often list several engines or models &mdash; open the page to
           check the row is yours.</div>` : '')
@@ -3167,8 +3199,36 @@ async function tabSearch(tab) {
         : `<div class="card"><div class="notfound">${none}</div></div>`));
     if (tab === 'capacity') showOilCard();
   } catch (e) {
-    if (seq === tabSeq) out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
+    if (seq === tabSeq) pane.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   }
+}
+// Labour times: an operation must hold every word searched, so each search
+// term is tried alone, without words that name a value ("torque",
+// "capacity"), until one finds operations
+const LAB_STOP = /\b(torques?|tightening|nm|capacity|capacities|specs?|specifications?|values?|how|much|what|is|the|for|of)\b/gi;
+async function labourFor(terms, seq) {
+  const v = vehicles.find(x => x.doc_id === docId());
+  $('#labCar').textContent = carBoxLabel || v?.model || '';
+  labFor = docId() + '::' + variantIdx();
+  if (variantIdx() === null) { $('#labQ').value = ''; await loadLabour(); setCount('labour', null); return; }
+  for (const t of terms) {
+    const words = t.replace(LAB_STOP, ' ').replace(/\s+/g, ' ').trim();
+    if (!words) continue;
+    $('#labQ').value = words;
+    const n = await loadLabour();
+    if (seq !== tabSeq) return;
+    if (n) { setCount('labour', n); return; }
+  }
+  setCount('labour', 0);
+}
+// After an Ask (terms = the AI's search terms) or a Search (the words typed):
+// every tab this car has, searched for the same question
+function fillTabs(q, terms) {
+  const seq = ++tabSeq, v = vehicles.find(x => x.doc_id === docId()), have = tabsFor(v);
+  const also = terms.filter(t => t.toLowerCase() !== q.toLowerCase()).slice(0, 4);
+  tabQuery = {q, also};
+  for (const t of ['parts', 'capacity', 'torque']) if (have[t]) tabSearch(t, q, also, seq);
+  if (have.labour) labourFor([...also, q], seq);
 }
 // Capacities: WIS's own engine oil figure for the chosen engine, on top
 let oilCardSeq = 0;
@@ -3192,24 +3252,15 @@ async function showOilCard() {
       `<span class="torque">${esc(String(r.litres).replace(/\.0$/, ''))} ${esc(r.unit)}</span>`
       + (many ? ` (${esc(r.engine)})` : '') + (r.note ? ` ${esc(r.note)}` : '')).join('; ');
   }
-  if (seq !== oilCardSeq || curTab !== 'capacity') return;
+  if (seq !== oilCardSeq) return;
   $('#oilCard')?.remove();
-  out.insertAdjacentHTML('afterbegin', `<div class="card" id="oilCard">${html}</div>`);
-}
-function runSearch() {
-  if (curTab === 'workshop') return keywordSearch();
-  if (curTab === 'labour') { $('#labQ').value = $('#q').value.trim(); return loadLabour(); }
-  return tabSearch(curTab);
+  $('#rpCapacity').insertAdjacentHTML('afterbegin', `<div class="card" id="oilCard">${html}</div>`);
 }
 
-$('#askBtn').onclick = () => { if (curTab !== 'workshop') setTab('workshop'); ask(); };
-$('#searchBtn').onclick = runSearch;
+$('#askBtn').onclick = ask;
+$('#searchBtn').onclick = keywordSearch;
 $('#q').addEventListener('keydown', e => {
-  // Enter asks on Workshop; on the other tabs it searches the tab
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    if (curTab === 'workshop') ask(); else runSearch();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
 });
 
 function showModelPrice() {
@@ -4208,7 +4259,7 @@ $('#saFind').onclick = saLookup;
 let labSeq = 0, labTimer = null;
 // Labour times are a tab now (they were a dialog): the button and the scope
 // note's link open it
-function openLabour() { setTab('labour'); $('#labQ').focus(); }
+function openLabour() { setTab('labour'); openRight(); $('#labQ').focus(); }
 function showLabourTab() {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
@@ -4226,7 +4277,7 @@ async function loadLabour() {
   if (n === null) {
     out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
       + 'Variant): labour times are per model type.</div>';
-    return;
+    return 0;
   }
   out.innerHTML = '<span class="spinner"></span>';
   const book = $('#labBook').hidden ? '' : $('#labBook').value;
@@ -4238,17 +4289,17 @@ async function loadLabour() {
       + `&q=${encodeURIComponent($('#labQ').value.trim())}`);
   } catch (e) {
     if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
-    return;
+    return 0;
   }
-  if (seq !== labSeq) return;
+  if (seq !== labSeq) return 0;
   if (r.books.length > 1 && $('#labBook').hidden) {
     $('#labBook').innerHTML = '<option value="">Choose…</option>' + r.books.map(b =>
       `<option value="${esc(b.book)}">${esc(b.family)} · ${esc(b.type)}</option>`).join('');
     $('#labBook').hidden = $('#labBookLbl').hidden = false;
   }
-  if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return; }
-  if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return; }
-  if (!r.items.length) { out.innerHTML = '<div class="muted">No operation matches that search.</div>'; return; }
+  if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return 0; }
+  if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return 0; }
+  if (!r.items.length) { out.innerHTML = '<div class="muted">No operation matches that search.</div>'; return 0; }
   let last = '';
   out.innerHTML = `<div class="tablewrap"><table><tbody>` + r.items.map(i => {
     const head = i.group !== last ? `<tr><th colspan="2" style="text-align:left">${esc(i.group)}</th></tr>` : '';
@@ -4259,6 +4310,7 @@ async function loadLabour() {
   }).join('') + `</tbody></table></div>`
     + (r.total > r.items.length
         ? `<div class="muted" style="margin-top:6px">Showing ${r.items.length} of ${r.total} — search to narrow.</div>` : '');
+  return r.items.length;
 }
 $('#labBtn').onclick = openLabour;
 $('#labFind').onclick = loadLabour;
