@@ -86,7 +86,8 @@ afterwards: Manuals, AI answers, Phones & mechanics, This PC, Advanced.
 on your network itself (mDNS, like a printer), so it keeps working when the
 PC's IP address changes, with no router setup. iPhones support it; Android
 does in recent versions of Chrome. If the name doesn't open (some guest or
-mesh networks block it), Shop setup → *Phones & mechanics* shows the numeric address; to keep that
+mesh networks block it), Shop setup → *Phones & mechanics* shows the numeric address,
+and a QR code that opens it from the phone's camera; to keep that
 one from changing, reserve the PC's IP in your router's DHCP settings
 ("address reservation" / "static lease").
 
@@ -202,15 +203,36 @@ refuses those requests from them.
 *Require each mechanic to sign in*. Then:
 
 - On the same page, add a mechanic's name (and, if you like, a monthly
-  dollar limit). You get an 8-character code, valid 15 minutes, used once.
-- The mechanic opens AutoRundown on their phone and types the code. That
-  phone stays signed in (a year, or until you sign it out).
+  dollar limit). Their **sign-in QR** opens on the PC's screen.
+- The mechanic scans it with their phone's camera: the phone opens
+  AutoRundown already signed in, and stays signed in (a year, or until you
+  sign it out). The QR works once, for 15 minutes, and stops working when
+  you close it. A phone whose camera can't scan it types the 8-character
+  code shown under the QR instead (same rules). A new phone later: the
+  mechanic's **Sign-in QR** button.
 - Lost phone or someone leaves: **Sign out devices** or **Disable**. It takes
-  effect immediately. A new phone just needs a new code.
-- Every paid question is logged against the mechanic who asked;
-  the same page shows each one's spend this month, and `python ask.py
-  --usage` lists it by user. Over the limit, asking is refused; keyword
-  search keeps working.
+  effect immediately.
+- Every paid question is logged against the mechanic who asked; the same
+  page shows each one's questions and dollars this month, with a bar against
+  their limit, and the mechanic sees their own by tapping their name on the
+  phone. `python ask.py --usage` lists it by user. Over the limit, asking is
+  refused; keyword search keeps working.
+- The top of the page has a QR that just opens AutoRundown, with its
+  addresses written beside it.
+
+**Who pays for AI answers** (Shop setup → *AI answers*):
+
+- **One company key** (the default): every question goes on the key you
+  saved; the page shows this month's total for everyone.
+- **A key per mechanic**: you make one API key per mechanic at
+  console.anthropic.com and enter it there with the credit you loaded on
+  it. Each mechanic's questions go on their own key; the page shows what was
+  spent on it and roughly what is left. *Left* is AutoRundown's own estimate
+  (the amount you entered minus what it logged on that key) -- Anthropic
+  doesn't tell an ordinary key its balance -- so after adding credit or
+  swapping the key, use **Topped up / new key**. A mechanic with no key is
+  told so; their questions never go on another key. Questions asked on the PC
+  itself still use the PC's key.
 
 With sign-in off, anyone who can reach the PC on the network can search and
 ask (on your API key), as before. Either way, also keep customers off that
@@ -515,7 +537,8 @@ autorundown/             the app (everything the installer ships)
   synonyms.py            shop words -> the manuals' words ("valve cover")
   query.py               Claude planner + answerer + citation verification
   server.py              local web server (FastAPI)
-  auth.py                the PC is admin; optional mechanic accounts
+  auth.py                the PC is admin; optional mechanic accounts, sign-in QRs
+  qr.py                  QR codes as SVG (segno)
   tls.py                 local certificate authority for --https
   importer_jobs.py       imports started from Shop setup
   lemon_catalogue.py     the LEMON catalogue tree

@@ -127,7 +127,7 @@ python eval_wis.py                                # FREE, WIS retrieval + wrong-
 # free test suites (CI runs all of them)
 python tests/test_citations.py                    # _verify_citations (<1 s)
 python tests/test_records.py                      # `records` importer
-python tests/test_access.py                       # admin/sign-in/limits/HTTPS (~2 s)
+python tests/test_access.py                       # admin/sign-in QRs/limits/keys/HTTPS (~4 s)
 python tests/test_lemon_import.py                 # LEMON import source (~3 s)
 python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (~3 s)
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
@@ -217,7 +217,8 @@ autorundown/
   synonyms.py      shop words -> manual words for keyword search
   query.py         Claude planner + answerer + citation / other-vehicle checks
   server.py        FastAPI local server; admin-only routes, hardening
-  auth.py          the PC is admin; mechanic codes, tokens, caps
+  auth.py          the PC is admin; sign-in QRs (grants), tokens, caps
+  qr.py            QR codes as inline SVG (segno, pure Python)
   tls.py           local CA for --https
   config.py        ~/.autorundown/config.json (AUTORUNDOWN_HOME)
   importer_jobs.py import / remove / VM jobs started from Shop setup
@@ -365,6 +366,13 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   (`vehicle-selection.md`)
 - **Admin = loopback peer AND loopback Host**; no reverse proxy on the same
   PC; no handler built from manual text. (`shop-network.md`)
+- **Which API key pays is decided only in `config.pick_key`** (company key,
+  or the signed-in mechanic's own in "A key per mechanic" mode). A mechanic
+  with no key is refused -- never a fallback to another key. Keys never
+  reach a phone (booleans, estimates only; the admin sees the last 4), and
+  `usage_log.key_ref` tags spend with "company" / "user:<id>", never the
+  key. Sign-in is by single-use 15-minute QR grants (hashes only), voided
+  when the dialog closes. (`shop-network.md`)
 - **WIS is never removed per model.** (`importing.md`)
 - **Never fetch from lemon-manuals.la over HTTP**; the LEMON download, when
   built, must follow what the user agreed (2026-10-09). (`importing.md`)
