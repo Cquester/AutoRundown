@@ -3091,8 +3091,9 @@ function vinVote(reads) {
      there on iOS Safari and Android Chrome alike.
    - Standard libraries, no AI and no network: zxing-cpp (zxing-wasm, ~1 MB)
      for the barcode -- Code 39 on door-jamb labels, Data Matrix / QR on
-     newer ones -- and Tesseract (tesseract.js, LSTM only, ~7 MB with the
-     English model) for printed text. Both vendored under web/vendor/ with
+     newer ones -- and Tesseract (tesseract.js, LSTM only, with the English
+     model) for printed text. A phone fetches ~0.4 MB for barcodes and
+     ~4.5 MB more for text (gzipped), once. Both vendored under web/vendor/ with
      fixed versions and licences, loaded only when someone scans, then kept
      by the browser's cache.
    - In the browser, not on the server: the photo never leaves the phone,
@@ -3250,7 +3251,7 @@ async function vinScan(file, {isMaker, onStatus} = {}) {
     if (usable(best) || (best && /^I?[A-Z0-9]{17}$/.test(vinClean(b.text)))) return {best, source: SCAN_FORMAT[b.format] || b.format, crop: scanCrop(big, b.box),
                       text: b.text, tried: ['barcode']};
   }
-  say('Reading the text (the first time loads the reader, about 7 MB)…');
+  say('Reading the text (the first time loads the reader, about 5 MB)…');
   const w = await scanOcr();
   let seen = '', firstCrop = null;
   for (const turn of [0, 90, 270]) {

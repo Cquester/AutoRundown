@@ -1,3 +1,6 @@
 # Run inside Linux containers (tools/container): CRLF would break them
 *.sh text eol=lf
 Dockerfile text eol=lf
+
+# vendored libraries (Scan VIN): byte for byte as published, never EOL-converted
+autorundown/web/vendor/** -text

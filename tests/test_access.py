@@ -159,6 +159,17 @@ for name in ("x.png%00.db", "x%00.png", "%00"):
           f"image name {name!r}: 404 with the security headers (a NUL was an unhandled 500)")
 check(phone.get("/api/image/v2/..%2f..%2findex.db").status_code == 404, "  ... and no way out of images/")
 
+print("Scan VIN's libraries (/vendor/)")
+r = phone.get("/vendor/zxing-wasm-3.1.4/zxing_reader.wasm")
+check(r.status_code == 200 and r.headers["content-type"] == "application/wasm",
+      "a phone gets the barcode reader, as application/wasm")
+check("immutable" in r.headers.get("cache-control", ""), "  ... cached for good (the version is in the path)")
+check(phone.get("/vendor/tesseract-7.0.0/eng.traineddata.gz").status_code == 200, "  ... and the OCR model")
+for bad in ("..%2f..%2fserver.py", "../index.html", "%2e%2e/index.html", "zxing-wasm-3.1.4/LICENSE",
+            "nope.js", "zxing-wasm-3.1.4"):
+    check(phone.get(f"/vendor/{bad}").status_code == 404, f"/vendor/{bad}: 404")
+check(post(phone, "/vendor/zxing-wasm-3.1.4/zxing-reader.js").status_code == 405, "  ... and nothing can be posted there")
+
 if os.name != "nt":
     print("private files (Linux/macOS)")
     import stat  # noqa: E402
@@ -189,6 +200,8 @@ print("sign-in required")
 check(post(pc, "/api/settings", {"require_signin": True}).status_code == 200, "this PC turns it on")
 check(phone.get("/api/vehicles").status_code == 401, "a phone with no token is refused")
 check(phone.get("/").status_code == 200, "  ... but gets the page (to show the sign-in box)")
+check(phone.get("/vendor/zxing-wasm-3.1.4/zxing-reader.js").status_code == 401,
+      "  ... and not Scan VIN's libraries (sign-in rules as everywhere)")
 check(pc.get("/api/vehicles").status_code == 200, "this PC never signs in")
 check(post(phone, "/api/auth/signin", {"code": "WRONG123"}).status_code == 400, "a wrong code fails")
 r = post(phone, "/api/auth/signin", {"code": code[:4].lower() + " " + code[4:]})

@@ -74,7 +74,7 @@ jobs:
           for t in tests/test_citations.py tests/test_records.py tests/test_access.py \
                    tests/test_lemon_import.py tests/test_lemon_catalogue.py \
                    tests/test_remove_manuals.py tests/test_wis_links.py tests/test_fake_api.py \
-                   tests/test_epc_join.py; do
+                   tests/test_epc_join.py tests/test_vin.py; do
             echo "::group::$t"
             start=$SECONDS
             python "$t" || { echo "::error::$t failed"; rc=1; }
@@ -122,6 +122,9 @@ jobs:
           curl -s -X POST http://127.0.0.1:8756/api/shutdown > /dev/null || true
           [ $rc = 0 ] || { echo "--- server log"; cat "$RUNNER_TEMP/ui-server.log"; }
           exit $rc
+
+      - name: Scan VIN reads generated barcodes and VIN labels (vendored zxing + Tesseract)
+        run: python tests/test_vin_scan.py
 
       - name: Car picker sends the car it shows (every suggestion, variant and VIN)
         # the sample corpus's hand-made variants; index opened read-only
