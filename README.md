@@ -122,8 +122,12 @@ below. Everything works the same, including the phone access.
 ### Requirements (running from source)
 
 - Python 3.10+
-- An [Anthropic API key](https://console.anthropic.com) (yours — billing and
-  rate limits are yours)
+- An API key from one AI provider (yours — billing and rate limits are
+  yours): [Anthropic](https://platform.claude.com/settings/keys) (the
+  default), [Google Gemini](https://aistudio.google.com/apikey),
+  [xAI](https://console.x.ai/team/default/api-keys) or
+  [DeepSeek](https://platform.deepseek.com/api_keys). Shop setup → *AI
+  answers* has a "Get a key" button for each.
 - A local archive of service manuals you have the right to use
 
 No OCR engine, no GPU, no vector database, no cloud services beyond the LLM call.
@@ -224,11 +228,11 @@ refuses those requests from them.
 
 - **One company key** (the default): every question goes on the key you
   saved; the page shows this month's total for everyone.
-- **A key per mechanic**: you make one API key per mechanic at
-  console.anthropic.com and enter it there with the credit you loaded on
+- **A key per mechanic**: you make one API key per mechanic at the
+  provider's key page ("Get a key") and enter it there with the credit you loaded on
   it. Each mechanic's questions go on their own key; the page shows what was
   spent on it and roughly what is left. *Left* is AutoRundown's own estimate
-  (the amount you entered minus what it logged on that key) -- Anthropic
+  (the amount you entered minus what it logged on that key) -- the provider
   doesn't tell an ordinary key its balance -- so after adding credit or
   swapping the key, use **Topped up / new key**. A mechanic with no key is
   told so; their questions never go on another key. Questions asked on the PC
@@ -365,20 +369,57 @@ alongside BM25 — not before.
 
 ---
 
+## Choosing an AI provider
+
+Shop setup → *AI answers* → **AI provider**: Anthropic (Claude, the
+default), Google Gemini, xAI (Grok) or DeepSeek. Each has a **Get a key**
+button that opens that provider's API-key page: sign in and create a key,
+copy it, paste it in. Keys are kept per provider, so switching back and
+forth loses nothing; in "A key per mechanic" mode each mechanic needs a key
+for the provider in use.
+
+Whichever provider answers, the answer goes through the same checks: every
+value and page must be one the search actually returned, values for other
+engines of the car are hidden, and an answer left with nothing behind it is
+not shown. Answers were tuned and evaluated on Claude; the other providers
+have been tested only against a stand-in (no paid question yet), so try one
+before relying on it.
+
+**Gemini's free tier**: Google offers Gemini Flash and Flash-Lite free of
+charge with low request limits (not Gemini 4 Argon). On the free tier Google
+says it may use what is sent to improve its products -- here, your questions
+and the manual pages sent with them; with billing turned on it does not.
+Check [Google's pricing page](https://ai.google.dev/gemini-api/docs/pricing)
+for the current terms.
+
 ## Choosing a model
 
 Pick it from the toolbar beside the question box; it applies to the next
 question immediately and saves the choice on that device. The PC's default
-is under Shop setup → *AI answers*; on the command line, `ask.py --model`.
+is under Shop setup → *AI answers*; on the command line, `ask.py --model`
+(any provider's model; its company key pays).
+
+Prices as listed by each provider on 2026-10-16 (USD per million tokens):
 
 | Model | Price /M in–out | Per question | Eval |
 |---|---|---|---|
 | `claude-opus-5` | $5 / $25 | ~$0.05 | — |
-| `claude-sonnet-5` | $3 / $15 | ~$0.03 | 7/7 |
+| `claude-sonnet-5` | $2 / $10 | ~$0.02 | 7/7 |
 | `claude-haiku-4-5` | $1 / $5 | ~$0.01 | 7/7 |
+| `gemini-4-argon` | $2 / $10 ($4 / $20 from 2026-12-01) | ~$0.02 | — |
+| `gemini-3.8-flash` | $0.75 / $3.75 ($1.50 / $7.50 from 2027-01-01) | ~$0.008 | — |
+| `gemini-3.5-flash-lite` | $0.30 / $2.50 | ~$0.004 | — |
+| `grok-4.7` | $2 / $6 | ~$0.02 | — |
+| `grok-4.3` | $1.25 / $2.50 | ~$0.01 | — |
+| `deepseek-v4-pro` | $1.32 / $3.96 peak, half off-peak | ~$0.01 | — |
+| `deepseek-flash` | $0.30 / $1.20 peak, half off-peak | ~$0.003 | — |
+
+The spend log records the provider and model of every question
+(`python ask.py --usage`). A model whose price AutoRundown doesn't know is
+logged as "cost not tracked" rather than with a made-up number.
 
 Retrieval does the finding, so the model's remaining job is reading passages and
-copying values exactly — which Haiku handles well at roughly a quarter of
+copying values exactly — which Haiku handles well at roughly half of
 Sonnet's cost.
 
 One difference the eval does not capture: when the same spec is printed on
