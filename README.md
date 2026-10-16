@@ -316,6 +316,18 @@ screen), **Answer | Document** under it, the question docked at the bottom with
 **Document** (a dot says one is waiting) and opens with *Open manual page*;
 the phone's Back, or a swipe to the right, returns to the answer.
 
+**Scan VIN.** In the car sheet (or the VIN dialog, Browse → VIN) **Scan VIN**
+opens the phone's camera: photograph the VIN label, its barcode (Code 39 on
+the door jamb, Data Matrix or QR on newer labels) or the VIN plate. The photo
+is read on the phone itself — a barcode reader and OCR, no AI, nothing
+uploaded, no internet needed (the libraries ship with AutoRundown, ~5 MB
+fetched by the phone the first time). What was read fills the VIN box with
+the part of the photo it came from; check it against the car and tap
+**Find**. Every VIN — typed, pasted or scanned — is checked first: I, O and
+Q are refused with the 1/0 fix offered, and a US VIN whose check digit
+(position 9) doesn't match gives only the model series, never an exact
+model or engine, because one wrong character can name another car.
+
 Citations name the page rather than just numbering it — `p6706 · Front Brake
 Caliper Anchor Plate: Removal`. Titles are resolved locally from the index, so
 they cost no tokens and cannot be invented.
