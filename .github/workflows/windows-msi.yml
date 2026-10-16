@@ -2,8 +2,9 @@
 # app actually works (index a sample corpus, serve it, search it), then
 # uninstall and check nothing is left. Free: no Anthropic API calls.
 #
-# Called by ci.yml after the tests pass (main, tags, and PRs that touch
-# packaging); ci.yml makes the release from its AutoRundown-msi artifact.
+# Called by ci.yml alongside the tests (main, tags, and PRs that touch
+# packaging); ci.yml makes the release from its AutoRundown-msi artifact
+# once the tests, the browser checks and this have all passed.
 # Run it on its own from the Actions tab with "Run workflow".
 name: Windows installer
 
@@ -65,16 +66,32 @@ jobs:
           Need "Options page" "SELECT Dialog FROM ``Dialog`` WHERE Dialog='OptionsDlg'"
           if (@(Rows "SELECT Dialog FROM ``Dialog`` WHERE Dialog='WelcomeEulaDlg'").Count) { throw "licence page is in the MSI" }
 
-      - name: Upgrade over 0.1.1 (what a user already has)
+      # 0.1.1 never changes, so its installer is built once and cached
+      # (~3 min a run); bump the key's -v1 to rebuild it
+      - name: Cache the 0.1.1 installer
+        id: old-msi
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809  # v4.2.4
+        with:
+          path: old-msi
+          key: msi-0.1.1-1373ebc-wix5.0.2-v1
+
+      - name: Build the 0.1.1 installer (only when not cached)
+        if: steps.old-msi.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          # build the 0.1.1 installer from its own commit, install it, then
-          # install this build over it -- the path a real user takes
           git worktree add ..\old 1373ebc
           Push-Location ..\old
           powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -Out dist-old
           Pop-Location
-          $old = (Get-ChildItem ..\old\dist-old\*.msi).FullName
+          New-Item -ItemType Directory -Force old-msi | Out-Null
+          Copy-Item ..\old\dist-old\*.msi old-msi\
+
+      - name: Upgrade over 0.1.1 (what a user already has)
+        shell: pwsh
+        run: |
+          # install the 0.1.1 installer, then this build over it -- the path
+          # a real user takes
+          $old = (Get-ChildItem old-msi\*.msi).FullName
           # Windows Installer keeps a per-user product's Apps entry under
           # HKLM\...\Installer\UserData\<SID>, never HKCU\...\Uninstall
           $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -94,9 +111,15 @@ jobs:
           $v = @(Installed)   # @(): one result would come back as a bare string
           "after upgrade: $v"
           if ($v.Count -ne 1 -or $v[0] -ne $want) { throw "expected only $want in Apps, found '$v'" }
-          # 0.1.1 never asked about starting at sign-in, so the upgrade turns it on
+          # 0.1.1 never asked about starting at sign-in, so the upgrade turns it
+          # on -- the same SetProperty condition (no autostart_asked) as a
+          # first install with no AUTOSTART given, so this also covers that
           $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk"
           if (-not (Test-Path $startup)) { throw "upgrade did not add the Startup shortcut" }
+          $t = (New-Object -ComObject WScript.Shell).CreateShortcut($startup)
+          if ($t.TargetPath -notlike "*\pythonw.exe" -or $t.Arguments -notmatch "--background") {
+            throw "Startup shortcut does not start the background mode: $($t.TargetPath) $($t.Arguments)"
+          }
           # and the upgraded app starts in the background
           $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
           Start-Process "$inst\python\pythonw.exe" -WorkingDirectory $inst `
@@ -265,25 +288,19 @@ jobs:
       - name: Start at sign-in is the user's choice
         shell: pwsh
         run: |
-          # what the Options page sets: on by default, AUTOSTART=0 when unticked
+          # what the Options page sets when unticked: AUTOSTART=0, no Startup
+          # shortcut. On by default is checked by the upgrade step above
+          # (uninstall removes autostart_asked, so a first install takes the
+          # same branch), which saves an install + uninstall (~1.5 min).
           $msi = (Get-ChildItem dist\*.msi).FullName
           $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AutoRundown.lnk"
-          foreach ($case in @(@{ arg = ""; want = $true }, @{ arg = "AUTOSTART=0"; want = $false })) {
-            $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$msi`" $($case.arg) /qn /l*v autostart.log"
-            if ($p.ExitCode) { Get-Content autostart.log -Tail 40; throw "install '$($case.arg)' failed: $($p.ExitCode)" }
-            $has = Test-Path $startup
-            "install '$($case.arg)': Startup shortcut $has"
-            if ($has -ne $case.want) { throw "install '$($case.arg)': expected Startup shortcut $($case.want)" }
-            if ($has) {
-              $t = (New-Object -ComObject WScript.Shell).CreateShortcut($startup)
-              if ($t.TargetPath -notlike "*\pythonw.exe" -or $t.Arguments -notmatch "--background") {
-                throw "Startup shortcut does not start the background mode: $($t.TargetPath) $($t.Arguments)"
-              }
-            }
-            $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn"
-            if ($p.ExitCode) { throw "uninstall failed: $($p.ExitCode)" }
-            if (Test-Path $startup) { throw "Startup shortcut left after uninstall" }
-          }
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/i `"$msi`" AUTOSTART=0 /qn /l*v autostart.log"
+          if ($p.ExitCode) { Get-Content autostart.log -Tail 40; throw "install 'AUTOSTART=0' failed: $($p.ExitCode)" }
+          $has = Test-Path $startup
+          "install 'AUTOSTART=0': Startup shortcut $has"
+          if ($has) { throw "install 'AUTOSTART=0': a Startup shortcut was made" }
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn"
+          if ($p.ExitCode) { throw "uninstall failed: $($p.ExitCode)" }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
