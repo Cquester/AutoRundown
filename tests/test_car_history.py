@@ -128,7 +128,10 @@ def main(argv=None):
             with pg.expect_response(lambda r: "/api/search?" in r.url and f"q={tag}&" in r.url):
                 pg.click("#searchBtn")
             p = sent.get(tag)
-            return {k: p.get(k) for k in KEYS} if p else None
+            if not p:
+                return None
+            # the year travels in the Ask body (not /api/search): what Ask would send
+            return {**{k: p.get(k) for k in KEYS}, "ask_year": pg.evaluate("yearSel()")}
 
         def reopen(pg):
             """Leave the box, come back: the recent cars, as labels."""
@@ -191,7 +194,7 @@ def main(argv=None):
         check("the VIN is stored with its pick", any(h.get("vin") == vin[0] for h in stored),
               f"{[h.get('vin') for h in stored]}")
         check("Browse's two steps (Model, Variant) are one entry",
-              sum(h["doc"] == b_doc for h in stored) == 1)
+              sum(h["doc"] == b_doc and h.get("src") == "browse" for h in stored) == 1)
         check("entries are structured", all({"doc", "variant", "vname", "engine", "year", "label"}
                                             <= set(h) for h in stored))
 
