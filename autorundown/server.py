@@ -619,7 +619,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         """Is an import running? Any device may ask: the page shows "search
         shows partial results until it finishes" while one is. No log, no paths."""
         st = jobs.status()
-        return {"importing": st.get("state") == "running"}
+        # a VM test (vm_check) imports nothing: search is not partial then
+        return {"importing": st.get("state") == "running" and st.get("mode") != "vm_check"}
 
     @app.get("/api/vehicles")
     def vehicles(request: Request) -> Response:

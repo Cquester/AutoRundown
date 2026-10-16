@@ -99,6 +99,35 @@ def parser_checks() -> None:
     check("an unknown line changes nothing", (d["done"], d["total"]) == (0, 10), d)
 
 
+def pipeline_checks() -> None:
+    """The real extractor's own shutdown, without VirtualBox (its vm_down
+    stubbed): found on the real VM on 2026-10-16."""
+    print("\n-- the real extractor: shutting down what it started --")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_vmp", ROOT / "extractor" / "vm_pipeline.py")
+    vmp = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(ROOT / "extractor"))
+    spec.loader.exec_module(vmp)
+    done = []
+
+    def fake_down(name):         # a shutdown that ends in a saved state
+        done.append(name)
+        vmp.STARTED.discard(name)
+    vmp.vm_down = fake_down
+    vmp.STARTED.update({"A", "B"})
+    try:
+        vmp.shut_down_started()
+        check("every VM it started is shut down, even when one is saved (no crash)",
+              sorted(done) == ["A", "B"] and not vmp.STARTED, done)
+    except RuntimeError as exc:
+        check("every VM it started is shut down, even when one is saved (no crash)", False, exc)
+    import re
+    src = (ROOT / "extractor" / "vm_pipeline.py").read_text(encoding="utf-8")
+    code = "\n".join(l.split("#")[0] for l in src.splitlines() if not l.lstrip().startswith("#"))
+    check("the extractor never powers a VM off or discards its saved state",
+          not re.search(r'"controlvm"[^)\n]*"poweroff"', code) and '"discardstate"' not in code)
+
+
 def wait(c: TestClient, seen: list, timeout: float = 90) -> dict:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -114,6 +143,7 @@ def wait(c: TestClient, seen: list, timeout: float = 90) -> dict:
 def main() -> int:
     try:
         parser_checks()
+        pipeline_checks()
         archive = TMP / "archive"
         test_records.build_corpus(archive)
         db = TMP / "index.db"

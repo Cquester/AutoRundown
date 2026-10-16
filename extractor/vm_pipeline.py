@@ -175,8 +175,12 @@ def vbox(*args: str, check: bool = True) -> str:
 def list_vms() -> list[tuple[str, str]]:
     """[(name, state)] for every VirtualBox VM on this PC."""
     running = {l.split('"')[1] for l in vbox("list", "runningvms").splitlines() if '"' in l}
-    return [(name, "running" if name in running else "off")
-            for name in (l.split('"')[1] for l in vbox("list", "vms").splitlines() if '"' in l)]
+    out = []
+    for name in (l.split('"')[1] for l in vbox("list", "vms").splitlines() if '"' in l):
+        st = "running" if name in running else vm_state(name)
+        # "saved" matters to whoever picks the VM: it resumes where it was
+        out.append((name, {"poweroff": "off", "aborted": "off (stopped abnormally)"}.get(st, st)))
+    return out
 
 
 def vm_state(vm: str) -> str:
@@ -699,15 +703,21 @@ STAGE = Path(".")
 SHOT_DIR = Path(tempfile.gettempdir())   # vm_screen.png goes here (the output folder, once known)
 STARTED: set[str] = set()     # VMs this run booted -- shut down however it ends
 
+def shut_down_started() -> None:
+    """A failed or cancelled run must not leave the VMs it booted running
+    (the first from-scratch run did, after the DB dropped mid-pull). Over a
+    copy: vm_down saving a VM's state takes it out of STARTED -- iterating
+    the set itself crashed on the real VM (2026-10-16, a cancel)."""
+    for name in list(STARTED):
+        try:
+            vm_down(name)
+        except Exception as exc:
+            log(f"could not shut {name} down: {exc}")
+
+
 if __name__ == "__main__":
     try:
         rc = main()
     finally:
-        # a failed step must not leave the VM running (the first from-scratch
-        # run did, after the DB dropped mid-pull)
-        for name in STARTED:
-            try:
-                vm_down(name)
-            except Exception as exc:
-                log(f"could not shut {name} down: {exc}")
+        shut_down_started()
     raise SystemExit(rc)
