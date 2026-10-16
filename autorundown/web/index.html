@@ -1973,15 +1973,19 @@ $('#carInput').addEventListener('focus', () => {
 });
 // closed when the focus leaves the box -- not when it moves onto the list's
 // own buttons (Tab reaches "Clear history" and each ×)
+// In the car sheet (phone) the list sits in the sheet's flow, not over it:
+// closing it there on a tap elsewhere moved what was under the finger
+// (Send to desk, Pick your engine) before the tap landed. The sheet closing
+// closes it.
+const sheetOpen = () => document.body.classList.contains('sheet');
 const carListLeft = () => setTimeout(() => {
-  if (!$('.carfield').contains(document.activeElement)) $('#carList').hidden = true;
+  if (!sheetOpen() && !$('.carfield').contains(document.activeElement)) $('#carList').hidden = true;
 }, 150);
 $('#carInput').addEventListener('blur', carListLeft);
 $('#carList').addEventListener('focusout', carListLeft);
-// a tap anywhere else (the car sheet on a phone, where the box need not have
-// the focus) closes it too
+// a tap anywhere else closes it too
 document.addEventListener('pointerdown', ev => {
-  if (!$('#carList').hidden && !ev.target.closest('.carfield')) $('#carList').hidden = true;
+  if (!$('#carList').hidden && !sheetOpen() && !ev.target.closest('.carfield')) $('#carList').hidden = true;
 });
 $('#browseBtn').onclick = () => { $('#picker').hidden = !$('#picker').hidden; $('#carList').hidden = true; };
 
