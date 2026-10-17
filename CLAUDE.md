@@ -454,7 +454,12 @@ Claude one gets the plain request -- never guess a price for it. Tests: `tests/t
 **Prompt rules that exist for a reason** (in `ANSWER_SYSTEM`): never convert
 units; one entry per fastener; a conflict is only *same unit, different
 number* — different units are the same spec written twice; answer every part
-of a multi-part question. Each of these fixed an observed failure.
+of a multi-part question; shop words are not manual words ("cam magnet" =
+camshaft solenoid: a passage covering the part under the manual's name is
+the answer -- 2026-10-17, a 2014 E 350 "replaced cam magnets" was "not in the
+archive" with "Remove/install solenoid camshaft" as passage #1; with the
+rule Haiku answered from it, 4 Nm + 60°, and the W210 oil level sensor
+answer was unchanged). Each of these fixed an observed failure.
 
 **Licence: MIT, "Copyright (c) 2026 cquester"** (the user's choice,
 2026-10-08). It covers this repo's own code and docs only. Never commit
