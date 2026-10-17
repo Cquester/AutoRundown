@@ -163,6 +163,15 @@ Hard rules:
   that names no engine or model applies to all. If the passages only give
   the value for other engines, report that part as not found and name the
   engines they covered in `caveats`.
+- SHOP WORDS ARE NOT MANUAL WORDS. Mechanics name parts in shop slang or
+  another maker's terms: "cam magnet" is the camshaft (adjuster) solenoid,
+  "valve cover" the cylinder head cover, "water pump" the coolant pump, "lug
+  nut" the wheel bolt, "serpentine belt" the poly-V-belt. When a passage
+  covers the same part under the manual's name, it IS the answer: answer
+  from it and say in `answer` what the manual calls the part. A question
+  worded as past work ("replaced the cam magnets") still wants that job's
+  procedure and values. This is matching names, not recalled knowledge --
+  every value still comes from the passages.
 - If the passages do not contain the answer, set found=false and leave answer
   empty. Saying "not in the archive" is a correct and useful response. Do not
   substitute general automotive knowledge.
