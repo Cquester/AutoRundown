@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from . import providers
 from .providers import ApiUnavailable, NoApiKey  # noqa: F401  (callers catch query.X)
-from .search import multi_search, scope_ids
+from .search import as_ids, multi_search, scope_ids
 
 # Anthropic's models (providers.PROVIDERS has every provider's); kept here
 # under the old name for callers and tests
@@ -257,6 +257,7 @@ class Result:
     other_vehicle_specs: list[dict] = field(default_factory=list)
     # current parts for this car the model left out, added by _add_omitted_parts
     added_parts: list[dict] = field(default_factory=list)
+    added_linked: list[dict] = field(default_factory=list)
 
     @property
     def page_titles(self) -> dict[str, str]:
@@ -284,6 +285,7 @@ class Result:
             "dropped_citations": self.dropped_citations,
             "other_vehicle_specs": self.other_vehicle_specs,
             "added_parts": self.added_parts,
+            "added_linked": self.added_linked,
             "usage": self.usage.as_dict(),
             "passages": [
                 {"page_no": p["page_no"], "title": p["title"],
@@ -380,6 +382,113 @@ def strip_link_marks(text: str) -> str:
     return _LINK_MARK_RE.sub(r"\1", text or "")
 
 
+def table_codes(vehicle: dict, scope) -> dict | None:
+    """The car's codes as wis_tables.label_fits checks a table column, or
+    None with neither a car nor an engine chosen (every column then)."""
+    vc = vehicle_codes(vehicle, scope)
+    if not vc:
+        return None
+    models, engines = getattr(scope, "codes", ((), ())) or ((), ())
+    return {"engines": set(engines), "models": set(models),
+            "series": vc["series"], "families": set(getattr(scope, "engines", ()) or ())}
+
+
+# The procedures and value tables the top pages link to, added to the
+# passages before the one answer call (2026-10-17, the user's request): the
+# W210 oil level sensor page says "remove lower part of oil pan" and links
+# that procedure, whose bolts (14 / 10 Nm) the answer never saw -- search
+# only finds pages that share the question's words. No extra AI call; the
+# links are WIS's own (wis_links), in the car's scope only.
+LINKED_TOP = 3          # top pages whose links are followed
+LINKED_MAX = 4          # linked pages added
+LINKED_CHARS = 5000     # of each linked page's text
+LINKED_AFTER = 6        # placed after this many passages, inside the budget
+LINKED_PREFIXES = ("AR", "BA", "BF")   # procedures, torques, capacities
+
+
+_STOP = {"the", "and", "for", "how", "what", "replace", "replacement", "replaced", "remove",
+          "removal", "install", "installation", "torque", "torques", "specification", "spec",
+          "specs", "capacity", "check", "with", "from", "engine", "vehicle"}
+
+
+def _fits_car(page: dict, scope) -> bool:
+    """The page filters search applies in SQL (search._filters), for a page
+    reached by a link: not limited to other engines, not excepting this car's
+    codes, not naming only other codes."""
+    fams = tuple(getattr(scope, "engines", ()) or ())
+    engines = page.get("engines") or ""
+    if fams and engines and not any(f",{f}," in engines for f in fams):
+        return False
+    models, ecodes = getattr(scope, "codes", ((), ())) or ((), ())
+    exc, only = page.get("codes_except") or "", page.get("codes_only") or ""
+    for group in (models, ecodes):
+        if group and exc and all(f",{c}," in exc for c in group):
+            return False
+    mine = (*models, *ecodes)
+    if mine and only and not any(f",{c}," in only for c in mine):
+        return False
+    return page.get("applicability", "this_vehicle") == "this_vehicle"
+
+
+def with_linked(conn: sqlite3.Connection, vehicle: dict, scope,
+                passages: list[dict], queries: list[str] | None = None) -> list[dict]:
+    """`passages` plus the WIS documents their top pages link to. Each added
+    passage leads with its tables' values for this car (wis_tables: each
+    value with its own row, the car's column) -- the page text flattens a
+    table so a value sits beside the next row's name."""
+    from pathlib import Path
+
+    from . import wis_links, wis_tables
+    if not _re.match(r"mercedes-wis", vehicle.get("source_name") or "") \
+            or not vehicle.get("file_path"):
+        return passages
+    corpus = Path(vehicle["file_path"])
+    # only pages about the question: a stray hit ("Remove/install rear axle
+    # shaft" for an oil level sensor) linked in three exhaust procedures
+    words = {w for q in (queries or []) for w in _re.findall(r"[a-z0-9]{3,}", q.lower())} - _STOP
+    top, seen = [], set()
+    for p in passages:
+        if p.get("doc_type") == "parts" or p["page_no"] in seen:
+            continue
+        seen.add(p["page_no"])
+        if words and not words & set(_re.findall(r"[a-z0-9]{3,}", (p.get("title") or "").lower())):
+            continue
+        row = conn.execute("SELECT * FROM pages WHERE page_uid=?", (p["page_uid"],)).fetchone()
+        if row:
+            top.append(dict(row))
+        if len(top) >= LINKED_TOP:
+            break
+    wis_ids = [r[0] for r in conn.execute(
+        "SELECT doc_id FROM vehicles WHERE file_path=?", (vehicle["file_path"],))]
+    ids = as_ids(scope)
+    try:
+        linked = wis_links.linked_pages(conn, corpus, top, ids, wis_ids,
+                                        LINKED_PREFIXES, LINKED_MAX)
+    except sqlite3.Error:
+        return passages
+    codes = table_codes(vehicle, scope)
+    have = {str(p["page_no"]) for p in passages}
+    extra = []
+    for page, via in linked:
+        if str(page["page_no"]) in have or not _fits_car(page, scope):
+            continue
+        values = []
+        if str(page["page_no"]).isdigit():
+            for kind in ("torque", "capacity"):
+                values += wis_tables.rows(corpus, int(page["page_no"]), kind, codes)
+        head = ""
+        if values:
+            head = ("Values for this vehicle from this page's tables:\n" + "\n".join(
+                f"- {v['name']}: {v['value']}" + (f" (only for: {v['condition']})" if v["condition"] else "")
+                for v in values) + "\n\n")
+        extra.append({**page, "body": head + (page.get("text") or "")[:LINKED_CHARS],
+                      "linked_from": via, "score": 0.0,
+                      "linked_values": [v for v in values if v["value"].endswith(("Nm", "°"))]})
+    if not extra:
+        return passages
+    return passages[:LINKED_AFTER] + extra + passages[LINKED_AFTER:]
+
+
 def format_passages(passages: list[dict], max_chars: int = 60000) -> str:
     """Render retrieved chunks for the model, tagged with their page numbers."""
     blocks, total = [], 0
@@ -387,6 +496,9 @@ def format_passages(passages: list[dict], max_chars: int = 60000) -> str:
         kind = " (parts catalogue)" if p.get("doc_type") == "parts" else ""
         header = (f"[page {p['page_no']}]{kind} {p['title']}\n"
                   f"section: {p['section_path']}")
+        if p.get("linked_from"):
+            header += (f"\nlinked from page {p['linked_from']}: a procedure or table "
+                       "that page refers to")
         if p.get("applicability") != "this_vehicle":
             header += "\nWARNING: this page documents a different variant/trim"
         block = f"{header}\n---\n{strip_link_marks(p['body'])}"
@@ -632,6 +744,49 @@ def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope) -> list
     return [{**a["spec"].model_dump(), "page": a["page"]} for a in added]
 
 
+MAX_ADDED_LINKED = 8
+
+
+def _add_linked_torques(answer: AnswerModel, passages: list[dict]) -> list[dict]:
+    """Add the torques of a cited page's linked procedures that the answer
+    left out -- checked after the model, like _add_omitted_parts.
+
+    The W210 oil level sensor page links "Remove/install bottom part of oil
+    pan"; with that page in the passages and a prompt line asking for its
+    torques, Haiku still gave the sensor and drain screw only (2026-10-17,
+    twice). The values come from the linked page's own tables in this car's
+    column (wis_tables, `linked_values`), each citing that page."""
+    cited = {str(answer.document_page), *map(str, answer.source_pages)}
+    for s in answer.specs:
+        cited.update(map(str, s.source_pages))
+    cited.discard("")
+
+    def words(t):
+        return set(_re.findall(r"[a-z]{4,}", t.lower()))
+    added = []
+    for p in passages:
+        if not p.get("linked_from") or str(p["linked_from"]) not in cited:
+            continue
+        for v in p.get("linked_values") or []:
+            num = v["value"].split()[0]
+            if any(num in s.value and len(words(v["name"]) & words(s.name)) >= 2
+                   for s in answer.specs):
+                continue           # given already ("Oil drain screw ... 30 Nm")
+            spec = SpecItem(name=v["name"], value=v["value"],
+                            applicability=v.get("condition") or "",
+                            source_pages=[str(p["page_no"])])
+            answer.specs.append(spec)
+            added.append({**spec.model_dump(), "page": str(p["page_no"]),
+                          "title": p.get("title") or ""})
+            if len(added) >= MAX_ADDED_LINKED:
+                break
+    if added:
+        pages = "; ".join(dict.fromkeys(f"{a['title']} (page {a['page']})" for a in added))
+        answer.caveats = (f"{answer.caveats} Added from the procedure this job links to: "
+                          f"{pages}.").strip()
+    return added
+
+
 def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         per_query: int = 8, cap: int = 18,
         include_other_variants: bool = False,
@@ -688,6 +843,7 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     passages = multi_search(conn, scope, queries,
                             per_query=per_query, cap=cap,
                             include_other_variants=include_other_variants)
+    passages = with_linked(conn, vehicle, scope, passages, [question, *queries])
 
     if not passages:
         return Result(
@@ -717,6 +873,7 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     dropped = _verify_citations(answer, passages)
     other = _drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
     added = _add_omitted_parts(answer, passages, scope) if answer.found else []
+    linked = _add_linked_torques(answer, passages) if answer.found else []
 
     # surface diagrams that belong to the pages actually cited
     cited = set(answer.source_pages)
@@ -730,4 +887,4 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
 
     return Result(answer=answer, passages=passages, queries=queries,
                   usage=usage, dropped_citations=dropped, other_vehicle_specs=other,
-                  added_parts=added)
+                  added_parts=added, added_linked=linked)

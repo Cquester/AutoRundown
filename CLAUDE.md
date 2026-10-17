@@ -345,6 +345,20 @@ AI's own search terms (`queries`), every Search with the words typed
 writing each tab: 3-5x the spend, and it would retell the manual. Do not add
 per-tab AI calls. Details: `docs/notes/epc-source.md` ("Result tabs").
 
+**An answer also sees the procedures its pages link to; still one AI call**
+(2026-10-17, the user's request). Search finds only pages sharing the
+question's words, so "replace oil level sensor" never reached "Remove/install
+bottom part of oil pan", which its page links. `query.with_linked` adds the
+in-scope AR/BA/BF documents linked from the top 3 pages *about the question*
+(a title word in common; `_fits_car` = search's engine/code filters),
+at most 4, after the first 6 passages, each leading with its tables' values
+for this car (`wis_tables`), marked "linked from page N". Haiku still left
+the pan screws out (twice, even with a prompt line asking), so
+`_add_linked_torques` adds a cited page's linked torques after the model,
+like `_add_omitted_parts` (`added_linked`, said in caveats). Checked with
+Haiku: sensor 10 Nm + pan screws 14/10 Nm + drain 30 Nm, ~$0.018 per answer.
+Tests: `tests/test_wis_tables.py`.
+
 **Torque specs and Capacities show the job's values, in the car's column**
 (2026-10-16, found on the live W210 index: "Oil level sensor … 20 Nm" was
 the screw plug's 20 Nm -- a flattened table row put a value next to the

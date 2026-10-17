@@ -241,6 +241,50 @@ def main() -> int:
     check("fluids: never another model's sheet", not any("1,3" in x["value"] for x in fl), fl)
     check("fluids: nothing until a model or engine is chosen",
           app.get(f"/api/fluids/{doc}").json() == [])
+    print("-- the answer sees the linked procedure (one AI call, more passages) --")
+    from autorundown import query
+    from autorundown.search import multi_search, scope_ids
+    conn = index.connect(idx)
+    car = query.narrowed(w201, var, None, None)
+    sc = scope_ids(car, var, None)
+    found = multi_search(conn, sc, ["unplug sensor"], per_query=8, cap=18)
+    check("search alone finds the sensor page, not the oil pan bottom",
+          "1002310" in [p["page_no"] for p in found] and "1002311" not in [p["page_no"] for p in found],
+          [p["page_no"] for p in found])
+    more = query.with_linked(conn, car, sc, found, ["replace oil level sensor"])
+    pan = [p for p in more if p["page_no"] == "1002311"]
+    check("the linked procedure is added, marked as linked",
+          len(pan) == 1 and pan[0]["linked_from"] == "1002310", [p["page_no"] for p in more])
+    check("... leading with its values for this car",
+          bool(pan) and "Bolt, oil pan bottom to top · M6: 11 Nm" in pan[0]["body"]
+          and "13 Nm" not in pan[0]["body"].split("\n\n")[0], pan[0]["body"][:300] if pan else "")
+    check("... and the model is told where it came from",
+          "linked from page 1002310" in query.format_passages(more))
+    check("a safety note (AS) or oil sheet (BB) is not added",
+          not any(p["page_no"] in ("1002299", "1002313") and p.get("linked_from") for p in more))
+    off = query.with_linked(conn, car, sc, found, ["front brake pads"])
+    check("a top page not about the question is not followed", len(off) == len(found))
+    ans = query.AnswerModel(found=True, answer="x", document_page="1002310", specs=[
+        query.SpecItem(name="Oil level sensor to oil pan", value="9 Nm", applicability="",
+                       source_pages=["1002310"]),
+        query.SpecItem(name="Bolt oil pan to crankcase stage one", value="10 Nm", applicability="",
+                       source_pages=["1002311"])])
+    got = query._add_linked_torques(ans, more)
+    names = [a["name"] for a in got]
+    check("after the model: the linked procedure's torques it left out are added",
+          "Bolt, oil pan bottom to top · M6" in names
+          and all(a["page"] == "1002311" for a in got), got)
+    check("... not one it gave already", "Bolt, oil pan to crankcase · Stage 1" not in names, names)
+    check("... and the caveats say where they came from",
+          "page 1002311" in ans.caveats, ans.caveats)
+    uncited = query.AnswerModel(found=True, answer="x", document_page="1002299", specs=[])
+    check("nothing added when the linking page isn't cited",
+          query._add_linked_torques(uncited, more) == [])
+    other = {"engines": ",103,", "codes_only": "", "codes_except": "", "applicability": "this_vehicle"}
+    check("a linked page for another engine is not used", not query._fits_car(other, sc))
+    check("... one naming no engine is",
+          query._fits_car({**other, "engines": ""}, sc))
+    conn.close()
     print(f"\n{fails} failure(s)")
     return 1 if fails else 0
 

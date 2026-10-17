@@ -31,20 +31,12 @@ from .search import as_ids, get_page, value_lines, value_row
 # linked documents that hold a job's values: repair procedures (AR),
 # tightening torques (BA), capacities (BF), test values (BE); not safety
 # notes (AS), sealant notes (AH) or operating-fluid sheets (BB)
-_LINKED = re.compile(r"^(?:AR|BA|BF|BE)\d{2}\.")
+LINKED_PREFIXES = ("AR", "BA", "BF", "BE")
 MAX_PAGES = 6        # pages asked for
 MAX_LINKED = 10      # linked pages followed, in all
 
 
-def table_codes(vehicle: dict, scope) -> dict | None:
-    """What wis_tables.label_fits checks a column against, or None with
-    neither a car nor an engine chosen (then every column is shown)."""
-    vc = query.vehicle_codes(vehicle, scope)
-    if not vc:
-        return None
-    models, engines = getattr(scope, "codes", ((), ())) or ((), ())
-    return {"engines": set(engines), "models": set(models),
-            "series": vc["series"], "families": set(getattr(scope, "engines", ()) or ())}
+table_codes = query.table_codes
 
 
 def _is_wis(vehicle: dict) -> bool:
@@ -106,24 +98,9 @@ def job_values(conn: sqlite3.Connection, vehicle: dict, scope, pages: list[str],
             seen_pages.add(page["page_no"])
             todo.append((page, ""))
     if _is_wis(vehicle):
-        corpus = Path(vehicle["file_path"])
-        linked = []
-        for page, _ in list(todo):
-            for ref in wis_links.resolve(conn, corpus, page.get("text") or "", ids,
-                                         corpus_ids, page["page_no"]):
-                if not _LINKED.match(ref["docnr"]):
-                    continue
-                for target in ref["pages"]:
-                    if not target["in_scope"]:
-                        continue       # another model's document: never a value here
-                    if target["page_no"] in seen_pages:
-                        break
-                    tp = get_page(conn, ids, target["page_no"])
-                    if tp:
-                        seen_pages.add(tp["page_no"])
-                        linked.append((tp, page["page_no"]))
-                    break              # the car's own version of the document only
-        todo += linked[:MAX_LINKED]
+        todo += wis_links.linked_pages(conn, Path(vehicle["file_path"]),
+                                       [p for p, _ in todo], ids, corpus_ids,
+                                       LINKED_PREFIXES, MAX_LINKED)
     out, seen = [], set()
     for page, via in todo:
         for r in _page_rows(conn, vehicle, scope, page, kind, codes, sheet):
