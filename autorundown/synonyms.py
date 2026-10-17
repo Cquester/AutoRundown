@@ -44,6 +44,15 @@ PHRASES: dict[str, str] = {
     "trans fluid": "ATF",
     "transmission fluid": "ATF",
     "throttle body": "throttle valve actuator",
+    # shop slang for the M272/M276 camshaft adjuster solenoids; WIS: "Remove/
+    # install solenoid camshaft", "camshaft solenoid (Y49/4)" (2026-10-16,
+    # a 2014 E 350 search for "cam magnets" found nothing)
+    "cam magnets": "camshaft solenoid",
+    "cam magnet": "camshaft solenoid",
+    "camshaft magnets": "camshaft solenoid",
+    "camshaft magnet": "camshaft solenoid",
+    "cam solenoids": "camshaft solenoid",
+    "cam solenoid": "camshaft solenoid",
 }
 _RE = re.compile(r"\b(" + "|".join(re.escape(k) for k in
                                     sorted(PHRASES, key=len, reverse=True)) + r")\b", re.I)

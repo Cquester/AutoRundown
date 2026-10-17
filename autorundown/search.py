@@ -274,15 +274,21 @@ def split_scope(scope) -> tuple["Scope", "Scope"]:
 # list the lines of the car's own manual pages that print one.
 VALUE_RES = {
     # "25 Nm", "50-60 Nm", "18 lb-ft", and WIS's own tables: "Stage 2 Nm 50"
-    "torque": re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:-\s*\d+(?:[.,]\d+)?\s*)?"
-                         r"(?:N\s?·?\s?m|Nm|lb[.\- ]?ft|ft[.\- ]?lbs?|lb[.\- ]?in|in[.\- ]?lbs?)\b"
-                         r"|\bNm\s+\d+(?:[.,]\d+)?\b", re.I),
+    # A stage number is not a torque: "Stage 1 Nm 20" is 20 Nm, never "1 Nm"
+    # (a W210 transmission page showed "1 Nm"), so a number right after
+    # "Stage"/"Step" can't take the unit, and WIS's unit-first form is tried first
+    # (all of a unit-first row's numbers: one per column, and which column is
+    # this car's is not known from the text -- never show just the first)
+    "torque": re.compile(r"\bNm\s+\d+(?:[.,]\d+)?\b(?:\s+(?:\d+(?:[.,]\d+)?\b|[-–](?=\s|$)))*"
+                         r"|(?<!Stage )(?<!Step )(?<!Stufe )(?<!stage )(?<!step )"
+                         r"\b\d+(?:[.,]\d+)?\s*(?:-\s*\d+(?:[.,]\d+)?\s*)?"
+                         r"(?:N\s?·?\s?m|Nm|lb[.\- ]?ft|ft[.\- ]?lbs?|lb[.\- ]?in|in[.\- ]?lbs?)\b", re.I),
     # "6.5 l", "1,2 L", "5 liters", "6 qts" -- a bare "L" only after a decimal:
     # "Model 218 L" is a long-wheelbase model, not a volume -- and WIS's own
     # tables: "Engine oil Capacity (oil and filter change) Liter 6,5 7,0".
     # [\s\xa0\xc2]: some pages still carry "5\xc2\xa0l" from a double decode
     "capacity": re.compile(r"\b\d+[.,]\d+[\s\xa0\xc2]*[lL]\b"
-                           r"|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:ltr|litres?|liters?|qts?|quarts?|ml|cm3|gal)\b"
+                           r"|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:ltr|litres?|liters?|qts?|quarts?|pints?|ml|cm3|gal)\b"
                            r"|\b(?:liters?|litres?|ltr|qts?|quarts?)[\s\xa0\xc2]+\d+(?:[.,]\d+)?\b"
                            r"|(?-i:\b\d+[\s\xa0\xc2]*l\b)", re.I),   # "5 l": lowercase only
 }
@@ -314,12 +320,21 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
         # filter 5.0"
         return kind == "capacity" and bool(_CAP_ROW_RE.search(line)) and bool(_DECIMAL_RE.search(line))
 
-    lines = []
+    lines, carry = [], ""
     for raw in (row[1] or "").split("\n"):
         line = " ".join(raw.split())
         if not line or line.startswith(("Applies to:", "Noted in the manual:", "Validity:",
                                         "Diagram labels:", "Figures:", "Refer to:")):
             continue
+        # a flattened WIS table row: "Nm 20 – Oil level sensor on oil pan top
+        # part" -- the 20 Nm is the previous line's part (the screw plug), the
+        # name after it is the next line's. Never let a value take the next
+        # row's name (the W210 tab showed the sensor at 20 Nm).
+        lead = _LEAD_VALUES_RE.match(line)
+        if lead:
+            line, carry = f"{carry} {lead.group(1)}".strip(), lead.group(2)
+        else:
+            carry = "" if is_value(line) else line
         if is_value(line) and line not in lines and not (other_engine and other_engine(line)):
             lines.append(line)
     # only the lines about what was asked: "glow plug" also found the
@@ -331,17 +346,27 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
     return lines[:cap]
 
 
+_LEAD_VALUES_RE = re.compile(r"^((?:Nm|Liters?|Litres?)(?:\s+(?:\d+(?:[.,]\d+)?|[-–]))+)"
+                             r"\s+([A-Za-z].*)$")
 _CAP_ROW_RE = re.compile(r"capa(?:c|ct)i?t?i?y|capacit|filling|fill(?:ing)? quantit", re.I)
 # a volume, not a model or engine code ("201.024", "102.983"): at most two
 # digits before the point
 _DECIMAL_RE = re.compile(r"(?<![\d.,])\d{1,2}[.,]\d{1,2}\b(?![.,]?\d)")
 
 
-_UNIT_FIRST_RE = re.compile(r"\b(?:liters?|litres?|ltr)[\s\xa0]+\d+(?:[.,]\d+)?"
+# Unit first ("Liter 1,1 1,1") only where no number stands right before the
+# unit: in "5.5 Liters 5.8 Quarts" the 5.8 is the quarts column, and taking
+# it as litres put "Liters 5.8" in the Capacities tab (LEMON 190E ATF)
+_UNIT_FIRST_RE = re.compile(r"(?<![\d.,][\s\xa0])(?<![\d.,])"
+                            r"\b(?:liters?|litres?|ltr)[\s\xa0]+\d+(?:[.,]\d+)?"
                             r"(?:\s*(?:\.\.\.|to|-|/)?\s*\d+(?:[.,]\d+)?\b)*", re.I)
 
 
+# a turn after the torque: "55 Nm + 90°" anywhere, and "55 Nm 90° 90°" when
+# the turns follow the torque directly ("Tighten to 55 Nm plus twice 90
+# degrees" keeps its words: "90 degrees" alone would lose the "twice")
 _ANGLE_RE = re.compile(r"\+\s*\d+(?:[.,]\d+)?\s*(?:°|degrees?\b)", re.I)
+_ANGLE_AFTER_RE = re.compile(r"(?:\s*\d+(?:[.,]\d+)?\s*(?:°|degrees?\b))+", re.I)
 
 
 def value_row(line: str, kind: str, title: str = "") -> dict:
@@ -353,8 +378,17 @@ def value_row(line: str, kind: str, title: str = "") -> dict:
     # WIS's tables give a unit, then a value per column: "Liter 1,1 1,1",
     # "Liters 0.7...0.9 0.45 to 0.6" -- all of it is the value
     rx = _UNIT_FIRST_RE if kind == "capacity" and _UNIT_FIRST_RE.search(line) else VALUE_RES[kind]
-    found = [m.group(0).strip() for m in rx.finditer(line)]
-    rest = rx.sub(" ", line)
+    found, rest, at = [], [], 0
+    for m in rx.finditer(line):
+        end = m.end()
+        if kind == "torque":
+            turn = _ANGLE_AFTER_RE.match(line, end)
+            if turn:          # "55 Nm 90° 90°": the turns are part of the torque
+                end = turn.end()
+        found.append(" ".join(line[m.start():end].split()))
+        rest.append(line[at:m.start()])
+        at = end
+    rest = " ".join(rest + [line[at:]])
     if not found and kind == "capacity":
         # WIS's bare numbers under a "in liters" header: "... filter 5.0"
         found = [m.group(0) for m in _DECIMAL_RE.finditer(line)]
@@ -367,7 +401,7 @@ def value_row(line: str, kind: str, title: str = "") -> dict:
     cells = [" ".join(c.split()).strip(" :;,-–=") for c in rest.split("|")]
     name = " · ".join(c for c in cells if c and not re.fullmatch(r"[\W_]*", c))
     # a sentence the value was taken out of: "Tighten the bolts to ."
-    name = re.sub(r"(?:[\s:;,.]+(?:to|at|of|with|is))*[\s:;,.=-]+$", "", name, flags=re.I)
+    name = re.sub(r"(?:[\s:;,./]+(?:to|at|of|with|is))*[\s:;,./=-]+$", "", name, flags=re.I)
     if len(name) < 3:
         name = title
     return {"name": name, "value": " ".join([" / ".join(dict.fromkeys(found)), *angles]).strip()}

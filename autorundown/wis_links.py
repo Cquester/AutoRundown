@@ -83,6 +83,41 @@ def candidates(corpus: Path, printed: str) -> list[int]:
                    or docnr == key})
 
 
+def linked_pages(conn: sqlite3.Connection, corpus: Path, pages: list[dict],
+                 scope: list[str], wis_ids: list[str], prefixes: tuple[str, ...],
+                 limit: int) -> list[tuple[dict, str]]:
+    """[(page row, page_no it was linked from)]: the documents `pages` refer
+    to whose number starts with one of `prefixes` ("AR", "BA", ...), the
+    car's own version of each (in scope only -- another model's document is
+    never used for this car), none of `pages` itself, at most `limit`."""
+    have = {str(p["page_no"]) for p in pages}
+    out: list[tuple[dict, str]] = []
+    for page in pages:
+        for ref in resolve(conn, corpus, page.get("text") or "", scope, wis_ids,
+                           str(page["page_no"])):
+            if not ref["docnr"].startswith(prefixes):
+                continue
+            target = next((t for t in ref["pages"] if t["in_scope"]), None)
+            if not target or target["page_no"] in have:
+                continue
+            row = conn.execute("SELECT * FROM pages WHERE doc_id=? AND page_no=?",
+                               (target["doc_id"], target["page_no"])).fetchone()
+            if row:
+                have.add(target["page_no"])
+                out.append((dict(row), str(page["page_no"])))
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def capacity_sheets(corpus: Path) -> dict[str, str]:
+    """{DokID: document number} of WIS's capacity sheets ("BF35.31-P-1000-01E",
+    one per system and model range) -- not the "Capacities: ..." index
+    documents (BF..-Z-9999), which only list them."""
+    rows = _rows(corpus, "SELECT docnr, dok_id FROM docnr WHERE docnr >= 'bf' AND docnr < 'bg'") or []
+    return {str(d): n for n, d in rows if re.match(r"^bf\d{4}p1000", n)}
+
+
 def pages_for(conn: sqlite3.Connection, corpus: Path, printed: str,
               scope: list[str], wis_ids: list[str], own_page: str = "") -> list[dict]:
     """The pages a document number opens: [{page_no, title, applies, doc_id,

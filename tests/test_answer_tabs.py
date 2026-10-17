@@ -59,11 +59,15 @@ def build_sample():
     return db
 
 
+ANSWER_PAGES: list[str] = []      # set from a real search of the sample corpus
+
+
 def canned_answer():
-    """What /api/ask returns, without the model: a found answer with no page
-    and the planner's search terms -- all the tabs need."""
+    """What /api/ask returns, without the model: a found answer citing real
+    pages and the planner's search terms -- all the tabs need."""
     return {"found": True, "answer": "[test] canned answer", "specs": [], "figures": [],
-            "document_page": "", "source_pages": [], "caveats": "", "page_titles": {},
+            "document_page": ANSWER_PAGES[0], "source_pages": ANSWER_PAGES, "caveats": "",
+            "page_titles": {},
             "queries": AI_TERMS + [QUESTION], "dropped_citations": [], "other_vehicle_specs": [],
             "added_parts": [], "usage": {"calls": 0, "cost_usd": 0}}
 
@@ -96,8 +100,11 @@ def main(argv=None):
           not only_q and len(with_also) > 0, f"{len(only_q)} vs {len(with_also)}")
     check("server: each row says which term found it",
           all(r.get("query") for r in with_also))
+    hits = api_search(doc_id=w211["doc_id"], q=QUESTION)
+    ANSWER_PAGES[:] = [str(r["page_no"]) for r in hits[:2]]
+    check("sample: the question finds pages to cite", len(ANSWER_PAGES) == 2, str(ANSWER_PAGES))
 
-    asks, searches, forbidden, errors = [], [], [], []
+    asks, searches, values, forbidden, errors = [], [], [], [], []
 
     def on_api(route, request):
         u = urlparse(request.url)
@@ -109,6 +116,8 @@ def main(argv=None):
             return route.abort()
         if u.path == "/api/search":
             searches.append(parse_qs(u.query))
+        if u.path.startswith("/api/values/"):
+            values.append(parse_qs(u.query))
         route.continue_()
 
     with sync_playwright() as pw:
@@ -156,6 +165,7 @@ def main(argv=None):
         check("no Labour times or Option codes button beside VIN",
               pg.locator("#labBtn, #saBtn, #saDlg").count() == 0)
         searches.clear()
+        values.clear()
         pg.fill("#q", QUESTION)
         pg.click("#askBtn")
         pg.wait_for_selector("#out .answer")
@@ -163,10 +173,13 @@ def main(argv=None):
                              ".some(c => !c.hidden)")
         ts = tab_searches()
         check("Ask: one paid request", len(asks) == 1, str(len(asks)))
+        # Torque specs / Capacities read the answer's own pages (2026-10-16),
+        # no keyword search of their own any more
         for t in ("torque", "capacity"):
-            s = ts.get(t)
-            check(f"Ask: the {t} tab searched the question with the AI's terms",
-                  bool(s) and s["q"] == [QUESTION] and s.get("also") == AI_TERMS, str(s))
+            v = [x for x in values if x.get("kind") == [t]]
+            check(f"Ask: the {t} tab read the answer's pages",
+                  len(v) == 1 and v[0].get("pages") == ANSWER_PAGES, str(v))
+            check(f"Ask: the {t} tab ran no keyword search", t not in ts, str(ts.get(t)))
         c = counts(pg)
         check("Ask: the Torque tab shows a count", c.get("torque", "") not in ("",), str(c))
         pg.click("#resTabs [data-tab=torque]")
@@ -182,13 +195,17 @@ def main(argv=None):
               pg.locator("#tabLabour input").count() == 0)
 
         searches.clear()
+        values.clear()
         pg.fill("#q", "wheel bolts")
         pg.click("#searchBtn")
         pg.wait_for_timeout(1500)
         ts = tab_searches()
-        check("Search: the tabs are searched with the typed words, no `also`",
-              bool(ts) and all(s["q"] == ["wheel bolts"] and "also" not in s for s in ts.values()),
-              str(ts))
+        check("Search: the parts tab (if any) is searched with the typed words, no `also`",
+              all(s["q"] == ["wheel bolts"] and "also" not in s for s in ts.values()), str(ts))
+        top = [str(r["page_no"]) for r in api_search(doc_id=w211["doc_id"], q="wheel bolts")[:3]]
+        check("Search: Torque specs / Capacities read the top hits",
+              sorted(x["kind"][0] for x in values) == ["capacity", "torque"]
+              and all(x.get("pages") == top for x in values), f"{values} vs {top}")
         check("Search: no paid request", len(asks) == 1)
 
         other = next((v for v in vehicles if v["doc_id"] != w211["doc_id"] and v.get("model")), None)

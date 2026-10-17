@@ -33,7 +33,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from . import auth, config, handoff, index, providers, qr, query, tls
-from . import autostart, importer_jobs, lemon_catalogue, synonyms, wis_links, wis_original
+from . import autostart, importer_jobs, lemon_catalogue, synonyms, tab_values, wis_links, wis_original
 from .search import (get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
 
@@ -804,6 +804,40 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 if "::" in raw
             ]
             return page
+        finally:
+            conn.close()
+
+    @app.get("/api/values/{doc_id}")
+    def api_values(doc_id: str, kind: str = Query(pattern="^(torque|capacity)$"),
+                   pages: list[str] = Query(default=[]),
+                   variant: int | None = None,
+                   engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """The Torque specs / Capacities tab for one job: the values on
+        `pages` (the answer's pages, or the top search hits) and on the WIS
+        procedures and value tables they link to, in this car's column only
+        (tab_values.py). Free: no AI call."""
+        pages = [p.strip()[:32] for p in pages if p.strip()][:tab_values.MAX_PAGES]
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            ids = _corpus_ids(conn, vehicle) if _is_wis(vehicle) else []
+            return tab_values.job_values(conn, vehicle, manual, pages, kind, ids)
+        finally:
+            conn.close()
+
+    @app.get("/api/fluids/{doc_id}")
+    def api_fluids(doc_id: str, variant: int | None = None,
+                   engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """The car's main fluids, from WIS's capacity sheets, in this car's
+        column only; nothing until a model or engine is chosen. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            if variant is None and not engine:
+                return []
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            return tab_values.fluids(conn, vehicle, manual, _corpus_ids(conn, vehicle))
         finally:
             conn.close()
 
