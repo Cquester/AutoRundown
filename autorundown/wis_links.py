@@ -83,6 +83,14 @@ def candidates(corpus: Path, printed: str) -> list[int]:
                    or docnr == key})
 
 
+def capacity_sheets(corpus: Path) -> dict[str, str]:
+    """{DokID: document number} of WIS's capacity sheets ("BF35.31-P-1000-01E",
+    one per system and model range) -- not the "Capacities: ..." index
+    documents (BF..-Z-9999), which only list them."""
+    rows = _rows(corpus, "SELECT docnr, dok_id FROM docnr WHERE docnr >= 'bf' AND docnr < 'bg'") or []
+    return {str(d): n for n, d in rows if re.match(r"^bf\d{4}p1000", n)}
+
+
 def pages_for(conn: sqlite3.Connection, corpus: Path, printed: str,
               scope: list[str], wis_ids: list[str], own_page: str = "") -> list[dict]:
     """The pages a document number opens: [{page_no, title, applies, doc_id,

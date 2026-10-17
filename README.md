@@ -328,8 +328,15 @@ chose:
 | **Manual page** | The page the answer points at, or any page you open. |
 | **Parts** | The Mercedes parts catalogue (EPC), when imported: each page's matching part lines -- number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334"). |
 | **Labour times** | Mercedes flat-rate times for the exact model (WIS) -- empty until you ask or search, then the job itself (both versions where an automatic and a manual gearbox differ), with any other operations that mention it folded away below. |
-| **Capacities** | One table, fluid then capacity: the engine oil figure for your engine (WIS), then the capacities on the car's pages. |
-| **Torque specs** | One table, part then specification, as the manual prints it. |
+| **Capacities** | On top, **Fluids for your car** (WIS, once you pick the model or engine): engine oil with its Mercedes oil sheets (MB 229.x), coolant, axles, transfer case, power steering, brake fluid, refrigerant, fuel tank -- each in your car's column of WIS's capacity sheets. Below, the capacities on this job's pages. |
+| **Torque specs** | The torque values of this job, part then specification: on the answer's pages (or the top search hits) and, for WIS, on the procedures they link to ("remove the oil pan bottom section" brings its bolts). |
+
+WIS value tables are read from the document's own table layout, so each value
+stays with its own part and only your engine's or model's column is shown;
+a column that also depends on something the car box can't know (an option
+code, a chassis number) is shown with "Only for: …". Automatic transmission
+fluid is not on the fluids card: WIS lists it per gearbox, which the car box
+doesn't know.
 
 Values that name only another engine or model are left out, and every row
 links to the page it came from: tables often list several engines, so the page

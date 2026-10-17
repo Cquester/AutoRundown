@@ -134,6 +134,7 @@ python tests/test_lemon_import.py                 # LEMON import source (~3 s)
 python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (~3 s)
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
+python tests/test_wis_tables.py                   # Torque/Capacities tabs: job values, car's column, fluids (~5 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_providers.py                    # Ask on all 4 AI providers vs the fakes (~20 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
@@ -338,11 +339,29 @@ by itself if the server goes away. Details: `docs/notes/importing.md`.
 **One question fills the right box's tabs, without another AI call**
 (2026-10-16, the user's request). The right box has tabs -- Manual page,
 Parts, Labour times, Capacities, Torque specs; on a phone they are the bottom
-bar and open the Document view. Every Ask searches all of them with the AI's
-own search terms (`queries`), every Search with the words typed
+bar and open the Document view. Every Ask searches Parts and Labour with the
+AI's own search terms (`queries`), every Search with the words typed
 (`/api/search` `also=`, merged round-robin). The user chose this over the AI
 writing each tab: 3-5x the spend, and it would retell the manual. Do not add
 per-tab AI calls. Details: `docs/notes/epc-source.md` ("Result tabs").
+
+**Torque specs and Capacities show the job's values, in the car's column**
+(2026-10-16, found on the live W210 index: "Oil level sensor … 20 Nm" was
+the screw plug's 20 Nm -- a flattened table row put a value next to the
+next row's name -- every engine's column side by side, and transmission
+values for an oil level sensor from the old "+ torque" keyword search).
+`/api/values` reads the answer's pages (or the top search hits) and, for
+WIS, the AR/BA/BF/BE documents they link to (in scope only); WIS tables are
+read from their SIDS layout (`wis_tables.py`: row and column kept, a column
+kept only if its label fits the car -- `label_fits`, English and German
+labels, "except", conditions shown as "Only for: …"; a dash is never a
+value; a row it can't pair is left out, never guessed). `/api/fluids` is the
+car's fluids card from WIS's capacity sheets (BF..-P-1000) with the oil
+sheets (MB 229.x); none for ATF (per gearbox) or for cars WIS has no sheet
+for (the W201). Other manuals use the text lines (`value_lines`), which no
+longer give "Stage 1 Nm 20" as 1 Nm or a quarts column as litres. Do not go
+back to keyword-searching these tabs. Tests: `tests/test_wis_tables.py`,
+`test_answer_tabs.py`.
 
 **A VIN is checked before it is decoded; a scanned one is never searched
 by itself** (2026-10-16). `vinCheck()` (index.html, `vin-check` block):

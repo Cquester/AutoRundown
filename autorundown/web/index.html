@@ -450,6 +450,11 @@
   .spectab th:last-child{text-align:right}
   .spectab .hit{padding:0; text-align:left; font:inherit; color:inherit}
   @media (max-width:700px){ .spectab td.val{white-space:normal; width:auto; max-width:45%} }
+  .spectab .cond{font-size:12px; margin-top:2px; white-space:normal; text-align:left}
+  .spectab td.val .cond{text-align:right}
+  .fluids{margin-bottom:14px}
+  .fluidshead{font-size:13px; margin:0 0 4px}
+  .fluids > .cond{margin:-6px 0 0}
   .tabhit{padding:10px 14px; border-top:1px solid var(--line)}
   .tabhit:first-child{border-top:0}
   @media (max-width:700px){ .plines .nt{display:block} .plines td{display:block; border-top:0; padding:2px 0}
@@ -2225,12 +2230,12 @@ function showScope() {
   // engine); without one, the tabs say what they will show
   // (only for the same car: another car starts with no question -- its
   // answer area is empty, the tabs are too)
-  if (tabQuery && tabQuery.doc === docId()) fillTabs(tabQuery.q, tabQuery.also);
+  if (tabQuery && tabQuery.doc === docId()) fillTabs(tabQuery.q, tabQuery.also, tabQuery.pages);
   else {
     if (tabQuery) resetTabs();
     for (const t of ['parts', 'capacity', 'torque']) if (!$(PANE[t]).innerHTML.trim()) $(PANE[t]).innerHTML = tabEmpty(t);
     if (curTab === 'labour') showLabourTab();
-    if (curTab === 'capacity') showOilCard();
+    if (curTab === 'capacity') showFluids();
   }
   if (!out.innerHTML.trim()) out.innerHTML = emptyState();
   if (!v || !v._variants.length) { note.hidden = true; return; }
@@ -2817,7 +2822,12 @@ async function ask() {
     }, 240000);
     renderAnswer(d, doc, label);
     // the right box's other tabs, from the AI's own search terms (free)
-    if (docId() === doc) fillTabs(q, d.queries || []);
+    // Torque specs / Capacities: this job's pages -- the answer's, or with no
+    // answer the pages it was looked for on (the cam solenoid page was found
+    // but not answered from: its values still belong in the tab)
+    const jobPages = [...new Set([d.document_page, ...(d.source_pages || [])].filter(Boolean).map(String))];
+    const looked = [...new Set((d.passages || []).map(p => String(p.page_no)))].slice(0, 3);
+    if (docId() === doc) fillTabs(q, d.queries || [], (jobPages.length ? jobPages : looked).slice(0, 6));
   } catch (e) {
     out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   } finally {
@@ -2842,6 +2852,7 @@ async function keywordSearch() {
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
       + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
     if (seq !== searchSeq) return;
+    if (docId() === doc) valueTabs(rows.slice(0, 3).map(r => String(r.page_no)));
     // the server also searches the manual's own wording ("valve cover" ->
     // "cylinder head cover"); say so, or the results look off-topic
     const alt = rows.find(r => r.query && r.query.toLowerCase() !== q.toLowerCase());
@@ -3146,8 +3157,8 @@ function tabEmpty(t) {
   const label = carBoxLabel || currentCarLabel();
   if (!docId() || !label) return '';
   const what = {parts: 'the parts it names from the parts catalogue (part numbers, which models they fit)',
-                capacity: 'the capacities (litres, quarts) the manual prints for it',
-                torque: 'the torque values the manual prints for it',
+                capacity: 'the capacities on that job’s pages',
+                torque: 'the torque values of that job (its page and the procedures it links to)',
                 labour: 'the flat-rate labour times for the job'}[t];
   return `<div class="empty">Ask a question or search: ${what} for <b>${esc(label)}</b> show here.</div>`;
 }
@@ -3174,7 +3185,7 @@ function setTab(t) {
   });
   for (const [k, sel] of Object.entries(PANE)) $(sel).hidden = k !== t;
   if (t === 'labour' && !tabQuery) showLabourTab();
-  if (t === 'capacity') showOilCard();
+  if (t === 'capacity') showFluids();
 }
 document.body.dataset.tab = curTab;
 // a tab is a view of the right box: on a phone it opens the Document view
@@ -3214,31 +3225,8 @@ async function tabSearch(tab, q, also, seq) {
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
       + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
     if (seq !== tabSeq) return;
-    const none = {parts: 'No part in this car’s parts catalogue matches this question.',
-                  torque: 'No torque value for this question in this car’s manual pages.',
-                  capacity: 'No capacity for this question in this car’s manual pages.'}[tab];
+    const none = 'No part in this car’s parts catalogue matches this question.';
     const head = resultsFor(label) + `<div class="muted" style="margin:0 0 8px">For: <b>${esc(q)}</b></div>`;
-    if (tab !== 'parts') {
-      // Torque specs and Capacities: one table, what then the value as the
-      // manual prints it (the user, 2026-10-16: "just give a table"); each
-      // row opens the page it is from
-      const seen = new Set(), list = [];
-      for (const r of rows) for (const x of r.rows || []) {
-        const k = (x.name + '|' + x.value).toLowerCase();
-        if (!x.value || seen.has(k)) continue;
-        seen.add(k); list.push({...x, page_no: r.page_no, title: r.title});
-      }
-      setCount(tab, list.length);
-      pane.innerHTML = withDoc(doc, () => head + (list.length
-        ? `<table class="spectab"><thead><tr><th>${tab === 'torque' ? 'Part' : 'Fluid'}</th>`
-          + `<th>${tab === 'torque' ? 'Specification' : 'Capacity'}</th></tr></thead><tbody>`
-          + list.map(x => `<tr><td><button type="button" class="hit" ${pageAttrs(x.page_no)}
-              title="${esc(x.title)}">${esc(x.name)}</button></td>`
-            + `<td class="val"><span class="torque">${esc(x.value)}</span></td></tr>`).join('') + `</tbody></table>`
-        : `<div class="card"><div class="notfound">${none}</div></div>`));
-      if (tab === 'capacity') showOilCard();
-      return;
-    }
     setCount(tab, rows.length);
     pane.innerHTML = withDoc(doc, () => head
       + (rows.length ? `<div class="card" style="padding:0">` + rows.map(r =>
@@ -3272,41 +3260,107 @@ async function labourFor(terms, seq) {
 }
 // After an Ask (terms = the AI's search terms) or a Search (the words typed):
 // every tab this car has, searched for the same question
-function fillTabs(q, terms) {
+// `pages`: the job's pages -- the answer's own (after an Ask), the top hits
+// (after a Search, set when its results arrive: valueTabs)
+function fillTabs(q, terms, pages = null) {
   const seq = ++tabSeq, v = vehicles.find(x => x.doc_id === docId()), have = tabsFor(v);
   const also = terms.filter(t => t.toLowerCase() !== q.toLowerCase()).slice(0, 4);
-  tabQuery = {q, also, doc: docId()};
-  for (const t of ['parts', 'capacity', 'torque']) if (have[t]) tabSearch(t, q, also, seq);
+  tabQuery = {q, also, doc: docId(), pages};
+  if (have.parts) tabSearch('parts', q, also, seq);
+  if (pages) valueTabs(pages);
+  else for (const t of ['capacity', 'torque']) if (have[t])
+    $(PANE[t]).innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
   if (have.labour) labourFor([...also, q], seq);
 }
-// Capacities: WIS's own engine oil figure for the chosen engine, on top
+function valueTabs(pages) {
+  const v = vehicles.find(x => x.doc_id === docId()), have = tabsFor(v);
+  if (tabQuery) tabQuery.pages = pages;
+  for (const t of ['capacity', 'torque']) if (have[t]) jobValues(t, pages, tabSeq);
+}
+// Torque specs and Capacities: the values of this job -- on its pages and,
+// for WIS, on the procedures and value tables they link to -- in this car's
+// column only (server: tab_values.py). One table, what then the value as the
+// manual prints it; each row opens its page. Until 2026-10-16 these tabs ran
+// their own keyword search ("+ torque") and listed whatever matched: the
+// transmission's torque-converter bolts for an oil level sensor.
+async function jobValues(tab, pages, seq) {
+  const pane = $(PANE[tab]), doc = docId(), label = carBoxLabel, q = tabQuery?.q || '';
+  const head = resultsFor(label) + `<div class="muted" style="margin:0 0 8px">For: <b>${esc(q)}</b> &mdash; `
+    + `the job’s manual pages and the procedures they link to</div>`;
+  const none = {torque: 'No torque value on this job’s pages for this car.',
+                capacity: 'No capacity on this job’s pages for this car.'}[tab];
+  if (!pages.length) {
+    setCount(tab, 0);
+    pane.innerHTML = withDoc(doc, () => head + `<div class="card"><div class="notfound">${none}</div></div>`);
+    if (tab === 'capacity') showFluids();
+    return;
+  }
+  pane.innerHTML = `<div class="card"><span class="spinner"></span> reading the job’s pages&hellip;</div>`;
+  try {
+    const rows = await api(`/api/values/${encodeURIComponent(doc)}?kind=${tab}`
+      + pages.map(p => `&pages=${encodeURIComponent(p)}`).join('')
+      + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
+      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+    if (seq !== tabSeq) return;
+    setCount(tab, rows.length);
+    pane.innerHTML = withDoc(doc, () => head + (rows.length
+      ? `<table class="spectab"><thead><tr><th>${tab === 'torque' ? 'Part' : 'Fluid'}</th>`
+        + `<th>${tab === 'torque' ? 'Specification' : 'Capacity'}</th></tr></thead><tbody>`
+        + rows.map(valueRowHtml).join('') + `</tbody></table>`
+      : `<div class="card"><div class="notfound">${none}</div></div>`));
+    if (tab === 'capacity') showFluids();
+  } catch (e) {
+    if (seq === tabSeq) pane.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
+  }
+}
+function valueRowHtml(x) {
+  return `<tr><td><button type="button" class="hit" ${pageAttrs(x.page_no)}
+      title="${esc(x.title || x.system || '')}">${esc(x.name)}</button>`
+    + (x.condition ? `<div class="muted cond">Only for: ${esc(x.condition)}</div>` : '')
+    + `</td><td class="val"><span class="torque">${esc(x.value)}</span>`
+    + (x.spec ? `<div class="muted cond">Oil: ${esc(x.spec)}</div>` : '') + `</td></tr>`;
+}
+// Capacities, on top: the car's main fluids from WIS's capacity sheets, for
+// the chosen model or engine (the user, 2026-10-16: "a capacity button for
+// the car ... the main fluids, including type or weight"). Falls back to the
+// engine oil figure of WIS's service data where no sheet names the car.
 let oilCardSeq = 0;
-async function showOilCard() {
+async function showFluids() {
   const seq = ++oilCardSeq, v = vehicles.find(x => x.doc_id === docId());
   $('#oilCard')?.remove();
   if (!v || !WIS_SOURCE.test(v.source_name || '')) return;
   const n = variantIdx(), eng = engineSel();
+  const card = html => {
+    $('#oilCard')?.remove();
+    $('#rpCapacity').insertAdjacentHTML('afterbegin', `<div id="oilCard" class="fluids">${html}</div>`);
+  };
   if (n === null && !eng) {
-    if (seq === oilCardSeq) $('#rpCapacity').insertAdjacentHTML('afterbegin', '<div class="muted" '
-      + 'id="oilCard" style="margin-bottom:8px">Pick your exact model or engine above for its engine oil capacity.</div>');
+    if (seq === oilCardSeq) card('<div class="muted" style="margin-bottom:8px">Pick your exact model '
+      + 'or engine above for this car’s fluids and capacities.</div>');
     return;
   }
+  const qs = (n === null ? '' : `variant=${n}&`) + (eng ? `engine=${encodeURIComponent(eng)}` : '');
   let rows = [];
-  try {
-    rows = await api(`/api/wis/oil/${encodeURIComponent(v.doc_id)}?`
-      + (n === null ? '' : `variant=${n}&`) + (eng ? `engine=${encodeURIComponent(eng)}` : ''));
-  } catch { return; }
-  if (!rows.length || seq !== oilCardSeq) return;
-  // first rows of the tab's own table (or a table of its own before a question)
-  const many = new Set(rows.map(r => r.engine)).size > 1;
-  const body = rows.map(r => `<tr><td>Engine oil${many ? ` (${esc(r.engine)})` : ''}${r.note ? ` ${esc(r.note)}` : ''}`
-    + ` <span class="muted">(WIS service data)</span></td>`
-    + `<td class="val"><span class="torque">${esc(String(r.litres).replace(/\.0$/, ''))} ${esc(r.unit)}</span></td></tr>`).join('');
-  $('#oilCard')?.remove();
-  const tab = $('#rpCapacity .spectab thead');
-  if (tab) tab.insertAdjacentHTML('afterend', `<tbody id="oilCard">${body}</tbody>`);
-  else $('#rpCapacity').insertAdjacentHTML('afterbegin', `<table class="spectab" id="oilCard"><thead><tr>`
-    + `<th>Fluid</th><th>Capacity</th></tr></thead><tbody>${body}</tbody></table>`);
+  try { rows = await api(`/api/fluids/${encodeURIComponent(v.doc_id)}?${qs}`); } catch { rows = []; }
+  if (seq !== oilCardSeq) return;
+  if (!rows.some(r => /engine oil/i.test(r.name))) {
+    let oil = [];
+    try { oil = await api(`/api/wis/oil/${encodeURIComponent(v.doc_id)}?${qs}`); } catch { oil = []; }
+    if (seq !== oilCardSeq) return;
+    const many = new Set(oil.map(r => r.engine)).size > 1;
+    rows = oil.map(r => ({name: `Engine oil${many ? ` (${r.engine})` : ''}${r.note ? ` ${r.note}` : ''} (WIS service data)`,
+                          value: `${String(r.litres).replace(/\.0$/, '')} ${r.unit}`, page_no: ''})).concat(rows);
+  }
+  const title = `<div class="fluidshead">Fluids for <b>${esc(carBoxLabel || v.model)}</b></div>`;
+  const atf = '<div class="muted cond">Automatic transmission fluid: WIS lists it per gearbox, '
+    + 'which the car box doesn’t know &mdash; ask or search “ATF capacity”.</div>';
+  card(title + (rows.length
+    ? `<table class="spectab"><thead><tr><th>Fluid</th><th>Capacity</th></tr></thead><tbody>`
+      + rows.map(r => valueRowHtml({...r, name: r.system && !r.name.toLowerCase().startsWith(r.system.toLowerCase().slice(0, 8))
+                                                 ? `${r.system}: ${r.name}` : r.name})).join('')
+      + `</tbody></table>` + atf
+    : '<div class="muted" style="margin-bottom:8px">WIS has no capacity sheet for this car; '
+      + 'ask or search for the fluid.</div>'));
 }
 
 $('#askBtn').onclick = ask;

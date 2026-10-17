@@ -237,6 +237,55 @@ seen only once a row for it is kept. On a phone the tabs stay the bottom
 bar; a tap opens the Document view on that tab. Test:
 `tests/test_answer_tabs.py` (the Ask is answered by the test, never sent).
 
+**Torque specs and Capacities are the job's values, not a keyword search
+(2026-10-16, checked with Haiku on the live index).** For "replace oil level
+sensor" on a 2001 E 320 4MATIC wagon the two tabs, searching
+"<question> torque" / "... capacity", listed the transmission's torque
+converter bolts, ATF, rear axle and level-control fluids, every engine's
+column of a table as one value ("Liters 8.0 8.0 7.5"), and "Oil level sensor
+on oil pan top part -- 20 Nm", where the page's 20 Nm is the crankcase screw
+plug: the index text puts each table row's value next to the *next* row's
+name. Now:
+
+- `/api/values/{doc}?kind=torque|capacity&pages=…` (`tab_values.job_values`)
+  reads the job's pages -- after an Ask the answer's `document_page` +
+  `source_pages` (with no answer, the first pages it was looked for on);
+  after a Search the top 3 hits -- and, for WIS, the documents they link to
+  (`wis_links.resolve`, AR/BA/BF/BE only, in scope only: another model's
+  document is never a value here). The oil level sensor gets the oil pan
+  bottom's self-tapping screws (14 Nm / 10 Nm) from "Remove/install bottom
+  part of oil pan"; the answer itself never saw that page.
+- WIS tables come from the SIDS layout (`wis_tables.py`, on
+  `wis_original.layout`): a header row ("Number | Designation | | ENGINE 112
+  (except …) | ENGINE 112.916/…") and rows of number, name, unit, a value per
+  column. `label_fits` checks each column label against the car's exact
+  engine and model codes: English and German ("MOTOR 104.945 im TYP 210",
+  "außer CODE 450"), WIS's shorthand (112.910/911/ 912; 210.006/…/28 =
+  210.28x), "except" lists, alternatives after a comma; a label that also
+  needs something the car box can't know (a code, a chassis number, "up to
+  31.01.98") is "maybe" and shown with "Only for: …". Two labels in one
+  header cell ("Engine 112… Engine 113…" over "14 14") are split; a row
+  whose values can't be paired with columns is left out. Stage rows keep
+  their turn ("Stage 2: 60°").
+- `/api/fluids/{doc}` (`tab_values.fluids`): the car's capacity sheets
+  (`wis_links.capacity_sheets`: BF..-P-1000, not the BF..-Z-9999 index
+  documents), each in the car's column, engine oil with the MB 229.x sheets
+  its table links to; grease (grams) left out, refrigerant kept. General-pool
+  sheets count only when a column names the car (`strict`), so ATF -- listed
+  per gearbox, which the car box doesn't know -- is not on the card (the UI
+  says so). No sheet at all for the W201 (checked): the card says WIS has
+  none and the oil figure falls back to the ASSYST table (`/api/wis/oil`).
+- Other manuals and WIS pages with no value table use the text lines
+  (`value_lines` / `value_row`), fixed for "Stage 1 Nm 20" (was "1 Nm"), "5.5
+  Liters 5.8 Quarts" (was "Liters 5.8"), turns right after a torque ("55 Nm
+  90° 90°"), and a unit-first line's value going to the line before.
+  Not fixed: LEMON tables that print no unit ("| 55 | 90 degrees |") stay
+  out -- the unit would be a guess.
+
+Tests: `tests/test_wis_tables.py` (invented SIDS bodies in WIS's format),
+`tests/test_answer_tabs.py` (the tabs read the answer's pages and the top
+hits, and run no keyword search of their own).
+
 ## Joining WIS (found and built 2026-10-14)
 
 "Files under MODEL 115, the same vehicle WIS uses" was true of the *series
