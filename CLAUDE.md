@@ -51,7 +51,9 @@ docs/               notes/ (deep notes), qa/ (QA reports), images/ (README),
 ```
 
 **A new free test goes in `tests/` and in the "Test suites" loop in
-`.github/workflows/ci.yml`** (the test box's `check.sh` runs every
+`.github/workflows/ci.yml`** -- or, if it drives a browser (Playwright), as
+a step in the `browser` job there, with `--index "$RUNNER_TEMP/smoke.db"`
+(the test box's `check.sh` runs every
 `tests/test_*.py` by itself). A new script the installed app runs must also be
 added to the file list in `packaging/windows/build.ps1` -- `remove_manuals.py`
 was missing from the MSI until 2026-10-12, so removing manuals failed in the

@@ -70,18 +70,28 @@ macOS/Linux run from source (README), by the user's decision.
   MajorUpgrade needs a higher version to replace an install).
 - **CI is `.github/workflows/ci.yml`** (2026-10-11, the user's design):
   every PR runs lint (`ruff --select F`), `tools/check_js.py`, the free
-  suites, a sample index served and searched, and `ui_check.py` in
-  Playwright's Chromium -- on Linux; Windows and macOS legs join by
+  suites and a sample index served and searched (job `test`), and in
+  parallel `ui_check.py` and the Playwright tests (job `browser`) -- on
+  Linux; Windows and macOS legs join by
   themselves once the repo is public (the user plans to make it public;
   while private, Windows minutes count 2x and macOS 10x of 2,000/month,
-  and required checks are not available). On `main` and tags the same
-  tests run first, then `windows-msi.yml` (now `workflow_call` only, or
-  "Run workflow" by hand), then the release. PRs build the MSI only when
+  and required checks are not available). On `main` and tags
+  `windows-msi.yml` (now `workflow_call` only, or "Run workflow" by hand)
+  runs at the same time as the tests, not after them (2026-10-16, to make
+  a merge faster: ~15 min -> ~8); the release needs all three to pass. The
+  cost: a main run whose tests fail still spends the Windows minutes.
+  Also 2026-10-16: the 0.1.1 installer for the upgrade test is built once
+  and cached (`actions/cache`, key `msi-0.1.1-…`), and "Start at sign-in"
+  installs only `AUTOSTART=0` -- the default-on case is the upgrade step's
+  (uninstall removes `autostart_asked`, so a first install takes the same
+  `SetProperty` branch as an upgrade from 0.1.1). PRs build the MSI only when
   they touch packaging, the launcher/autostart/mdns/config, requirements
   or workflows (`changes` job). `claude/**` pushes no longer build
   anything: open a PR. No secret is used; `ANTHROPIC_API_KEY` is forced
   empty and `ANTHROPIC_BASE_URL` points at a closed port.
-  **Add a new free test to the "Test suites" loop in `ci.yml`.**
+  **Add a new free test to the "Test suites" loop in `ci.yml`** (a browser
+  test: a step in the `browser` job, passing `--index` the job's
+  sample index -- building its own cost `test_car_history` ~55 s).
 - **Releases: a push to `main` publishes one** (`ci.yml`'s `release`
   job, 2026-10-09, the user's request). When the MSI job passes on `main`,
   the MSI and its `.sha256` go to a GitHub release `v<__version__>` with
