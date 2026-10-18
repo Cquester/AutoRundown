@@ -137,6 +137,7 @@ python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
 python tests/test_wis_tables.py                   # Torque/Capacities tabs: job values, car's column, fluids (~5 s)
+python tests/test_parts_diagrams.py               # Parts tab: EPC drawings, browse by group (~10 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_providers.py                    # Ask on all 4 AI providers vs the fakes (~20 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
@@ -153,6 +154,7 @@ python tools/check_js.py                          # index.html's JS parses (need
 # sample data and tools
 python tools/make_sample_corpus.py                # stand-in WIS corpus -> sample_corpus/
 python tools/make_sample_lemon.py                 # stand-in LEMON archive -> sample_lemon/
+python tools/make_sample_epc.py                   # stand-in EPC parts + drawings -> sample_epc/ (dev.py ingests it)
 python tools/readme_gifs.py --url <box admin url>  # README GIFs -> docs/images/ (free; --answer is PAID)
 python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogue snapshot
 python extractor/parse_links.py                   # rebuild wis_links.sqlite (offline, ~1 min)

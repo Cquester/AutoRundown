@@ -56,6 +56,10 @@ def build(index: Path, env: dict) -> None:
     run([py, "tools/make_sample_lemon.py", "--out", str(lemon)], env)
     run([py, "tools/make_sample_corpus.py"], env)
     run([py, "ingest.py", "--archive", str(ROOT / "sample_corpus"), "--index", str(index)], env)
+    # a stand-in parts catalogue (EPC) for the W210 / W201 and their engines:
+    # the Parts tab and its diagrams
+    run([py, "tools/make_sample_epc.py", "--out", str(DEV / "epc")], env)
+    run([py, "ingest.py", "--archive", str(DEV / "epc"), "--index", str(index)], env)
     # one LEMON vehicle in; the other two are left for the import dialog
     run([py, "ingest.py", "--archive", str(lemon), "--index", str(index),
          "--importer", "lemon", "--only", "2015-ford-f-150"], env)

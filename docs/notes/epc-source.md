@@ -402,7 +402,34 @@ so in `caveats` rather than guessing.
    settings or the host network. Unreachable database -> the existing
    one-time message (start "Mercedes WSM EPC", host-only network, firewall
    off), the same bar as WIS.
-6. Callout hotspots from the FV4 annotation overlay.
+6. Callout hotspots from the FV4 annotation overlay. **Not extracted:**
+   `pull_epc.js` decodes each FV4 drawing to PNG and keeps no raw blob, so
+   the overlay (header type 32/1, `aOff`/`aLen` in `epc_fv4.js`) is gone;
+   getting positions means a new VM run that saves it, after the overlay
+   format is worked out again (the decompiled client is no longer on disk).
+   Until then the UI names the callout instead of pointing at it (below).
+
+## Parts diagrams (built 2026-10-17, the user's request)
+
+The extract already had the drawings (PNG, ~46k, 1.5 GB) in each parts
+page's `images`, and 93% of part lines carry a callout ("007C") that is
+printed on the drawing ("7C"). No new extraction:
+
+- `/api/parts/diagrams/{doc}` (`parts_browse.py`): the car's parts scope
+  (split_scope, filtered in SQL as search is: the chosen engine/model
+  codes) as chassis / engines / options > group > subgroup, parsed from
+  the page titles. A subgroup filed in several catalogs (markets, periods:
+  W124 4,178 pages, 582 titles) is one entry listing every page, the one
+  with a drawing first.
+- The Parts tab shows that list before a question, and folds it under the
+  results after one; each result has its page's first drawing as a
+  thumbnail (`/api/search?tab=parts` rows carry `drawings`).
+- A parts page opens with its drawings first, then the list as a table with
+  a callout column (`calloutLabel`: "007C" -> "7C", "-" -> none); tapping a
+  row shows "Find 7C on the drawing -- name, number" above the drawing.
+- Box and tests: `tools/make_sample_epc.py` (invented parts + Pillow
+  drawings for the sample W210/W201 and engines 112/102/103) is ingested by
+  `dev.py`; `tests/test_parts_diagrams.py`.
 7. Tests + README/CLAUDE.md updates.
 
 See also the decompiled sources (not committed — Mercedes software): the DAO
