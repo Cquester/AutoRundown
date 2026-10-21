@@ -33,3 +33,4 @@ sample_epc/
 
 # Windows Sandbox exchange folder (tools/sandbox/start.ps1)
 .sandbox/
+index.before-epc.db*

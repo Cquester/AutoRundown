@@ -7,6 +7,11 @@ this (its planner rewrites the question into manual terms); keyword search
 does. `translate()` returns the query with each known phrase swapped, or None;
 the caller searches both and puts the manual's wording first.
 
+A phrase may have several manual words, as a tuple: the repair manual (WIS)
+and the parts catalogue (EPC) name some parts differently -- WIS says
+"anti-roll bar", EPC "STABILIZER" or "TORSION BAR". `translations()` gives
+the query once per alternative; `translate()` stays the first.
+
 Phrases only, longest first, matched on word boundaries. Add a row when a
 search misses because of wording -- keep it to unambiguous pairs.
 """
@@ -14,7 +19,7 @@ from __future__ import annotations
 
 import re
 
-PHRASES: dict[str, str] = {
+PHRASES: dict[str, str | tuple[str, ...]] = {
     "valve cover gasket": "cylinder head cover",
     "valve cover": "cylinder head cover",
     "rocker cover": "cylinder head cover",
@@ -53,12 +58,41 @@ PHRASES: dict[str, str] = {
     "camshaft magnet": "camshaft solenoid",
     "cam solenoids": "camshaft solenoid",
     "cam solenoid": "camshaft solenoid",
+    # the parts catalogue's words beside WIS's (counted in both extracts,
+    # 2026-10-21: "sway bar", "coil pack", "flex disc", "guibo" and
+    # "harmonic balancer" are in neither)
+    "sway bars": ("anti-roll bar", "stabilizer", "torsion bar"),
+    "sway bar": ("anti-roll bar", "stabilizer", "torsion bar"),
+    "coil packs": "ignition coil",
+    "coil pack": "ignition coil",
+    "flex discs": ("flexible coupling", "joint disc"),
+    "flex disc": ("flexible coupling", "joint disc"),
+    "flex disk": ("flexible coupling", "joint disc"),
+    "guibo": ("flexible coupling", "joint disc"),
+    "harmonic balancer": "vibration damper",
 }
 _RE = re.compile(r"\b(" + "|".join(re.escape(k) for k in
                                     sorted(PHRASES, key=len, reverse=True)) + r")\b", re.I)
 
 
+def _alts(phrase: str) -> tuple[str, ...]:
+    v = PHRASES[phrase.lower()]
+    return v if isinstance(v, tuple) else (v,)
+
+
+def translations(query: str) -> list[str]:
+    """The query in each of the manuals' wordings (the first is translate()'s),
+    or [] if nothing applies."""
+    found = [_alts(m.group(1)) for m in _RE.finditer(query)]
+    out: list[str] = []
+    for i in range(max((len(a) for a in found), default=0)):
+        t = _RE.sub(lambda m: (a := _alts(m.group(1)))[min(i, len(a) - 1)], query)
+        if t.lower() != query.lower() and t not in out:
+            out.append(t)
+    return out
+
+
 def translate(query: str) -> str | None:
     """The query in the manuals' wording, or None if nothing applies."""
-    out = _RE.sub(lambda m: PHRASES[m.group(1).lower()], query)
-    return out if out.lower() != query.lower() else None
+    out = translations(query)
+    return out[0] if out else None

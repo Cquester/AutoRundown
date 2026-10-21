@@ -50,7 +50,9 @@ PAGES = [
     (900004, "Parts: model 210 (EPC catalog S10), group 32 SUSPENSION / subgroup 005 FRONT SPRINGS",
      ("model", "210"), [
          line("005", "A 210 321 23 04", "COIL SPRING", "qty 2: 210.082"),
-         line("005", "A 210 321 24 04", "COIL SPRING, REINFORCED", "qty 2: 210.282", "wagon")], 1),
+         line("005", "A 210 321 24 04", "COIL SPRING, REINFORCED", "qty 2: 210.282", "wagon"),
+         # EPC's word for a sway bar (synonyms.py; tests/test_parts_diagrams.py)
+         line("040", "A 210 323 15 65", "STABILIZER", "qty 1, all models")], 1),
     (900005, "Parts: model 201 (EPC catalog S01), group 42 BRAKES / subgroup 010 FRONT WHEEL BRAKE",
      ("model", "201"), [
          line("010", "A 201 420 15 20", "BRAKE PAD SET", "qty 1, all models"),

@@ -14,7 +14,8 @@ real server in-process. Checks parts_browse.py and the Parts tab's data
 - one subgroup filed in two catalogs (markets) is one entry with both pages,
   the one with a drawing first;
 - each subgroup opens its page, whose drawings are served;
-- Parts tab rows carry their page's drawings.
+- Parts tab rows carry their page's drawings;
+- a shop word finds the catalogue's ("sway bar" -> STABILIZER, synonyms.py).
 """
 from __future__ import annotations
 
@@ -115,6 +116,12 @@ def main() -> int:
           [(r["page_no"], r.get("drawings")) for r in rows])
     check("... and their part lines keep the callout", rows and rows[0]["lines"][0].startswith("010 |"),
           rows[0]["lines"] if rows else None)
+    # shop words reach the catalogue's: EPC says STABILIZER, never "sway bar"
+    rows = app.get("/api/search", params={"doc_id": w210["doc_id"], "q": "sway bar", "tab": "parts",
+                                          "variant": variant(w210, "E 320 4MATIC"), "engine": "112"}).json()
+    check("'sway bar' finds the STABILIZER line", rows and rows[0]["page_no"] == "P900004"
+          and any("STABILIZER" in ln for ln in rows[0]["lines"]),
+          [(r["page_no"], r.get("lines")) for r in rows])
     check("an unknown car is 404", app.get("/api/parts/diagrams/nope").status_code == 404)
     print(f"\n{fails} failure(s)")
     return 1 if fails else 0
