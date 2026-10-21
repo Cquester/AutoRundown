@@ -33,7 +33,8 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from . import auth, config, handoff, index, providers, qr, query, tls
-from . import autostart, importer_jobs, lemon_catalogue, synonyms, tab_values, wis_links, wis_original
+from . import (autostart, importer_jobs, lemon_catalogue, parts_browse, synonyms, tab_values,
+               wis_links, wis_original)
 from .search import (get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
 
@@ -712,6 +713,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     continue
                 if tab == "parts":
                     r["lines"] = part_lines(r.get("body") or "")
+                    # the page's exploded drawings, whose printed callouts
+                    # ("7C") are the lines' first column ("007C")
+                    r["drawings"] = [i for i in (r.get("images") or "").split("\n") if i]
                 elif tab in ("torque", "capacity"):
                     r["lines"] = value_lines(conn, r["page_uid"], tab, r["query"],
                                              other_engine=other_engine)
@@ -825,6 +829,22 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             return tab_values.job_values(conn, vehicle, manual, pages, kind, ids)
         finally:
             conn.close()
+
+    @app.get("/api/parts/diagrams/{doc_id}")
+    def api_parts_diagrams(request: Request, doc_id: str, variant: int | None = None,
+                           engine: str | None = Query(None, max_length=64)) -> Response:
+        """The car's parts catalogue as the catalogue reads: chassis, engines,
+        options > group > subgroup, each with its page(s) and drawing count
+        (parts_browse.py). The parts scope only, filtered like search. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            _, parts = split_scope(scope_ids(vehicle, variant, engine))
+            rows = parts_browse.diagrams(conn, parts)
+        finally:
+            conn.close()
+        return _etagged(request, json.dumps(rows, separators=(",", ":")).encode(),
+                        "application/json")
 
     @app.get("/api/fluids/{doc_id}")
     def api_fluids(doc_id: str, variant: int | None = None,
