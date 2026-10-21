@@ -55,7 +55,7 @@ withheld / not-found / declined paths, the spend log.
 
 | Provider | Transport | Structured output | Key header |
 |---|---|---|---|
-| Anthropic | official SDK, `messages.parse(output_format=…)` | constrained (SDK) | `x-api-key` |
+| Anthropic | official SDK, `messages.parse(output_format=…)` | constrained (SDK) | `Authorization: Bearer` (SDK 2.x; `x-api-key` on 1.x) |
 | Gemini | REST `v1beta/models/{m}:generateContent` | `responseMimeType: application/json` + `responseJsonSchema` | `x-goog-api-key` |
 | xAI | OpenAI-compatible `/v1/chat/completions` | `response_format: json_schema`, `strict: true` | `Authorization: Bearer` |
 | DeepSeek | OpenAI-compatible `/chat/completions` | JSON mode `json_object`; schema + example in the system prompt | `Authorization: Bearer` |
@@ -65,7 +65,26 @@ withheld / not-found / declined paths, the spend log.
   Claude models before and after the refactor (6 requests, identical).
   `tests/test_providers.py` also checks the answer request has only
   `model, max_tokens, system, messages, output_config` (+ `thinking` where
-  adaptive).
+  adaptive), and that the key travels in exactly one header.
+- **SDK 2.x (2026-10-21).** `anthropic` 2.0 came out unannounced and CI,
+  which installs `requirements.txt` unpinned, broke: the fake required
+  `x-api-key`. It was held below 2 for a day (PR #20); now
+  `anthropic>=2.1,<3`. Recorded with `providers.call` / `list_models` against
+  the fake on 1.17.0 and 2.1.0 (13 requests: plan and answer on all three
+  Claude models, `fake:error` / `nocredit` / `refusal` / `malformed`, the
+  model list): **bodies identical, every result identical** (the
+  same `ApiUnavailable` texts, refusal, None on a malformed reply). Only two
+  headers change: the key moves from `x-api-key` to `Authorization: Bearer`,
+  and `anthropic-version` goes from `2023-06-01` to `2026-10-21`.
+  `messages.parse`, the error classes (`_exceptions.py`) and the retry code
+  (`_base_client.py`) are unchanged; `models.list` lost its `betas` argument
+  (not used here); input messages may now have a `system` role (not used:
+  the system prompt stays the top-level `system`). The fake takes either
+  key header, as the API does. The SDK's licence changed from MIT to
+  Apache-2.0 at 2.0 (its `dist-info/licenses` ships both; the MSI bundles
+  site-packages as is). **The real API under version 2026-10-21 has not
+  answered one of these requests yet**: one scoped Haiku question is the
+  check.
 - **No new dependency.** The other three use `urllib.request` (stdlib), not
   `google-genai` / `openai`: smaller MSI, nothing to vendor, and the anthropic
   SDK's own HTTP client has changed under us before (1.0 ships `httpx2`).

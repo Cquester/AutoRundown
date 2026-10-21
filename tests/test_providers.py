@@ -160,6 +160,9 @@ check("Anthropic: the request of before (structured output, no new fields)",
       set(a) == {"model", "max_tokens", "system", "messages", "output_config"}
       and a["max_tokens"] == 8000 and a["system"] == query.ANSWER_SYSTEM
       and "format" in a["output_config"], sorted(a))
+ah = next(r["headers"] for r in reversed(fake_anthropic.REQUESTS) if r["path"] == "/v1/messages")
+check("Anthropic: the key goes in one header (Bearer from SDK 2.x, x-api-key before)",
+      ("authorization" in ah) != ("x-api-key" in ah) and "anthropic-version" in ah, ah)
 
 print("\n-- validation of replies --")
 check("code fences are tolerated",
