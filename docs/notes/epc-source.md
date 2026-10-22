@@ -432,6 +432,22 @@ printed on the drawing ("7C"). No new extraction:
   `dev.py`; `tests/test_parts_diagrams.py`.
 7. Tests + README/CLAUDE.md updates.
 
+**Shop words and the catalogue's words (2026-10-21).** Counted in both
+extracts: EPC mostly uses the shop's own words (WATER PUMP 5,939 lines vs
+COOLANT PUMP 515; MUFFLER, TIE ROD, OIL FILTER, CONTROL ARM), and
+`synonyms.py` keeps searching the words typed beside its rewrite, so those
+were never lost. Five shop words are in neither extract: "sway bar" (WIS
+anti-roll bar; EPC STABILIZER or TORSION BAR), "coil pack" (ignition coil),
+"flex disc" / "guibo" (WIS flexible coupling; EPC JOINT DISC) and
+"harmonic balancer" (vibration damper). A phrase can now have several
+manual words (a tuple); `synonyms.translations()` gives one query per
+alternative, used by Ask's queries and every tab's search. Left out as
+ambiguous: "driveshaft" (WIS uses it for axle shafts too; EPC says
+PROPELLER SHAFT or AXLE SHAFT). Tests: `tests/test_synonyms.py`, and "sway
+bar" finding the sample STABILIZER line in `tests/test_parts_diagrams.py`.
+A parts page has "Back to Parts", which returns to the list with its groups
+still open.
+
 See also the decompiled sources (not committed — Mercedes software): the DAO
 classes and `QueryStrings` were decompiled with CFR during the investigation.
 Never commit `tbjdbc.jar`, the EWA JRE, `epc.jar`, or any extracted part data

@@ -837,8 +837,8 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     queries = plan_queries(call, question, vehicle, usage)
     # the manuals' own wording first: the planner wrote "valve cover ..." for
     # a 190E 2.3-16 and WIS only says "cylinder head cover" (synonyms.py)
-    from .synonyms import translate
-    queries = list(dict.fromkeys([a for a in (translate(q) for q in queries) if a] + queries))
+    from .synonyms import translations
+    queries = list(dict.fromkeys([a for q in queries for a in translations(q)] + queries))
     scope = scope_ids(vehicle, variant, engine)
     passages = multi_search(conn, scope, queries,
                             per_query=per_query, cap=cap,

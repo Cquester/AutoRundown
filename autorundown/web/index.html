@@ -457,9 +457,11 @@
   .pbsec{border-top:1px solid var(--line)}
   .pbsec > summary{font-weight:700}
   .pbgrp{margin-left:12px}
-  .pbsub{display:block; width:100%; text-align:left; margin-left:24px; padding:5px 0; font:inherit;
+  /* width less the indent: 100% plus a margin scrolled the box sideways */
+  .pbsub{display:block; width:calc(100% - 24px); text-align:left; margin-left:24px; padding:5px 0; font:inherit;
     color:inherit; background:none; border:0; cursor:pointer}
-  .pbsub:hover{text-decoration:underline}
+  .pbsub:hover, .pback:hover{text-decoration:underline}
+  .pback{font:inherit; color:var(--accent); background:none; border:0; padding:0 0 8px; cursor:pointer}
   .gno{display:inline-block; min-width:2.2em; color:var(--muted); font-variant-numeric:tabular-nums}
   @media (max-width:700px){ .plines .co{display:block} .pthumb{width:72px; height:54px} }
   /* Torque specs / Capacities: what, then the value as printed */
@@ -3257,7 +3259,10 @@ function partsPageHtml(p, body) {
   const rest = lines.filter(l => !PART_LINE.test(l) && !/^Callout \| Part number/.test(l)
                                  && l.trim() !== (p.title || '').trim()).join('\n').trim();
   const imgs = p.images || [];
-  return (imgs.length
+  // a parts page opens on the Manual page tab; this goes back to the Parts
+  // tab as it was left (the open groups, or the question's results)
+  return `<button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`
+    + (imgs.length
       ? `<div class="pdraw"><div class="pfind" id="pfind" hidden></div>`
         + imgs.map((n, i) => imgTag(n) + (imgs.length > 1
             ? `<div class="muted pcap">Drawing ${i + 1} of ${imgs.length}</div>` : '')).join('')
@@ -3267,6 +3272,7 @@ function partsPageHtml(p, body) {
     + (rest ? `<div class="src">${renderSource(rest)}</div>` : '');
 }
 document.addEventListener('click', e => {
+  if (e.target.closest('[data-back-parts]')) { setTab('parts'); return; }
   const r = e.target.closest('tr[data-callout]');
   if (!r) return;
   const f = $('#pfind');
@@ -3304,7 +3310,7 @@ async function partsBrowse(target) {
   const subs = data.reduce((n, s) => n + s.groups.reduce((m, g) => m + g.subs.length, 0), 0);
   target.innerHTML = withDoc(doc, () =>
     `<div class="muted" style="margin:0 0 8px">Parts diagrams for <b>${esc(label)}</b> &mdash; ${subs} diagrams `
-    + `by group. Pick your model or engine above to narrow it.</div>`
+    + `by group.${variantIdx() === null && !engineSel() ? ' Pick your model or engine above to narrow it.' : ''}</div>`
     + data.map(s => `<details class="pbsec"${data.length === 1 ? ' open' : ''}><summary>${esc(s.section)}`
       + ` <span class="muted">(${s.groups.length} groups)</span></summary>`
       + s.groups.map(g => `<details class="pbgrp"><summary><span class="gno">${esc(g.group)}</span> ${esc(g.name || '')}</summary>`
@@ -3321,6 +3327,10 @@ async function partsBrowse(target) {
 function showPartsBrowse() {
   const pane = $(PANE.parts);
   if (!pane || tabQuery) return;
+  // already showing this car's list: keep it, and the groups left open
+  const key = `${docId()}|${variantIdx()}|${engineSel()}`;
+  if (pane.dataset.browseKey === key && pane.querySelector('.pbsec')) return;
+  pane.dataset.browseKey = key;
   partsBrowse(pane);
 }
 

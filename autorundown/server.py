@@ -688,9 +688,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 return []
             # the manual's wording first ("valve cover" -> "cylinder head
             # cover"), then the user's own words
-            alt = synonyms.translate(q)
+            # (the parts catalogue's too: "sway bar" -> "anti-roll bar" in
+            # WIS, "stabilizer" / "torsion bar" in EPC)
             extra = {"torque": " torque", "capacity": " capacity"}.get(tab, "")
-            texts = list(dict.fromkeys(([alt, q] if alt else [q]) + also))
+            texts = list(dict.fromkeys(synonyms.translations(q) + [q] + also))
             per = []
             for query_text in texts:
                 hits = search(conn, scope, query_text + extra, limit * 2,
