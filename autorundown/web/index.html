@@ -442,21 +442,38 @@
   .plines .co{white-space:nowrap; font-weight:700; color:var(--accent); min-width:2.5em}
   .plines tr.pick{cursor:pointer}
   .plines tr.pick:hover td, .plines tr.pick.on td{background:var(--hover)}
-  /* a parts drawing fills the box; "Full width" gives the box the whole
-     window (the user, 2026-10-23: "at least the width of the screen") */
+  /* a parts drawing fills the box (the user, 2026-10-23: "at least the
+     width of the screen"; "Wider" on the tab bar gives the box the window) */
   .pdraw{position:relative}
   .pdraw img.diagram{background:#fff; width:100%}
+  /* a callout number on the drawing, tappable; marked when picked */
+  .pdwrap{position:relative}
+  .pco{position:absolute; transform:translate(-50%,-50%); min-width:22px; min-height:22px; padding:0;
+    background:transparent; border:2px solid transparent; border-radius:6px; cursor:pointer}
+  .pco:hover{border-color:var(--accent-dim); background:rgba(255,170,0,.12)}
+  .pco.on{border-color:var(--accent); background:rgba(255,170,0,.30); box-shadow:0 0 0 3px rgba(255,170,0,.35)}
   .pdsec{border-top:1px solid var(--line)}
   .pdsec > summary{cursor:pointer; padding:8px 0; font-weight:700}
-  .pdtools{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap}
-  .pdtools .pback{padding-bottom:0}
-  .pwide{display:none}
+  /* the question side folds away so the right box's results get the whole
+     window (wide screens; remembered on this device) */
+  @media (max-width:900px){ #resTabs .widebtn{display:none} }
   @media (min-width:901px){
-    .pwide{display:inline-block; min-height:0; padding:6px 12px}
-    body.widedraw main{grid-template-columns:1fr}
-    body.widedraw #left{display:none}
-    body.widedraw #right{border-left:0}
+    .widebtn{display:inline-flex; align-items:center; margin-left:auto; color:var(--accent) !important}
+    body.collapsed main{grid-template-columns:1fr}
+    body.collapsed #left{display:none}
+    body.collapsed #right{border-left:0}
   }
+  /* History and Clear, under the question box */
+  .qtools{display:flex; gap:8px; flex-wrap:wrap; margin:-6px 0 12px}
+  .qtools .chipbtn{min-height:34px}
+  .hist .hrow{display:block; width:100%; text-align:left; background:none; border:0;
+    border-bottom:1px solid var(--line); color:inherit; font:inherit; padding:10px 12px; cursor:pointer}
+  .hist .hrow:hover{background:var(--hover)}
+  .hist .hq{font-weight:600}
+  .hist .hmeta{color:var(--muted); font-size:13px; margin-top:2px}
+  .hkind{display:inline-block; font-size:12px; font-weight:700; border-radius:8px; padding:0 6px;
+    margin-right:6px; border:1px solid var(--line); background:var(--panel-2)}
+  .hkind.ai{color:var(--accent); border-color:var(--accent-dim)}
   .pfind{position:sticky; top:0; z-index:2; padding:8px 10px; margin-bottom:8px; border-radius:8px;
     background:var(--panel-2); border:1px solid var(--accent-dim); font-size:14px}
   .pfind .cbig{font-size:20px}
@@ -905,6 +922,12 @@
         <span class="costline" id="cost">$0.0000 this session</span>
       </div>
     </details>
+    <!-- History: every Ask (its whole answer, free to open again) and Search;
+         Clear: back to browsing, every tab as before the question -->
+    <div class="qtools">
+      <button type="button" class="chipbtn" id="histBtn" title="Questions asked and searches made: open one again (no new AI charge)">History</button>
+      <button type="button" class="chipbtn" id="clearBtn" hidden title="Clear the question and its results; the tabs go back to browsing">Clear question</button>
+    </div>
     <div class="muted" id="scopeNote" hidden style="margin:-6px 0 12px; font-size:14px"></div>
     <!-- a phone hands the car it picked to the desk PC -->
     <div class="senddesk" id="sendDeskRow" hidden>
@@ -925,6 +948,8 @@
       <button type="button" role="tab" data-tab="labour" data-short="Labour" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>Labour times<span class="tcount" hidden></span></button>
       <button type="button" role="tab" data-tab="capacity" data-short="Fluids" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11z"/></svg>Capacities<span class="tcount" hidden></span></button>
       <button type="button" role="tab" data-tab="torque" data-short="Torque" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5a4.5 4.5 0 0 0-4.2 6.1L4 16.9 7.1 20l6.3-6.3a4.5 4.5 0 0 0 6.1-4.2l-2.7 2.7-2.9-.6-.6-2.9z"/></svg>Torque specs<span class="tcount" hidden></span></button>
+      <!-- wide screens only: fold the question side away, and back -->
+      <button type="button" class="widebtn" id="wideBtn" aria-pressed="false">&#8676; Wider</button>
     </div>
     <div id="out"></div>
   </section>
@@ -1730,6 +1755,7 @@ function carChanged() {
   shownDoc = docId();
   resetTabs();                        // each tab's results were for the old car
   out.innerHTML = emptyState();
+  $('#clearBtn').hidden = true;
   srcout.innerHTML = '<p class="muted">The manual page for an answer appears here.</p>';
   setTab('workshop');
   hideRight();
@@ -2745,13 +2771,16 @@ function figureHtml(f) {
   </button>`;
 }
 
-function renderAnswer(d, doc = docId(), label = carBoxLabel) {
-  withDoc(doc, () => drawAnswer(d, label));
+// replay: an answer opened from the history -- paid for then, not now
+function renderAnswer(d, doc = docId(), label = carBoxLabel, replay = false) {
+  withDoc(doc, () => drawAnswer(d, label, replay));
 }
-function drawAnswer(d, label) {
+function drawAnswer(d, label, replay = false) {
   pageTitles = d.page_titles || {};
-  sessionCost += d.usage?.cost_usd || 0;
-  if (d.usage && d.usage.calls && d.usage.cost_usd == null) costUntracked = true;
+  if (!replay) {
+    sessionCost += d.usage?.cost_usd || 0;
+    if (d.usage && d.usage.calls && d.usage.cost_usd == null) costUntracked = true;
+  }
   $('#cost').textContent = '$' + sessionCost.toFixed(4) + ' this session'
     + (costUntracked ? ' (some cost not tracked)' : '')
     + (d.usage?.model ? ' · ' + d.usage.model.replace('claude-', '') : '');
@@ -2868,13 +2897,8 @@ async function ask() {
                             model:model(), variant:variantIdx(), engine:engineSel(), year:yearSel()})
     }, 240000);
     renderAnswer(d, doc, label);
-    // the right box's other tabs, from the AI's own search terms (free)
-    // Torque specs / Capacities: this job's pages -- the answer's, or with no
-    // answer the pages it was looked for on (the cam solenoid page was found
-    // but not answered from: its values still belong in the tab)
-    const jobPages = [...new Set([d.document_page, ...(d.source_pages || [])].filter(Boolean).map(String))];
-    const looked = [...new Set((d.passages || []).map(p => String(p.page_no)))].slice(0, 3);
-    if (docId() === doc) fillTabs(q, d.queries || [], (jobPages.length ? jobPages : looked).slice(0, 6));
+    if (docId() === doc) answerTabs(d, q);
+    $('#clearBtn').hidden = false;
   } catch (e) {
     out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   } finally {
@@ -2882,6 +2906,102 @@ async function ask() {
     $('#askBtn').disabled = false;
   }
 }
+
+// the right box's other tabs, from the AI's own search terms (free)
+// Torque specs / Capacities: this job's pages -- the answer's, or with no
+// answer the pages it was looked for on (the cam solenoid page was found
+// but not answered from: its values still belong in the tab)
+function answerTabs(d, q) {
+  const jobPages = [...new Set([d.document_page, ...(d.source_pages || [])].filter(Boolean).map(String))];
+  const looked = [...new Set((d.passages || []).map(p => String(p.page_no)))].slice(0, 3);
+  fillTabs(q, d.queries || [], (jobPages.length ? jobPages : looked).slice(0, 6));
+}
+
+// -- History and Clear ---------------------------------------------------------
+// The user (2026-10-23): "a history of the search results. If we are having
+// people pay for ai requests then it should be retrievable", and a way back
+// from a question's results to browsing. The server keeps every Ask with its
+// whole answer and every Search's words (history.py); opening an Ask shows
+// that answer again and fills the tabs from its search terms -- no AI call.
+// The car comes back through the recent-cars check (resolveCarHistory).
+const ago = t => {
+  const s = Date.now() / 1000 - t;
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(t * 1000).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+};
+async function showHistory() {
+  toAnswerView();
+  out.innerHTML = `<div class="card"><span class="spinner"></span> loading your history&hellip;</div>`;
+  let rows;
+  try { rows = await api('/api/history'); }
+  catch (e) { out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`; return; }
+  $('#clearBtn').hidden = false;
+  if (!rows.length) {
+    out.innerHTML = `<div class="empty">No questions yet. Every Ask and Search is kept here, `
+      + `and an AI answer opens again without a new charge.</div>`;
+    return;
+  }
+  const many = new Set(rows.map(r => r.by)).size > 1;
+  out.innerHTML = `<div class="muted" style="margin:0 0 8px">Your last ${rows.length} questions and searches `
+    + `&mdash; an AI answer opens again without a new charge.</div><div class="card hist" style="padding:0">`
+    + rows.map(r => `<button type="button" class="hrow" data-hist="${r.id}">`
+      + `<div class="hq">${r.kind === 'ask'
+          ? `<span class="hkind ai">AI${r.found ? '' : ' · not found'}</span>`
+          : '<span class="hkind">Search</span>'}${esc(r.question)}</div>`
+      + `<div class="hmeta">${esc(r.label)} &middot; ${ago(r.created)}`
+      + (r.kind === 'ask' && r.cost_usd != null ? ` &middot; $${r.cost_usd.toFixed(3)}` : '')
+      + (many ? ` &middot; ${esc(r.by)}` : '') + `</div></button>`).join('') + `</div>`;
+}
+async function openHistory(id) {
+  let h;
+  try { h = await api(`/api/history/${id}`); }
+  catch (e) { out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`; return; }
+  const r = resolveCarHistory({doc: h.doc_id, variant: h.variant, vname: h.vname, engine: h.engine,
+                               year: h.year, label: h.label});
+  if (r.gone) {
+    out.insertAdjacentHTML('afterbegin', `<div class="card"><div class="warnbox">`
+      + `“${esc(h.label)}” is no longer in the manuals here, so this can't be opened.</div></div>`);
+    return;
+  }
+  applyCar(r.e);
+  $('#q').value = h.question;
+  if (h.kind === 'search') { keywordSearch(); return; }
+  const doc = docId();
+  renderAnswer(h.result, doc, carBoxLabel, true);
+  answerTabs(h.result, h.question);
+  $('#clearBtn').hidden = false;
+  const when = new Date(h.created * 1000).toLocaleString();
+  out.insertAdjacentHTML('afterbegin', `<div class="muted" style="margin:0 0 8px">From your history: asked ${esc(when)}`
+    + (h.cost_usd != null ? ` ($${h.cost_usd.toFixed(3)} then)` : '') + ` &mdash; shown again, no new charge.`
+    + (r.note ? `<div class="warnbox">${esc(r.note)}</div>` : '') + `</div>`);
+}
+// back to where a car starts: no question, every tab browsing again
+function clearQuestion() {
+  ++searchSeq; pageSeq++;
+  $('#q').value = '';
+  out.innerHTML = emptyState();
+  srcout.innerHTML = '<p class="muted">The manual page for an answer appears here.</p>';
+  resetTabs();
+  setTab(curTab);
+  $('#clearBtn').hidden = true;
+}
+$('#histBtn').onclick = showHistory;
+$('#clearBtn').onclick = clearQuestion;
+document.addEventListener('click', e => {
+  const h = e.target.closest('[data-hist]');
+  if (h) openHistory(+h.dataset.hist);
+});
+// "Wider": the question side folds away (wide screens), remembered here
+const COLLAPSE_KEY = 'autorundown.collapsed';
+function setCollapsed(on) {
+  document.body.classList.toggle('collapsed', on);
+  $('#wideBtn').innerHTML = on ? '&#8677; Show question' : '&#8676; Wider';
+  $('#wideBtn').setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem(COLLAPSE_KEY, on ? '1' : '0'); } catch (_) {}
+}
+$('#wideBtn').onclick = () => setCollapsed(!document.body.classList.contains('collapsed'));
+try { if (localStorage.getItem(COLLAPSE_KEY) === '1') setCollapsed(true); } catch (_) {}
 
 let searchSeq = 0;
 async function keywordSearch() {
@@ -2894,7 +3014,8 @@ async function keywordSearch() {
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
   fillTabs(q, [q]);                   // the right box's tabs, for the same words
   try {
-    const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}`
+    $('#clearBtn').hidden = false;
+    const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}&record=1`
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
       + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
@@ -3150,11 +3271,11 @@ async function showPage(pageNo, doc, open = true) {
       + extra.map(imgTag).join('');
     curComps = {list: [], doc};
     if (p.diagram) loadDiagram(seq, doc, p);
+    if (parts) placeCallouts(srcout);
   } catch (e) {
     if (seq === pageSeq) srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   } finally {
     renderDoc = null;
-    if (seq === pageSeq) syncWide();
   }
 }
 
@@ -3235,7 +3356,6 @@ function setTab(t) {
     b.tabIndex = b.dataset.tab === t ? 0 : -1;
   });
   for (const [k, sel] of Object.entries(PANE)) $(sel).hidden = k !== t;
-  syncWide();
   if (t === 'labour' && !tabQuery) showLabourTab();
   if (t === 'parts' && !tabQuery) showPartsBrowse();
   if (t === 'capacity') showFluids();
@@ -3272,10 +3392,9 @@ function partLinesHtml(lines, clickable = false) {
   }).join('') + `</tbody></table>`;
 }
 // A parts catalogue page: its drawings first (the callouts printed on them
-// are the list's first column), then the parts list as a table; a row says
-// which callout to look for. Where each callout sits on the drawing is not
-// extracted (EPC keeps it in the drawing file's annotation layer), so the
-// label is named, not pointed at.
+// are the list's first column), then the parts list as a table. Tapping a
+// number on the drawing marks its rows; tapping a row marks its number on
+// the drawing (placeCallouts / pickCallout).
 // inline: the same inside a Parts-tab dropdown (no Back / Full width; "Open
 // as a page" instead). Each copy finds its own "Find 7C" line (.ppage).
 function partsPageHtml(p, body, inline = false) {
@@ -3290,9 +3409,7 @@ function partsPageHtml(p, body, inline = false) {
   // tab as it was left (the open groups, or the question's results)
   return `<div class="ppage">`
     + (inline ? ''
-      : `<div class="pdtools"><button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`
-        + (imgs.length ? `<button type="button" class="ghost pwide" data-widedraw>${wideDraw() ? 'Two columns' : 'Full width'}</button>` : '')
-        + `</div>`)
+      : `<button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`)
     + (imgs.length
       ? `<div class="pdraw"><div class="pfind" hidden></div>` + drawingsHtml(imgs) + `</div>`
       : `<div class="muted">No drawing for this group in the parts catalogue.</div>`)
@@ -3305,7 +3422,9 @@ function partsPageHtml(p, body, inline = false) {
 // several: each its own dropdown, the first open (the user, 2026-10-23: a
 // radiator page with 5 drawings)
 function drawingsHtml(imgs) {
-  const img = (n, i) => `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}">`;
+  // .pdwrap: the drawing with its callout numbers made tappable (placeCallouts)
+  const img = (n, i) => `<div class="pdwrap" data-doc="${esc(viewDoc())}" data-name="${esc(n)}">`
+    + `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}"></div>`;
   if (imgs.length === 1) return img(imgs[0], 0);
   return imgs.map((n, i) => `<details class="pdsec"${i ? '' : ' open'}><summary>Drawing ${i + 1} of ${imgs.length}</summary>`
     + img(n, i) + `</details>`).join('');
@@ -3324,39 +3443,79 @@ document.addEventListener('toggle', async e => {
     let body = p.text || '';
     if (p.title && body.trimStart().startsWith(p.title)) body = body.trimStart().slice(p.title.length).trimStart();
     out.innerHTML = withDoc(doc, () => partsPageHtml(p, body, true));
+    placeCallouts(out);
   } catch (err) {
     delete d.dataset.loaded;
     out.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
   }
 }, true);
-// "Full width" is remembered on this device; it only applies while a parts
-// page with drawings is open on a wide screen (CSS: body.widedraw)
-const WIDE_KEY = 'autorundown.wideDrawings';
-function wideDraw() { try { return localStorage.getItem(WIDE_KEY) === '1'; } catch (_) { return false; } }
-function syncWide() {
-  document.body.classList.toggle('widedraw',
-    wideDraw() && curTab === 'workshop' && !!srcout.querySelector('.pdraw'));
+// The callout numbers printed on a drawing, made tappable: where each label
+// sits comes from the drawing's own annotation layer (the extractor's
+// <drawing>.callouts.json, server /api/callouts), as Mercedes' EPC viewer
+// places its buttons -- centred on the label, as wide as its text. A drawing
+// pulled before callouts were saved has none, and the list still names the
+// number to look for.
+function placeCallouts(root) {
+  root.querySelectorAll('.pdwrap:not([data-placed])').forEach(async w => {
+    w.dataset.placed = '1';
+    let cs = [];
+    try { cs = await api(`/api/callouts/${encodeURIComponent(w.dataset.doc)}/`
+                         + w.dataset.name.split('/').map(encodeURIComponent).join('/')); }
+    catch { return; }
+    if (!cs.length) return;
+    const img = w.querySelector('img');
+    const put = () => {
+      const W = img.naturalWidth, H = img.naturalHeight;
+      if (!W || !H) return;
+      w.querySelectorAll('.pco').forEach(b => b.remove());
+      for (const c of cs) {
+        if (c.x > W || c.y > H) continue;           // below a cropped page's last row
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'pco'; b.dataset.co = c.c;
+        b.style.left = (c.x / W * 100) + '%'; b.style.top = (c.y / H * 100) + '%';
+        b.style.width = ((c.c.length * 15 + 14) / W * 100) + '%';
+        b.style.height = (30 / H * 100) + '%';
+        b.title = `Part ${c.c}`; b.setAttribute('aria-label', `Show part ${c.c} in the list`);
+        w.appendChild(b);
+      }
+    };
+    if (img.complete) put(); else img.addEventListener('load', put, {once: true});
+  });
+}
+// one callout picked, from either side: its rows and its numbers marked
+function pickCallout(host, co, from) {
+  host.querySelectorAll('tr.pick.on, .pco.on').forEach(x => x.classList.remove('on'));
+  const rows = [...host.querySelectorAll('tr[data-callout]')].filter(r => r.dataset.callout === co);
+  const marks = [...host.querySelectorAll('.pco')].filter(b => b.dataset.co === co);
+  rows.forEach(r => r.classList.add('on'));
+  marks.forEach(b => b.classList.add('on'));
+  const f = host.querySelector('.pfind'), r = rows[0];
+  if (f) {
+    f.hidden = false;
+    f.innerHTML = r
+      ? `<b class="cbig">${esc(co)}</b> &mdash; ${esc(r.dataset.cname)}, <span class="pn">${esc(r.dataset.cpn)}</span>`
+        + (rows.length > 1 ? ` <span class="muted">(+${rows.length - 1} more in the list)</span>` : '')
+        + (marks.length ? '' : ' <span class="muted">&mdash; look for this number on the drawing</span>')
+      : `<b class="cbig">${esc(co)}</b> <span class="muted">is not in this page's parts list</span>`;
+  }
+  // a drawing folded away is opened, then the other side is brought into view
+  if (from === 'row' && marks[0]) {
+    const sec = marks[0].closest('details'); if (sec) sec.open = true;
+    marks[0].scrollIntoView({behavior: 'smooth', block: 'center'});
+  } else if (from === 'row') {
+    f?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  } else if (r) {
+    r.scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-back-parts]')) { setTab('parts'); return; }
-  const wb = e.target.closest('[data-widedraw]');
-  if (wb) {
-    const on = !wideDraw();
-    try { localStorage.setItem(WIDE_KEY, on ? '1' : '0'); } catch (_) {}
-    wb.textContent = on ? 'Two columns' : 'Full width';
-    syncWide();
-    return;
-  }
+  const b = e.target.closest('.pco');
+  if (b) { const host = b.closest('.ppage'); if (host) pickCallout(host, b.dataset.co, 'drawing'); return; }
   const r = e.target.closest('tr[data-callout]');
   if (!r) return;
-  const host = r.closest('.ppage'), f = host?.querySelector('.pfind');
-  if (!f) return;
-  host.querySelectorAll('tr.pick.on').forEach(x => x.classList.remove('on'));
-  r.classList.add('on');
-  f.hidden = false;
-  f.innerHTML = `Find <b class="cbig">${esc(r.dataset.callout)}</b> on the drawing &mdash; `
-    + `${esc(r.dataset.cname)}, <span class="pn">${esc(r.dataset.cpn)}</span>`;
-  f.scrollIntoView({behavior: 'smooth', block: 'start'});
+  const host = r.closest('.ppage');
+  if (host) pickCallout(host, r.dataset.callout, 'row');
 });
 
 // The car's parts diagrams as the catalogue reads (server: parts_browse.py):

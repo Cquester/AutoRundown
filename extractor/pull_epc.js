@@ -110,7 +110,7 @@ load(__DIR__+"epc_fv4.js");                     // decodeFV4(): the EPC client's
 load(__DIR__+"epc_footnotes.js");               // fnDecode() / fnRefs(): part footnotes
 
 // image name -> relative PNG path under images/ (or "" if not found / not decodable)
-var imgStats={written:0, cached:0, missing:0, undecodable:0, partial:0, other:0}, imgMemo={}, missingLog=[];
+var imgStats={written:0, cached:0, missing:0, undecodable:0, partial:0, other:0, callouts:0}, imgMemo={}, missingLog=[];
 function blob(dbname,name){
   var d=db(dbname); if(!d) return null;
   var st=d.createStatement(), rs=st.executeQuery("select IMAGE from IMAGE_V where IMAGE_NAME = "+q(name)), b=null;
@@ -128,6 +128,14 @@ function magic(b){
   return "fv4";
 }
 function fileSafe(name){ return name.replace(/[^A-Za-z0-9._-]/g,"_"); }
+// <base>.callouts.json beside the PNG: where each callout label sits, so the
+// app can make the printed numbers tappable. Written for every FV4 drawing,
+// [] when it has no overlay -- its presence says "looked".
+function writeCallouts(base,b){
+  var fo=new FileOutputStream(IMG_DIR+"/"+base+".callouts.json");
+  fo.write(new java.lang.String(JSON.stringify(fv4Callouts(b))).getBytes("UTF-8")); fo.close();
+  imgStats.callouts++;
+}
 function image(candidates){            // candidates: [[db, name], ...] tried in order
   var key=candidates.map(function(c){return c.join(":");}).join("|");
   if(key in imgMemo) return imgMemo[key];
@@ -136,6 +144,11 @@ function image(candidates){            // candidates: [[db, name], ...] tried in
     var dbname=candidates[i][0], name=candidates[i][1], base=fileSafe(name);
     var exts=["png","gif","jpg"];
     for(var e=0;e<exts.length;e++) if(new File(IMG_DIR+"/"+base+"."+exts[e]).isFile()){ rel="epc/"+base+"."+exts[e]; imgStats.cached++; found=true; break; }   // on disk from an earlier run: found, not missing
+    // a PNG from before callouts were saved: read the drawing once more for
+    // them alone (the PNG is kept as it is)
+    if(rel=="epc/"+base+".png" && !new File(IMG_DIR+"/"+base+".callouts.json").isFile()){
+      var ob=blob(dbname,name); if(ob!=null && magic(ob)=="fv4") writeCallouts(base,ob);
+    }
     if(rel) break;
     var b=blob(dbname,name); if(b==null) continue;
     found=true; var kind=magic(b);
@@ -145,6 +158,7 @@ function image(candidates){            // candidates: [[db, name], ...] tried in
     if(!d || d.rows==0){ imgStats.undecodable++; missingLog.push(name+" (fv4 header/data, "+b.length+" bytes)"); break; }
     if(d.rows<d.hdrRows){ imgStats.partial++; if(imgStats.partial<=5) print("  partial drawing "+name+": "+d.rows+"/"+d.hdrRows+" rows, "+b.length+" bytes"); }
     ImageIO.write(d.img.getSubimage(0,0,1024,Math.max(d.contentRows,1)),"png",new File(IMG_DIR+"/"+base+".png"));
+    writeCallouts(base,b);
     rel="epc/"+base+".png"; imgStats.written++;
   }
   if(!found){ imgStats.missing++; missingLog.push(candidates.map(function(c){return c.join(":");}).join(" | ")+" (not found)"); }

@@ -32,7 +32,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import auth, config, handoff, index, providers, qr, query, tls
+from . import auth, config, handoff, history, index, providers, qr, query, tls
 from . import (autostart, importer_jobs, lemon_catalogue, parts_browse, synonyms, tab_values,
                wis_links, wis_original)
 from .search import (get_page, part_lines, scope_ids, search, split_scope, value_lines,
@@ -650,13 +650,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                         "application/json")
 
     @app.get("/api/search")
-    def api_search(doc_id: str, q: str = Query(max_length=500),
+    def api_search(request: Request, doc_id: str, q: str = Query(max_length=500),
                    limit: int = Query(12, ge=1, le=50),
                    include_other_variants: bool = False,
                    variant: int | None = None,
                    engine: str | None = Query(None, max_length=64),
                    tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$"),
-                   also: list[str] = Query(default=[])) -> list[dict]:
+                   also: list[str] = Query(default=[]),
+                   record: bool = False) -> list[dict]:
         """Keyword search for one of the UI's tabs, always within the car.
 
         workshop: the manual's pages only (as before the parts catalogue);
@@ -684,6 +685,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 engs, models = query.mentioned_codes(line, codes["families"], codes["series"])
                 return bool((codes["engines"] and engs and not engs & codes["engines"])
                             or (codes["models"] and models and not models & codes["models"]))
+            # the question box's own Search (not a tab's): kept in the history
+            if record and tab == "workshop":
+                _remember(request.state.who, "search", vehicle, variant, engine, None, q)
             if not scope:
                 return []
             # the manual's wording first ("valve cover" -> "cylinder head
@@ -775,9 +779,43 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     key_ref=key.ref, provider=provider)
             except (query.NoApiKey, query.ApiUnavailable) as exc:
                 raise HTTPException(400, str(exc))
-            return result.as_dict()
+            out = result.as_dict()
+            # kept whole: a paid answer can be opened again without paying
+            _remember(who, "ask", vehicle, body.variant, body.engine, body.year,
+                      body.question, out)
+            return out
         finally:
             conn.close()
+
+    def _remember(who, kind, vehicle, variant, engine, year, question, result=None):
+        # never let the history break a good answer or search
+        aconn = adb()
+        try:
+            history.add(aconn, who, kind, history.pick(vehicle, variant, engine, year),
+                        question, result)
+        except (sqlite3.Error, TypeError, ValueError):
+            pass
+        finally:
+            aconn.close()
+
+    @app.get("/api/history")
+    def api_history(request: Request, limit: int = Query(history.SHOW, ge=1, le=200)) -> list[dict]:
+        aconn = adb()
+        try:
+            return history.visible_to(aconn, request.state.who, limit)
+        finally:
+            aconn.close()
+
+    @app.get("/api/history/{entry_id}")
+    def api_history_entry(request: Request, entry_id: int) -> dict:
+        aconn = adb()
+        try:
+            d = history.get(aconn, entry_id, request.state.who)
+        finally:
+            aconn.close()
+        if d is None:     # someone else's or gone: all alike
+            raise HTTPException(404, "No such entry in your history.")
+        return d
 
     @app.get("/api/page/{doc_id}/{page_no}")
     def api_page(request: Request, doc_id: str, page_no: str) -> dict:
@@ -984,8 +1022,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     # `:path` because diagrams may sit in nested directories, e.g.
     # images/IMP49Q313/euro210/551068321.png
-    @app.get("/api/image/{doc_id}/{name:path}")
-    def api_image(request: Request, doc_id: str, name: str) -> FileResponse:
+    def _image_path(request: Request, doc_id: str, name: str) -> Path:
+        """The picture's file on disk -- the car's own images, or a joined
+        parts catalogue's -- never outside them; 404 otherwise."""
         # a NUL (x.png%00.db) made Path.resolve() raise: an unhandled 500,
         # without the security headers. No picture is named that way.
         if "\x00" in name or "\x00" in doc_id:
@@ -1010,7 +1049,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 continue
             if hit.is_file() and hit.suffix.lower() in IMAGE_TYPES \
                     and not (Path(vehicle["file_path"]) / "images" / name).is_file():
-                return FileResponse(hit, headers=IMAGE_HEADERS)
+                return hit
         images_dir = (Path(vehicle["file_path"]) / "images").resolve()
         if not images_dir.is_dir():
             if not request.state.who.admin:
@@ -1030,7 +1069,29 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(404, "image not found")
         if not target.is_file() or target.suffix.lower() not in IMAGE_TYPES:
             raise HTTPException(404, "image not found")
-        return FileResponse(target, headers=IMAGE_HEADERS)
+        return target
+
+    @app.get("/api/image/{doc_id}/{name:path}")
+    def api_image(request: Request, doc_id: str, name: str) -> FileResponse:
+        return FileResponse(_image_path(request, doc_id, name), headers=IMAGE_HEADERS)
+
+    @app.get("/api/callouts/{doc_id}/{name:path}")
+    def api_callouts(request: Request, doc_id: str, name: str) -> list[dict]:
+        """Where each callout number sits on a parts drawing, in its pixels:
+        the extractor's <drawing>.callouts.json beside the PNG (from the
+        drawing's own annotation layer). [] when the drawing has none or was
+        pulled before callouts were saved."""
+        side = _image_path(request, doc_id, name).with_suffix(".callouts.json")
+        try:
+            data = json.loads(side.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        out = []
+        for c in data if isinstance(data, list) else []:
+            if (isinstance(c, dict) and isinstance(c.get("x"), int) and isinstance(c.get("y"), int)
+                    and isinstance(c.get("c"), str) and 0 < len(c["c"]) <= 8):
+                out.append({"x": c["x"], "y": c["y"], "c": c["c"]})
+        return out
 
     @app.get("/api/connectors/{doc_id}")
     def api_connector_ids(doc_id: str) -> list[str]:

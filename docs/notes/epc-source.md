@@ -122,8 +122,8 @@ The site runs the extraction; end users should do as little as possible.
   wide, <=1280 rows, 1/2/4 bpp, ~16 KB each). `extractor/epc_fv4.js` is a line
   for line port of the client's `ImageExtractorFV4`; checked offline on a saved
   blob (all rows decode, correct drawing), ~0.5 s per drawing in Nashorn.
-  The annotation overlay holds callout x/y positions (`saveCallouts`) -- usable
-  later for clickable hotspots; not extracted yet.
+  The annotation overlay holds callout x/y positions; `fv4Callouts` reads
+  them (format under "Tappable callouts" below).
 - **SA parts:** `BM_SAIDX_V(CATNUM, GROUPNUM) -> SANUM` + option codes
   (`CODEONE`, 3 chars each). `SANUM` is CHAR(6) and the server pads 5-digit
   numbers with a leading space -- unpadded queries return nothing. Part rows
@@ -402,13 +402,11 @@ so in `caveats` rather than guessing.
    settings or the host network. Unreachable database -> the existing
    one-time message (start "Mercedes WSM EPC", host-only network, firewall
    off), the same bar as WIS.
-6. Callout hotspots from the FV4 annotation overlay. **Not extracted:**
-   `pull_epc.js` decodes each FV4 drawing to PNG and keeps no raw blob, so
-   the overlay (header type 32/1, `aOff`/`aLen` in `epc_fv4.js`) is gone;
-   getting positions means a new VM run that saves it, after the overlay
-   format is worked out again (the decompiled client is no longer on disk).
-   Until then the UI names the callout instead of pointing at it (below).
-   **Tried instead and dropped (2026-10-23): reading the callout numbers off
+6. Callout hotspots from the FV4 annotation overlay: **built 2026-10-23**,
+   see "Tappable callouts" below. An extract pulled before then has no
+   positions until the next pull (the PNGs are kept; the pull re-fetches
+   only the blob of a drawing with no sidecar).
+   **Tried first and dropped (2026-10-23): reading the callout numbers off
    the PNGs.** A glyph reader taught from the parts lists themselves (blobs
    grouped into words, words matched to the page's callouts, retrained over
    rounds; no OCR library) placed 76% of callouts on held-out pages, and
@@ -483,7 +481,46 @@ whole list right there, as wide as the box, with "Open as a page" for the
 page view (and Full width). Each search result has the same dropdown
 ("Show drawing and all its parts") in place of the old thumbnail. A page's
 `[diagram: …]` markers are no longer rendered under the list -- the
-drawing showed twice.
+drawing showed twice. (The parts-only "Full width" was later replaced by
+"⇤ Wider" for every tab, below.)
+
+**Tappable callouts (2026-10-23, the user: "click on the diagram to select
+a part").** The overlay format, read from the EPC client's own
+`ImageExtractorFV4.saveCallouts` / `EPCCalloutButton` (`epc.jar`, fetched
+from the VM's web server at `/EPC-net/servlets/epc.jar?version-id=2.4.1.0`;
+Mercedes software, kept out of the repo): the header's overlay record
+32/1 gives the block's offset (+6..7) and length (+10..11); in the block,
+bytes 18-19 are a record stride and 20-21 the count; records start at
+byte 22: a kind byte, x (2, big-endian), y (2), the label NUL-ended, the
+next record at the stride rounded up to 4. x/y are the label's **centre**
+in drawing pixels -- the client centres a button `len(label) x width` by
+`height` there. `pull_epc.js` writes `<drawing>.callouts.json`
+(`[{x, y, c}]`, `[]` for none) beside each PNG; `GET /api/callouts/{doc}/
+{image}` serves it (same path checks as `/api/image`, items validated,
+`[]` on any error). In the UI each drawing is a `.pdwrap` with transparent
+`.pco` buttons placed in % of the drawing's natural size, so they scale
+with it; tapping one marks its rows and scrolls to them, tapping a row
+marks its number on the drawing (opening a folded drawing). A drawing with
+no sidecar still works as before: the row names the number to look for.
+`tools/make_sample_epc.py` writes sidecars for its invented drawings.
+
+**Wider, Clear question, History (2026-10-23, the user's list).**
+- "⇤ Wider" at the end of the right box's tab row hides the question column
+  on wide screens (≥901 px; remembered, `autorundown.collapsed`); "⇥ Show
+  question" brings it back. Not on phones, where the box is already full.
+- "Clear question" (shown after an Ask or Search) empties the question and
+  the answer and puts every tab back to its no-question view -- Parts
+  browse, the empty Labour times, the car's Capacities -- without changing
+  the car. Changing car hides it.
+- "History": every Ask (the whole answer as returned, `as_dict()`) and every
+  question-box Search is kept in `auth.db` `history` (`history.py`; 500 per
+  person, 5,000 in all). The PC sees everyone's; a signed-in mechanic their
+  own; a phone not signed in only the not-signed-in ones. Opening an Ask
+  redraws the stored answer and refills the tabs from its search terms --
+  **no new AI call, no charge**; a Search is run again. The car is
+  re-picked the recent-cars way (`resolveCarHistory` + `applyCar`).
+  `GET /api/history`, `GET /api/history/{id}` (404 for someone else's).
+  Tests: `tests/test_history.py`.
 
 See also the decompiled sources (not committed — Mercedes software): the DAO
 classes and `QueryStrings` were decompiled with CFR during the investigation.

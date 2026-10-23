@@ -144,6 +144,7 @@ python tests/test_providers.py                    # Ask on all 4 AI providers vs
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
+python tests/test_history.py                      # question history: answers kept whole, who sees what (~2 s)
 python tests/test_vin.py                          # VIN check digit, I/O/Q, typos (~5 s)
 python tests/test_vin_scan.py [--n 8]             # Scan VIN on generated barcodes/labels (~1 min, Playwright)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
@@ -349,6 +350,15 @@ AI's own search terms (`queries`), every Search with the words typed
 (`/api/search` `also=`, merged round-robin). The user chose this over the AI
 writing each tab: 3-5x the spend, and it would retell the manual. Do not add
 per-tab AI calls. Details: `docs/notes/epc-source.md` ("Result tabs").
+
+**A paid answer is kept and shown again for free** (2026-10-23, the user:
+"if we are having people pay for ai requests then it should be
+retrievable"). Every Ask is stored whole in `auth.db` `history`
+(`history.py`); opening it from History redraws the stored answer and
+never calls the AI again. Who sees which entries follows sign-in (the PC
+all, a mechanic their own). Do not make "open from history" re-ask.
+Tests: `tests/test_history.py`. Details: `epc-source.md` ("Wider, Clear
+question, History").
 
 **An answer also sees the procedures its pages link to; still one AI call**
 (2026-10-17, the user's request). Search finds only pages sharing the

@@ -86,13 +86,16 @@ def font(size: int):
 
 
 def drawing(path: Path, callouts: list[str], seed: int) -> None:
-    """An invented exploded drawing: outlined shapes, each with its callout."""
+    """An invented exploded drawing: outlined shapes, each with its callout,
+    and beside it <name>.callouts.json -- each label's centre, as the
+    extractor writes it from a real drawing's annotation layer."""
     rnd = random.Random(seed)
     img = Image.new("L", (1024, 720), 255)
     d = ImageDraw.Draw(img)
     d.rectangle((60, 60, 964, 680), outline=0, width=2)
     f = font(22)
     n = max(len(callouts), 1)
+    placed = []
     for i, c in enumerate(callouts):
         x = 140 + (i % 3) * 280 + rnd.randint(-30, 30)
         y = 140 + (i // 3) * 200 + rnd.randint(-20, 20)
@@ -102,9 +105,12 @@ def drawing(path: Path, callouts: list[str], seed: int) -> None:
             d.polygon([(x, y + 80), (x + 60, y), (x + 150, y + 20), (x + 110, y + 100)], outline=0, width=3)
         d.line((x + 130, y + 40, x + 175, y + 30), fill=0, width=2)
         d.text((x + 180, y + 18), c, fill=0, font=f)
+        l, t, r, b = d.textbbox((x + 180, y + 18), c, font=f)
+        placed.append({"x": (l + r) // 2, "y": (t + b) // 2, "c": c})
     if n == 0:
         d.text((400, 340), "(no callouts)", fill=0, font=f)
     img.save(path, optimize=True)
+    path.with_suffix(".callouts.json").write_text(json.dumps(placed), encoding="utf-8")
 
 
 def callout_label(c: str) -> str:

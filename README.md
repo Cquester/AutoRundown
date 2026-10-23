@@ -326,10 +326,17 @@ chose:
 | Tab | Shows |
 |---|---|
 | **Manual page** | The page the answer points at, or any page you open. |
-| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one for its exploded drawing and its parts list; tap a part to see which callout ("7C") to find on the drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- with the page's drawing beside it, and the diagrams folded underneath. |
+| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one and its exploded drawing and parts list show right there; tap a number on the drawing to mark that part in the list, or a part in the list to mark its number on the drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- each page's drawing and full list one tap away, and the diagrams folded underneath. |
 | **Labour times** | Mercedes flat-rate times for the exact model (WIS) -- empty until you ask or search, then the job itself (both versions where an automatic and a manual gearbox differ), with any other operations that mention it folded away below. |
 | **Capacities** | On top, **Fluids for your car** (WIS, once you pick the model or engine): engine oil with its Mercedes oil sheets (MB 229.x), coolant, axles, transfer case, power steering, brake fluid, refrigerant, fuel tank -- each in your car's column of WIS's capacity sheets. Below, the capacities on this job's pages. |
 | **Torque specs** | The torque values of this job, part then specification: on the answer's pages (or the top search hits) and, for WIS, on the procedures they link to ("remove the oil pan bottom section" brings its bolts). |
+
+Under the question, **History** lists earlier questions (on the PC everyone's;
+a signed-in mechanic sees their own): opening an AI answer shows it again
+exactly as it was, with no new charge. **Clear question** puts every tab back
+to browsing the car (Parts diagrams, Fluids) without changing the car. On a
+wide screen, **⇤ Wider** at the end of the tab row hides the question column
+so the results get the whole window.
 
 WIS value tables are read from the document's own table layout, so each value
 stays with its own part and only your engine's or model's column is shown;
