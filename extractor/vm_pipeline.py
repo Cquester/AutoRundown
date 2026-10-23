@@ -343,6 +343,14 @@ def vm_up(vm: str, port: int, subnet: str, wait_s: int) -> str:
             return ip
         log("database never came up; shutting down cleanly for one more boot")
         vm_down(vm)
+        if vm_state(vm) == "saved":
+            # Windows ignored the power button, so the "boot" would only
+            # resume the same Windows (2026-10-23: a blue screen behind it,
+            # resumed twice, 20 minutes lost). A person has to look.
+            die(f"Windows in {vm} did not shut down when asked, so another boot would resume it "
+                f"as it is -- see the picture of its screen. Open the VM in VirtualBox: if it "
+                f"shows an error (a blue screen), use Machine > Reset; then shut it down from the "
+                f"Start menu, or roll back to a snapshot in Shop setup, and run this again.")
         sleep(60)
     die("unreachable")   # _vm_up_once(final=True) already stopped with the reason
 

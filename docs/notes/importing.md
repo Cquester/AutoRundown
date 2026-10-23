@@ -187,7 +187,10 @@ found three gaps, now fixed in `vm_pipeline.py`: every pull (not just
 the connection on its last table; a failed run always shuts the VM down
 (`STARTED` + `finally`) — it had been left running; and `vm_up` tries a
 second cold boot before giving up — one boot after 12 clean batches never
-brought the DB up in 10 min. Conversion sorts largest-first, so its ETA
+brought the DB up in 10 min. (Since 2026-10-23, only if the clean shutdown
+worked: when Windows ignores the power button the state is saved, and the
+"second boot" would just resume it -- a blue-screened guest was resumed
+twice that way. It stops instead and says to Reset / roll back.) Conversion sorts largest-first, so its ETA
 reads ~3 h while on the DXF/SVG diagrams and then drops; ~40 min in total.
 
 **The EPC parts catalogue from the same tab** (2026-10-15). The Mercedes VM
