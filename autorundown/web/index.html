@@ -452,11 +452,16 @@
   .pdraw{position:relative}
   .pdraw img.diagram{background:#fff; width:100%}
   /* a callout number on the drawing, tappable; marked when picked */
-  .pdwrap{position:relative}
+  .pdwrap{position:relative; container-type:inline-size}
   .pco{position:absolute; transform:translate(-50%,-50%); min-width:22px; min-height:22px; padding:0;
-    background:transparent; border:2px solid transparent; border-radius:6px; cursor:pointer}
+    background:transparent; border:2px solid transparent; border-radius:4px; cursor:pointer;
+    color:transparent; font:700 1em Arial, Helvetica, sans-serif; line-height:1}
   .pco:hover{border-color:var(--accent-dim); background:rgba(255,170,0,.12)}
-  .pco.on{border-color:var(--accent); background:rgba(255,170,0,.30); box-shadow:0 0 0 3px rgba(255,170,0,.35)}
+  /* picked: the number itself turns red, as in Mercedes' EPC viewer -- the
+     label is drawn in red over the drawing's own (the user, 2026-10-23) */
+  .pco.on{border-color:#d40000; background:#fff; color:#d40000}
+  .plines tr.pick.on td.co{color:#d40000; font-weight:700}
+  .pdparts .sechead{margin-top:6px}
   .pdsec{border-top:1px solid var(--line)}
   .pdsec > summary{cursor:pointer; padding:8px 0; font-weight:700}
   /* the question side folds away so the right box's results get the whole
@@ -3421,21 +3426,23 @@ function partsPageHtml(p, body, inline = false) {
     + (imgs.length
       ? `<div class="pdraw"><div class="pfind" hidden></div>` + drawingsHtml(imgs) + `</div>`
       : `<div class="muted">No drawing for this group in the parts catalogue.</div>`)
-    + (parts.length ? `<div class="sechead">Parts on this drawing</div>${partLinesHtml(parts, true)}` : '')
+    + (parts.length ? `<div class="pall"><div class="sechead">`
+      + (imgs.length > 1 ? 'All parts on this page' : 'Parts on this drawing')
+      + `</div>${partLinesHtml(parts, true)}</div>` : '')
     + (rest ? `<div class="src">${renderSource(rest)}</div>` : '')
     + (inline ? `<button type="button" class="ghost popen" ${pageAttrs(p.page_no)}>Open as a page</button>` : '')
     + `</div>`;
 }
 // one drawing: shown as it is (a tap that only enlarged it was not wanted);
 // several: each its own dropdown, the first open (the user, 2026-10-23: a
-// radiator page with 5 drawings)
+// radiator page with 5 drawings), listing the parts printed on it (splitParts)
 function drawingsHtml(imgs) {
   // .pdwrap: the drawing with its callout numbers made tappable (placeCallouts)
   const img = (n, i) => `<div class="pdwrap" data-doc="${esc(viewDoc())}" data-name="${esc(n)}">`
     + `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}"></div>`;
   if (imgs.length === 1) return img(imgs[0], 0);
-  return imgs.map((n, i) => `<details class="pdsec"${i ? '' : ' open'}><summary>Drawing ${i + 1} of ${imgs.length}</summary>`
-    + img(n, i) + `</details>`).join('');
+  return imgs.map((n, i) => `<details class="pdsec"${i ? '' : ' open'}><summary>Drawing ${i + 1} of ${imgs.length}`
+    + `<span class="pdcount muted"></span></summary>` + img(n, i) + `<div class="pdparts"></div></details>`).join('');
 }
 // a Parts-tab dropdown opened: its page (drawing + list) is fetched once,
 // shown in place (the user, 2026-10-23: "by clicking a drop down it would
@@ -3469,7 +3476,8 @@ function placeCallouts(root) {
     let cs = [];
     try { cs = await api(`/api/callouts/${encodeURIComponent(w.dataset.doc)}/`
                          + w.dataset.name.split('/').map(encodeURIComponent).join('/')); }
-    catch { return; }
+    catch { cs = []; }
+    splitParts(w, cs);
     if (!cs.length) return;
     const img = w.querySelector('img');
     const put = () => {
@@ -3483,6 +3491,8 @@ function placeCallouts(root) {
         b.style.left = (c.x / W * 100) + '%'; b.style.top = (c.y / H * 100) + '%';
         b.style.width = ((c.c.length * 15 + 14) / W * 100) + '%';
         b.style.height = (30 / H * 100) + '%';
+        b.textContent = c.c;                        // shown, in red, once picked
+        b.style.fontSize = (24 / W * 100) + 'cqw';  // the drawing's label size
         b.title = `Part ${c.c}`; b.setAttribute('aria-label', `Show part ${c.c} in the list`);
         w.appendChild(b);
       }
@@ -3490,40 +3500,79 @@ function placeCallouts(root) {
     if (img.complete) put(); else img.addEventListener('load', put, {once: true});
   });
 }
-// one callout picked, from either side: its rows and its numbers marked
-function pickCallout(host, co, from) {
+// Several drawings: each dropdown lists the parts whose number is printed on
+// that drawing (the user, 2026-10-23: "it should have the parts in the drop
+// down associated with that picture"), from the drawing's own callouts. A
+// number on two drawings is listed under both; what no drawing shows stays
+// below as "Other parts on this page". Without saved callouts (a drawing
+// pulled before they were) the page keeps its one list.
+function splitParts(w, cs) {
+  const sec = w.closest('.pdsec'), host = w.closest('.ppage');
+  w.dataset.done = '1';
+  if (!sec || !host) return;
+  const on = new Set(cs.map(c => c.c));
+  w.dataset.cos = JSON.stringify([...on]);
+  const rows = [...host.querySelectorAll('.pall tr[data-callout]')].filter(r => on.has(r.dataset.callout));
+  if (rows.length) {
+    const box = sec.querySelector('.pdparts');
+    box.innerHTML = `<div class="sechead">Parts on this drawing</div><table class="plines"><tbody></tbody></table>`;
+    const tb = box.querySelector('tbody');
+    rows.forEach(r => { const c = r.cloneNode(true); c.classList.remove('on'); tb.appendChild(c); });
+    sec.querySelector('.pdcount').textContent = ` — ${rows.length} part${rows.length > 1 ? 's' : ''}`;
+  }
+  const wraps = [...host.querySelectorAll('.pdsec .pdwrap')];
+  if (!wraps.every(x => x.dataset.done)) return;
+  const shown = new Set(wraps.flatMap(x => JSON.parse(x.dataset.cos || '[]')));
+  const all = host.querySelector('.pall');
+  if (!shown.size || !all) return;
+  let left = 0;
+  all.querySelectorAll('tbody tr').forEach(r => {
+    r.hidden = shown.has(r.dataset.callout);
+    left += !r.hidden;
+  });
+  all.hidden = !left;
+  all.querySelector('.sechead').textContent = 'Other parts on this page';
+}
+// one callout picked, from either side: its rows and its numbers marked;
+// what is brought into view is in the same drawing's dropdown when it can be
+function pickCallout(host, co, from, el) {
   host.querySelectorAll('tr.pick.on, .pco.on').forEach(x => x.classList.remove('on'));
   const rows = [...host.querySelectorAll('tr[data-callout]')].filter(r => r.dataset.callout === co);
   const marks = [...host.querySelectorAll('.pco')].filter(b => b.dataset.co === co);
   rows.forEach(r => r.classList.add('on'));
   marks.forEach(b => b.classList.add('on'));
-  const f = host.querySelector('.pfind'), r = rows[0];
+  const sec = el?.closest('.pdsec');
+  const near = xs => { const s = sec ? xs.filter(x => sec.contains(x)) : []; return s.length ? s : xs; };
+  const listed = rows.filter(r => r.closest('.pall'));   // each part once
+  const seen = near(rows.filter(r => !r.closest('[hidden]')));
+  const f = host.querySelector('.pfind'), r = listed[0] || rows[0];
   if (f) {
     f.hidden = false;
     f.innerHTML = r
       ? `<b class="cbig">${esc(co)}</b> &mdash; ${esc(r.dataset.cname)}, <span class="pn">${esc(r.dataset.cpn)}</span>`
-        + (rows.length > 1 ? ` <span class="muted">(+${rows.length - 1} more in the list)</span>` : '')
+        + (listed.length > 1 ? ` <span class="muted">(+${listed.length - 1} more in the list)</span>` : '')
         + (marks.length ? '' : ' <span class="muted">&mdash; look for this number on the drawing</span>')
       : `<b class="cbig">${esc(co)}</b> <span class="muted">is not in this page's parts list</span>`;
   }
   // a drawing folded away is opened, then the other side is brought into view
-  if (from === 'row' && marks[0]) {
-    const sec = marks[0].closest('details'); if (sec) sec.open = true;
-    marks[0].scrollIntoView({behavior: 'smooth', block: 'center'});
+  const m = near(marks)[0];
+  if (from === 'row' && m) {
+    const d = m.closest('details'); if (d) d.open = true;
+    m.scrollIntoView({behavior: 'smooth', block: 'center'});
   } else if (from === 'row') {
     f?.scrollIntoView({behavior: 'smooth', block: 'start'});
-  } else if (r) {
-    r.scrollIntoView({behavior: 'smooth', block: 'center'});
+  } else if (seen[0]) {
+    seen[0].scrollIntoView({behavior: 'smooth', block: 'center'});
   }
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-back-parts]')) { setTab('parts'); return; }
   const b = e.target.closest('.pco');
-  if (b) { const host = b.closest('.ppage'); if (host) pickCallout(host, b.dataset.co, 'drawing'); return; }
+  if (b) { const host = b.closest('.ppage'); if (host) pickCallout(host, b.dataset.co, 'drawing', b); return; }
   const r = e.target.closest('tr[data-callout]');
   if (!r) return;
   const host = r.closest('.ppage');
-  if (host) pickCallout(host, r.dataset.callout, 'row');
+  if (host) pickCallout(host, r.dataset.callout, 'row', r);
 });
 
 // The car's parts diagrams as the catalogue reads (server: parts_browse.py):

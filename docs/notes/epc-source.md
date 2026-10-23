@@ -503,6 +503,18 @@ with it; tapping one marks its rows and scrolls to them, tapping a row
 marks its number on the drawing (opening a folded drawing). A drawing with
 no sidecar still works as before: the row names the number to look for.
 `tools/make_sample_epc.py` writes sidecars for its invented drawings.
+A picked number **turns red** as in Mercedes' viewer (the user, 2026-10-23):
+the button carries the label and, when picked, draws it in red on white
+over the drawing's own (font size 24 drawing px, in `cqw` of the
+`.pdwrap` container, so it scales with the drawing); the row's callout
+goes red too. **Several drawings: each dropdown lists its own parts**
+(the user: "it should have the parts in the drop down associated with
+that picture"). `splitParts` copies into each drawing's dropdown the rows
+whose callout its sidecar has ("Drawing 2 of 5 — 4 parts"); a number on
+two drawings is listed under both; rows no drawing shows (no callout, or
+not printed) stay below as "Other parts on this page", hidden when there
+are none. Without sidecars the page keeps its one list. Picking scrolls
+within the same drawing's dropdown when it can.
 
 **Wider, Clear question, History (2026-10-23, the user's list).**
 - "⇤ Wider" at the end of the right box's tab row hides the question column
