@@ -281,6 +281,35 @@ function appendLines(path,lines){ var w=writer(path,true); lines.forEach(functio
 var partRows=0, recCount=0, emptyRecs=0, saIndex={}, pulledSeries={}, t0=Date.now();
 function pause(){ if(SLEEP>0) Thread.sleep(SLEEP); }
 
+// Drawings on disk from before callouts were saved (the user's 50,570 from
+// 2026-10-15): a resume skips every finished catalog, so image() never saw
+// them and the numbers on them stayed untappable (2026-10-23). Read each one
+// that has no <base>.callouts.json once more, for its callouts alone; the
+// PNG is kept. The name on disk is fileSafe(name): "_" was a space in some
+// SA names. Not found in any image table: left for the next run.
+function backfillCallouts(){
+  var dir=new File(IMG_DIR); if(!dir.isDirectory()) return;
+  var todo=[];
+  dir.list().forEach(function(f){ f=String(f);
+    if(/\.png$/.test(f) && !new File(IMG_DIR+"/"+f.replace(/\.png$/,".callouts.json")).isFile()) todo.push(f.replace(/\.png$/,"")); });
+  if(!todo.length) return;
+  print("callouts: "+todo.length+" drawings on disk have none yet; reading them from the catalogue");
+  var n=0, got=0, none=0, t=Date.now();
+  todo.forEach(function(base){
+    var names=[base]; if(base.indexOf("_")>=0) names.push(base.replace(/_/g," "));
+    var dbs_=base.charAt(0)=="S" ? ["SA_IMAGES","SA_IMAGES_ARC"] : ["BM_IMAGES_ARC","BM_IMAGES"];
+    var b=null;
+    for(var i=0;i<dbs_.length && b==null;i++) for(var k=0;k<names.length && b==null;k++) b=blob(dbs_[i],names[k]);
+    if(b==null) none++;
+    else if(magic(b)=="fv4") { writeCallouts(base,b); got++; }
+    else { var fo=new FileOutputStream(IMG_DIR+"/"+base+".callouts.json"); fo.write(new java.lang.String("[]").getBytes("UTF-8")); fo.close(); }
+    if(++n%500==0) print("  callouts "+n+"/"+todo.length+" ("+Math.round((Date.now()-t)/1000)+" s)");
+    pause();
+  });
+  print("callouts: "+got+" drawings read, "+none+" not found in the catalogue, "+Math.round((Date.now()-t)/1000)+" s");
+}
+if(WANT_IMAGES) backfillCallouts();
+
 // ------------------------------------------------------------ BM catalogs
 catalogs.forEach(function(cat, ci){
   // models: series, baumuster, sales names (catalog order)

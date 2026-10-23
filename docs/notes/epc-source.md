@@ -405,7 +405,15 @@ so in `caveats` rather than guessing.
 6. Callout hotspots from the FV4 annotation overlay: **built 2026-10-23**,
    see "Tappable callouts" below. An extract pulled before then has no
    positions until the next pull (the PNGs are kept; the pull re-fetches
-   only the blob of a drawing with no sidecar).
+   only the blob of a drawing with no sidecar). **That first version never
+   reached them on a finished extract**: a resume skips every done catalog,
+   so the user's 50,570 drawings from 2026-10-15 had 0 sidecars and no
+   number on any drawing could be tapped. `backfillCallouts()` now runs at
+   the start of every EPC pull with images: every PNG without a sidecar is
+   read once more from BM_IMAGES(_ARC) / SA_IMAGES(_ARC) for its callouts
+   alone (a non-FV4 drawing gets `[]`, so it isn't asked again), with
+   progress every 500. Checked in Node with a stand-in database; not yet on
+   the real one.
    **Tried first and dropped (2026-10-23): reading the callout numbers off
    the PNGs.** A glyph reader taught from the parts lists themselves (blobs
    grouped into words, words matched to the page's callouts, retrained over
