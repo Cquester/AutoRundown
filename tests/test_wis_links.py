@@ -22,6 +22,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 TMP = Path(tempfile.mkdtemp(prefix="ar_wislinks_"))
@@ -67,14 +68,13 @@ def main() -> int:
         check("no out-of-scope page is listed, though one opens if linked",
               bool(app.get(f"/api/page/{c176}/1002306").json().get("outside_scope")), True)
 
-        with sqlite3.connect(cdir / wis_links.NAME) as c:
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
             c.execute("CREATE TABLE docnr(docnr TEXT, dok_nr_id INTEGER, dok_id INTEGER)")
             c.executemany("INSERT INTO docnr VALUES (?,?,?)", [
                 ("ar4210p0100aa", 1, 1002297),     # filed under 176 and 246
                 ("ar4210p0100ab", 2, 1002304),     # 246 only
                 ("ar4210p010001a", 3, 1002306),    # a sub-document: never
             ])
-        wis_links._open.clear()
 
         print("with wis_links.sqlite")
         check("prefix rule: variant letters only",
@@ -106,7 +106,7 @@ def main() -> int:
         print("wiring diagrams, oil")
         c201 = ids["201"]
         check("no diagram data: the page says so", page.get("diagram"), False)
-        with sqlite3.connect(cdir / wis_links.NAME) as c:
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
             c.executescript("""
             CREATE TABLE diagram_code(dok_id INTEGER, code TEXT, x INTEGER, y INTEGER);
             CREATE TABLE diagram_name(dok_id INTEGER, code TEXT, name TEXT);
@@ -123,7 +123,6 @@ def main() -> int:
             INSERT INTO oil VALUES ('201', '102983', 1, 5.0, 'l', ''),
                                    ('201', '103942', 1, 6.0, 'l', '');
             """)
-        wis_links._open.clear()
         check("a diagram page says it has data",
               app.get(f"/api/page/{c201}/1002306").json().get("diagram"), True)
         d = app.get(f"/api/diagram/{c201}/1002306").json()
@@ -160,7 +159,7 @@ def main() -> int:
         print("labour times")
         check("no labour tables yet: no books, no 500",
               app.get(f"/api/wis/labour/{c201}?variant={names.index('190 E 2.3 16')}").json()["books"], [])
-        with sqlite3.connect(cdir / wis_links.NAME) as c:
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
             c.executescript("""
             CREATE TABLE labour_car(baumuster TEXT, engine TEXT, sparte TEXT, pl TEXT, family TEXT, type TEXT);
             CREATE TABLE labour_book(sparte TEXT, pl TEXT, family TEXT, type TEXT, family_name TEXT, type_name TEXT);
@@ -194,7 +193,6 @@ def main() -> int:
             INSERT INTO labour_op VALUES ('00','16','1000','1000','G','Malformed formula op');
             INSERT INTO labour_time VALUES ('00','00','06','16','1000','00',10);
             """)
-        wis_links._open.clear()
         v23, v26 = names.index("190 E 2.3 16"), names.index("190 E 2.6")
         check("labour times need the exact model",
               app.get(f"/api/wis/labour/{c201}").json()["need"], "variant")
@@ -256,8 +254,19 @@ def main() -> int:
             check("a formula that is not arithmetic is refused", False, True)
         except ValueError:
             check("a formula that is not arithmetic is refused", True, True)
+        # the server must not hold the sidecar open: a re-extraction's
+        # parse_links.py replaces it while the app runs (WinError 5, 2026-10-23)
+        side = cdir / wis_links.NAME
+        new = side.with_suffix(".tmp")
+        shutil.copyfile(side, new)
+        try:
+            os.replace(new, side)
+            check("the sidecar can be replaced while the app runs", True, True)
+        except OSError as e:
+            check("the sidecar can be replaced while the app runs", str(e), True)
+        check("lookups read the replaced sidecar",
+              wis_links.candidates(cdir, "AR42.10-P-0100A"), [1002297, 1002304])
     finally:
-        wis_links._open.clear()
         shutil.rmtree(TMP, ignore_errors=True)
     print(f"\n{fails} failure(s)")
     return 1 if fails else 0

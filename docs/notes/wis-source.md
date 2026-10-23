@@ -359,6 +359,13 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   writes **`wis_links.sqlite` next to the corpus**; the server reads it
   through `autorundown/wis_links.py`. No rebuild of the index needed. Every
   lookup treats a missing sidecar or table as "no data", never a 500.
+  **The server opens the sidecar per lookup and never holds it** (2026-10-23):
+  it used to keep one connection per process, and on Windows that open
+  handle made a re-extraction's `parse_links.py` fail with `WinError 5` on
+  the final `os.replace` (an AutoRundown left running from before an MSI
+  update held it). `parse_links.py` now retries for ~a minute and then stops
+  with a message naming the cause; `tests/test_wis_links.py` replaces the
+  sidecar after lookups.
 - **Cross-references open their page** (`wis_links.resolve`, `/api/page`
   returns `xrefs`). **A printed number leaves off the variant letters**:
   `AR15.40-P-5710E` is stored as `...5710ea`, `...eb`, `...ecm`, one per
