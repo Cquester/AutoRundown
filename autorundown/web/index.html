@@ -446,6 +446,8 @@
      window (the user, 2026-10-23: "at least the width of the screen") */
   .pdraw{position:relative}
   .pdraw img.diagram{background:#fff; width:100%}
+  .pdsec{border-top:1px solid var(--line)}
+  .pdsec > summary{cursor:pointer; padding:8px 0; font-weight:700}
   .pdtools{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap}
   .pdtools .pback{padding-bottom:0}
   .pwide{display:none}
@@ -3299,11 +3301,14 @@ function partsPageHtml(p, body, inline = false) {
     + (inline ? `<button type="button" class="ghost popen" ${pageAttrs(p.page_no)}>Open as a page</button>` : '')
     + `</div>`;
 }
-// the drawing itself, nothing to open or fold (the user, 2026-10-23: a tap
-// that only enlarged it was not wanted)
+// one drawing: shown as it is (a tap that only enlarged it was not wanted);
+// several: each its own dropdown, the first open (the user, 2026-10-23: a
+// radiator page with 5 drawings)
 function drawingsHtml(imgs) {
-  return imgs.map((n, i) => `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}">`
-    + (imgs.length > 1 ? `<div class="muted pcap">Drawing ${i + 1} of ${imgs.length}</div>` : '')).join('');
+  const img = (n, i) => `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}">`;
+  if (imgs.length === 1) return img(imgs[0], 0);
+  return imgs.map((n, i) => `<details class="pdsec"${i ? '' : ' open'}><summary>Drawing ${i + 1} of ${imgs.length}</summary>`
+    + img(n, i) + `</details>`).join('');
 }
 // a Parts-tab dropdown opened: its page (drawing + list) is fetched once,
 // shown in place (the user, 2026-10-23: "by clicking a drop down it would

@@ -472,7 +472,9 @@ width" gives the box the whole window while a parts page is open
 page goes back to two columns). **The drawing is not a button and does not
 fold:** a first try wrapped each in a "Drawing · tap to enlarge" section
 with a full-screen zoom on tap; the user did not want either (a tap on the
-drawing should pick a part -- that needs the overlay, item 6 above).
+drawing should pick a part -- that needs the overlay, item 6 above). A page
+with several drawings (a radiator page has 5) puts each in its own
+dropdown, "Drawing 1 of 5" open and the rest folded.
 
 **Drawings open in place (2026-10-23, the user: "by clicking a drop down
 it would generate the diagram").** In the Parts tab a subgroup is a
