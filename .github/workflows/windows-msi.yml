@@ -176,8 +176,11 @@ jobs:
           if ($bg.Count -lt 1) { throw "the shortcut did not start pythonw" }
           if ($stop) { throw "launcher --stop failed" }
 
+      # pictures for diagnosis only: a full artifact quota must not skip the
+      # tests below (it did on PR #22)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
+        continue-on-error: true
         with:
           name: ui-screenshots
           path: ui-shots/
@@ -302,13 +305,16 @@ jobs:
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn"
           if ($p.ExitCode) { throw "uninstall failed: $($p.ExitCode)" }
 
+      # the release needs this one on main; on a PR it is a convenience
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         with:
           name: AutoRundown-msi
           path: dist/*.msi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: failure()
+        continue-on-error: true
         with:
           name: msi-logs
           path: "*.log"

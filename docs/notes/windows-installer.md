@@ -98,6 +98,11 @@ macOS/Linux run from source (README), by the user's decision.
   generated notes. A version that already has a release is skipped with a
   notice, never overwritten -- so **bump `__version__` in the PR** to ship
   it. A PR that builds the MSI uploads it as a workflow artifact (90 days).
+  When the account's artifact storage is full, uploads fail: the
+  screenshots and logs uploads, and the MSI's on a PR, are
+  `continue-on-error` so the install tests still run (2026-10-23, PR #22:
+  a full quota had skipped the smoke, uninstall and autostart steps). On
+  `main` the MSI upload still fails the run, since the release uses it.
   Only that job gets `contents: write`; the build itself stays read-only.
 - The WIS extractor is **not bundled**, deliberately: it reads the EWA
   Java and `tbjdbc.jar` from the "Mercedes Documents" folder
