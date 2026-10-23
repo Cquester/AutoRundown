@@ -126,6 +126,26 @@ def pipeline_checks() -> None:
     code = "\n".join(l.split("#")[0] for l in src.splitlines() if not l.lstrip().startswith("#"))
     check("the extractor never powers a VM off or discards its saved state",
           not re.search(r'"controlvm"[^)\n]*"poweroff"', code) and '"discardstate"' not in code)
+    # The installed app's Python (embeddable, python3XY._pth) does not put a
+    # script's own folder on sys.path, so `from wis_paths import ...` failed
+    # in Shop setup's VM tab (2026-10-23) -- while this test, which adds the
+    # folder itself above, passed. Every script importing a sibling must
+    # insert its folder first.
+    ext = ROOT / "extractor"
+    siblings = {p.stem for p in ext.glob("*.py")}
+    bad = []
+    for p in sorted(ext.glob("*.py")):
+        seen_insert = False
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if line.startswith("sys.path.insert("):
+                seen_insert = True
+            m = re.match(r"(?:from (\w+) import|import (\w+))", line)
+            mod = m and (m.group(1) or m.group(2))
+            if mod in siblings and not seen_insert:
+                bad.append(f"{p.name}: {line.strip()}")
+                break
+    check("every extractor script that imports a sibling puts its own folder on sys.path first",
+          not bad, bad)
 
 
 def wait(c: TestClient, seen: list, timeout: float = 90) -> dict:

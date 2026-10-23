@@ -75,6 +75,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))  # the installed app's Python does not add a script's folder
 from wis_paths import home, out_root, check_outside_repo  # noqa: E402
 DEFAULT_OUT = out_root()
 STEPS = ("docs", "applic", "vehicles", "links", "images", "build")   # the default: WIS

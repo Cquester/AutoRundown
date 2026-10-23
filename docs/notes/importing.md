@@ -190,7 +190,13 @@ second cold boot before giving up — one boot after 12 clean batches never
 brought the DB up in 10 min. (Since 2026-10-23, only if the clean shutdown
 worked: when Windows ignores the power button the state is saved, and the
 "second boot" would just resume it -- a blue-screened guest was resumed
-twice that way. It stops instead and says to Reset / roll back.) Conversion sorts largest-first, so its ETA
+twice that way. It stops instead and says to Reset / roll back.)
+**The installed app runs the extractor with its own embeddable Python**,
+whose `._pth` does not put a script's folder on `sys.path`: every extractor
+script that imports a sibling (`wis_paths`, `parse_sids`, …) inserts its
+own folder first. Five did not, so the VM tab of the installed 0.1.6
+showed "No module named 'wis_paths'" once the Desktop copy was updated
+(2026-10-23; from source it worked). `tests/test_vm_jobs.py` checks it. Conversion sorts largest-first, so its ETA
 reads ~3 h while on the DXF/SVG diagrams and then drops; ~40 min in total.
 
 **The EPC parts catalogue from the same tab** (2026-10-15). The Mercedes VM
