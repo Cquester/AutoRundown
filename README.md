@@ -106,7 +106,9 @@ files. "Start when I sign in" runs it as you, in the background.
   (it needs the Mercedes software next to it, so it can't be part of the
   installer). It is found automatically at `Desktop\Mercedes Documents\autorundown_extractor`;
   anywhere else, set it under Shop setup → *Advanced* → *Mercedes extractor folder*.
-  The installer includes the Python packages it needs. The same tab can pull
+  The installer includes the Python packages it needs. Choose the VM with
+  *Choose VM file…*: browse to its `.vbox` file (usually in its own folder
+  under `VirtualBox VMs`); the choice is remembered. The same tab can pull
   the **EPC parts catalogue** (*What to extract* → *EPC*): part
   numbers and exploded drawings then show under each car beside its manual.
   *Both* runs WIS and then EPC as one job (EPC is not started if WIS fails);

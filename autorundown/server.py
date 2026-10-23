@@ -123,6 +123,10 @@ class MechanicKeyBody(BaseModel):
     remove: bool = False
 
 
+class VmPickBody(BaseModel):
+    file: str = Field(max_length=1000)    # the VM's .vbox file
+
+
 class LemonPickBody(BaseModel):
     # a folder of the catalogue tree: [make], [make, year], ... or a variant
     path: list[str]
@@ -1264,6 +1268,25 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/vms")
     def api_vms() -> dict:
         return importer_jobs.list_vms()
+
+    # the VM is chosen as a file (its .vbox), browsed like an import folder
+    @app.get("/api/vms/browse")
+    def api_vm_browse(path: str = Query("", max_length=1000)) -> dict:
+        if _local_path_error(path):
+            raise HTTPException(400, _local_path_error(path))
+        try:
+            return importer_jobs.browse_vbox(path)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc))
+
+    @app.post("/api/vms/pick")
+    def api_vm_pick(body: VmPickBody) -> dict:
+        if _local_path_error(body.file):
+            raise HTTPException(400, _local_path_error(body.file))
+        try:
+            return importer_jobs.pick_vm(body.file)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(400, str(exc))
 
     WIS_STEPS = ("docs", "applic", "vehicles", "images", "build")
 

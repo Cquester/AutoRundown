@@ -350,7 +350,12 @@ run level) stops the run with a screenshot of the VM's screen. Do not bring
 back `controlvm poweroff` or `discardstate`. Before a run boots the VM it
 takes its own snapshot ("AutoRundown-auto-…", one per 6 h, never deleted
 automatically) and Shop setup can roll back to any snapshot, snapshotting
-the current state first. The VM list has no default;
+the current state first. The VM is chosen as its `.vbox` file in a
+browser like the Folder tab's (the user, 2026-10-23: no list filled in for
+them), remembered as `Config.vm_file`; nothing is preselected, and a VM
+VirtualBox doesn't know is refused (never registered for them). Every
+program a job starts is started with no terminal window (`NO_WINDOW`;
+the installed app opened one per VBoxManage / Java call);
 `vm_pipeline.py --check` (and `--check --boot`, "Test the VM") gates a run;
 Cancel stops the pull and shuts the VM down cleanly, and the extractor stops
 by itself if the server goes away. Details: `docs/notes/importing.md`.

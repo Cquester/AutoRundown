@@ -177,7 +177,25 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   anything else comes from the swarm.
 
 **From a Mercedes virtual machine** (third source in the same dialog):
-`/api/vms` lists VirtualBox VMs; the job runs the extractor's
+**The VM is chosen as a file** (2026-10-23, the user: "it should be a file
+explorer option, where i choose what vm to use", after the tab had listed
+VirtualBox's VMs for them): "Choose VM file…" browses folders and `.vbox`
+files (`/api/vms/browse`, starting where the last pick was, else
+`~/VirtualBox VMs`; `AUTORUNDOWN_VMS_DIR` for `dev.py --fake-vm`'s pretend
+files), and `POST /api/vms/pick` reads the file's `<Machine name>`
+(`importer_jobs.vbox_machine`), checks VirtualBox has that VM, and keeps
+it as `Config.vm_file`. Runs still address the VM by name. A VM that
+isn't added to VirtualBox is refused with how to add it (Machine > Add…):
+this never registers one, as it never changes VirtualBox's settings.
+**No terminal windows**: under the installed app (pythonw, no console)
+every console program a job started -- Python, VBoxManage, Java -- opened
+a window of its own (the user saw "a bunch of different terminal
+windows", 2026-10-23). `importer_jobs` and `vm_pipeline.py` start every
+process with `CREATE_NO_WINDOW`; the hidden console is inherited by
+everything under it. `tests/test_vm_jobs.py` checks every `subprocess`
+call carries `creationflags`.
+`/api/vms` lists VirtualBox's VMs (to check a pick and show their state)
+and the chosen one; the job runs the extractor's
 `vm_pipeline.py --vm <name> --out-root <autorundown_out> --steps …` and then
 `rebuild_wis.py` on `<out_root>/wis_extract`. The pipeline is the manual
 procedure in one resumable script: docs (`pull.js`, power-cycle + resume on a

@@ -393,6 +393,11 @@
   .vmchecks .ck.ok .i{color:var(--good)} .vmchecks .ck.warn .i{color:var(--warn)}
   .vmchecks .ck.fail .i{color:var(--bad)} .vmchecks .ck.fail{font-weight:600}
   .vmchecks .ckhead{font-weight:700; padding:6px 0 2px}
+  /* the VM is chosen as its .vbox file, browsed like an import folder */
+  .vmpick{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .vmpick #impVmChosen{flex:1 1 220px; min-width:0; overflow-wrap:anywhere}
+  .vmfiles{margin-top:8px}
+  .vmfiles .vmpath{padding:6px 10px; font-size:13px; overflow-wrap:anywhere; color:var(--muted)}
   #impVmTestRow{align-items:center; gap:10px; margin-top:10px}
   #impVmTestRow .muted{font-size:13px; flex:1 1 220px}
   .vmscreen{margin:10px 0 0}
@@ -1093,8 +1098,11 @@
   <div id="impVmPanel" role="tabpanel" aria-labelledby="tabVm" hidden>
     <div id="impVmNote"></div>
     <div id="impVmControls">
-    <label for="impVm">VirtualBox VM</label>
-    <select id="impVm"></select>
+    <label for="impVmBrowse">VirtualBox VM</label>
+    <input type="hidden" id="impVm">
+    <div class="vmpick"><span id="impVmChosen"><span class="muted">No VM chosen yet.</span></span>
+      <button type="button" class="ghost" id="impVmBrowse">Choose VM file…</button></div>
+    <div class="dirlist vmfiles" id="impVmFiles" hidden></div>
     <label id="impVmWhatLbl">What to extract</label>
     <div class="seg" id="impVmWhat" role="radiogroup" aria-labelledby="impVmWhatLbl">
       <label><input type="radio" name="vmwhat" value="wis" checked><span>WIS</span></label>
@@ -5378,19 +5386,55 @@ async function impVms() {
   try {
     const r = await api('/api/vms');
     if (r.error) return noVm(r.error);
-    if (!r.vms.length) return noVm('No VirtualBox virtual machines were found on this PC.');
     $('#impVmControls').hidden = false; $('#impStart').hidden = false;
-    // the user picks the VM (the user, 2026-10-16): nothing is chosen for
-    // them, and the run's needs are checked once one is
-    const keep = $('#impVm').value || (impLast?.state === 'running' && impLast.vm) || '';
-    $('#impVm').innerHTML = '<option value="">Choose the virtual machine…</option>' + r.vms.map(v =>
-      `<option value="${esc(v.name)}">${esc(v.name)} (${esc(v.state)})</option>`).join('');
-    if (r.vms.some(v => v.name === keep)) $('#impVm').value = keep;
+    // the user picks the VM's file (the user, 2026-10-16 and 2026-10-23):
+    // nothing is chosen for them; their last pick is remembered (vm_file)
+    const running = impLast?.state === 'running' && impLast.vm;
+    vmSetChosen(running && running !== r.chosen?.name ? {name: running, file: ''}
+                : r.chosen && r.vms.some(v => v.name === r.chosen.name) ? r.chosen : null);
     $('#impVmNote').innerHTML = `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`;
-    impVmCheck();
-    impVmSnaps();
   } catch (e) { noVm(e.message); }
 }
+function vmSetChosen(c) {
+  $('#impVm').value = c?.name || '';
+  $('#impVmChosen').innerHTML = c?.name
+    ? `<b>${esc(c.name)}</b>${c.file ? ` <span class="muted" style="font-size:13px">${esc(c.file)}</span>` : ''}`
+    : '<span class="muted">No VM chosen yet.</span>';
+  $('#impVmBrowse').textContent = c?.name ? 'Change…' : 'Choose VM file…';
+  $('#impVm').dispatchEvent(new Event('change'));   // its checks and snapshots
+}
+async function vmBrowse(path) {
+  const box = $('#impVmFiles');
+  box.hidden = false;
+  try {
+    const r = await api('/api/vms/browse?path=' + encodeURIComponent(path || ''));
+    const join = n => r.path.replace(/[\\/]$/, '') + (r.path.includes('\\') ? '\\' : '/') + n;
+    box.innerHTML = `<div class="vmpath">${esc(r.path)}</div>`
+      + (r.parent ? '<button type="button" data-up>&#8593; Up a folder</button>' : '')
+      + r.files.map(f => `<button type="button" data-f="${esc(f)}">&#128421; <b>${esc(f)}</b></button>`).join('')
+      + r.dirs.map(d => `<button type="button" data-d="${esc(d)}">&#128193; ${esc(d)}</button>`).join('')
+      + (r.files.length ? '' : '<div class="muted" style="padding:8px 10px; font-size:13px">No VirtualBox '
+         + 'machine file (.vbox) here. A VM’s file is in its own folder, usually under “VirtualBox VMs”.</div>');
+    box.querySelector('[data-up]')?.addEventListener('click', () => vmBrowse(r.parent));
+    box.querySelectorAll('[data-d]').forEach(b => b.onclick = () => vmBrowse(join(b.dataset.d)));
+    box.querySelectorAll('[data-f]').forEach(b => b.onclick = () => vmPick(join(b.dataset.f)));
+  } catch (e) { box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`; }
+}
+async function vmPick(file) {
+  try {
+    const r = await api('/api/vms/pick', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({file})});
+    $('#impVmFiles').hidden = true;
+    vmSetChosen(r);
+  } catch (e) {
+    $('#impVmFiles').querySelector('.errbox')?.remove();
+    $('#impVmFiles').insertAdjacentHTML('afterbegin', `<div class="errbox">${esc(e.message)}</div>`);
+  }
+}
+$('#impVmBrowse').addEventListener('click', () => {
+  if (!$('#impVmFiles').hidden) { $('#impVmFiles').hidden = true; return; }
+  vmBrowse('');
+});
 // what a run on the chosen VM needs, checked without booting it
 // (vm_pipeline.py --check): Extract and Test stay off until nothing fails
 let vmCheckSeq = 0, vmReady = false;
@@ -5597,7 +5641,7 @@ $('.srctabs').addEventListener('keydown', e => {
 });
 $('#impStart').onclick = async () => {
   if (impSource() === 'vm' && !$('#impVm').value) {
-    $('#impStatus').textContent = 'Choose the virtual machine first.'; $('#impVm').focus(); return;
+    $('#impStatus').textContent = 'Choose the VM file first.'; $('#impVmBrowse').focus(); return;
   }
   if (impSource() === 'vm' && impVmWhat() === 'epc') {
     if (!confirm(`Extract the EPC parts catalogue from ${$('#impVm').value} and replace it in the index? `

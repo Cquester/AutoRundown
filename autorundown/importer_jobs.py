@@ -18,6 +18,12 @@ import threading
 import time
 from pathlib import Path
 
+# The installed app runs without a console (pythonw), so every console
+# program a job starts -- Python, and under it VBoxManage and Java -- opened
+# a terminal window of its own (the user, 2026-10-23). A hidden console here
+# is inherited by everything the job starts in turn. 0 off Windows.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 from . import importers
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -113,7 +119,7 @@ def _list_vms() -> dict:
                          + ". Set its folder under Settings (the gear) -> Mercedes extractor folder."}
     r = subprocess.run([sys.executable, str(ext / "vm_pipeline.py"), "--list-vms"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       timeout=60)
+                       timeout=60, creationflags=NO_WINDOW)
     if r.returncode != 0:
         return {"extractor": str(ext), "vms": [],
                 # a string: the UI showed "(s ?? "").replace is not a function"
@@ -125,10 +131,91 @@ def _list_vms() -> dict:
         out_root = extractor_out_root(ext)
     except RuntimeError as e:
         return {"extractor": str(ext), "vms": vms, "error": str(e)}
-    return {"extractor": str(ext), "vms": vms, "out_root": str(out_root)}
+    return {"extractor": str(ext), "vms": vms, "out_root": str(out_root), "chosen": chosen_vm()}
 
 
-VM_STEPS = {"wis": "docs,applic,vehicles,images,build", "epc": "epc",
+# The VM is chosen as a file, like a folder for an import (the user,
+# 2026-10-23: "it should be a file explorer option, where i choose what vm to
+# use"), not from VirtualBox's list. The file names the machine; runs still
+# address it by that name, so it must be added to VirtualBox -- this never
+# registers one (no changes to VirtualBox's settings).
+VBOX_MAX = 5_000_000      # a .vbox is a few KB of XML
+
+
+def vbox_machine(path: Path) -> dict:
+    """{"name", "uuid"} of the VM a VirtualBox .vbox file describes."""
+    import xml.etree.ElementTree as ET
+    if path.suffix.lower() != ".vbox" or not path.is_file():
+        raise ValueError(f"{path.name} is not a VirtualBox machine file (.vbox)")
+    if path.stat().st_size > VBOX_MAX:
+        raise ValueError(f"{path.name} is too big to be a VirtualBox machine file")
+    try:
+        m = ET.parse(path).getroot().find("{*}Machine")
+    except ET.ParseError as exc:
+        raise ValueError(f"{path.name} could not be read: {exc}") from None
+    if m is None or not m.get("name"):
+        raise ValueError(f"{path.name} does not describe a virtual machine")
+    return {"name": m.get("name"), "uuid": (m.get("uuid") or "").strip("{}")}
+
+
+def chosen_vm() -> dict | None:
+    """The VM file picked in Shop setup, if it is still there."""
+    from . import config
+    f = config.load().vm_file
+    if not f:
+        return None
+    try:
+        return {"file": f, **vbox_machine(Path(f))}
+    except (ValueError, OSError):
+        return None
+
+
+def browse_vbox(path: str) -> dict:
+    """A folder's subfolders and .vbox files, for choosing the VM. Starts
+    where the chosen file is, else VirtualBox's own "VirtualBox VMs"."""
+    from . import config
+    if path:
+        p = Path(path).expanduser()
+        if not p.is_dir():
+            raise FileNotFoundError(f"Folder not found: {p}")
+    else:
+        f = config.load().vm_file
+        # AUTORUNDOWN_VMS_DIR: dev.py --fake-vm's pretend machine files
+        vms_dir = os.environ.get("AUTORUNDOWN_VMS_DIR") or Path.home() / "VirtualBox VMs"
+        p = next((c for c in (Path(f).parent.parent if f else None, Path(vms_dir), Path.home())
+                  if c and c.is_dir()), Path.home())
+    dirs, files = [], []
+    try:
+        for c in p.iterdir():
+            if c.name.startswith("."):
+                continue
+            if c.is_dir():
+                dirs.append(c.name)
+            elif c.suffix.lower() == ".vbox":
+                files.append(c.name)
+    except OSError:
+        pass
+    return {"path": str(p), "parent": str(p.parent) if p.parent != p else "",
+            "dirs": sorted(dirs, key=str.lower)[:500], "files": sorted(files, key=str.lower)}
+
+
+def pick_vm(file: str) -> dict:
+    """Remember the VM file the user chose, once VirtualBox knows its VM."""
+    from . import config
+    m = vbox_machine(Path(file))
+    info = list_vms()
+    if info.get("error") and not info.get("vms"):
+        raise ValueError(info["error"])
+    if m["name"] not in {v["name"] for v in info.get("vms", [])}:
+        raise ValueError(f"VirtualBox doesn't have the VM {m['name']!r} added yet. Open VirtualBox, "
+                         f"use Machine > Add… and choose this file, then choose it here again.")
+    cfg = config.load()
+    cfg.vm_file = str(Path(file))
+    cfg.save()
+    return {"file": cfg.vm_file, **m}
+
+
+VM_STEPS ={"wis": "docs,applic,vehicles,images,build", "epc": "epc",
             "both": "docs,applic,vehicles,images,build,epc"}
 
 
@@ -163,7 +250,7 @@ def _check_vm(vm: str, steps: str) -> dict:
         r = subprocess.run([sys.executable, str(ext / "vm_pipeline.py"), "--vm", vm, "--steps", steps,
                             "--out-root", str(info["out_root"]), "--check"],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
-                           env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                           env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=NO_WINDOW)
         checks = parse_checks(r.stdout)
     except subprocess.TimeoutExpired:
         checks = [{"key": "extractor", "level": "fail", "message": "The check took over 90 s; is VirtualBox busy?"}]
@@ -192,7 +279,8 @@ def _list_snapshots(vm: str) -> dict:
         return {"snapshots": [], "error": f"There is no VirtualBox VM named {vm!r}."}
     r = subprocess.run([sys.executable, str(Path(info["extractor"]) / "vm_pipeline.py"), "--vm", vm,
                         "--list-snapshots"], capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", timeout=60, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                       errors="replace", timeout=60, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                       creationflags=NO_WINDOW)
     snaps = []
     for line in r.stdout.splitlines():
         p = line.split("\t")
@@ -836,7 +924,8 @@ class ImportJobs:
                    "AR_CANCEL_FILE": str(self.cancel_file()), "AR_PARENT_PID": str(os.getpid())}
             proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True, env=env,
-                                    encoding="utf-8", errors="replace", bufsize=1)
+                                    encoding="utf-8", errors="replace", bufsize=1,
+                                    creationflags=NO_WINDOW)
             self._proc = proc
             pipeline = Path(cmd[2]).name == "vm_pipeline.py" if len(cmd) > 2 else False
 

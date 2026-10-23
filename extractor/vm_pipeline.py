@@ -75,6 +75,8 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# no terminal window for VBoxManage / Java when run from the site (0 off Windows)
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 sys.path.insert(0, str(HERE))  # the installed app's Python does not add a script's folder
 from wis_paths import home, out_root, check_outside_repo  # noqa: E402
 DEFAULT_OUT = out_root()
@@ -179,7 +181,7 @@ def vbox(*args: str, check: bool = True) -> str:
     # wait and another try (seen on the real VM, 2026-10-16)
     for attempt in range(6):
         r = subprocess.run([VBOX, *args], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace")
+                           encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
         if r.returncode == 0 or "lock request pending" not in r.stderr:
             break
         time.sleep(1 + attempt)
@@ -549,7 +551,7 @@ def run(cmd: list[str], env: dict, cwd: Path) -> int:
     log("$ " + " ".join(Path(c).name if i == 0 else c for i, c in enumerate(cmd)))
     p = subprocess.Popen(cmd, cwd=cwd, env={**os.environ, **env, "PYTHONIOENCODING": "utf-8"},
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                         encoding="utf-8", errors="replace", bufsize=1)
+                         encoding="utf-8", errors="replace", bufsize=1, creationflags=NO_WINDOW)
 
     def watch() -> None:       # a cancel stops the pull (each one resumes where it stopped)
         while p.poll() is None:
