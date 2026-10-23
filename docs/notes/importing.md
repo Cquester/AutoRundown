@@ -76,12 +76,29 @@ WIS doc_id. Removal runs `remove_manuals.py` as an import job (log, one job
 at a time): deletes the car's chunks (the FTS trigger follows), pages,
 connectors and vehicle row, one commit per car. Safe per car because
 duplicate pages are only matched within a doc_id (`index.add_page`). It
-checks the spend log row count is unchanged and never touches files on disk.
-"Shrink the index file" = VACUUM + `wal_checkpoint(TRUNCATE)` (in WAL mode
-VACUUM lands in the -wal file; without the checkpoint the file doesn't
-shrink -- the test caught it); off by default for single cars, on for WIS.
-`/api/import/manuals` lists, `POST /api/import` modes `remove` /
-`remove_wis`, both admin-only. Test: `tests/test_remove_manuals.py`.
+checks the spend log row count is unchanged.
+**A Remove button removes completely** (2026-10-23, the user: "if i click a
+delete button on a local site, it should delete the data completly"; the
+"shrink the index file afterwards" box confused). No box any more: every
+Remove shrinks the index (`--compact`: FTS5 `optimize` on `chunks_fts` and
+`parts_fts`, then VACUUM + `wal_checkpoint(TRUNCATE)` -- FTS5 only marks
+deleted rows, so VACUUM alone left 84,598 `parts_fts` blocks for 0 parts on
+the live index; in WAL mode VACUUM lands in the -wal file and needs the
+checkpoint). "Remove all Mercedes WIS / EPC data" also sends the extracted
+files to the **Recycle Bin** (the user's choice over a permanent delete or
+leaving them): the corpus folder each manual was imported from
+(`vehicles.file_path`) and, beside a `wis_extract`, its sister outputs
+(`importer_jobs.extract_dirs`, listed on the tab and in the confirm).
+Folders come from the index, never from the extractor's settings, so a
+test's corpus can't point at the real `autorundown_out`; `recycle.py` takes
+only extract-folder names and never one holding the index; Windows asks
+first if a folder is too big for the Recycle Bin. A LEMON or folder
+manual's files are the user's own and stay. `rebuild_wis.py` and the VM
+EPC import call `remove_manuals.py` too but never pass `--recycle` -- they
+re-ingest from those folders. `/api/import/manuals` lists, `POST
+/api/import` modes `remove` / `remove_wis` / `remove_epc`, admin-only.
+Test: `tests/test_remove_manuals.py` (Recycle Bin = a temp folder via
+`AUTORUNDOWN_RECYCLE_TO`).
 
 **LEMON folder import** (inside the LEMON tab): open the archive folder, get one row per vehicle folder with
 "imported" / "partly imported" read from the index (opened `mode=ro`), tick

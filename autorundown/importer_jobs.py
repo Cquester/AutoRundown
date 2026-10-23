@@ -315,17 +315,22 @@ def manuals(index_path: str | Path) -> dict:
     except sqlite3.Error:
         return out
     wis_sources = set()
+    corpus = {"wis": set(), "epc": set()}
     for d, src, year, make, model, fp, n, complete in rows:
         src = src or ""
         if src.startswith("mercedes-wis"):
             out["wis"]["entries"] += 1
             out["wis"]["pages"] += n or 0
             wis_sources.add(src)
+            if fp:
+                corpus["wis"].add(fp)
             continue
         if src.startswith("mercedes-epc"):
             # the EPC parts catalogue: one corpus, replaced and removed whole
             out["epc"]["entries"] += 1
             out["epc"]["pages"] += n or 0
+            if fp:
+                corpus["epc"].add(fp)
             continue
         group = "lemon" if src == "lemon" else "folder"
         label = " ".join(x for x in (year, make, model) if x) or d
@@ -334,6 +339,27 @@ def manuals(index_path: str | Path) -> dict:
     for g in ("lemon", "folder"):
         out[g].sort(key=lambda r: r["label"].lower())
     out["wis"]["sources"] = sorted(wis_sources)
+    for k in ("wis", "epc"):
+        out[k]["folders"] = [str(f) for f in extract_dirs(k, corpus[k], p)]
+    return out
+
+
+def extract_dirs(kind: str, corpus_dirs, index_path: Path) -> list[Path]:
+    """The folders "Remove all Mercedes WIS / EPC data" sends to the Recycle
+    Bin: the corpus folder each manual was imported from (vehicles.file_path)
+    and, beside a `wis_extract`, the extractor's other WIS outputs. Taken
+    from the index, not from the extractor's settings, so a test's throwaway
+    corpus can never point at the real autorundown_out. Only extract-folder
+    names (recycle.EXTRACT_NAMES) that exist, never one holding the index."""
+    from . import recycle
+    names = recycle.WIS_DIRS if kind == "wis" else recycle.EPC_DIRS
+    out: list[Path] = []
+    for c in sorted(corpus_dirs):
+        c = Path(c)
+        cands = [c.parent / n for n in names] if c.name == names[0] else [c]
+        for f in cands:
+            if f not in out and not recycle.allowed(f, keep=[index_path]):
+                out.append(f)
     return out
 
 
@@ -596,7 +622,7 @@ class ImportJobs:
         return cmds
 
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
-              steps: str = "", only: list[str] | None = None, compact: bool = False) -> dict:
+              steps: str = "", only: list[str] | None = None) -> dict:
         """`parts` are run one after the other, each a list of commands (or a
         function giving them, called when that part starts); the first
         failing command stops the job, and later parts are never started."""
@@ -646,16 +672,19 @@ class ImportJobs:
                     cmd += ["--only", o]
                 cmds = [cmd]
             elif mode in ("remove", "remove_wis", "remove_epc"):
-                # remove_manuals.py: LEMON / folder manuals by doc_id, WIS and EPC whole
-                cmd = [*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path)]
-                if mode == "remove_wis":
-                    cmd += ["--source", "mercedes-wis"]
-                if mode == "remove_epc":
-                    cmd += ["--source", "mercedes-epc"]
+                # remove_manuals.py: LEMON / folder manuals by doc_id, WIS and EPC
+                # whole. A Remove button removes completely (the user,
+                # 2026-10-23): the index always shrinks, and WIS / EPC's
+                # extracted files go to the Recycle Bin (a LEMON or folder
+                # manual's files are the user's own and stay)
+                cmd = [*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path), "--compact"]
+                if mode in ("remove_wis", "remove_epc"):
+                    kind = mode[len("remove_"):]
+                    cmd += ["--source", f"mercedes-{kind}"]
+                    for f in manuals(index_path)[kind]["folders"]:
+                        cmd += ["--recycle", f]
                 for o in only or []:
                     cmd += ["--doc-id", o]
-                if compact:
-                    cmd += ["--compact"]
                 cmds = [cmd]
             elif mode == "rebuild_wis":
                 # removes WIS in place, re-ingests; every other manual and the

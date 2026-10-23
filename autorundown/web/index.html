@@ -5161,8 +5161,7 @@ function manRender() {
         + `<span class="nm" title="${esc(r.file_path)}">${esc(r.label)}</span>`
         + (r.complete ? '' : '<span class="tag">partly imported</span>')
         + `<span class="sz">${r.pages.toLocaleString()} pages</span></label>`).join('') + '</div>'
-      + `<div class="rmbar"><button type="button" class="danger" data-rm="${group}" disabled>Remove selected</button>`
-      + `<label><input type="checkbox" class="mancompact"> shrink the index file afterwards (slower)</label></div>`;
+      + `<div class="rmbar"><button type="button" class="danger" data-rm="${group}" disabled>Remove selected</button></div>`;
     const sel = () => [...box.querySelectorAll('.dirlist input:checked')].map(c => c.value);
     const btn = box.querySelector('[data-rm]');
     box.querySelectorAll('.dirlist input').forEach(c => c.onchange = () => {
@@ -5178,43 +5177,52 @@ function manRender() {
       const pages = ids.reduce((n, d) => n + byId[d].pages, 0);
       const names = ids.slice(0, 5).map(d => '  • ' + byId[d].label).join('\n') + (ids.length > 5 ? `\n  … and ${ids.length - 5} more` : '');
       if (!confirm(`Remove ${ids.length} manual${ids.length > 1 ? 's' : ''} (${pages.toLocaleString()} pages) from the index?\n\n`
-          + names + '\n\nYour manual files on disk and the spend log are not touched. You can import them again later.')) return;
+          + names + '\n\nThe index file is shrunk afterwards. Your manual files on disk and the spend log '
+          + 'are not touched, so you can import them again later.')) return;
       btn.disabled = true;               // a second click asked twice
-      manRemove('remove', ids, box.querySelector('.mancompact').checked);
+      manRemove('remove', ids);
     };
   }
   const w = manData.wis, wb = $('#impWisManuals');
   wb.innerHTML = '<h4>Mercedes WIS in the index</h4>' + (w.entries
     ? `<div style="font-size:14px">${w.pages.toLocaleString()} pages in ${w.entries} models, engines and shared sections.`
       + ' It is removed as a whole: the models share engine and general pages.</div>'
-      + '<div class="rmbar"><button type="button" class="danger" id="impWisRemove">Remove all Mercedes WIS data</button>'
-      + '<label><input type="checkbox" id="impWisCompact" checked> shrink the index file afterwards (slower)</label></div>'
+      + '<div class="rmbar"><button type="button" class="danger" id="impWisRemove">Remove all Mercedes WIS data</button></div>'
+      + rmFiles(w.folders)
     : '<div class="muted" style="font-size:14px">None.</div>');
   if (w.entries) $('#impWisRemove').onclick = () => {
-    if (!confirm(`Remove ALL Mercedes WIS data (${w.pages.toLocaleString()} pages) from the index?\n\n`
-        + 'Your LEMON and other manuals, the extracted files on disk and the spend log are not touched. '
-        + 'Getting it back means importing the WIS corpus again (about 6 minutes).')) return;
-    manRemove('remove_wis', [], $('#impWisCompact').checked);
+    if (!confirm(`Remove ALL Mercedes WIS data (${w.pages.toLocaleString()} pages)?\n\n`
+        + rmSays(w.folders) + 'Your LEMON and other manuals and the spend log are not touched. '
+        + 'Getting it back means extracting it from the Mercedes VM again (hours).')) return;
+    manRemove('remove_wis', []);
   };
   // the EPC parts catalogue: one corpus, replaced or removed whole
   const e = manData.epc || {entries: 0, pages: 0}, eb = $('#impEpcManuals');
   eb.innerHTML = '<h4>Mercedes EPC parts catalogue in the index</h4>' + (e.entries
     ? `<div style="font-size:14px">${e.pages.toLocaleString()} parts pages in ${e.entries} models and engines,`
       + ' searched under each car alongside its manual. It is removed as a whole.</div>'
-      + '<div class="rmbar"><button type="button" class="danger" id="impEpcRemove">Remove all Mercedes EPC data</button>'
-      + '<label><input type="checkbox" id="impEpcCompact" checked> shrink the index file afterwards (slower)</label></div>'
+      + '<div class="rmbar"><button type="button" class="danger" id="impEpcRemove">Remove all Mercedes EPC data</button></div>'
+      + rmFiles(e.folders)
     : '<div class="muted" style="font-size:14px">None.</div>');
   if (e.entries) $('#impEpcRemove').onclick = () => {
-    if (!confirm(`Remove ALL Mercedes EPC parts data (${e.pages.toLocaleString()} pages) from the index?\n\n`
-        + 'The workshop manuals, the extracted files on disk and the spend log are not touched. '
-        + 'Getting it back means extracting or importing the EPC corpus again.')) return;
-    manRemove('remove_epc', [], $('#impEpcCompact').checked);
+    if (!confirm(`Remove ALL Mercedes EPC parts data (${e.pages.toLocaleString()} pages)?\n\n`
+        + rmSays(e.folders) + 'The workshop manuals and the spend log are not touched. '
+        + 'Getting it back means extracting it from the Mercedes VM again.')) return;
+    manRemove('remove_epc', []);
   };
 }
-async function manRemove(mode, ids, compact) {
+// Remove all WIS / EPC removes completely (the user, 2026-10-23): out of the
+// index, the index file shrunk, and the extracted files sent to the Recycle Bin
+const rmFiles = folders => `<div class="muted" style="font-size:13px; margin-top:6px">Removes it from the index, `
+  + `shrinks the index file, and sends ${folders?.length ? `the extracted files to the Recycle Bin: `
+  + folders.map(f => `<code>${esc(f)}</code>`).join(', ') : 'any extracted files to the Recycle Bin (none found)'}.</div>`;
+const rmSays = folders => 'It is removed from the index and the index file is shrunk'
+  + (folders?.length ? `; these extracted folders go to the Recycle Bin:\n${folders.map(f => '  • ' + f).join('\n')}\n\n`
+                     : '.\n\n');
+async function manRemove(mode, ids) {
   try {
     impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: '', mode, vehicles: ids, compact})}));
+      body: JSON.stringify({path: '', mode, vehicles: ids})}));
     impWatch();
   } catch (e) { $('#impStatus').textContent = e.message; }
 }

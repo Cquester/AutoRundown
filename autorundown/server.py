@@ -144,8 +144,6 @@ class ImportBody(BaseModel):
     # mode "lemon": the vehicle folders to import, relative to path
     # mode "remove": the doc_ids to remove (LEMON / folder manuals only)
     vehicles: list[str] = []
-    # modes "remove" / "remove_wis" / "remove_epc": VACUUM afterwards to shrink the file
-    compact: bool = False
 
 
 def _vehicle_or_404(conn, doc_id: str) -> dict:
@@ -1391,8 +1389,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 raise HTTPException(400, "There is no Mercedes EPC data in the index.")
             try:
                 return jobs.start(Path("."), app.state.index_path, body.mode,
-                                  only=body.vehicles if body.mode == "remove" else None,
-                                  compact=body.compact)
+                                  only=body.vehicles if body.mode == "remove" else None)
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
         if _local_path_error(body.path):

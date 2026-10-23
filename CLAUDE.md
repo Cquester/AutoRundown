@@ -131,7 +131,7 @@ python ingest.py --archive <dir> --repath         # fix archive path only
 python ask.py --vehicle f-150 "<question>"        # CLI, costs money
 python ask.py --vehicle f-150 --search "<terms>"  # keyword only, FREE
 python ask.py --usage                             # spend, by source and user
-python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual
+python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual (--compact: shrink the index)
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
 python rebuild_wis.py                             # replace the WIS part in place (keeps other manuals + spend log)
 python dev.py                                     # FREE, throwaway instance, :8757
