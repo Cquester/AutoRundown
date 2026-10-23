@@ -442,13 +442,10 @@
   .plines .co{white-space:nowrap; font-weight:700; color:var(--accent); min-width:2.5em}
   .plines tr.pick{cursor:pointer}
   .plines tr.pick:hover td, .plines tr.pick.on td{background:var(--hover)}
-  /* a parts drawing fills the box, each in a section that folds away; "Full
-     width" gives the box the whole window, a tap opens it full screen (the
-     user, 2026-10-23: "at least the width of the screen") */
+  /* a parts drawing fills the box; "Full width" gives the box the whole
+     window (the user, 2026-10-23: "at least the width of the screen") */
   .pdraw{position:relative}
-  .pdraw img.diagram{background:#fff; width:100%; cursor:zoom-in}
-  .pdraw a{display:block}
-  .pdsec > summary{cursor:pointer; padding:6px 0; font-weight:700}
+  .pdraw img.diagram{background:#fff; width:100%}
   .pdtools{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap}
   .pdtools .pback{padding-bottom:0}
   .pwide{display:none}
@@ -458,12 +455,6 @@
     body.widedraw #left{display:none}
     body.widedraw #right{border-left:0}
   }
-  .zoomv{position:fixed; inset:0; z-index:50; background:#fff; overflow:auto; -webkit-overflow-scrolling:touch}
-  .zoomv img{display:block; width:100%; cursor:zoom-in}
-  .zoomv.big img{width:250%; max-width:none; cursor:zoom-out}
-  .zoomv .zbar{position:sticky; top:0; left:0; z-index:1; display:flex; gap:8px; align-items:center;
-    padding:8px; background:var(--panel-2); border-bottom:1px solid var(--line); color:var(--text)}
-  .zoomv .zbar .pfind{position:static; margin:0; flex:1}
   .pfind{position:sticky; top:0; z-index:2; padding:8px 10px; margin-bottom:8px; border-radius:8px;
     background:var(--panel-2); border:1px solid var(--accent-dim); font-size:14px}
   .pfind .cbig{font-size:20px}
@@ -3308,12 +3299,11 @@ function partsPageHtml(p, body, inline = false) {
     + (inline ? `<button type="button" class="ghost popen" ${pageAttrs(p.page_no)}>Open as a page</button>` : '')
     + `</div>`;
 }
+// the drawing itself, nothing to open or fold (the user, 2026-10-23: a tap
+// that only enlarged it was not wanted)
 function drawingsHtml(imgs) {
-  return imgs.map((n, i) => `<details class="pdsec" open><summary>`
-    + (imgs.length > 1 ? `Drawing ${i + 1} of ${imgs.length}` : 'Drawing')
-    + `<span class="muted"> &middot; tap to enlarge</span></summary>`
-    + `<a href="${imgUrl(n)}" data-zoom title="Enlarge">`
-    + `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}"></a></details>`).join('');
+  return imgs.map((n, i) => `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}">`
+    + (imgs.length > 1 ? `<div class="muted pcap">Drawing ${i + 1} of ${imgs.length}</div>` : '')).join('');
 }
 // a Parts-tab dropdown opened: its page (drawing + list) is fetched once,
 // shown in place (the user, 2026-10-23: "by clicking a drop down it would
@@ -3342,43 +3332,8 @@ function syncWide() {
   document.body.classList.toggle('widedraw',
     wideDraw() && curTab === 'workshop' && !!srcout.querySelector('.pdraw'));
 }
-// a drawing full screen: as wide as the window, a tap zooms in and out,
-// Close (or Escape, or Back on a phone) returns to the page
-function zoomDrawing(link) {
-  closeZoom();
-  const src = link.getAttribute('href');
-  const v = document.createElement('div');
-  v.className = 'zoomv'; v.id = 'zoomv';
-  v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Parts drawing');
-  const f = link.closest('.ppage')?.querySelector('.pfind');
-  v.innerHTML = `<div class="zbar"><button type="button" class="ghost" data-zclose>Close</button>`
-    + (f && !f.hidden ? `<div class="pfind">${f.innerHTML}</div>` : '<span class="muted">Tap the drawing to zoom</span>')
-    + `</div><img alt="parts drawing" src="${esc(src)}">`;
-  document.body.appendChild(v);
-  history.pushState({...(history.state || {}), zoom: 1}, '');
-  v.querySelector('[data-zclose]').focus();
-}
-function closeZoom() { $('#zoomv')?.remove(); }
-window.addEventListener('popstate', () => { if (!history.state?.zoom) closeZoom(); });
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && $('#zoomv')) { e.preventDefault(); history.state?.zoom ? history.back() : closeZoom(); }
-});
 document.addEventListener('click', e => {
   if (e.target.closest('[data-back-parts]')) { setTab('parts'); return; }
-  if (e.target.closest('[data-zclose]')) { history.state?.zoom ? history.back() : closeZoom(); return; }
-  const zv = e.target.closest('#zoomv img');
-  if (zv) {
-    // keep the spot that was tapped under the finger
-    const box = $('#zoomv'), r0 = zv.getBoundingClientRect();
-    const fx = (e.clientX - r0.left) / r0.width, fy = (e.clientY - r0.top) / r0.height;
-    box.classList.toggle('big');
-    const r1 = zv.getBoundingClientRect();
-    box.scrollLeft += r1.left + fx * r1.width - e.clientX;
-    box.scrollTop += r1.top + fy * r1.height - e.clientY;
-    return;
-  }
-  const zl = e.target.closest('a[data-zoom]');
-  if (zl) { e.preventDefault(); zoomDrawing(zl); return; }
   const wb = e.target.closest('[data-widedraw]');
   if (wb) {
     const on = !wideDraw();

@@ -466,13 +466,13 @@ still searched too. "Front window" vs WINDSHIELD is left to the planner.
 Not yet re-asked on a paid answer.
 
 **Drawings as wide as the screen (2026-10-23, the user's request).** On a
-parts page each drawing fills the box's width, in its own section that
-folds away ("Drawing 1 of 3"). On a wide screen "Full width" gives the box
-the whole window while a parts page is open (remembered on that device,
-`autorundown.wideDrawings`; any other tab or page goes back to two
-columns). Tapping a drawing opens it full screen; a tap zooms 2.5x at that
-spot, Close / Escape / Back returns, and the "Find 7C" line picked in the
-list is shown above it.
+parts page each drawing fills the box's width. On a wide screen "Full
+width" gives the box the whole window while a parts page is open
+(remembered on that device, `autorundown.wideDrawings`; any other tab or
+page goes back to two columns). **The drawing is not a button and does not
+fold:** a first try wrapped each in a "Drawing · tap to enlarge" section
+with a full-screen zoom on tap; the user did not want either (a tap on the
+drawing should pick a part -- that needs the overlay, item 6 above).
 
 **Drawings open in place (2026-10-23, the user: "by clicking a drop down
 it would generate the diagram").** In the Parts tab a subgroup is a
