@@ -442,8 +442,28 @@
   .plines .co{white-space:nowrap; font-weight:700; color:var(--accent); min-width:2.5em}
   .plines tr.pick{cursor:pointer}
   .plines tr.pick:hover td, .plines tr.pick.on td{background:var(--hover)}
+  /* a parts drawing fills the box, each in a section that folds away; "Full
+     width" gives the box the whole window, a tap opens it full screen (the
+     user, 2026-10-23: "at least the width of the screen") */
   .pdraw{position:relative}
-  .pdraw img.diagram{background:#fff}
+  .pdraw img.diagram{background:#fff; width:100%; cursor:zoom-in}
+  .pdraw a{display:block}
+  .pdsec > summary{cursor:pointer; padding:6px 0; font-weight:700}
+  .pdtools{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap}
+  .pdtools .pback{padding-bottom:0}
+  .pwide{display:none}
+  @media (min-width:901px){
+    .pwide{display:inline-block; min-height:0; padding:6px 12px}
+    body.widedraw main{grid-template-columns:1fr}
+    body.widedraw #left{display:none}
+    body.widedraw #right{border-left:0}
+  }
+  .zoomv{position:fixed; inset:0; z-index:50; background:#fff; overflow:auto; -webkit-overflow-scrolling:touch}
+  .zoomv img{display:block; width:100%; cursor:zoom-in}
+  .zoomv.big img{width:250%; max-width:none; cursor:zoom-out}
+  .zoomv .zbar{position:sticky; top:0; left:0; z-index:1; display:flex; gap:8px; align-items:center;
+    padding:8px; background:var(--panel-2); border-bottom:1px solid var(--line); color:var(--text)}
+  .zoomv .zbar .pfind{position:static; margin:0; flex:1}
   .pfind{position:sticky; top:0; z-index:2; padding:8px 10px; margin-bottom:8px; border-radius:8px;
     background:var(--panel-2); border:1px solid var(--accent-dim); font-size:14px}
   .pfind .cbig{font-size:20px}
@@ -3133,6 +3153,7 @@ async function showPage(pageNo, doc, open = true) {
     if (seq === pageSeq) srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   } finally {
     renderDoc = null;
+    if (seq === pageSeq) syncWide();
   }
 }
 
@@ -3213,6 +3234,7 @@ function setTab(t) {
     b.tabIndex = b.dataset.tab === t ? 0 : -1;
   });
   for (const [k, sel] of Object.entries(PANE)) $(sel).hidden = k !== t;
+  syncWide();
   if (t === 'labour' && !tabQuery) showLabourTab();
   if (t === 'parts' && !tabQuery) showPartsBrowse();
   if (t === 'capacity') showFluids();
@@ -3261,18 +3283,73 @@ function partsPageHtml(p, body) {
   const imgs = p.images || [];
   // a parts page opens on the Manual page tab; this goes back to the Parts
   // tab as it was left (the open groups, or the question's results)
-  return `<button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`
+  return `<div class="pdtools"><button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`
+    + (imgs.length ? `<button type="button" class="ghost pwide" data-widedraw>${wideDraw() ? 'Two columns' : 'Full width'}</button>` : '')
+    + `</div>`
     + (imgs.length
       ? `<div class="pdraw"><div class="pfind" id="pfind" hidden></div>`
-        + imgs.map((n, i) => imgTag(n) + (imgs.length > 1
-            ? `<div class="muted pcap">Drawing ${i + 1} of ${imgs.length}</div>` : '')).join('')
+        + imgs.map((n, i) => `<details class="pdsec" open><summary>`
+            + (imgs.length > 1 ? `Drawing ${i + 1} of ${imgs.length}` : 'Drawing')
+            + `<span class="muted"> &middot; tap to enlarge</span></summary>`
+            + `<a href="${imgUrl(n)}" data-zoom title="Enlarge">`
+            + `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}"></a></details>`).join('')
         + `</div>`
       : `<div class="muted">No drawing for this group in the parts catalogue.</div>`)
     + (parts.length ? `<div class="sechead">Parts on this drawing</div>${partLinesHtml(parts, true)}` : '')
     + (rest ? `<div class="src">${renderSource(rest)}</div>` : '');
 }
+// "Full width" is remembered on this device; it only applies while a parts
+// page with drawings is open on a wide screen (CSS: body.widedraw)
+const WIDE_KEY = 'autorundown.wideDrawings';
+function wideDraw() { try { return localStorage.getItem(WIDE_KEY) === '1'; } catch (_) { return false; } }
+function syncWide() {
+  document.body.classList.toggle('widedraw',
+    wideDraw() && curTab === 'workshop' && !!srcout.querySelector('.pdraw'));
+}
+// a drawing full screen: as wide as the window, a tap zooms in and out,
+// Close (or Escape, or Back on a phone) returns to the page
+function zoomDrawing(src) {
+  closeZoom();
+  const v = document.createElement('div');
+  v.className = 'zoomv'; v.id = 'zoomv';
+  v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Parts drawing');
+  const f = $('#pfind');
+  v.innerHTML = `<div class="zbar"><button type="button" class="ghost" data-zclose>Close</button>`
+    + (f && !f.hidden ? `<div class="pfind">${f.innerHTML}</div>` : '<span class="muted">Tap the drawing to zoom</span>')
+    + `</div><img alt="parts drawing" src="${esc(src)}">`;
+  document.body.appendChild(v);
+  history.pushState({...(history.state || {}), zoom: 1}, '');
+  v.querySelector('[data-zclose]').focus();
+}
+function closeZoom() { $('#zoomv')?.remove(); }
+window.addEventListener('popstate', () => { if (!history.state?.zoom) closeZoom(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('#zoomv')) { e.preventDefault(); history.state?.zoom ? history.back() : closeZoom(); }
+});
 document.addEventListener('click', e => {
   if (e.target.closest('[data-back-parts]')) { setTab('parts'); return; }
+  if (e.target.closest('[data-zclose]')) { history.state?.zoom ? history.back() : closeZoom(); return; }
+  const zv = e.target.closest('#zoomv img');
+  if (zv) {
+    // keep the spot that was tapped under the finger
+    const box = $('#zoomv'), r0 = zv.getBoundingClientRect();
+    const fx = (e.clientX - r0.left) / r0.width, fy = (e.clientY - r0.top) / r0.height;
+    box.classList.toggle('big');
+    const r1 = zv.getBoundingClientRect();
+    box.scrollLeft += r1.left + fx * r1.width - e.clientX;
+    box.scrollTop += r1.top + fy * r1.height - e.clientY;
+    return;
+  }
+  const zl = e.target.closest('a[data-zoom]');
+  if (zl) { e.preventDefault(); zoomDrawing(zl.getAttribute('href')); return; }
+  const wb = e.target.closest('[data-widedraw]');
+  if (wb) {
+    const on = !wideDraw();
+    try { localStorage.setItem(WIDE_KEY, on ? '1' : '0'); } catch (_) {}
+    wb.textContent = on ? 'Two columns' : 'Full width';
+    syncWide();
+    return;
+  }
   const r = e.target.closest('tr[data-callout]');
   if (!r) return;
   const f = $('#pfind');

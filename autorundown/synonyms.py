@@ -70,6 +70,16 @@ PHRASES: dict[str, str | tuple[str, ...]] = {
     "flex disk": ("flexible coupling", "joint disc"),
     "guibo": ("flexible coupling", "joint disc"),
     "harmonic balancer": "vibration damper",
+    # spellings: EPC writes "MOULDING" 34k times to WIS's "molding" (a W201
+    # "front window molding clip" missed CLIP, GARNISH MOULDING BELOW
+    # WINDSHIELD, 2026-10-23); the typed word is still searched for WIS
+    "moldings": "mouldings",
+    "molding": "moulding",
+    "rocker panels": "sills",
+    "rocker panel": "sill",
+    "weatherstrips": "sealing strips",
+    "weatherstrip": "sealing strip",
+    "tailpipe": "tail pipe",
 }
 _RE = re.compile(r"\b(" + "|".join(re.escape(k) for k in
                                     sorted(PHRASES, key=len, reverse=True)) + r")\b", re.I)

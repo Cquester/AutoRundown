@@ -408,6 +408,13 @@ so in `caveats` rather than guessing.
    getting positions means a new VM run that saves it, after the overlay
    format is worked out again (the decompiled client is no longer on disk).
    Until then the UI names the callout instead of pointing at it (below).
+   **Tried instead and dropped (2026-10-23): reading the callout numbers off
+   the PNGs.** A glyph reader taught from the parts lists themselves (blobs
+   grouped into words, words matched to the page's callouts, retrained over
+   rounds; no OCR library) placed 76% of callouts on held-out pages, and
+   every callout on only ~50% of pages; letting the list decide doubtful
+   readings made it worse (66%, copies on leader-line stubs). Not good
+   enough to point a mechanic at a part, so the user chose the overlay.
 
 ## Parts diagrams (built 2026-10-17, the user's request)
 
@@ -447,6 +454,25 @@ PROPELLER SHAFT or AXLE SHAFT). Tests: `tests/test_synonyms.py`, and "sway
 bar" finding the sample STABILIZER line in `tests/test_parts_diagrams.py`.
 A parts page has "Back to Parts", which returns to the list with its groups
 still open.
+
+**Spellings (2026-10-23).** A W201 "Front window molding clip" Ask came
+back not found although CLIP, GARNISH MOULDING BELOW WINDSHIELD
+(A 201 988 05 78) is in the catalogue: parts passages *do* reach the
+answer without a workshop page, but EPC writes MOULDING 34,231 times to
+MOLDING 12,635, and WIS the other way round (molding 4,836, moulding 46).
+`synonyms.py` now adds molding -> moulding, rocker panel -> sill,
+weatherstrip -> sealing strip, tailpipe -> tail pipe; the typed word is
+still searched too. "Front window" vs WINDSHIELD is left to the planner.
+Not yet re-asked on a paid answer.
+
+**Drawings as wide as the screen (2026-10-23, the user's request).** On a
+parts page each drawing fills the box's width, in its own section that
+folds away ("Drawing 1 of 3"). On a wide screen "Full width" gives the box
+the whole window while a parts page is open (remembered on that device,
+`autorundown.wideDrawings`; any other tab or page goes back to two
+columns). Tapping a drawing opens it full screen; a tap zooms 2.5x at that
+spot, Close / Escape / Back returns, and the "Find 7C" line picked in the
+list is shown above it.
 
 See also the decompiled sources (not committed — Mercedes software): the DAO
 classes and `QueryStrings` were decompiled with CFR during the investigation.
