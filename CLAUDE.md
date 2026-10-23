@@ -50,6 +50,13 @@ docs/               notes/ (deep notes), qa/ (QA reports), images/ (README),
 .claude/            QA agents + runbook, launch.json
 ```
 
+**GitHub Actions is turned off until the repo is public** (the user,
+2026-10-23: the private repo hit its Actions billing limit). Both workflows
+are disabled on GitHub (`gh workflow disable`), so a PR shows no checks.
+**Before asking to merge, run every CI check locally** in a test box
+(`box.sh check <name>`) and say so in the PR. Keep `ci.yml` up to date anyway
+(new tests still go in its loop); once public: `gh workflow enable CI`.
+
 **After a PR is merged to `main`, build and install the MSI on this PC**
 (the user, 2026-10-23: CI no longer builds it). From an up-to-date `main`:
 `packaging\windows\build.ps1`, then `msiexec /i dist\AutoRundown-<ver>.msi

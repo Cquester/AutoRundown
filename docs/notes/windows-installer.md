@@ -82,6 +82,11 @@ macOS/Linux run from source (README), by the user's decision.
   running it would contend for the name.
 - Version: `autorundown/__init__.py` `__version__`; bump it per release (MSI
   MajorUpgrade needs a higher version to replace an install).
+- **Both workflows are disabled on GitHub since 2026-10-23** (`gh workflow
+  disable`; the private repo hit its Actions billing limit, and the user
+  will turn them back on when the repo goes public: `gh workflow enable CI`).
+  Until then the same checks run locally, `box.sh check <name>` in a test
+  box. What follows describes the workflows as they run when enabled.
 - **CI is `.github/workflows/ci.yml`** (2026-10-11, the user's design):
   every PR runs lint (`ruff --select F`), `tools/check_js.py`, the free
   suites and a sample index served and searched (job `test`), and in
