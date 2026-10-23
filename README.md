@@ -62,9 +62,9 @@ that runs the same question as a (free) keyword search.
 ### Windows: the installer
 
 Download `AutoRundown-<version>.msi` from the repo's
-[Releases](https://github.com/Cquester/AutoRundown/releases) (each new
-version on `main` publishes one, with a `.sha256` beside it) and
-double-click it. It needs no admin rights and no Python. It installs for your
+[Releases](https://github.com/Cquester/AutoRundown/releases) (with a
+`.sha256` beside it), or build the current one yourself with
+`packaging\windows\build.ps1` (it lands in `dist\`), and double-click it. It needs no admin rights and no Python. It installs for your
 user only, in `%LOCALAPPDATA%\Programs\AutoRundown`, and adds AutoRundown to
 the Start menu and desktop. The installer asks whether to **start AutoRundown
 when you sign in** (ticked by default) and, on the last page, offers to

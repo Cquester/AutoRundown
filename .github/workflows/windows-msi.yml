@@ -2,14 +2,13 @@
 # app actually works (index a sample corpus, serve it, search it), then
 # uninstall and check nothing is left. Free: no Anthropic API calls.
 #
-# Called by ci.yml alongside the tests (main, tags, and PRs that touch
-# packaging); ci.yml makes the release from its AutoRundown-msi artifact
-# once the tests, the browser checks and this have all passed.
-# Run it on its own from the Actions tab with "Run workflow".
+# Run by hand only, from the Actions tab with "Run workflow": since
+# 2026-10-23 CI builds no installer (the user's decision) -- after a merge to
+# main the session builds and installs the MSI on the PC instead. Kept for a
+# clean-runner check when packaging changes.
 name: Windows installer
 
 on:
-  workflow_call:
   workflow_dispatch:
 
 # read-only token: this workflow builds and tests, it never writes to the repo

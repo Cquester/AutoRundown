@@ -7,7 +7,7 @@ context: what is already decided, what is already tried, and what will break.
 
 **Status: working end to end.** Importers (LEMON HTML, Mercedes WIS via
 `records`, plain folders), index, retrieval, AI query layer (four providers), web UI with
-Shop setup, shop-network access, Windows MSI with CI and releases. Not built:
+Shop setup, shop-network access, Windows MSI (built on the PC), CI. Not built:
 macOS/Linux packages (they run from source, by the user's decision), code
 signing, the LEMON torrent download.
 
@@ -49,6 +49,12 @@ docs/               notes/ (deep notes), qa/ (QA reports), images/ (README),
                     SETUP-ON-NEW-PC.md, MERCEDES_WIS_EXTRACTION.md
 .claude/            QA agents + runbook, launch.json
 ```
+
+**After a PR is merged to `main`, build and install the MSI on this PC**
+(the user, 2026-10-23: CI no longer builds it). From an up-to-date `main`:
+`packaging\windows\build.ps1`, then `msiexec /i dist\AutoRundown-<ver>.msi
+AUTOSTART=1 /passive`; steps in `docs/notes/windows-installer.md`. Do not add
+the MSI build back to a workflow.
 
 **A new free test goes in `tests/` and in the "Test suites" loop in
 `.github/workflows/ci.yml`** -- or, if it drives a browser (Playwright), as
