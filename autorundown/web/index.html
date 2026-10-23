@@ -468,9 +468,6 @@
     background:var(--panel-2); border:1px solid var(--accent-dim); font-size:14px}
   .pfind .cbig{font-size:20px}
   .pcap{text-align:center; margin:-4px 0 10px; font-size:12px}
-  .pthumb{float:right; margin:0 0 6px 10px; padding:0; border:1px solid var(--line); border-radius:6px;
-    background:#fff; width:96px; height:72px; overflow:hidden; cursor:pointer}
-  .pthumb img{width:100%; height:100%; object-fit:contain; display:block}
   .tabhit::after{content:""; display:block; clear:both}
   .pbmore{margin-top:12px}
   .pbmore > summary, .pbsec > summary, .pbgrp > summary{cursor:pointer; padding:6px 0}
@@ -481,9 +478,20 @@
   .pbsub{display:block; width:calc(100% - 24px); text-align:left; margin-left:24px; padding:5px 0; font:inherit;
     color:inherit; background:none; border:0; cursor:pointer}
   .pbsub:hover, .pback:hover{text-decoration:underline}
+  /* a subgroup (or a search result's page) opens its drawing and list in
+     place, as wide as the box (the group's indent taken back) */
+  .pbdrop > summary{list-style:none}
+  .pbdrop > summary::-webkit-details-marker{display:none}
+  .pbdrop > summary::before{content:"\25B8"; display:inline-block; width:1em; color:var(--muted)}
+  .pbdrop[open] > summary::before{content:"\25BE"}
+  .pbdrop[open] > summary{font-weight:700}
+  .pbbody{padding:4px 0 14px}
+  .pbgrp .pbbody{margin-left:-12px}
+  .pshow{margin-left:0; width:100%; color:var(--accent)}
+  .popen{margin-top:10px}
   .pback{font:inherit; color:var(--accent); background:none; border:0; padding:0 0 8px; cursor:pointer}
   .gno{display:inline-block; min-width:2.2em; color:var(--muted); font-variant-numeric:tabular-nums}
-  @media (max-width:700px){ .plines .co{display:block} .pthumb{width:72px; height:54px} }
+  @media (max-width:700px){ .plines .co{display:block} }
   /* Torque specs / Capacities: what, then the value as printed */
   .menurow{display:flex; flex-wrap:wrap; gap:0 28px}
   .menurow label.check{margin-top:0}
@@ -3275,29 +3283,57 @@ function partLinesHtml(lines, clickable = false) {
 // which callout to look for. Where each callout sits on the drawing is not
 // extracted (EPC keeps it in the drawing file's annotation layer), so the
 // label is named, not pointed at.
-function partsPageHtml(p, body) {
+// inline: the same inside a Parts-tab dropdown (no Back / Full width; "Open
+// as a page" instead). Each copy finds its own "Find 7C" line (.ppage).
+function partsPageHtml(p, body, inline = false) {
   const lines = body.split('\n');
   const parts = lines.filter(l => PART_LINE.test(l));
+  // the drawings are shown on top: their [diagram: …] markers are left out
   const rest = lines.filter(l => !PART_LINE.test(l) && !/^Callout \| Part number/.test(l)
+                                 && !/^\s*\[diagram:[^\]]*\]\s*$/.test(l)
                                  && l.trim() !== (p.title || '').trim()).join('\n').trim();
   const imgs = p.images || [];
   // a parts page opens on the Manual page tab; this goes back to the Parts
   // tab as it was left (the open groups, or the question's results)
-  return `<div class="pdtools"><button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`
-    + (imgs.length ? `<button type="button" class="ghost pwide" data-widedraw>${wideDraw() ? 'Two columns' : 'Full width'}</button>` : '')
-    + `</div>`
+  return `<div class="ppage">`
+    + (inline ? ''
+      : `<div class="pdtools"><button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`
+        + (imgs.length ? `<button type="button" class="ghost pwide" data-widedraw>${wideDraw() ? 'Two columns' : 'Full width'}</button>` : '')
+        + `</div>`)
     + (imgs.length
-      ? `<div class="pdraw"><div class="pfind" id="pfind" hidden></div>`
-        + imgs.map((n, i) => `<details class="pdsec" open><summary>`
-            + (imgs.length > 1 ? `Drawing ${i + 1} of ${imgs.length}` : 'Drawing')
-            + `<span class="muted"> &middot; tap to enlarge</span></summary>`
-            + `<a href="${imgUrl(n)}" data-zoom title="Enlarge">`
-            + `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}"></a></details>`).join('')
-        + `</div>`
+      ? `<div class="pdraw"><div class="pfind" hidden></div>` + drawingsHtml(imgs) + `</div>`
       : `<div class="muted">No drawing for this group in the parts catalogue.</div>`)
     + (parts.length ? `<div class="sechead">Parts on this drawing</div>${partLinesHtml(parts, true)}` : '')
-    + (rest ? `<div class="src">${renderSource(rest)}</div>` : '');
+    + (rest ? `<div class="src">${renderSource(rest)}</div>` : '')
+    + (inline ? `<button type="button" class="ghost popen" ${pageAttrs(p.page_no)}>Open as a page</button>` : '')
+    + `</div>`;
 }
+function drawingsHtml(imgs) {
+  return imgs.map((n, i) => `<details class="pdsec" open><summary>`
+    + (imgs.length > 1 ? `Drawing ${i + 1} of ${imgs.length}` : 'Drawing')
+    + `<span class="muted"> &middot; tap to enlarge</span></summary>`
+    + `<a href="${imgUrl(n)}" data-zoom title="Enlarge">`
+    + `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}"></a></details>`).join('');
+}
+// a Parts-tab dropdown opened: its page (drawing + list) is fetched once,
+// shown in place (the user, 2026-10-23: "by clicking a drop down it would
+// generate the diagram")
+document.addEventListener('toggle', async e => {
+  const d = e.target;
+  if (!d.matches?.('details.pbdrop') || !d.open || d.dataset.loaded) return;
+  d.dataset.loaded = '1';
+  const out = d.querySelector('.pbbody'), doc = d.dataset.doc;
+  out.innerHTML = `<span class="spinner"></span>`;
+  try {
+    const p = await api(`/api/page/${encodeURIComponent(doc)}/${encodeURIComponent(d.dataset.pno)}`);
+    let body = p.text || '';
+    if (p.title && body.trimStart().startsWith(p.title)) body = body.trimStart().slice(p.title.length).trimStart();
+    out.innerHTML = withDoc(doc, () => partsPageHtml(p, body, true));
+  } catch (err) {
+    delete d.dataset.loaded;
+    out.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
+  }
+}, true);
 // "Full width" is remembered on this device; it only applies while a parts
 // page with drawings is open on a wide screen (CSS: body.widedraw)
 const WIDE_KEY = 'autorundown.wideDrawings';
@@ -3308,12 +3344,13 @@ function syncWide() {
 }
 // a drawing full screen: as wide as the window, a tap zooms in and out,
 // Close (or Escape, or Back on a phone) returns to the page
-function zoomDrawing(src) {
+function zoomDrawing(link) {
   closeZoom();
+  const src = link.getAttribute('href');
   const v = document.createElement('div');
   v.className = 'zoomv'; v.id = 'zoomv';
   v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Parts drawing');
-  const f = $('#pfind');
+  const f = link.closest('.ppage')?.querySelector('.pfind');
   v.innerHTML = `<div class="zbar"><button type="button" class="ghost" data-zclose>Close</button>`
     + (f && !f.hidden ? `<div class="pfind">${f.innerHTML}</div>` : '<span class="muted">Tap the drawing to zoom</span>')
     + `</div><img alt="parts drawing" src="${esc(src)}">`;
@@ -3341,7 +3378,7 @@ document.addEventListener('click', e => {
     return;
   }
   const zl = e.target.closest('a[data-zoom]');
-  if (zl) { e.preventDefault(); zoomDrawing(zl.getAttribute('href')); return; }
+  if (zl) { e.preventDefault(); zoomDrawing(zl); return; }
   const wb = e.target.closest('[data-widedraw]');
   if (wb) {
     const on = !wideDraw();
@@ -3352,9 +3389,9 @@ document.addEventListener('click', e => {
   }
   const r = e.target.closest('tr[data-callout]');
   if (!r) return;
-  const f = $('#pfind');
+  const host = r.closest('.ppage'), f = host?.querySelector('.pfind');
   if (!f) return;
-  srcout.querySelectorAll('tr.pick.on').forEach(x => x.classList.remove('on'));
+  host.querySelectorAll('tr.pick.on').forEach(x => x.classList.remove('on'));
   r.classList.add('on');
   f.hidden = false;
   f.innerHTML = `Find <b class="cbig">${esc(r.dataset.callout)}</b> on the drawing &mdash; `
@@ -3363,8 +3400,8 @@ document.addEventListener('click', e => {
 });
 
 // The car's parts diagrams as the catalogue reads (server: parts_browse.py):
-// chassis, engines, options > group > subgroup; a subgroup opens its page
-// (drawing + list). Shown in the Parts tab before a question, and folded
+// chassis, engines, options > group > subgroup; a subgroup is a dropdown
+// that shows its page (drawing + list) in place. Shown in the Parts tab before a question, and folded
 // under the results after one.
 let browseSeq = 0;
 async function partsBrowse(target) {
@@ -3393,11 +3430,11 @@ async function partsBrowse(target) {
       + s.groups.map(g => `<details class="pbgrp"><summary><span class="gno">${esc(g.group)}</span> ${esc(g.name || '')}</summary>`
         + g.subs.map(sub => {
             const p = sub.pages[0];
-            return `<button type="button" class="pbsub" data-page="${esc(p.page_no)}" data-doc="${esc(doc)}">`
+            return `<details class="pbdrop" data-pno="${esc(p.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub">`
               + `<span class="gno">${esc(sub.sub)}</span> ${esc(sub.name || '(no name)')}`
               + (p.drawings ? '' : ' <span class="muted">(no drawing)</span>')
               + (sub.pages.length > 1 ? ` <span class="muted">· ${sub.pages.length} catalogs</span>` : '')
-              + `</button>`;
+              + `</summary><div class="pbbody"></div></details>`;
           }).join('') + `</details>`).join('')
       + `</details>`).join(''));
 }
@@ -3430,12 +3467,13 @@ async function tabSearch(tab, q, also, seq) {
     pane.innerHTML = withDoc(doc, () => head
       + (rows.length ? `<div class="card" style="padding:0">` + rows.map(r =>
           `<div class="tabhit">`
-          // the page's drawing beside it: tap to open the drawing and its list
-          + (r.drawings?.length ? `<button type="button" class="pthumb" ${pageAttrs(r.page_no)} title="Open the drawing">`
-              + `<img loading="lazy" alt="drawing" src="${imgUrl(r.drawings[0])}"></button>` : '')
           + `<button type="button" class="hit" style="padding:0" ${pageAttrs(r.page_no)}>
              <div class="t">${esc(r.title)}</div><div class="s">${esc(r.section_path)}</div></button>`
           + (r.lines?.length ? partLinesHtml(r.lines) : '')
+          // the page's drawing and whole list, opened in place
+          + `<details class="pbdrop" data-pno="${esc(r.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub pshow">`
+          + (r.drawings?.length ? 'Show drawing and all its parts' : 'Show all parts on this page')
+          + `</summary><div class="pbbody"></div></details>`
           + `</div>`).join('') + `</div>`
         : `<div class="card"><div class="notfound">${none}</div></div>`)
       + `<details class="pbmore"><summary>Browse all parts diagrams for this car</summary><div></div></details>`);

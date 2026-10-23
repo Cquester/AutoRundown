@@ -474,6 +474,15 @@ columns). Tapping a drawing opens it full screen; a tap zooms 2.5x at that
 spot, Close / Escape / Back returns, and the "Find 7C" line picked in the
 list is shown above it.
 
+**Drawings open in place (2026-10-23, the user: "by clicking a drop down
+it would generate the diagram").** In the Parts tab a subgroup is a
+dropdown: opening it fetches its page once and shows the drawing and the
+whole list right there, as wide as the box, with "Open as a page" for the
+page view (and Full width). Each search result has the same dropdown
+("Show drawing and all its parts") in place of the old thumbnail. A page's
+`[diagram: …]` markers are no longer rendered under the list -- the
+drawing showed twice.
+
 See also the decompiled sources (not committed — Mercedes software): the DAO
 classes and `QueryStrings` were decompiled with CFR during the investigation.
 Never commit `tbjdbc.jar`, the EWA JRE, `epc.jar`, or any extracted part data
