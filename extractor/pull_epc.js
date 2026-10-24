@@ -290,7 +290,7 @@ function pause(){ if(SLEEP>0) Thread.sleep(SLEEP); }
 function backfillCallouts(){
   var dir=new File(IMG_DIR); if(!dir.isDirectory()) return;
   var todo=[];
-  dir.list().forEach(function(f){ f=String(f);
+  Java.from(dir.list()).forEach(function(f){ f=String(f);   // a Java String[]: no forEach of its own
     if(/\.png$/.test(f) && !new File(IMG_DIR+"/"+f.replace(/\.png$/,".callouts.json")).isFile()) todo.push(f.replace(/\.png$/,"")); });
   if(!todo.length) return;
   print("callouts: "+todo.length+" drawings on disk have none yet; reading them from the catalogue");

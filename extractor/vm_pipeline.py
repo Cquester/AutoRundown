@@ -540,8 +540,11 @@ def boot_check(vm: str, steps: list[str], subnet: str, wait_s: int, wis_port: in
 
 # Errors that a power-cycle cannot fix: the pull itself is wrong, not the
 # database. On 2026-10-15 an OutOfMemoryError in pull_epc.js was retried six
-# times, the VM rebooted each time.
-FATAL_MARKERS = ("OutOfMemoryError", "SyntaxError")   # never a dropped connection
+# times, the VM rebooted each time; on 2026-10-23 a script bug (a Java
+# array's missing forEach) was too. A null from a lost database can raise a
+# TypeError, so only the messages a code mistake gives are listed.
+FATAL_MARKERS = ("OutOfMemoryError", "SyntaxError", "ReferenceError",
+                 "has no such function", "is not a function")   # never a dropped connection
 LAST_FATAL = ""
 
 
