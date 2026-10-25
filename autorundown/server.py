@@ -60,6 +60,9 @@ class AskBody(BaseModel):
     # without saving settings first: any model in the requester's menu
     # (config.menu_models), whichever provider it is from
     model: str | None = None
+    # a follow-up in a chat: the history entry the chat is kept in. Its car
+    # and earlier turns come from that entry, never from this body.
+    chat: int | None = None
 
 
 class SettingsBody(BaseModel):
@@ -785,20 +788,47 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 key = config.pick_key(cfg, who.user_id, who.admin, provider)
             except config.NoKeyForRequest as exc:
                 raise HTTPException(400, str(exc))
+            variant, engine, year, earlier = body.variant, body.engine, body.year, None
+            if body.chat is not None:
+                # a follow-up: only a chat this requester can see, about this
+                # car; the car as the chat had it (the car box may have moved on)
+                aconn = adb()
+                try:
+                    entry = history.get(aconn, body.chat, who)
+                finally:
+                    aconn.close()
+                if entry is None or entry["kind"] != "ask" or entry["doc_id"] != vehicle["doc_id"]:
+                    raise HTTPException(404, "That conversation is not in your history.")
+                earlier = query.earlier_turns(entry)
+                if len(earlier) > query.MAX_FOLLOWUPS:
+                    raise HTTPException(400, f"This conversation has {query.MAX_FOLLOWUPS} follow-ups; "
+                                             "start a new one for the next question.")
+                variant, engine, year = entry["variant"], entry["engine"], entry["year"]
             try:
                 result = query.ask(
                     conn, vehicle, body.question, key.key,
                     include_other_variants=body.include_other_variants,
-                    model=chosen, source="web", variant=body.variant,
-                    engine=body.engine, year=body.year,
+                    model=chosen, source="web", variant=variant,
+                    engine=engine, year=year,
                     user_id=who.user_id, user_name=who.name or None,
-                    key_ref=key.ref, provider=provider)
+                    key_ref=key.ref, provider=provider, earlier=earlier)
             except (query.NoApiKey, query.ApiUnavailable) as exc:
                 raise HTTPException(400, str(exc))
             out = result.as_dict()
-            # kept whole: a paid answer can be opened again without paying
-            _remember(who, "ask", vehicle, body.variant, body.engine, body.year,
-                      body.question, out)
+            # kept whole: a paid answer can be opened again without paying; a
+            # follow-up goes into its chat's entry
+            if body.chat is not None:
+                aconn = adb()
+                try:
+                    history.add_turn(aconn, body.chat, who, body.question, out)
+                except (sqlite3.Error, TypeError, ValueError):
+                    pass
+                finally:
+                    aconn.close()
+                out["chat_id"] = body.chat
+            else:
+                out["chat_id"] = _remember(who, "ask", vehicle, variant, engine, year,
+                                           body.question, out)
             return out
         finally:
             conn.close()
@@ -807,10 +837,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         # never let the history break a good answer or search
         aconn = adb()
         try:
-            history.add(aconn, who, kind, history.pick(vehicle, variant, engine, year),
-                        question, result)
+            return history.add(aconn, who, kind, history.pick(vehicle, variant, engine, year),
+                               question, result)
         except (sqlite3.Error, TypeError, ValueError):
-            pass
+            return None
         finally:
             aconn.close()
 

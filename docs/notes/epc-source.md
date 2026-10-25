@@ -598,6 +598,41 @@ car"; "what if i just want a little more or less").**
   question side's share in `autorundown.split`; double-click or Home puts
   the default layout back.
 
+**AI chat and Keyword search, follow-ups (2026-10-25, the user's request).**
+"If I had a follow up question it can search the database for me ... I can
+say I tried this and from the manual it can respond to that"; the first
+answer keeps its format ("it's gonna help you find the documentation you need
+but not try and give you the answers"); a follow-up "could only use the
+manual to respond, not any online source". Then: "a tab on the left page
+where one will be AI chat and then one will be keyword search".
+- The left side has two tabs (`#modeTabs`, `setMode`/`syncMode`): AI chat
+  in `#out`, Keyword search in `#outKw`, each with its own typed text
+  (drafts) and results; the right box shows whichever ran last. Remembered
+  per device (`autorundown.leftMode`). Clear is "New chat" / "Clear search"
+  and clears only that tab.
+- A chat is one `history` entry: the first answer is its `result`,
+  follow-ups go into `result.turns` (`history.add_turn`; cost added; the
+  entry moves to the top). `/api/ask` takes `chat` = that entry's id; the
+  server reads the entry as `who` can see it (else 404), requires the same
+  `doc_id`, and takes the car (variant, engine, year) and the earlier turns
+  from it -- never from the request. At most `query.MAX_FOLLOWUPS` (10).
+- A follow-up is one more planner + answer call. The planner sees the
+  conversation; the answer call uses `FOLLOWUP_SYSTEM` (ANSWER_SYSTEM plus:
+  earlier answers are context, not sources; say what the page says the
+  reported results mean or its next step, naming the step; if the manual
+  doesn't say, found=false; never diagnose from general knowledge). The
+  pages the chat cited (`_carried_pages`, newest first, at most 4, 8,000
+  chars each) are read again from the index in the car's scope and lead the
+  passages, marked "cited earlier in this conversation"; they are real
+  passages, so `_verify_citations` and the other checks apply unchanged.
+  A first question sends exactly the request it did before.
+- The chat shows newest first under the box: the latest question over its
+  full answer, then "Earlier in this chat", short. History shows "AI · N
+  follow-ups"; opening a chat redraws every turn for free and can go on.
+- Tests: `tests/test_chat.py` (the prompt the model gets, carried pages,
+  citation checks, who may follow up, the car from the entry, the limit).
+  **Not yet tried on a paid answer.**
+
 **Wider, Clear question, History (2026-10-23, the user's list).**
 - "⇤ Wider" at the end of the right box's tab row hides the question column
   on wide screens (≥901 px; remembered, `autorundown.collapsed`); "⇥ Show

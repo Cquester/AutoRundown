@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from . import providers
 from .providers import ApiUnavailable, NoApiKey  # noqa: F401  (callers catch query.X)
-from .search import as_ids, multi_search, scope_ids
+from .search import as_ids, get_page, multi_search, scope_ids
 
 # Anthropic's models (providers.PROVIDERS has every provider's); kept here
 # under the old name for callers and tests
@@ -234,6 +234,86 @@ Putting things in the right field:
   from a [diagram: ...] marker in the passages."""
 
 
+# Follow-ups in a chat (the user, 2026-10-25): the first answer is as above,
+# a brief and the manual page; then the mechanic works through the page and
+# reports what they found ("tests 1-4 done, got this -- is that the
+# culprit?"). The reply still comes only from the manual: what the page says
+# those results mean, or its next step, cited like any answer. "It could only
+# use the manual to respond, not any online source."
+FOLLOWUP_SYSTEM = ANSWER_SYSTEM + """
+
+This is a FOLLOW-UP in a conversation about one job on this vehicle. The
+conversation so far is given first; earlier answers are context, NOT sources:
+cite only the passages supplied now (the pages cited earlier are among them).
+- The mechanic usually reports what they tested or saw while working through
+  the manual page ("did tests 1-4, got 0 V at pin 3", "the coil checks out").
+  Answer briefly from the passages: what the manual says those results mean
+  -- the conclusion or the next step the page gives for that result -- and
+  name the step or test as the page numbers it ("step B3", "test 4"). Put the
+  page in `document_page`.
+- If the manual does not say what those results mean, or the passages do not
+  cover what they ask, say so plainly (found=false, the reason in `caveats`).
+  Never diagnose from general knowledge, never guess a culprit the page does
+  not name, and never say a result "confirms" something the page does not.
+- If the results the mechanic reports do not match any outcome the page
+  lists, say which outcomes it lists instead of picking the closest.
+- Values (voltages, resistances, torques) only as the page prints them, with
+  the page cited, exactly as for a first answer."""
+
+MAX_FOLLOWUPS = 10      # follow-ups in one chat; a new question starts another
+CARRY_PAGES = 4         # pages cited earlier in the chat, sent again with each follow-up
+CARRY_CHARS = 8000      # of each such page's text
+EARLIER_CHARS = 600     # of each earlier answer, in the conversation summary
+
+
+def earlier_turns(entry: dict | None) -> list[dict]:
+    """The turns of a stored chat (a history.get entry), first question
+    first, each with its `question`: the first answer is the entry's result
+    itself, follow-ups are in its `turns`."""
+    result = (entry or {}).get("result")
+    if not result:
+        return []
+    first = {k: v for k, v in result.items() if k != "turns"}
+    return [{**first, "question": entry.get("question") or ""}, *(result.get("turns") or [])]
+
+
+def _conversation(earlier: list[dict]) -> str:
+    """The chat so far, for the planner and the answer call. Lines start
+    with "Mechanic" / "Answer", never "Question:", which is the new message."""
+    lines = []
+    for t in earlier:
+        lines.append(f"Mechanic: {(t.get('question') or '')[:EARLIER_CHARS]}")
+        a = (t.get("answer") or "").strip() if t.get("found") else "(not found in the manual)"
+        specs = "; ".join(f"{s['name']}: {s['value']}" for s in (t.get("specs") or [])[:8])
+        if specs:
+            a += f" [values: {specs}]"
+        if t.get("document_page"):
+            a += f" [manual page {t['document_page']}]"
+        lines.append(f"Answer: {a[:EARLIER_CHARS]}")
+    return "\n".join(lines)
+
+
+def _carried_pages(conn: sqlite3.Connection, scope, earlier: list[dict]) -> list[dict]:
+    """The pages the chat already relied on, newest first, as passages: the
+    pinpoint test stays in front of the model while the mechanic works
+    through it. Read from the index in the car's scope, never from the
+    stored answer's text."""
+    nos: list[str] = []
+    for t in reversed(earlier):
+        for p in [t.get("document_page"), *(t.get("source_pages") or [])]:
+            if p and str(p) not in nos:
+                nos.append(str(p))
+    out = []
+    for no in nos:
+        page = get_page(conn, scope, no)
+        if page:
+            out.append({**page, "body": (page.get("text") or "")[:CARRY_CHARS],
+                        "score": 0.0, "earlier": True})
+        if len(out) >= CARRY_PAGES:
+            break
+    return out
+
+
 @dataclass
 class Usage:
     model: str = DEFAULT_MODEL
@@ -372,10 +452,15 @@ ANSWER_EXAMPLE = {
     "diagrams": [], "caveats": ""}
 
 
-def plan_queries(call, question: str, vehicle: dict, usage: Usage) -> list[str]:
-    """`call(kind, system, user, schema, example)` -> providers.Reply."""
+def plan_queries(call, question: str, vehicle: dict, usage: Usage,
+                 earlier: list[dict] | None = None) -> list[str]:
+    """`call(kind, system, user, schema, example)` -> providers.Reply.
+    A follow-up sees the chat so far, so "what does 0 V at pin 3 mean"
+    searches for the job the chat is about."""
+    chat = (f"Conversation so far (the new message follows it):\n{_conversation(earlier)}\n"
+            if earlier else "")
     reply = call("plan", PLANNER_SYSTEM,
-                 f"Vehicle: {_vehicle_label(vehicle)}\nQuestion: {question}",
+                 f"Vehicle: {_vehicle_label(vehicle)}\n{chat}Question: {question}",
                  SearchPlan, PLAN_EXAMPLE)
     usage.add(reply)
     plan = reply.parsed
@@ -515,6 +600,8 @@ def format_passages(passages: list[dict], max_chars: int = 60000) -> str:
         if p.get("linked_from"):
             header += (f"\nlinked from page {p['linked_from']}: a procedure or table "
                        "that page refers to")
+        if p.get("earlier"):
+            header += "\ncited earlier in this conversation"
         if p.get("applicability") != "this_vehicle":
             header += "\nWARNING: this page documents a different variant/trim"
         block = f"{header}\n---\n{strip_link_marks(p['body'])}"
@@ -810,7 +897,7 @@ def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         variant: int | None = None, engine: str | None = None,
         year: int | None = None, user_id: int | None = None,
         user_name: str | None = None, key_ref: str | None = None,
-        provider: str | None = None) -> Result:
+        provider: str | None = None, earlier: list[dict] | None = None) -> Result:
     """Answer one question, recording what it cost.
 
     `provider` is the AI provider ("anthropic", "gemini", "xai", "deepseek";
@@ -821,12 +908,14 @@ def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     `source` tags the spend as web/cli/eval so a bill can be attributed later;
     `user_id`/`user_name` tag it with the signed-in mechanic, if any;
     `key_ref` with whose key paid (config.pick_key: "company" | "user:<id>").
+    `earlier`: the chat's turns so far (earlier_turns), for a follow-up.
     """
     provider = provider or providers.provider_of(model) or providers.DEFAULT_PROVIDER
     usage = Usage(model=model, provider=provider)
     try:
         return _ask(conn, vehicle, question, api_key, per_query, cap,
-                    include_other_variants, model, usage, variant, engine, year)
+                    include_other_variants, model, usage, variant, engine, year,
+                    earlier or [])
     finally:
         # log even when the run failed partway -- a failed second call still
         # billed for the first one
@@ -839,7 +928,8 @@ def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
 def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
          per_query: int, cap: int, include_other_variants: bool,
          model: str, usage: Usage, variant: int | None = None,
-         engine: str | None = None, year: int | None = None) -> Result:
+         engine: str | None = None, year: int | None = None,
+         earlier: list[dict] | None = None) -> Result:
     if not api_key:
         raise NoApiKey(providers.no_key_message(usage.provider))
 
@@ -850,7 +940,7 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     # tell the model which car within the generation, not just "W212 E-Class"
     vehicle = narrowed(vehicle, variant, engine, year)
 
-    queries = plan_queries(call, question, vehicle, usage)
+    queries = plan_queries(call, question, vehicle, usage, earlier)
     # the manuals' own wording first: the planner wrote "valve cover ..." for
     # a 190E 2.3-16 and WIS only says "cylinder head cover" (synonyms.py)
     from .synonyms import translations
@@ -860,6 +950,11 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
                             per_query=per_query, cap=cap,
                             include_other_variants=include_other_variants)
     passages = with_linked(conn, vehicle, scope, passages, [question, *queries])
+    if earlier:
+        # the pages the chat already relied on lead, then this message's own
+        carried = _carried_pages(conn, scope, earlier)
+        seen = {str(p["page_no"]) for p in carried}
+        passages = carried + [p for p in passages if str(p["page_no"]) not in seen]
 
     if not passages:
         return Result(
@@ -869,12 +964,15 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
             queries=queries, usage=usage,
         )
 
+    chat = (f"Conversation so far (context only, not a source):\n{_conversation(earlier)}\n"
+            if earlier else "")
     prompt = (
         f"Vehicle: {_vehicle_label(vehicle)}\n"
-        f"Question: {question}\n\n"
+        f"{chat}Question: {question}\n\n"
         f"Manual passages:\n\n{format_passages(passages)}"
     )
-    reply = call("answer", ANSWER_SYSTEM, prompt, AnswerModel, ANSWER_EXAMPLE)
+    reply = call("answer", FOLLOWUP_SYSTEM if earlier else ANSWER_SYSTEM, prompt,
+                 AnswerModel, ANSWER_EXAMPLE)
     usage.add(reply)
 
     if reply.refusal:

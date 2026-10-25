@@ -196,6 +196,7 @@ def main(argv=None):
 
         searches.clear()
         values.clear()
+        pg.click("#modeTabs [data-mode=kw]")             # the left side's Keyword search tab
         pg.fill("#q", "wheel bolts")
         pg.click("#searchBtn")
         pg.wait_for_timeout(1500)
@@ -219,6 +220,8 @@ def main(argv=None):
         ph.click("#carPill")
         pick(ph, w211.get("model") or "W211")
         ph.fill("#q", QUESTION)
+        if ph.locator("#askBtn").is_hidden():   # the tab is remembered per device
+            ph.click("#modeTabs [data-mode=ai]")
         ph.click("#askBtn")
         ph.wait_for_selector("#out .answer")
         ph.wait_for_timeout(500)            # the bar steps aside while the keyboard is up

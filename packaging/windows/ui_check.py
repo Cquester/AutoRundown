@@ -87,9 +87,10 @@ def main() -> int:
         expect(page.locator("#carInput")).to_have_value(label)
         step(f"car box: {args.car!r} -> {label}")
 
+        page.click("#modeTabs [data-mode=kw]")           # the left side's Keyword search tab
         page.fill("#q", args.query)
         page.click("#searchBtn")
-        hits = page.locator("#out .hit")
+        hits = page.locator("#outKw .hit")
         expect(hits.first).to_be_visible(timeout=15_000)
         step(f"keyword search {args.query!r}: {hits.count()} hit(s), first: "
              f"{hits.first.locator('.t').inner_text()}")

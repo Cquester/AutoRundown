@@ -337,6 +337,8 @@ def main(argv=None):
         page.wait_for_function("vehicles.length > 0 && carIndex.length > 0")
 
         def search(tag):
+            if page.locator("#searchBtn").is_hidden():
+                page.click("#modeTabs [data-mode=kw]")   # the left side's Keyword search tab
             page.fill("#q", tag)
             with page.expect_response(lambda r: "/api/search?" in r.url
                                       and f"q={tag}&" in r.url):
