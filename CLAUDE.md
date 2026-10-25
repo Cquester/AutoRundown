@@ -390,7 +390,9 @@ from the index, through the same `_verify_citations` and checks. A chat is
 one `history` entry; a follow-up's car and earlier turns come from that
 entry, never from the request. Earlier answers are never a source. Do not
 let a follow-up skip a check or answer from general knowledge. Tests:
-`tests/test_chat.py`. Details: `epc-source.md` ("AI chat and Keyword
+`tests/test_chat.py`. First paid chat (Haiku, $0.032): an F-150 J2 reading
+of 50 ohms was answered "go to J3", the page's own branch. Details:
+`epc-source.md` ("AI chat and Keyword
 search").
 
 **An answer also sees the procedures its pages link to; still one AI call**

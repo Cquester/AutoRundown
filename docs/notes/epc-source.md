@@ -631,7 +631,13 @@ where one will be AI chat and then one will be keyword search".
   follow-ups"; opening a chat redraws every turn for free and can go on.
 - Tests: `tests/test_chat.py` (the prompt the model gets, carried pages,
   citation checks, who may follow up, the car from the entry, the limit).
-  **Not yet tried on a paid answer.**
+- **First paid chat (2026-10-25, the user's OK; Haiku, $0.032, 4 calls).**
+  2015 F-150, installed app: "Bed lamps not working" -> Pinpoint Test J
+  (page 4830), J1 and the bed-lamps-only branch, 3 sentences ($0.017).
+  Follow-up "J1: all lamps stay on after 30 s. J2: both switches off,
+  C2280E-8 to ground reads 50 ohms" -> "shorted to ground (the manual
+  specifies > 10,000 ohms) ... proceed to J3", which is the page's own "No"
+  branch; page 4830, nothing dropped ($0.016). Not yet tried on WIS.
 
 **Wider, Clear question, History (2026-10-23, the user's list).**
 - "⇤ Wider" at the end of the right box's tab row hides the question column
