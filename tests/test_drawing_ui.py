@@ -11,6 +11,8 @@ two drawings and callout sidecars) and checks what the user asked for on
   - the Manual page tab starts as the car's contents; a section opens, a
     document opens as the page with "Manual contents", which comes back with
     the section still open; Clear question shows the contents again;
+  - the page opens in Original layout after ordinary clicks, and Reading
+    view is remembered only when picked;
   - a parts page with several drawings lists under each drawing the parts
     printed on it, and the rest under "Other parts on this page";
   - a tapped number turns red (on the drawing and in the list); several can
@@ -114,6 +116,18 @@ def main(argv=None):
         pg.wait_for_selector("#srcout [data-manual-contents]", timeout=10_000)
         check("contents: a document opens as its page", title.strip() in pg.inner_text("#srcout h3"),
               f"{title!r} vs {pg.inner_text('#srcout h3')!r}")
+        # every click above went through the page's click handler, which once
+        # matched <body data-view> and saved "reading" (2026-10-25)
+        view = lambda: pg.evaluate("localStorage.getItem(ORIGINAL_KEY)")
+        # (the sample WIS has no page layouts, so the page then falls back to
+        # its text by itself -- "No original layout ..." -- without saving)
+        pg.wait_for_selector("#srcout #origFrame, #srcout #origNone", timeout=10_000)
+        check("view: ordinary clicks leave the page on Original layout",
+              view() is None and pg.evaluate("wantOriginal()"), f"stored {view()!r}")
+        pg.click("#srcout .viewtoggle [data-view=reading]")
+        check("view: Reading view is kept only when picked",
+              view() == "reading" and pg.locator("#srcout #readingView").is_visible(), repr(view()))
+        pg.evaluate("localStorage.removeItem(ORIGINAL_KEY)")
         pg.click("#srcout [data-manual-contents]")
         pg.wait_for_selector("#srcout .mbrowse", timeout=5_000)
         check("contents: 'Manual contents' comes back with the section still open",
