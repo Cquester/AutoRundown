@@ -221,6 +221,23 @@ def main() -> int:
         check("another model's document is not in this car's contents", "1002304" in every, False)
         check("an unknown section is 404",
               app.get(url, params={"path": ["99 Nothing"]}).status_code, 404)
+        # WIS's own names (Gruppen, pulled with the vehicle tables): the car's
+        # name wins over another vehicle type's, a subgroup only it names
+        # falls back to it, and a group WIS doesn't name keeps the labour book's
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executescript("""
+            CREATE TABLE wis_group(vehicle_type INTEGER, fgr INTEGER, fug INTEGER, name TEXT);
+            INSERT INTO wis_group VALUES (1, 42, -1, 'Brakes, mechanical, hydraulic'),
+                                         (1, 42, 10, 'Disc brake'), (5, 42, 10, 'Truck brake'),
+                                         (5, 0, 0, 'General');
+            """)
+        names2 = wis_links.group_names(cdir)
+        check("group names: the car's, else another type's, else the labour book's",
+              (names2["42"], names2["42.10"], names2["00.00"], names2["15"]),
+              ("Brakes, mechanical, hydraulic", "Disc brake", "General", "Electrical components, engine"))
+        sub = app.get(url, params={"path": ["42 Brakes, mechanical, hydraulic"]}).json()
+        check("subgroups are named (a new sidecar rebuilds the contents)",
+              [c["name"] for c in sub["children"]], ["42.10 Disc brake"])
         v23, v26 = names.index("190 E 2.3 16"), names.index("190 E 2.6")
         check("labour times need the exact model",
               app.get(f"/api/wis/labour/{c201}").json()["need"], "variant")

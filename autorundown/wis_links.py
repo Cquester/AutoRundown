@@ -81,9 +81,20 @@ def docnrs(corpus: Path, dok_ids: list[int]) -> dict[int, list[str]]:
 
 
 def group_names(corpus: Path) -> dict[str, str]:
-    """{'42': 'Brakes, mechanical, hydraulic', ...}: Mercedes' function groups,
-    named in the labour book; the same numbers as WIS document numbers."""
-    return {kg: name for kg, name in (_rows(corpus, "SELECT kg, name FROM labour_group") or [])}
+    """{'42': 'Brakes, mechanical, hydraulic', '42.10': 'Disc brake', ...}:
+    Mercedes' function groups and subgroups, the same numbers as WIS document
+    numbers. WIS's own names (`wis_group`, passenger cars first, then the
+    other vehicle types for a number cars don't have); a group WIS doesn't
+    name keeps the labour book's name; a subgroup with no name has none."""
+    out = {kg: name for kg, name in (_rows(corpus, "SELECT kg, name FROM labour_group") or [])}
+    named = set()
+    for fgr, fug, name in _rows(corpus, "SELECT fgr, fug, name FROM wis_group "
+                                        "ORDER BY vehicle_type != 1, vehicle_type") or []:
+        key = f"{fgr:02d}" + ("" if fug < 0 else f".{fug:02d}")
+        if key not in named:
+            out[key] = name
+            named.add(key)
+    return out
 
 
 def candidates(corpus: Path, printed: str) -> list[int]:

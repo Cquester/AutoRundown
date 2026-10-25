@@ -28,6 +28,10 @@ Tables written (all English, as pulled):
                                124.026 is in "124 (up to 09/92)" and the later
                                book), so the server lists them, never guesses
   labour_book(sparte, pl, family, type, family_name, type_name)
+  wis_group(vehicle_type, fgr, fug, name)   WIS function group names
+                               (Gruppen): fgr 42 = the "42" of a document
+                               number, fug 10 its subgroup ("42.10"), fug
+                               -1 the group itself; vehicle_type 1 = car
   labour_group(kg, name), labour_subgroup(sparte, kg, entry, name)
   labour_op(sparte, kg, op, entry, category, text)   English operation texts
   labour_time(sparte, pl, family, kg, op, typenart, raw)   raw times;
@@ -129,6 +133,8 @@ def main():
                                 PRIMARY KEY (dok_id, code, docnr));
     CREATE TABLE sa_code(vehicle_type INTEGER, code TEXT, name TEXT, PRIMARY KEY (vehicle_type, code));
     CREATE TABLE sa_number(number TEXT PRIMARY KEY, name TEXT);
+    CREATE TABLE wis_group(vehicle_type INTEGER, fgr INTEGER, fug INTEGER, name TEXT,
+                           PRIMARY KEY (vehicle_type, fgr, fug));
     CREATE TABLE oil(series TEXT, engine TEXT, engine_type INTEGER, litres REAL,
                      unit TEXT, note TEXT);
     CREATE INDEX docnr_id ON docnr(dok_nr_id);
@@ -185,6 +191,13 @@ def main():
                     litres, r.get("Einheit", "").strip(), notes.get(note, note)))
     c.executemany("INSERT INTO oil VALUES (?,?,?,?,?,?)", sorted(set(oil)))
     counts["oil"] = len(set(oil))
+
+    print("function groups")
+    ins("wis_group", 4, ((num(r["FzgArtCode"]), num(r["FGRCode"]), num(r["FUGCode"]),
+                          fix_mojibake(r["Name"]).strip())
+                         for r in tsv(VEH, "Gruppen")
+                         if num(r.get("FGRCode")) is not None and num(r["FGRCode"]) >= 0
+                         and num(r.get("FUGCode")) is not None and r.get("Name", "").strip()))
 
     labour(c, counts)
 

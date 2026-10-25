@@ -64,7 +64,10 @@ var TABLES = ["ASRA_FahrzeugII", "ASRA_Fahrzeug", "AW_Fahrzeuge",
               "ASRA_Konstruktionsuntergruppe", "ASRA_Zusatzarbeit", "ASRA_Familie",
 // the flat-rate formulas per region and repair group: the stored time is a
 // raw value, the flat rate is the formula applied to it (parse_links.py)
-              "ASRA_Formel", "ASRA_Formelverwendung"];
+              "ASRA_Formel", "ASRA_Formelverwendung",
+// function group and subgroup names per vehicle type ("42.10" = "Disc
+// brake"): the Manual tab's section names (parse_links.py wis_group)
+              "Gruppen"];
 // Multi-language tables: only the language being pulled (AR_LANG, 2 =
 // English). The others are 10-30x larger and never read.
 var LANG = parseInt(env("AR_LANG", "2"), 10);
@@ -79,7 +82,8 @@ var WHERE = {
   "ASRA_Arbeitsposition": "SprachAbk = '" + LANG2 + "'",
   "ASRA_Konstruktionsgruppe": "SprachAbk = '" + LANG2 + "'",
   "ASRA_Konstruktionsuntergruppe": "SprachAbk = '" + LANG2 + "'",
-  "ASRA_Familie": "SprachAbk = '" + LANG2 + "'"
+  "ASRA_Familie": "SprachAbk = '" + LANG2 + "'",
+  "Gruppen": "SprachCode = " + LANG
 };
 // AR_TABLES=a,b pulls just those (e.g. to add a new table without redoing all)
 if (env("AR_TABLES", "")) TABLES = env("AR_TABLES", "").split(",");

@@ -351,7 +351,9 @@ found **no parts catalogue** -- no part numbers with quantities, no exploded
 drawings; that is EPC, locked (above). What it did find, now pulled:
 - `pull_vehicles.js` also pulls `W_Dokumente` (DokNrID -> docnr), `SACode` /
   `SANummer`, `AW_AssystFuellmengen` (oil), `SSTeilID` / `SSTeilBenennung`
-  (damage codes) and the `ASRA_*` labour tables -- English rows only
+  (damage codes), the `ASRA_*` labour tables and `Gruppen` (function group
+  and subgroup names per vehicle type, 2026-10-24 -> `wis_group`, the
+  Manual tab's section names) -- English rows only
   (`WHERE` per table, `AR_LANG`). `pull_links.js` (new `links` step in
   `vm_pipeline.py`, resumable, 400 DokIDs per query) pulls `DXF`,
   `DXFLegendePos`, `DXFLegende`, `AW_DXFReferenz`, `AW_SVGReferenz` for the

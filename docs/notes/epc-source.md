@@ -539,8 +539,12 @@ car"; "what if i just want a little more or less").**
   of `scope_ids`, filtered as search filters them (general pool
   type-narrowed), so the contents are what a search for this car can find.
   **WIS**: a page's `section_path` only names models, so documents are
-  grouped by their number (`wis_links.docnrs`): "ar4210…" = group 42
-  (named from `labour_group`, `wis_links.group_names`) > 42.10, each with
+  grouped by their number (`wis_links.docnrs`): "ar4210…" = group 42 >
+  subgroup 42.10, named by `wis_links.group_names` from WIS's `Gruppen`
+  table (`wis_group`, pulled with the vehicle tables since 2026-10-24:
+  "42.10 Disc brake"; passenger-car names first, then another vehicle
+  type's; before that table is pulled, groups take the labour book's
+  `labour_group` names and subgroups only their number), each with
   what it is (Repair = AR, Function = GF, Service information = SI,
   Capacities = BF, Wiring diagram from `doc_type`; other codes shown as
   they are, never guessed); no number -> "Other documents". **Other
