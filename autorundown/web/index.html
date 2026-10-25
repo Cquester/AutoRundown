@@ -941,8 +941,8 @@
     <div class="askbar">
       <textarea id="q" rows="1" placeholder="Torque for the front caliper anchor plate bolts?"></textarea>
       <div class="askbtns">
-        <button id="askBtn" title="AI answer from the manual (uses your API key)">Ask</button>
-        <button class="ghost" id="searchBtn" title="Search the manual's words (free)" aria-label="Keyword search"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg><span class="lbl">Search</span></button>
+        <button id="askBtn" title="AI answer from the manual (uses your API key)">AI</button>
+        <button class="ghost" id="searchBtn" title="Search the manual's words (free)" aria-label="Keyword search"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg><span class="lbl">Keyword</span></button>
       </div>
     </div>
     <details class="opts" id="opts">
@@ -2998,7 +2998,7 @@ async function showHistory() {
     + rows.map(r => `<button type="button" class="hrow" data-hist="${r.id}">`
       + `<div class="hq">${r.kind === 'ask'
           ? `<span class="hkind ai">AI${r.found ? '' : ' · not found'}</span>`
-          : '<span class="hkind">Search</span>'}${esc(r.question)}</div>`
+          : '<span class="hkind">Keyword</span>'}${esc(r.question)}</div>`
       + `<div class="hmeta">${esc(r.label)} &middot; ${ago(r.created)}`
       + (r.kind === 'ask' && r.cost_usd != null ? ` &middot; $${r.cost_usd.toFixed(3)}` : '')
       + (many ? ` &middot; ${esc(r.by)}` : '') + `</div></button>`).join('') + `</div>`;
@@ -5097,7 +5097,7 @@ async function loadLabour() {
   if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return 0; }
   if (!r.items.length) {
     out.innerHTML = '<div class="muted">No labour operation matches this question. To look one up, '
-      + '<b>Search</b> its name in the question box, e.g. <i>water pump</i>.</div>';
+      + 'type its name in the question box and press <b>Keyword</b>, e.g. <i>water pump</i>.</div>';
     return 0;
   }
   // the job itself (r.best of them: both gearboxes' where they differ);
