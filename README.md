@@ -322,12 +322,12 @@ python ask.py --list
 
 ## What you can look up
 
-One question fills every source at once. The answer (or, for **Search**, the
+One question fills every source at once. The answer (or, for **Keyword**, the
 manual's matching pages) stays on the left; the **right box** has a tab for
 each source -- on a phone, the bar at the bottom with the short names Manual,
 Parts, Labour, Fluids, Torque, each opening the **Document** view. After
-**Ask**, every tab is searched with the same search terms the AI made from
-your question; after **Search**, with the words you typed. That is a keyword
+**AI**, every tab is searched with the same search terms the AI made from
+your question; after **Keyword**, with the words you typed. That is a keyword
 search, not another AI call, so the tabs cost nothing, and each tab shows how
 many results it has (a tab with none is dimmed). Always within the car you
 chose:
@@ -396,7 +396,7 @@ reads as this one's source.
 **On a phone** the screen is one column: the car as a single line at the top
 (tap **Change** for the car box, Browse, VIN, the scope note and Options, full
 screen), **Answer | Document** under it, the question docked at the bottom with
-**Ask** and a magnifier for the keyword search, and the right box's tabs as a
+**AI** and a magnifier for the keyword search, and the right box's tabs as a
 bottom bar (Manual, Parts, Labour, Fluids, Torque; a tap opens that tab in
 **Document**). An answer's page loads into
 **Document** (a dot says one is waiting) and opens with *Open manual page*;

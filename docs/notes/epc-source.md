@@ -333,6 +333,17 @@ index / WIS+EPC with the join off / joined:
 - One title per parts result: a series has one catalog per market/period (W124:
   4,178 parts pages, 582 distinct titles), so the tail is de-duplicated on the
   title without "(EPC catalog …)", over-fetching x12.
+- **A chosen car gets only the catalogues listing its model code**
+  (2026-10-25). Each catalogue page names its models in `section_path`
+  ("MODEL 126 > 126.044, 126.045, 126.046"; 47,400 of 52,520 parts pages),
+  but `codes_only` is empty for EPC, so the codes filter passed every one.
+  For a 560 SEC (126.045), "radiator shroud part no" got four of the W126's
+  13 RADIATOR pages, all for other 126 models, and the answer rightly said
+  none covered 126.045 -- A 126 505 01 55 sat on three pages it never saw.
+  `search._run_scope` now keeps a parts page whose section line lists codes
+  only if it lists one of the car's (model or engine); engine pages ("ENGINE
+  117") list none and pass. Query time, so no re-ingest. Only with a variant
+  chosen. Test: `tests/test_epc_join.py`; `eval_wis.py` unchanged.
 - **Parts have their own FTS table (`parts_fts`), the user's choice.** In the
   shared `chunks_fts`, EPC shifted WIS BM25 scores even with the join off
   (statistics are index-wide): `w204-c220cdi-glow-plugs` gained a W207 page

@@ -44,13 +44,13 @@ def check(name: str, ok: bool, detail: object = "") -> None:
     fails += not ok
 
 
-def epc(dok_id, title, lines, series=(), engines=(), images=()):
+def epc(dok_id, title, lines, series=(), engines=(), images=(), baumuster=()):
     role = "ENGINE " if engines else "MODEL "
     codes = list(engines or series)
     return {
         "dok_id": dok_id, "lang": "en", "title": title, "body_format": "sids",
         "body_text": "\n".join([title, "", "Callout | Part number | Name | Fits | Notes", *lines]),
-        "model_series": [] if engines else list(series), "baumuster": [],
+        "model_series": [] if engines else list(series), "baumuster": list(baumuster),
         "engine_series": list(engines),
         "applicability_notes": [role + c for c in codes],
         "cross_refs": [], "image_refs": [], "figures": [], "image_files": list(images),
@@ -76,6 +76,14 @@ EPC_RECORDS = [
     epc(3, "Parts: engine 103 (EPC catalog 301), group 01 / subgroup 010 CYLINDER HEAD GASKET",
         ["020 | A 103 016 03 20 (A1030160320, 1030160320) | CYLINDER HEAD GASKET | qty 1, all models |"],
         engines=["103"]),
+    # one subgroup in two catalogues, each for other models of the series (as
+    # the W126's 13 RADIATOR pages): a car gets only the page listing its own
+    epc(6, "Parts: model 201 (EPC catalog 041), group 50 RADIATOR / subgroup 015 RADIATOR,MOUNTING",
+        ["080 | A 201 505 03 55 (A2015050355, 2015050355) | FAN SHROUD | qty 1, all models |"],
+        series=["201"], baumuster=["201.034"]),
+    epc(7, "Parts: model 201 (EPC catalog 042), group 50 RADIATOR / subgroup 015 RADIATOR,MOUNTING",
+        ["080 | A 201 505 09 55 (A2015050955, 2015050955) | FAN SHROUD | qty 1, all models |"],
+        series=["201"], baumuster=["201.029"]),
     # a series WIS does not have: stays listed on its own
     epc(4, "Parts: model 100 (EPC catalog 090), group 42 / subgroup 005 BRAKE PADS",
         ["030 | A 000 420 21 20 (A0004202120, 0004202120) | BRAKE PADS | qty 1, all models |"],
@@ -192,6 +200,13 @@ def main() -> int:
         p_wis = search.get_page(conn, all201, "1002306") or {}
         check("P1002306 opens the EPC page", p_epc.get("doc_id") == e201["doc_id"], p_epc.get("doc_id"))
         check("1002306 still opens the WIS page", p_wis.get("doc_id") == w201["doc_id"], p_wis.get("doc_id"))
+        def shrouds(scope):
+            return sorted(h["page_no"] for h in search.search(conn, scope, "radiator fan shroud", 10)
+                          if h.get("parts") and "SHROUD" in h["body"])
+        check("a car gets the parts page listing its model code, not another model's",
+              shrouds(s26) == ["P7"], shrouds(s26))
+        check("the whole series gets one page per subgroup (either catalogue)",
+              len(shrouds(all201)) == 1, shrouds(all201))
         alone = search.search(conn, search.scope_ids(e100), "brake pads", 10)
         check("an EPC-only car (W100) searches its own parts",
               [h["page_no"] for h in alone] == ["P4"], [h["page_no"] for h in alone])
