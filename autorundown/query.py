@@ -115,6 +115,11 @@ Rules:
   "brake pads" -> "brake pads removal", "front disc brake".
 - Include the component name and the kind of data wanted (torque,
   specification, capacity, removal, installation, diagram).
+- A part often has several names: everyday, American or British, or another
+  maker's ("front window" = windshield = windscreen; molding = moulding;
+  rocker panel = sill; hood = bonnet; trunk = boot). When the question's
+  name may not be the manual's, make one query with the manual's likely
+  name for the part.
 - 2-4 queries, each 2-5 words. Keywords only: no quotes, AND/OR, or wildcards.
 - Do not include the make, model, or year: the index is already scoped to one
   vehicle."""
@@ -166,12 +171,23 @@ Hard rules:
 - SHOP WORDS ARE NOT MANUAL WORDS. Mechanics name parts in shop slang or
   another maker's terms: "cam magnet" is the camshaft (adjuster) solenoid,
   "valve cover" the cylinder head cover, "water pump" the coolant pump, "lug
-  nut" the wheel bolt, "serpentine belt" the poly-V-belt. When a passage
-  covers the same part under the manual's name, it IS the answer: answer
-  from it and say in `answer` what the manual calls the part. A question
+  nut" the wheel bolt, "serpentine belt" the poly-V-belt. Everyday, American
+  and British names count too: the "front window" is the windshield or
+  windscreen, a "molding" a moulding or trim strip, the "rocker panel" the
+  sill, the "hood" the bonnet, the "trunk" the boot. Decide by what the
+  part is and where it sits, not by whether the words match: a "front
+  window molding clip" is a clip for a moulding at the windshield. When a
+  passage covers the same part under the manual's name, it IS the answer:
+  answer from it and say in `answer` what the manual calls the part. A question
   worded as past work ("replaced the cam magnets") still wants that job's
   procedure and values. This is matching names, not recalled knowledge --
   every value still comes from the passages.
+- A QUESTION THAT ONLY NAMES A PART ("front window molding clip", "oil level
+  sensor") wants that part: its part number(s) from the parts catalogue
+  lines that fit this vehicle, and the page for fitting it when one is in
+  the passages. If the name could mean more than one part, answer the
+  likeliest one and name the other reading in `caveats`. A name that does
+  not match the manual's word for word is not a reason for "not found".
 - If the passages do not contain the answer, set found=false and leave answer
   empty. Saying "not in the archive" is a correct and useful response. Do not
   substitute general automotive knowledge.

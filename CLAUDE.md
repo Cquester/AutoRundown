@@ -507,7 +507,15 @@ camshaft solenoid: a passage covering the part under the manual's name is
 the answer -- 2026-10-17, a 2014 E 350 "replaced cam magnets" was "not in the
 archive" with "Remove/install solenoid camshaft" as passage #1; with the
 rule Haiku answered from it, 4 Nm + 60°, and the W210 oil level sensor
-answer was unchanged). Each of these fixed an observed failure.
+answer was unchanged); everyday, American and British names count too
+("front window" = windshield/windscreen, molding = moulding), judged by what
+the part is, and the planner makes one query with the manual's likely name;
+a question that only names a part wants its part numbers (and the fitting
+page), the likeliest reading if ambiguous, never "not found" for wording
+(2026-10-24: a W201 "Front window molding clip" was "not found" by Haiku
+three times with CLIP, GARNISH MOULDING BELOW WINDSHIELD in its passages;
+with both rules: A 201 988 05 78 up to chassis A 179755, A 124 988 21 78
+from A 179756, ~$0.02). Each of these fixed an observed failure.
 
 **Licence: MIT, "Copyright (c) 2026 cquester"** (the user's choice,
 2026-10-08). It covers this repo's own code and docs only. Never commit
