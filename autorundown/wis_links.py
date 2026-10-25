@@ -81,7 +81,7 @@ def docnrs(corpus: Path, dok_ids: list[int]) -> dict[int, list[str]]:
 
 
 def group_names(corpus: Path) -> dict[str, str]:
-    """{'42': 'Brakes, mechanical, hydraulic', '42.10': 'Disc brake', ...}:
+    """{'42': 'Brakes - hydraulic and mechanical systems', '42.10': 'Service brake', ...}:
     Mercedes' function groups and subgroups, the same numbers as WIS document
     numbers. WIS's own names (`wis_group`, passenger cars first, then the
     other vehicle types for a number cars don't have); a group WIS doesn't

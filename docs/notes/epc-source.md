@@ -542,9 +542,12 @@ car"; "what if i just want a little more or less").**
   grouped by their number (`wis_links.docnrs`): "ar4210…" = group 42 >
   subgroup 42.10, named by `wis_links.group_names` from WIS's `Gruppen`
   table (`wis_group`, pulled with the vehicle tables since 2026-10-24:
-  "42.10 Disc brake"; passenger-car names first, then another vehicle
+  "42.10 Service brake"; passenger-car names first, then another vehicle
   type's; before that table is pulled, groups take the labour book's
-  `labour_group` names and subgroups only their number), each with
+  `labour_group` names and subgroups only their number; checked on the
+  real extract: 5,690 names, 264,711 of 271,643 numbered documents in a
+  named subgroup, sampled titles fit -- 42.30 ABS "Remove/install ABS
+  measuring ring", 88.20 Bumpers "Remove/install rear bumper"), each with
   what it is (Repair = AR, Function = GF, Service information = SI,
   Capacities = BF, Wiring diagram from `doc_type`; other codes shown as
   they are, never guessed); no number -> "Other documents". **Other

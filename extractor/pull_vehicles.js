@@ -65,7 +65,7 @@ var TABLES = ["ASRA_FahrzeugII", "ASRA_Fahrzeug", "AW_Fahrzeuge",
 // the flat-rate formulas per region and repair group: the stored time is a
 // raw value, the flat rate is the formula applied to it (parse_links.py)
               "ASRA_Formel", "ASRA_Formelverwendung",
-// function group and subgroup names per vehicle type ("42.10" = "Disc
+// function group and subgroup names per vehicle type ("42.10" = "Service
 // brake"): the Manual tab's section names (parse_links.py wis_group)
               "Gruppen"];
 // Multi-language tables: only the language being pulled (AR_LANG, 2 =
