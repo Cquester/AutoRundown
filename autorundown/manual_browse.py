@@ -9,8 +9,9 @@ next to parts_browse.py. Nothing new is extracted:
   ..."), which is the tree as the manual reads;
 * a WIS page's `section_path` names only the models it fits, so WIS pages
   are grouped by their document number instead: "AR42.10-P-0100A" is
-  function group 42 (named from the labour book, wis_links.group_names),
-  subgroup 42.10. Pages with no number go under "Other documents".
+  function group 42 and subgroup 42.10, named by wis_links.group_names
+  (WIS's Gruppen table; the labour book's group names before it is
+  pulled). Pages with no number go under "Other documents".
 
 The pages are the car's manual scope (search.scope_ids / split_scope),
 filtered in SQL exactly as search filters them (search._filters; the general
@@ -80,11 +81,13 @@ def _wis_tree(rows: list[tuple], corpus: Path) -> dict:
         m = next((m for m in map(_DOCNR.match, nrs) if m), None)
         # a wiring diagram says so; else the number's kind ("AR": a repair
         # procedure, though it has a table), then "has a table", then the code
-        kind = (DOC_TYPE["wiring"] if doc_type == "wiring" else "") or (KIND.get(m[1]) if m else "")             or DOC_TYPE.get(doc_type) or (m[1].upper() if m else "")
+        kind = (DOC_TYPE["wiring"] if doc_type == "wiring" else "") or (KIND.get(m[1]) if m else "") \
+            or DOC_TYPE.get(doc_type) or (m[1].upper() if m else "")
         page = {"page_no": page_no, "doc_id": doc_id, "title": (title or page_no).strip(), "kind": kind}
         if m:
             kg = m[2]
-            _add(root, [f"{kg} {names.get(kg, '')}".strip(), f"{kg}.{m[3]}"], page)
+            sub = f"{kg}.{m[3]}"
+            _add(root, [f"{kg} {names.get(kg, '')}".strip(), f"{sub} {names.get(sub, '')}".strip()], page)
         else:
             _add(root, [OTHER, DOC_TYPE.get(doc_type, "Manual pages")], page)
     return root
