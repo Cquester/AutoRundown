@@ -559,8 +559,16 @@ car"; "what if i just want a little more or less").**
   17,997 of them, filed under no car, made up over half of every car's
   contents -- the user saw "Connecting rod, piston" twenty times, for the
   M271.9, OM470 and a Fuso 4D34i, under a W210 (2026-10-24). W210 whole
-  series 34,238 -> 16,241 documents. Keyword search still finds them
-  (one ranked #1 for "connecting rod piston"). Each document is listed with
+  series 34,238 -> 16,241 documents. Search and Ask leave them out too
+  (one ranked #1 for "connecting rod piston"): `search.show_damage_codes`,
+  off unless Shop setup -> Manuals -> "Show Mercedes damage-code menus"
+  (`Config.show_damage_codes`, the user's choice: off by default, a
+  setting to show them). Both use one rule, `search.is_damage_menu` /
+  `_DAMAGE_MENU`: an 8-digit DokID starting 99 -- on the real index exactly
+  the 17,997 SS documents, nothing else. `eval_wis` ceilings rose on three
+  cases: the menus' general-pool slots now go to untied general documents
+  that name other models (the menus named other vehicles too, as "BR 400",
+  which the guards don't read). Each document is listed with
   its kind; those left (pairs of one title) are one per engine, e.g. the
   E 320's M104 and M112 "Connecting rods"), each with
   what it is (Repair = AR, Function = GF, Service information = SI,

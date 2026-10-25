@@ -62,6 +62,10 @@ class Config:
     # other devices must sign in with a mechanic account (auth.py); off =
     # anyone on the network can search and ask. The PC itself never signs in.
     require_signin: bool = False
+    # WIS damage-code picture menus (search.show_damage_codes): for warranty
+    # fault codes, not repairs; off = left out of search, Ask and the Manual
+    # contents (the user, 2026-10-24: off by default, a setting to show them)
+    show_damage_codes: bool = False
     # where the LEMON torrent is (or will be) downloaded; its lemon/index.json
     # replaces the built-in catalogue snapshot (lemon_catalogue.py)
     lemon_torrent_dir: str = ""

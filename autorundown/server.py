@@ -32,6 +32,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from . import search as search_mod
 from . import auth, config, handoff, history, index, providers, qr, query, tls
 from . import (autostart, importer_jobs, lemon_catalogue, manual_browse, parts_browse, synonyms, tab_values,
                wis_links, wis_original)
@@ -70,6 +71,8 @@ class SettingsBody(BaseModel):
     # Windows: start in the background at sign-in (autostart.py)
     autostart: bool | None = None
     require_signin: bool | None = None
+    # WIS damage-code menus in search and the Manual contents
+    show_damage_codes: bool | None = None
     # "company" | "per_mechanic" (config.pick_key)
     key_mode: str | None = Field(None, pattern="^(company|per_mechanic)$")
     # the AI provider answering questions (providers.py)
@@ -407,6 +410,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app.state.auth_path = auth_path or auth.AUTH_PATH
     app.state.https = False
     app.state.port = 8756
+    # damage-code menus in search and the Manual contents (Shop setup)
+    search_mod.show_damage_codes = config.load().show_damage_codes
     throttle = auth.Throttle()
     app.state.mdns_name = ""          # serve() sets it once announced
     app.state.shutdown = lambda: None   # make_server() wires the real one
@@ -1510,6 +1515,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "autostart": autostart.is_enabled() if autostart.supported() else None,
             "phone_urls": _phone_urls(),
             "require_signin": cfg.require_signin,
+            "show_damage_codes": cfg.show_damage_codes,
             "config_path": str(config.CONFIG_PATH),
         }
 
@@ -1567,7 +1573,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         cfg = config.load()
         for field_name in ("archive_dir", "index_path", "importer",
                            "model", "extractor_dir", "require_signin", "key_mode",
-                           "provider"):
+                           "provider", "show_damage_codes"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)
@@ -1590,6 +1596,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             else:
                 cfg.provider_keys = {**(cfg.provider_keys or {}), kp: body.api_key.strip()}
         cfg.save()
+        search_mod.show_damage_codes = cfg.show_damage_codes
         # only a new index path moves the server: saving anything else (the
         # model, sign-in) used to swap a `serve.py --index X` server onto the
         # config's index

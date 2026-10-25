@@ -127,6 +127,10 @@ files. "Start when I sign in" runs it as you, in the background.
   current extractor folder over it): the check says so when it's too old.
   **If your manuals are already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,
   and pick `Mercedes Documents\autorundown_out\wis_extract`.
+  WIS also holds ~18,000 **damage-code menus** (pictures for picking a warranty
+  fault code, filed under no car). They are left out of search, answers and the
+  manual's contents; Shop setup → *Manuals* → *Show Mercedes damage-code menus*
+  turns them on.
 - The command-line tools are installed too:
   `"%LOCALAPPDATA%\Programs\AutoRundown\python\python.exe" "%LOCALAPPDATA%\Programs\AutoRundown\app\ask.py" --usage`.
 

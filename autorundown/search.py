@@ -160,6 +160,9 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
     if tclause and general in doc_ids:
         where += f" AND (c.doc_id != ? OR {tclause})"
         args = [*args, general, *targs]
+    if general in doc_ids and not show_damage_codes:
+        where += f" AND (c.doc_id != ? OR NOT {_DAMAGE_MENU})"
+        args = [*args, general]
     marks = ",".join("?" for _ in doc_ids)
     sql = f"""
         SELECT * FROM (
@@ -219,6 +222,24 @@ def as_ids(doc_ids: str | Iterable[str]) -> list[str]:
     if isinstance(doc_ids, str):
         return [doc_ids]
     return [d for d in doc_ids if d]
+
+
+# WIS damage-code picture menus: a drawing to pick a warranty fault code
+# from, their text code lists. 17,997 documents, all in the general pool and
+# filed under no car, so every car got all of them (one ranked #1 for
+# "connecting rod piston" on a W210). Their DokIDs, and no other page's, are
+# 8 digits starting 99 (checked on the real index, 2026-10-24: 17,997 of
+# 17,997, all with the SS document number). Left out of the general pool
+# unless the shop turns them on (Config.show_damage_codes; the server sets
+# this flag at start and when the setting changes).
+show_damage_codes = False
+_DAMAGE_MENU = "(length(p.page_no) = 8 AND p.page_no GLOB '99*')"
+
+
+def is_damage_menu(page_no) -> bool:
+    """`_DAMAGE_MENU` in Python (the Manual contents, manual_browse.py)."""
+    s = str(page_no)
+    return len(s) == 8 and s.startswith("99") and s.isdigit()
 
 
 class Scope(list):

@@ -1217,6 +1217,12 @@
             <div class="implog" id="impLog" hidden></div>
           </aside>
         </div>
+        <h3 class="subhead">What to show</h3>
+        <label class="check"><input type="checkbox" id="sDamage"> Show Mercedes damage-code menus
+          <span class="savedmark" id="mDamage" role="status"></span></label>
+        <div class="help">WIS has about 18,000 picture menus for picking a warranty fault code. They are not repair
+          documents and are not filed under any car, so when shown they appear for every car, in search, answers
+          and the manual's contents. Off unless you file warranty claims.</div>
       </section>
 
       <section class="setsec" id="sec-ai" hidden>
@@ -4031,6 +4037,7 @@ async function loadSetup() {
   $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
   $('#sAutostart').checked = !!s.autostart;
   $('#sSignin').checked = !!s.require_signin;
+  $('#sDamage').checked = !!s.show_damage_codes;
   showProvider(s);
   showKeyMode(s);
   showKeyFor(s);
@@ -4291,6 +4298,11 @@ $('#sModel').onchange = async () => {
 $('#sSignin').onchange = async e => {
   const v = e.target.checked;
   if (await saveSetting({require_signin: v}, '#mSignin')) { me.require_signin = v; openUsers(); }
+  else e.target.checked = !v;
+};
+$('#sDamage').onchange = async e => {
+  const v = e.target.checked;
+  if (await saveSetting({show_damage_codes: v}, '#mDamage')) manualEl = null;   // contents rebuilt on next view
   else e.target.checked = !v;
 };
 $('#sAutostart').onchange = async e => {
