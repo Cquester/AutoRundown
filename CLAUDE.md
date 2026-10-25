@@ -163,6 +163,7 @@ python tests/test_vin_scan.py [--n 8]             # Scan VIN on generated barcod
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
 python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends the same car (~10 s, Playwright)
 python tests/test_answer_tabs.py [--index <db>]   # one question fills the right box's tabs (~15 s, Playwright)
+python tests/test_drawing_ui.py                   # Manual contents, drawing picks (red, several), divider (~30 s, Playwright)
 python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 

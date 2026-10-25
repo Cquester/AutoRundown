@@ -175,6 +175,10 @@ jobs:
       - name: Result tabs show each tab's results
         run: python tests/test_answer_tabs.py --index "$RUNNER_TEMP/smoke.db"
 
+      - name: Manual contents, parts drawings (red picks, several at once) and the divider
+        # builds its own sample index with the stand-in parts catalogue
+        run: python tests/test_drawing_ui.py
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: failure()
         with:
