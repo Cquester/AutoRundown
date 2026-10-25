@@ -267,6 +267,7 @@ autorundown/
   lemon_catalogue.py  LEMON torrent catalogue tree and picks
   wis_links.py     WIS cross-refs, diagram hotspots, oil, labour
   wis_original.py  WIS "Original layout" renderer
+  html_original.py LEMON / folder pages' "Original layout": the page's own HTML, allow-listed
   launcher.py autostart.py mdns.py   Windows tray, start at sign-in, autorundown.local
   web/index.html   the whole UI, one file
 ```

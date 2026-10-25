@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import json
 import re
+import secrets
 import socket
 import sqlite3
 import time
@@ -34,7 +35,7 @@ from pydantic import BaseModel, Field
 
 from . import search as search_mod
 from . import auth, config, handoff, history, index, providers, qr, query, tls
-from . import (autostart, importer_jobs, lemon_catalogue, manual_browse, parts_browse, synonyms, tab_values,
+from . import (autostart, html_original, importer_jobs, lemon_catalogue, manual_browse, parts_browse, synonyms, tab_values,
                wis_links, wis_original)
 from .search import (get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
@@ -306,6 +307,14 @@ IMAGE_HEADERS = {
                                "style-src 'unsafe-inline'; sandbox",
     "X-Content-Type-Options": "nosniff",
 }
+
+
+# a LEMON / folder page shown as its own HTML (html_original.py): cleaned to
+# an allow-list, and this CSP besides -- only its own script (height, links;
+# a nonce per response) runs, pictures and styles from this site only
+HTML_ORIGINAL_CSP = ("default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; "
+                     "script-src 'nonce-{}'; frame-ancestors 'self'; base-uri 'none'; "
+                     "form-action 'none'")
 
 
 # the iframe's page when there is nothing to draw; the UI looks for the marker
@@ -844,6 +853,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     scope_ids(vehicle), _corpus_ids(conn, vehicle), page_no)
                 page["diagram"] = page_no.isdigit() and wis_links.has_diagram(
                     Path(vehicle["file_path"]), int(page_no))
+            # a LEMON / folder HTML page can be shown as itself (/api/original)
+            page["has_original"] = page.get("doc_type") != "parts" and (
+                _is_wis(vehicle) or str(page.get("file_path") or "").lower().endswith((".html", ".htm")))
             if not request.state.who.admin:
                 page.pop("file_path", None)
             page["images"] = [i for i in (page.get("images") or "").split("\n") if i]
@@ -1029,12 +1041,30 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
             page, _ = _wis_page(conn, vehicle, page_no)
+            owner = (_vehicle_or_404(conn, page["doc_id"]) if page and page.get("doc_id") != doc_id
+                     else vehicle)
         finally:
             conn.close()
+        from urllib.parse import quote
+        if page and page.get("doc_type") != "parts" and not _is_wis(owner) \
+                and str(page.get("file_path") or "").lower().endswith((".html", ".htm")):
+            # a LEMON / folder HTML page: its own HTML, cleaned (html_original.py)
+            nonce = secrets.token_urlsafe(16)
+            try:
+                body = html_original.render(
+                    Path(page["file_path"]), Path(owner.get("file_path") or ""),
+                    page.get("title") or "",
+                    lambda f: f"/api/image/{quote(owner['doc_id'])}/{quote(f)}", nonce)
+            except (html_original.NotAvailable, OSError) as exc:
+                why = (str(exc) if request.state.who.admin
+                       else "The original layout isn't available for this page.")
+                return HTMLResponse(UNAVAILABLE.format(
+                    why.replace("&", "&amp;").replace("<", "&lt;")), 404)
+            return HTMLResponse(body, headers={
+                "Content-Security-Policy": HTML_ORIGINAL_CSP.format(nonce)})
         if not page or not page_no.isdigit() or not re.match(
                 r"mercedes-wis", vehicle.get("source_name") or ""):
             return HTMLResponse(UNAVAILABLE.format("There is no original layout for this page."), 404)
-        from urllib.parse import quote
         try:
             body = wis_original.render(
                 Path(vehicle["file_path"]), int(page_no), page.get("title") or "",

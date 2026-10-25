@@ -355,8 +355,11 @@ doesn't know.
 
 Values that name only another engine or model are left out, and every row
 links to the page it came from: tables often list several engines, so the page
-is where you confirm the row is yours. A WIS page opens in **Reading view** or
-**Original layout** (the page redrawn from WIS); a parts page opens as its list.
+is where you confirm the row is yours. A manual page opens in its **Original
+layout** -- a WIS page redrawn from WIS, a LEMON page as the manual's own page
+(without LEMON's website around it) -- with **Reading view** (the extracted
+text) a tap away; a page with no original shows its text. A parts page opens
+as its list.
 
 ## How it answers
 
@@ -682,6 +685,7 @@ autorundown/             the app (everything the installer ships)
   lemon_catalogue.py     the LEMON catalogue tree
   wis_links.py           WIS cross-references, wiring-diagram hotspots, codes, labour
   wis_original.py        WIS "Original layout" view
+  html_original.py       LEMON / folder HTML pages' "Original layout" (cleaned)
   launcher.py, autostart.py, mdns.py   Windows tray, start at sign-in, autorundown.local
   web/index.html         the whole UI, one responsive page
 
