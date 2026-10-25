@@ -266,7 +266,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?")[0]
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
-        REQUESTS.append({"path": path, "body": req})
+        # header names only (never a key's value), so tests can see where the key went
+        REQUESTS.append({"path": path, "body": req,
+                         "headers": sorted(k.lower() for k in self.headers.keys())})
         if path == "/v1/messages":
             return self.anthropic(req)
         m = re.fullmatch(r"/v1beta/models/([^/:]+):generateContent", path)
@@ -291,8 +293,12 @@ class Handler(BaseHTTPRequestHandler):
     # -- Anthropic ------------------------------------------------------------
     def anthropic(self, req: dict):
         model = req.get("model", "")
-        if not self.headers.get("x-api-key"):
-            return self.error(401, "authentication_error", "x-api-key header is required")
+        # SDK 1.x sends x-api-key; 2.x sends Authorization: Bearer (and a
+        # newer anthropic-version). The API takes either.
+        bearer = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+        if not (self.headers.get("x-api-key") or bearer):
+            return self.error(401, "authentication_error",
+                              "x-api-key or Authorization: Bearer header is required")
         old = not model.startswith(NEWER)
         if old and req.get("thinking", {}).get("type") == "adaptive":
             return self.error(400, "invalid_request_error",

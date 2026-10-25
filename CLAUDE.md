@@ -502,7 +502,9 @@ schema (malformed → "no parsable answer", never a crash) and then goes
 through `_verify_citations`, `_drop_other_vehicles` and `_add_omitted_parts`
 exactly as before -- do not move any of them into a provider, and do not
 skip one for a provider. The Anthropic request is byte-for-byte what it was
-(recorded and compared). The others use the stdlib (no `openai` /
+(recorded and compared; again for SDK 2.x, 2026-10-21: same body, the key
+now in `Authorization: Bearer`, API version 2026-10-21 -- `anthropic<3`
+until the next major is recorded the same way). The others use the stdlib (no `openai` /
 `google-genai` in the MSI). Prices carry the date checked and their source;
 an unknown price is logged as NULL ("cost not tracked"), never guessed.
 Keys are per provider, entered in Shop setup, never fetched or sent to a
