@@ -36,6 +36,15 @@ KIND = {"ar": "Repair", "gf": "Function", "si": "Service information",
         "bf": "Capacities"}
 DOC_TYPE = {"wiring": "Wiring diagram", "spec_table": "Values"}
 OTHER = "Other documents"
+# Kinds whose number is not group + subgroup (measured on the real extract,
+# 2026-10-24: every other kind with 40+ documents falls 98-100% in a subgroup
+# WIS names). After the group digits these count their own items -- "wh0051
+# Checking the condition of the lines" is item 0051, not subgroup 00.51 --
+# so they are listed in their group with no subgroup. In DH and WB even the
+# first two digits are a chapter, not a group (dh03 = "3.2 Adaptive damping
+# system", wb65 = oil consumption test sheets): those go under Other documents.
+OWN_NUMBERS = {"ra", "wh", "ea"}
+NO_GROUP = {"dh", "wb"}
 
 _lock = threading.Lock()
 _cache: dict[tuple, dict] = {}
@@ -84,10 +93,16 @@ def _wis_tree(rows: list[tuple], corpus: Path) -> dict:
         kind = (DOC_TYPE["wiring"] if doc_type == "wiring" else "") or (KIND.get(m[1]) if m else "") \
             or DOC_TYPE.get(doc_type) or (m[1].upper() if m else "")
         page = {"page_no": page_no, "doc_id": doc_id, "title": (title or page_no).strip(), "kind": kind}
-        if m:
+        if m and m[1] in NO_GROUP:
+            _add(root, [OTHER, f"{m[1].upper()} documents"], page)
+        elif m:
             kg = m[2]
-            sub = f"{kg}.{m[3]}"
-            _add(root, [f"{kg} {names.get(kg, '')}".strip(), f"{sub} {names.get(sub, '')}".strip()], page)
+            group = f"{kg} {names.get(kg, '')}".strip()
+            if m[1] in OWN_NUMBERS:
+                _add(root, [group], page)
+            else:
+                sub = f"{kg}.{m[3]}"
+                _add(root, [group, f"{sub} {names.get(sub, '')}".strip()], page)
         else:
             _add(root, [OTHER, DOC_TYPE.get(doc_type, "Manual pages")], page)
     return root
