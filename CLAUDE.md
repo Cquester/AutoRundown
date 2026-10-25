@@ -7,7 +7,7 @@ context: what is already decided, what is already tried, and what will break.
 
 **Status: working end to end.** Importers (LEMON HTML, Mercedes WIS via
 `records`, plain folders), index, retrieval, AI query layer (four providers), web UI with
-Shop setup, shop-network access, Windows MSI with CI and releases. Not built:
+Shop setup, shop-network access, Windows MSI (built on the PC), CI. Not built:
 macOS/Linux packages (they run from source, by the user's decision), code
 signing, the LEMON torrent download.
 
@@ -49,6 +49,19 @@ docs/               notes/ (deep notes), qa/ (QA reports), images/ (README),
                     SETUP-ON-NEW-PC.md, MERCEDES_WIS_EXTRACTION.md
 .claude/            QA agents + runbook, launch.json
 ```
+
+**GitHub Actions is turned off until the repo is public** (the user,
+2026-10-23: the private repo hit its Actions billing limit). Both workflows
+are disabled on GitHub (`gh workflow disable`), so a PR shows no checks.
+**Before asking to merge, run every CI check locally** in a test box
+(`box.sh check <name>`) and say so in the PR. Keep `ci.yml` up to date anyway
+(new tests still go in its loop); once public: `gh workflow enable CI`.
+
+**After a PR is merged to `main`, build and install the MSI on this PC**
+(the user, 2026-10-23: CI no longer builds it). From an up-to-date `main`:
+`packaging\windows\build.ps1`, then `msiexec /i dist\AutoRundown-<ver>.msi
+AUTOSTART=1 /passive`; steps in `docs/notes/windows-installer.md`. Do not add
+the MSI build back to a workflow.
 
 **A new free test goes in `tests/` and in the "Test suites" loop in
 `.github/workflows/ci.yml`** -- or, if it drives a browser (Playwright), as
@@ -118,7 +131,7 @@ python ingest.py --archive <dir> --repath         # fix archive path only
 python ask.py --vehicle f-150 "<question>"        # CLI, costs money
 python ask.py --vehicle f-150 --search "<terms>"  # keyword only, FREE
 python ask.py --usage                             # spend, by source and user
-python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual
+python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual (--compact: shrink the index)
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
 python rebuild_wis.py                             # replace the WIS part in place (keeps other manuals + spend log)
 python dev.py                                     # FREE, throwaway instance, :8757
@@ -144,11 +157,13 @@ python tests/test_providers.py                    # Ask on all 4 AI providers vs
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
+python tests/test_history.py                      # question history: answers kept whole, who sees what (~2 s)
 python tests/test_vin.py                          # VIN check digit, I/O/Q, typos (~5 s)
 python tests/test_vin_scan.py [--n 8]             # Scan VIN on generated barcodes/labels (~1 min, Playwright)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
 python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends the same car (~10 s, Playwright)
 python tests/test_answer_tabs.py [--index <db>]   # one question fills the right box's tabs (~15 s, Playwright)
+python tests/test_drawing_ui.py                   # Manual contents, drawing picks (red, several), divider (~30 s, Playwright)
 python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
@@ -336,7 +351,12 @@ run level) stops the run with a screenshot of the VM's screen. Do not bring
 back `controlvm poweroff` or `discardstate`. Before a run boots the VM it
 takes its own snapshot ("AutoRundown-auto-…", one per 6 h, never deleted
 automatically) and Shop setup can roll back to any snapshot, snapshotting
-the current state first. The VM list has no default;
+the current state first. The VM is chosen as its `.vbox` file in a
+browser like the Folder tab's (the user, 2026-10-23: no list filled in for
+them), remembered as `Config.vm_file`; nothing is preselected, and a VM
+VirtualBox doesn't know is refused (never registered for them). Every
+program a job starts is started with no terminal window (`NO_WINDOW`;
+the installed app opened one per VBoxManage / Java call);
 `vm_pipeline.py --check` (and `--check --boot`, "Test the VM") gates a run;
 Cancel stops the pull and shuts the VM down cleanly, and the extractor stops
 by itself if the server goes away. Details: `docs/notes/importing.md`.
@@ -349,6 +369,15 @@ AI's own search terms (`queries`), every Search with the words typed
 (`/api/search` `also=`, merged round-robin). The user chose this over the AI
 writing each tab: 3-5x the spend, and it would retell the manual. Do not add
 per-tab AI calls. Details: `docs/notes/epc-source.md` ("Result tabs").
+
+**A paid answer is kept and shown again for free** (2026-10-23, the user:
+"if we are having people pay for ai requests then it should be
+retrievable"). Every Ask is stored whole in `auth.db` `history`
+(`history.py`); opening it from History redraws the stored answer and
+never calls the AI again. Who sees which entries follows sign-in (the PC
+all, a mechanic their own). Do not make "open from history" re-ask.
+Tests: `tests/test_history.py`. Details: `epc-source.md` ("Wider, Clear
+question, History").
 
 **An answer also sees the procedures its pages link to; still one AI call**
 (2026-10-17, the user's request). Search finds only pages sharing the

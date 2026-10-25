@@ -6,7 +6,21 @@ section names may refer to CLAUDE.md or another file in docs/notes/. -->
 
 `packaging/windows/build.ps1` + `AutoRundown.wxs` (WiX 5) build a **per-user
 MSI** to `%LOCALAPPDATA%\Programs\AutoRundown`: no UAC prompt, and Python
-can write there. `.github/workflows/windows-msi.yml` builds it on
+can write there.
+
+**The MSI is built on the PC, not in CI** (2026-10-23, the user: "let not
+build msi in the workflow. All claude sessions upon a successful merge to
+main, will run their version of msi locally"). After its PR is merged to
+`main`, a session builds and installs it here:
+`$env:PATH="$env:USERPROFILE\.dotnet\tools;$env:PATH"; powershell
+-ExecutionPolicy Bypass -File packaging\windows\build.ps1`, then
+`msiexec /i dist\AutoRundown-<ver>.msi AUTOSTART=1 /passive`, then start
+the Start-menu shortcut if :8756 is not answering. Build it from an
+up-to-date `main`, not the PR branch. Python for the build must be the
+same version as the bundled one (3.12.10 on this PC). CI no longer
+builds it, so nothing published a release after that date (below).
+Before then, and still when run by hand ("Run workflow" in the Actions tab),
+`.github/workflows/windows-msi.yml` builds it on
 `windows-latest`, installs it silently, indexes the sample corpus with the
 *installed* Python, serves and searches it, launches a second time, then
 uninstalls and checks nothing is left. Before that it does a real first
@@ -68,6 +82,11 @@ macOS/Linux run from source (README), by the user's decision.
   running it would contend for the name.
 - Version: `autorundown/__init__.py` `__version__`; bump it per release (MSI
   MajorUpgrade needs a higher version to replace an install).
+- **Both workflows are disabled on GitHub since 2026-10-23** (`gh workflow
+  disable`; the private repo hit its Actions billing limit, and the user
+  will turn them back on when the repo goes public: `gh workflow enable CI`).
+  Until then the same checks run locally, `box.sh check <name>` in a test
+  box. What follows describes the workflows as they run when enabled.
 - **CI is `.github/workflows/ci.yml`** (2026-10-11, the user's design):
   every PR runs lint (`ruff --select F`), `tools/check_js.py`, the free
   suites and a sample index served and searched (job `test`), and in
@@ -75,30 +94,30 @@ macOS/Linux run from source (README), by the user's decision.
   Linux; Windows and macOS legs join by
   themselves once the repo is public (the user plans to make it public;
   while private, Windows minutes count 2x and macOS 10x of 2,000/month,
-  and required checks are not available). On `main` and tags
-  `windows-msi.yml` (now `workflow_call` only, or "Run workflow" by hand)
-  runs at the same time as the tests, not after them (2026-10-16, to make
-  a merge faster: ~15 min -> ~8); the release needs all three to pass. The
-  cost: a main run whose tests fail still spends the Windows minutes.
+  and required checks are not available). **Until 2026-10-23** `main` and
+  tags also ran `windows-msi.yml` at the same time as the tests (and PRs
+  that touched packaging, via a `changes` job), and a `release` job
+  published the result; both jobs are gone from `ci.yml` (the user's
+  decision: GitHub's artifact storage kept filling, and each run cost
+  Windows minutes). `windows-msi.yml` is now "Run workflow" by hand only.
   Also 2026-10-16: the 0.1.1 installer for the upgrade test is built once
   and cached (`actions/cache`, key `msi-0.1.1-…`), and "Start at sign-in"
   installs only `AUTOSTART=0` -- the default-on case is the upgrade step's
   (uninstall removes `autostart_asked`, so a first install takes the same
-  `SetProperty` branch as an upgrade from 0.1.1). PRs build the MSI only when
-  they touch packaging, the launcher/autostart/mdns/config, requirements
-  or workflows (`changes` job). `claude/**` pushes no longer build
-  anything: open a PR. No secret is used; `ANTHROPIC_API_KEY` is forced
+  `SetProperty` branch as an upgrade from 0.1.1). `claude/**` pushes
+  build nothing: open a PR. No secret is used; `ANTHROPIC_API_KEY` is forced
   empty and `ANTHROPIC_BASE_URL` points at a closed port.
   **Add a new free test to the "Test suites" loop in `ci.yml`** (a browser
   test: a step in the `browser` job, passing `--index` the job's
   sample index -- building its own cost `test_car_history` ~55 s).
-- **Releases: a push to `main` publishes one** (`ci.yml`'s `release`
-  job, 2026-10-09, the user's request). When the MSI job passes on `main`,
-  the MSI and its `.sha256` go to a GitHub release `v<__version__>` with
-  generated notes. A version that already has a release is skipped with a
-  notice, never overwritten -- so **bump `__version__` in the PR** to ship
-  it. A PR that builds the MSI uploads it as a workflow artifact (90 days).
-  Only that job gets `contents: write`; the build itself stays read-only.
+- **Releases were published by CI until 2026-10-23** (`ci.yml`'s `release`
+  job, from 2026-10-09: the MSI and its `.sha256` as a GitHub release
+  `v<__version__>`, never overwriting one). That job is gone with the MSI
+  build; nothing publishes a release now. If one is wanted, it would be
+  `gh release create v<ver> dist\AutoRundown-<ver>.msi …` from the PC's
+  build, and only when the user asks. In a hand-run `windows-msi.yml` the
+  artifact uploads are `continue-on-error`: a full artifact quota (it
+  happened on PR #22) had skipped the smoke, uninstall and autostart steps.
 - The WIS extractor is **not bundled**, deliberately: it reads the EWA
   Java and `tbjdbc.jar` from the "Mercedes Documents" folder
   (`extractor/wis_paths.py`; Mercedes software, never shipped).

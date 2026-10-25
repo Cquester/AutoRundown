@@ -188,7 +188,15 @@
   button.ghost{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
   button:disabled{opacity:.5; cursor:default}
 
-  main{display:grid; grid-template-columns:1fr 1fr; flex:1; min-height:0}
+  main{display:grid; grid-template-columns:1fr 1fr; flex:1; min-height:0; position:relative}
+  /* the divider: a strip over the line between the sides (placeSplitter) */
+  #splitter{position:absolute; top:0; bottom:0; width:9px; z-index:5; cursor:col-resize; touch-action:none}
+  #splitter::after{content:""; position:absolute; top:0; bottom:0; left:4px; width:1px; background:transparent}
+  #splitter:hover::after, #splitter:focus-visible::after, body.resizing #splitter::after{
+    left:3px; width:3px; background:var(--accent)}
+  body.resizing{cursor:col-resize; user-select:none}
+  @media (max-width:900px){ #splitter{display:none} }
+  body.collapsed #splitter{display:none}
   @media (max-width:900px){ main{grid-template-columns:1fr} }
   .pane{overflow-y:auto; padding:16px; -webkit-overflow-scrolling:touch}
   #right{border-left:1px solid var(--line); background:var(--pane)}
@@ -393,6 +401,11 @@
   .vmchecks .ck.ok .i{color:var(--good)} .vmchecks .ck.warn .i{color:var(--warn)}
   .vmchecks .ck.fail .i{color:var(--bad)} .vmchecks .ck.fail{font-weight:600}
   .vmchecks .ckhead{font-weight:700; padding:6px 0 2px}
+  /* the VM is chosen as its .vbox file, browsed like an import folder */
+  .vmpick{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .vmpick #impVmChosen{flex:1 1 220px; min-width:0; overflow-wrap:anywhere}
+  .vmfiles{margin-top:8px}
+  .vmfiles .vmpath{padding:6px 10px; font-size:13px; overflow-wrap:anywhere; color:var(--muted)}
   #impVmTestRow{align-items:center; gap:10px; margin-top:10px}
   #impVmTestRow .muted{font-size:13px; flex:1 1 220px}
   .vmscreen{margin:10px 0 0}
@@ -442,15 +455,52 @@
   .plines .co{white-space:nowrap; font-weight:700; color:var(--accent); min-width:2.5em}
   .plines tr.pick{cursor:pointer}
   .plines tr.pick:hover td, .plines tr.pick.on td{background:var(--hover)}
+  /* a parts drawing fills the box (the user, 2026-10-23: "at least the
+     width of the screen"; "Wider" on the tab bar gives the box the window) */
   .pdraw{position:relative}
-  .pdraw img.diagram{background:#fff}
+  .pdraw img.diagram{background:#fff; width:100%}
+  /* a callout number on the drawing, tappable; marked when picked */
+  .pdwrap{position:relative; container-type:inline-size}
+  .pco{position:absolute; transform:translate(-50%,-50%); min-width:22px; min-height:22px; padding:0;
+    background:transparent; border:2px solid transparent; border-radius:4px; cursor:pointer;
+    color:transparent; font:700 1em Arial, Helvetica, sans-serif; line-height:1}
+  .pco:hover{border-color:var(--accent-dim); background:rgba(255,170,0,.12)}
+  /* picked: the number itself turns red, as in Mercedes' EPC viewer -- the
+     label is drawn in red over the drawing's own (the user, 2026-10-23) */
+  .pco.on{border-color:#d40000; background:#fff; color:#d40000}
+  .plines tr.pick.on td.co{color:#d40000; font-weight:700}
+  .pdparts .sechead{margin-top:6px}
+  .pdsec{border-top:1px solid var(--line)}
+  .pdsec > summary{cursor:pointer; padding:8px 0; font-weight:700}
+  /* the question side folds away so the right box's results get the whole
+     window (wide screens; remembered on this device) */
+  @media (max-width:900px){ #resTabs .widebtn{display:none} }
+  @media (min-width:901px){
+    .widebtn{display:inline-flex; align-items:center; margin-left:auto; color:var(--accent) !important}
+    body.split main{grid-template-columns:minmax(0, var(--lf)) minmax(0, var(--rf))}
+    body.collapsed main{grid-template-columns:1fr}
+    body.collapsed #left{display:none}
+    body.collapsed #right{border-left:0}
+  }
+  /* History and Clear, under the question box */
+  .qtools{display:flex; gap:8px; flex-wrap:wrap; margin:-6px 0 12px}
+  .qtools .chipbtn{min-height:34px}
+  .hist .hrow{display:block; width:100%; text-align:left; background:none; border:0;
+    border-bottom:1px solid var(--line); color:inherit; font:inherit; padding:10px 12px; cursor:pointer}
+  .hist .hrow:hover{background:var(--hover)}
+  .hist .hq{font-weight:600}
+  .hist .hmeta{color:var(--muted); font-size:13px; margin-top:2px}
+  .hkind{display:inline-block; font-size:12px; font-weight:700; border-radius:8px; padding:0 6px;
+    margin-right:6px; border:1px solid var(--line); background:var(--panel-2)}
+  .hkind.ai{color:var(--accent); border-color:var(--accent-dim)}
   .pfind{position:sticky; top:0; z-index:2; padding:8px 10px; margin-bottom:8px; border-radius:8px;
     background:var(--panel-2); border:1px solid var(--accent-dim); font-size:14px}
   .pfind .cbig{font-size:20px}
+  .pfind{max-height:40vh; overflow:auto}
+  .pfline + .pfline{margin-top:4px}
+  .pfbar{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; font-size:12px}
+  .pfbar button{padding:4px 10px}
   .pcap{text-align:center; margin:-4px 0 10px; font-size:12px}
-  .pthumb{float:right; margin:0 0 6px 10px; padding:0; border:1px solid var(--line); border-radius:6px;
-    background:#fff; width:96px; height:72px; overflow:hidden; cursor:pointer}
-  .pthumb img{width:100%; height:100%; object-fit:contain; display:block}
   .tabhit::after{content:""; display:block; clear:both}
   .pbmore{margin-top:12px}
   .pbmore > summary, .pbsec > summary, .pbgrp > summary{cursor:pointer; padding:6px 0}
@@ -461,9 +511,31 @@
   .pbsub{display:block; width:calc(100% - 24px); text-align:left; margin-left:24px; padding:5px 0; font:inherit;
     color:inherit; background:none; border:0; cursor:pointer}
   .pbsub:hover, .pback:hover{text-decoration:underline}
+  /* a subgroup (or a search result's page) opens its drawing and list in
+     place, as wide as the box (the group's indent taken back) */
+  .pbdrop > summary{list-style:none}
+  .pbdrop > summary::-webkit-details-marker{display:none}
+  .pbdrop > summary::before{content:"\25B8"; display:inline-block; width:1em; color:var(--muted)}
+  .pbdrop[open] > summary::before{content:"\25BE"}
+  .pbdrop[open] > summary{font-weight:700}
+  .pbbody{padding:4px 0 14px}
+  .pbgrp .pbbody{margin-left:-12px}
+  .pshow{margin-left:0; width:100%; color:var(--accent)}
+  .popen{margin-top:10px}
   .pback{font:inherit; color:var(--accent); background:none; border:0; padding:0 0 8px; cursor:pointer}
   .gno{display:inline-block; min-width:2.2em; color:var(--muted); font-variant-numeric:tabular-nums}
-  @media (max-width:700px){ .plines .co{display:block} .pthumb{width:72px; height:54px} }
+  /* the Manual page tab before a question: the car's manual as contents */
+  .mbsec{border-top:1px solid var(--line)}
+  .mbsec .mbsec{border-top:0; margin-left:14px}
+  .mbsec > summary{cursor:pointer; padding:6px 0}
+  .mbrowse > .mbsec > summary{font-weight:700}
+  .mbbody{padding-bottom:4px}
+  .mbpages{margin-left:14px}
+  .mbpage{display:flex; gap:8px; align-items:baseline; width:100%; text-align:left; padding:4px 0; font:inherit;
+    color:inherit; background:none; border:0; cursor:pointer}
+  .mbpage:hover span:last-child{text-decoration:underline}
+  .mbkind{flex:none; min-width:4.5em; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em}
+  @media (max-width:700px){ .plines .co{display:block} }
   /* Torque specs / Capacities: what, then the value as printed */
   .menurow{display:flex; flex-wrap:wrap; gap:0 28px}
   .menurow label.check{margin-top:0}
@@ -884,6 +956,12 @@
         <span class="costline" id="cost">$0.0000 this session</span>
       </div>
     </details>
+    <!-- History: every Ask (its whole answer, free to open again) and Search;
+         Clear: back to browsing, every tab as before the question -->
+    <div class="qtools">
+      <button type="button" class="chipbtn" id="histBtn" title="Questions asked and searches made: open one again (no new AI charge)">History</button>
+      <button type="button" class="chipbtn" id="clearBtn" hidden title="Clear the question and its results; the tabs go back to browsing">Clear question</button>
+    </div>
     <div class="muted" id="scopeNote" hidden style="margin:-6px 0 12px; font-size:14px"></div>
     <!-- a phone hands the car it picked to the desk PC -->
     <div class="senddesk" id="sendDeskRow" hidden>
@@ -904,6 +982,8 @@
       <button type="button" role="tab" data-tab="labour" data-short="Labour" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>Labour times<span class="tcount" hidden></span></button>
       <button type="button" role="tab" data-tab="capacity" data-short="Fluids" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11z"/></svg>Capacities<span class="tcount" hidden></span></button>
       <button type="button" role="tab" data-tab="torque" data-short="Torque" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5a4.5 4.5 0 0 0-4.2 6.1L4 16.9 7.1 20l6.3-6.3a4.5 4.5 0 0 0 6.1-4.2l-2.7 2.7-2.9-.6-.6-2.9z"/></svg>Torque specs<span class="tcount" hidden></span></button>
+      <!-- wide screens only: fold the question side away, and back -->
+      <button type="button" class="widebtn" id="wideBtn" aria-pressed="false">&#8676; Wider</button>
     </div>
     <div id="out"></div>
   </section>
@@ -925,6 +1005,10 @@
       <div id="labOut" style="margin-top:10px"></div>
     </div>
   </section>
+  <!-- the divider between the two sides, dragged to resize (wide screens) -->
+  <div id="splitter" role="separator" aria-orientation="vertical" tabindex="0"
+       aria-label="Resize the question and document sides"
+       title="Drag to give the documents more or less room · double-click to reset"></div>
 </main>
 
 <section id="gate" class="gate" hidden>
@@ -1047,8 +1131,11 @@
   <div id="impVmPanel" role="tabpanel" aria-labelledby="tabVm" hidden>
     <div id="impVmNote"></div>
     <div id="impVmControls">
-    <label for="impVm">VirtualBox VM</label>
-    <select id="impVm"></select>
+    <label for="impVmBrowse">VirtualBox VM</label>
+    <input type="hidden" id="impVm">
+    <div class="vmpick"><span id="impVmChosen"><span class="muted">No VM chosen yet.</span></span>
+      <button type="button" class="ghost" id="impVmBrowse">Choose VM file…</button></div>
+    <div class="dirlist vmfiles" id="impVmFiles" hidden></div>
     <label id="impVmWhatLbl">What to extract</label>
     <div class="seg" id="impVmWhat" role="radiogroup" aria-labelledby="impVmWhatLbl">
       <label><input type="radio" name="vmwhat" value="wis" checked><span>WIS</span></label>
@@ -1709,8 +1796,10 @@ function carChanged() {
   shownDoc = docId();
   resetTabs();                        // each tab's results were for the old car
   out.innerHTML = emptyState();
-  srcout.innerHTML = '<p class="muted">The manual page for an answer appears here.</p>';
+  $('#clearBtn').hidden = true;
+  manualEl = null;
   setTab('workshop');
+  showManualBrowse();                 // the Manual page tab starts as the car's contents
   hideRight();
   $('#segDot').hidden = true;
 }
@@ -2263,6 +2352,8 @@ function showScope() {
     if (curTab === 'parts') showPartsBrowse();
     if (curTab === 'capacity') showFluids();
   }
+  // the contents shown are for the old model or engine
+  if (srcout.firstElementChild?.classList.contains('mbrowse')) showManualBrowse();
   if (!out.innerHTML.trim()) out.innerHTML = emptyState();
   if (!v || !v._variants.length) { note.hidden = true; return; }
   setTimeout(() => showOil(v));
@@ -2724,13 +2815,16 @@ function figureHtml(f) {
   </button>`;
 }
 
-function renderAnswer(d, doc = docId(), label = carBoxLabel) {
-  withDoc(doc, () => drawAnswer(d, label));
+// replay: an answer opened from the history -- paid for then, not now
+function renderAnswer(d, doc = docId(), label = carBoxLabel, replay = false) {
+  withDoc(doc, () => drawAnswer(d, label, replay));
 }
-function drawAnswer(d, label) {
+function drawAnswer(d, label, replay = false) {
   pageTitles = d.page_titles || {};
-  sessionCost += d.usage?.cost_usd || 0;
-  if (d.usage && d.usage.calls && d.usage.cost_usd == null) costUntracked = true;
+  if (!replay) {
+    sessionCost += d.usage?.cost_usd || 0;
+    if (d.usage && d.usage.calls && d.usage.cost_usd == null) costUntracked = true;
+  }
   $('#cost').textContent = '$' + sessionCost.toFixed(4) + ' this session'
     + (costUntracked ? ' (some cost not tracked)' : '')
     + (d.usage?.model ? ' · ' + d.usage.model.replace('claude-', '') : '');
@@ -2847,13 +2941,8 @@ async function ask() {
                             model:model(), variant:variantIdx(), engine:engineSel(), year:yearSel()})
     }, 240000);
     renderAnswer(d, doc, label);
-    // the right box's other tabs, from the AI's own search terms (free)
-    // Torque specs / Capacities: this job's pages -- the answer's, or with no
-    // answer the pages it was looked for on (the cam solenoid page was found
-    // but not answered from: its values still belong in the tab)
-    const jobPages = [...new Set([d.document_page, ...(d.source_pages || [])].filter(Boolean).map(String))];
-    const looked = [...new Set((d.passages || []).map(p => String(p.page_no)))].slice(0, 3);
-    if (docId() === doc) fillTabs(q, d.queries || [], (jobPages.length ? jobPages : looked).slice(0, 6));
+    if (docId() === doc) answerTabs(d, q);
+    $('#clearBtn').hidden = false;
   } catch (e) {
     out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   } finally {
@@ -2861,6 +2950,161 @@ async function ask() {
     $('#askBtn').disabled = false;
   }
 }
+
+// the right box's other tabs, from the AI's own search terms (free)
+// Torque specs / Capacities: this job's pages -- the answer's, or with no
+// answer the pages it was looked for on (the cam solenoid page was found
+// but not answered from: its values still belong in the tab)
+function answerTabs(d, q) {
+  const jobPages = [...new Set([d.document_page, ...(d.source_pages || [])].filter(Boolean).map(String))];
+  const looked = [...new Set((d.passages || []).map(p => String(p.page_no)))].slice(0, 3);
+  fillTabs(q, d.queries || [], (jobPages.length ? jobPages : looked).slice(0, 6));
+}
+
+// -- History and Clear ---------------------------------------------------------
+// The user (2026-10-23): "a history of the search results. If we are having
+// people pay for ai requests then it should be retrievable", and a way back
+// from a question's results to browsing. The server keeps every Ask with its
+// whole answer and every Search's words (history.py); opening an Ask shows
+// that answer again and fills the tabs from its search terms -- no AI call.
+// The car comes back through the recent-cars check (resolveCarHistory).
+const ago = t => {
+  const s = Date.now() / 1000 - t;
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(t * 1000).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+};
+async function showHistory() {
+  toAnswerView();
+  out.innerHTML = `<div class="card"><span class="spinner"></span> loading your history&hellip;</div>`;
+  let rows;
+  try { rows = await api('/api/history'); }
+  catch (e) { out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`; return; }
+  $('#clearBtn').hidden = false;
+  if (!rows.length) {
+    out.innerHTML = `<div class="empty">No questions yet. Every Ask and Search is kept here, `
+      + `and an AI answer opens again without a new charge.</div>`;
+    return;
+  }
+  const many = new Set(rows.map(r => r.by)).size > 1;
+  out.innerHTML = `<div class="muted" style="margin:0 0 8px">Your last ${rows.length} questions and searches `
+    + `&mdash; an AI answer opens again without a new charge.</div><div class="card hist" style="padding:0">`
+    + rows.map(r => `<button type="button" class="hrow" data-hist="${r.id}">`
+      + `<div class="hq">${r.kind === 'ask'
+          ? `<span class="hkind ai">AI${r.found ? '' : ' · not found'}</span>`
+          : '<span class="hkind">Search</span>'}${esc(r.question)}</div>`
+      + `<div class="hmeta">${esc(r.label)} &middot; ${ago(r.created)}`
+      + (r.kind === 'ask' && r.cost_usd != null ? ` &middot; $${r.cost_usd.toFixed(3)}` : '')
+      + (many ? ` &middot; ${esc(r.by)}` : '') + `</div></button>`).join('') + `</div>`;
+}
+async function openHistory(id) {
+  let h;
+  try { h = await api(`/api/history/${id}`); }
+  catch (e) { out.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`; return; }
+  const r = resolveCarHistory({doc: h.doc_id, variant: h.variant, vname: h.vname, engine: h.engine,
+                               year: h.year, label: h.label});
+  if (r.gone) {
+    out.insertAdjacentHTML('afterbegin', `<div class="card"><div class="warnbox">`
+      + `“${esc(h.label)}” is no longer in the manuals here, so this can't be opened.</div></div>`);
+    return;
+  }
+  applyCar(r.e);
+  $('#q').value = h.question;
+  if (h.kind === 'search') { keywordSearch(); return; }
+  const doc = docId();
+  renderAnswer(h.result, doc, carBoxLabel, true);
+  answerTabs(h.result, h.question);
+  $('#clearBtn').hidden = false;
+  const when = new Date(h.created * 1000).toLocaleString();
+  out.insertAdjacentHTML('afterbegin', `<div class="muted" style="margin:0 0 8px">From your history: asked ${esc(when)}`
+    + (h.cost_usd != null ? ` ($${h.cost_usd.toFixed(3)} then)` : '') + ` &mdash; shown again, no new charge.`
+    + (r.note ? `<div class="warnbox">${esc(r.note)}</div>` : '') + `</div>`);
+}
+// back to where a car starts: no question, every tab browsing again
+function clearQuestion() {
+  ++searchSeq; pageSeq++;
+  $('#q').value = '';
+  out.innerHTML = emptyState();
+  showManualBrowse();
+  resetTabs();
+  setTab(curTab);
+  $('#clearBtn').hidden = true;
+}
+$('#histBtn').onclick = showHistory;
+$('#clearBtn').onclick = clearQuestion;
+document.addEventListener('click', e => {
+  const h = e.target.closest('[data-hist]');
+  if (h) openHistory(+h.dataset.hist);
+});
+// "Wider": the question side folds away (wide screens), remembered here
+const COLLAPSE_KEY = 'autorundown.collapsed';
+function setCollapsed(on) {
+  document.body.classList.toggle('collapsed', on);
+  $('#wideBtn').innerHTML = on ? '&#8677; Show question' : '&#8676; Wider';
+  $('#wideBtn').setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem(COLLAPSE_KEY, on ? '1' : '0'); } catch (_) {}
+}
+$('#wideBtn').onclick = () => setCollapsed(!document.body.classList.contains('collapsed'));
+
+// The divider between the question side and the right box, dragged to give
+// the documents a little more or less room (the user, 2026-10-24: "We
+// already have the wider button, but what if i just want a little more or
+// less"). Kept as the question side's share of the window, on this device;
+// double-click (or Home) puts the layout back. Arrow keys move it too.
+const SPLIT_KEY = 'autorundown.split', mainEl = document.querySelector('main'), splitter = $('#splitter');
+const SPLIT_MIN_LEFT = 300, SPLIT_MIN_RIGHT = 360;
+function placeSplitter() {
+  const l = $('#left').getBoundingClientRect(), m = mainEl.getBoundingClientRect();
+  splitter.style.left = (l.right - m.left - 4) + 'px';
+  splitter.setAttribute('aria-valuenow', String(Math.round(l.width / (m.width || 1) * 100)));
+}
+function setSplit(f, save = true) {
+  const w = mainEl.getBoundingClientRect().width;
+  if (f != null && w) f = Math.min(Math.max(f, SPLIT_MIN_LEFT / w), 1 - SPLIT_MIN_RIGHT / w);
+  document.body.classList.toggle('split', f != null);
+  if (f != null) {
+    mainEl.style.setProperty('--lf', `${f}fr`);
+    mainEl.style.setProperty('--rf', `${1 - f}fr`);
+  }
+  if (save) try { f == null ? localStorage.removeItem(SPLIT_KEY) : localStorage.setItem(SPLIT_KEY, String(f)); } catch (_) {}
+  placeSplitter();
+}
+splitter.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  try { splitter.setPointerCapture(e.pointerId); } catch (_) {}   // keeps the drag over an iframe
+  document.body.classList.add('resizing');
+  const move = ev => {
+    const m = mainEl.getBoundingClientRect();
+    setSplit((ev.clientX - m.left) / m.width, false);
+  };
+  const up = ev => {
+    splitter.removeEventListener('pointermove', move);
+    splitter.removeEventListener('pointerup', up);
+    splitter.removeEventListener('pointercancel', up);
+    document.body.classList.remove('resizing');
+    const l = $('#left').getBoundingClientRect(), m = mainEl.getBoundingClientRect();
+    setSplit(l.width / m.width);
+  };
+  splitter.addEventListener('pointermove', move);
+  splitter.addEventListener('pointerup', up);
+  splitter.addEventListener('pointercancel', up);
+});
+splitter.addEventListener('dblclick', () => setSplit(null));
+splitter.addEventListener('keydown', e => {
+  const m = mainEl.getBoundingClientRect(), l = $('#left').getBoundingClientRect();
+  const step = e.key === 'ArrowLeft' ? -0.02 : e.key === 'ArrowRight' ? 0.02 : null;
+  if (e.key === 'Home') { e.preventDefault(); setSplit(null); return; }
+  if (step === null) return;
+  e.preventDefault();
+  setSplit(l.width / m.width + step);
+});
+// #left is display:contents on a phone (no box to observe): watch the layout too
+const splitWatch = new ResizeObserver(placeSplitter);
+splitWatch.observe($('#left')); splitWatch.observe(mainEl);
+window.addEventListener('resize', placeSplitter);
+try { const f = parseFloat(localStorage.getItem(SPLIT_KEY)); if (f > 0 && f < 1) setSplit(f, false); } catch (_) {}
+placeSplitter();
+try { if (localStorage.getItem(COLLAPSE_KEY) === '1') setCollapsed(true); } catch (_) {}
 
 let searchSeq = 0;
 async function keywordSearch() {
@@ -2873,7 +3117,8 @@ async function keywordSearch() {
   out.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
   fillTabs(q, [q]);                   // the right box's tabs, for the same words
   try {
-    const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}`
+    $('#clearBtn').hidden = false;
+    const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}&record=1`
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
       + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
@@ -3106,7 +3351,8 @@ async function showPage(pageNo, doc, open = true) {
     if (xrefs.length) bodyHtml = linkDocnrs(bodyHtml, xrefs);
     curXrefs = {list: xrefs, doc};
     srcout.innerHTML =
-      `<div class="muted">${esc(p.section_path)}</div>
+      (parts ? '' : `<button type="button" class="pback" data-manual-contents>&larr; Manual contents</button>`)
+      + `<div class="muted">${esc(p.section_path)}</div>
        <h3 style="margin:6px 0 2px">${esc(p.title)}</h3>
        <div class="muted" style="margin-bottom:12px">page ${esc(p.page_no)}</div>
        ${p.applicability!=='this_vehicle'
@@ -3129,6 +3375,7 @@ async function showPage(pageNo, doc, open = true) {
       + extra.map(imgTag).join('');
     curComps = {list: [], doc};
     if (p.diagram) loadDiagram(seq, doc, p);
+    if (parts) placeCallouts(srcout);
   } catch (e) {
     if (seq === pageSeq) srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   } finally {
@@ -3249,45 +3496,204 @@ function partLinesHtml(lines, clickable = false) {
   }).join('') + `</tbody></table>`;
 }
 // A parts catalogue page: its drawings first (the callouts printed on them
-// are the list's first column), then the parts list as a table; a row says
-// which callout to look for. Where each callout sits on the drawing is not
-// extracted (EPC keeps it in the drawing file's annotation layer), so the
-// label is named, not pointed at.
-function partsPageHtml(p, body) {
+// are the list's first column), then the parts list as a table. Tapping a
+// number on the drawing marks its rows; tapping a row marks its number on
+// the drawing (placeCallouts / pickCallout).
+// inline: the same inside a Parts-tab dropdown (no Back / Full width; "Open
+// as a page" instead). Each copy finds its own "Find 7C" line (.ppage).
+function partsPageHtml(p, body, inline = false) {
   const lines = body.split('\n');
   const parts = lines.filter(l => PART_LINE.test(l));
+  // the drawings are shown on top: their [diagram: …] markers are left out
   const rest = lines.filter(l => !PART_LINE.test(l) && !/^Callout \| Part number/.test(l)
+                                 && !/^\s*\[diagram:[^\]]*\]\s*$/.test(l)
                                  && l.trim() !== (p.title || '').trim()).join('\n').trim();
   const imgs = p.images || [];
   // a parts page opens on the Manual page tab; this goes back to the Parts
   // tab as it was left (the open groups, or the question's results)
-  return `<button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`
+  return `<div class="ppage">`
+    + (inline ? ''
+      : `<button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`)
     + (imgs.length
-      ? `<div class="pdraw"><div class="pfind" id="pfind" hidden></div>`
-        + imgs.map((n, i) => imgTag(n) + (imgs.length > 1
-            ? `<div class="muted pcap">Drawing ${i + 1} of ${imgs.length}</div>` : '')).join('')
-        + `</div>`
+      ? `<div class="pdraw"><div class="pfind" hidden></div>` + drawingsHtml(imgs) + `</div>`
       : `<div class="muted">No drawing for this group in the parts catalogue.</div>`)
-    + (parts.length ? `<div class="sechead">Parts on this drawing</div>${partLinesHtml(parts, true)}` : '')
-    + (rest ? `<div class="src">${renderSource(rest)}</div>` : '');
+    + (parts.length ? `<div class="pall"><div class="sechead">`
+      + (imgs.length > 1 ? 'All parts on this page' : 'Parts on this drawing')
+      + `</div>${partLinesHtml(parts, true)}</div>` : '')
+    + (rest ? `<div class="src">${renderSource(rest)}</div>` : '')
+    + (inline ? `<button type="button" class="ghost popen" ${pageAttrs(p.page_no)}>Open as a page</button>` : '')
+    + `</div>`;
+}
+// one drawing: shown as it is (a tap that only enlarged it was not wanted);
+// several: each its own dropdown, the first open (the user, 2026-10-23: a
+// radiator page with 5 drawings), listing the parts printed on it (splitParts)
+function drawingsHtml(imgs) {
+  // .pdwrap: the drawing with its callout numbers made tappable (placeCallouts)
+  const img = (n, i) => `<div class="pdwrap" data-doc="${esc(viewDoc())}" data-name="${esc(n)}">`
+    + `<img class="diagram" loading="lazy" alt="parts drawing ${i + 1}" src="${imgUrl(n)}"></div>`;
+  if (imgs.length === 1) return img(imgs[0], 0);
+  return imgs.map((n, i) => `<details class="pdsec"${i ? '' : ' open'}><summary>Drawing ${i + 1} of ${imgs.length}`
+    + `<span class="pdcount muted"></span></summary>` + img(n, i) + `<div class="pdparts"></div></details>`).join('');
+}
+// a Parts-tab dropdown opened: its page (drawing + list) is fetched once,
+// shown in place (the user, 2026-10-23: "by clicking a drop down it would
+// generate the diagram")
+document.addEventListener('toggle', async e => {
+  const d = e.target;
+  if (!d.matches?.('details.pbdrop') || !d.open || d.dataset.loaded) return;
+  d.dataset.loaded = '1';
+  const out = d.querySelector('.pbbody'), doc = d.dataset.doc;
+  out.innerHTML = `<span class="spinner"></span>`;
+  try {
+    const p = await api(`/api/page/${encodeURIComponent(doc)}/${encodeURIComponent(d.dataset.pno)}`);
+    let body = p.text || '';
+    if (p.title && body.trimStart().startsWith(p.title)) body = body.trimStart().slice(p.title.length).trimStart();
+    out.innerHTML = withDoc(doc, () => partsPageHtml(p, body, true));
+    placeCallouts(out);
+  } catch (err) {
+    delete d.dataset.loaded;
+    out.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
+  }
+}, true);
+// The callout numbers printed on a drawing, made tappable: where each label
+// sits comes from the drawing's own annotation layer (the extractor's
+// <drawing>.callouts.json, server /api/callouts), as Mercedes' EPC viewer
+// places its buttons -- centred on the label, as wide as its text. A drawing
+// pulled before callouts were saved has none, and the list still names the
+// number to look for.
+function placeCallouts(root) {
+  root.querySelectorAll('.pdwrap:not([data-placed])').forEach(async w => {
+    w.dataset.placed = '1';
+    let cs = [];
+    try { cs = await api(`/api/callouts/${encodeURIComponent(w.dataset.doc)}/`
+                         + w.dataset.name.split('/').map(encodeURIComponent).join('/')); }
+    catch { cs = []; }
+    splitParts(w, cs);
+    if (!cs.length) return;
+    const img = w.querySelector('img');
+    const put = () => {
+      const W = img.naturalWidth, H = img.naturalHeight;
+      if (!W || !H) return;
+      w.querySelectorAll('.pco').forEach(b => b.remove());
+      for (const c of cs) {
+        if (c.x > W || c.y > H) continue;           // below a cropped page's last row
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'pco'; b.dataset.co = c.c;
+        b.style.left = (c.x / W * 100) + '%'; b.style.top = (c.y / H * 100) + '%';
+        b.style.width = ((c.c.length * 15 + 14) / W * 100) + '%';
+        b.style.height = (30 / H * 100) + '%';
+        b.textContent = c.c;                        // shown, in red, once picked
+        b.style.fontSize = (24 / W * 100) + 'cqw';  // the drawing's label size
+        b.title = `Part ${c.c}`; b.setAttribute('aria-label', `Show part ${c.c} in the list`);
+        w.appendChild(b);
+      }
+      // numbers placed after something was picked: mark the picks on them too
+      const h = w.closest('.ppage');
+      if (h?.dataset.picks) showPicks(h);
+    };
+    if (img.complete) put(); else img.addEventListener('load', put, {once: true});
+  });
+}
+// Several drawings: each dropdown lists the parts whose number is printed on
+// that drawing (the user, 2026-10-23: "it should have the parts in the drop
+// down associated with that picture"), from the drawing's own callouts. A
+// number on two drawings is listed under both; what no drawing shows stays
+// below as "Other parts on this page". Without saved callouts (a drawing
+// pulled before they were) the page keeps its one list.
+function splitParts(w, cs) {
+  const sec = w.closest('.pdsec'), host = w.closest('.ppage');
+  w.dataset.done = '1';
+  if (!sec || !host) return;
+  const on = new Set(cs.map(c => c.c));
+  w.dataset.cos = JSON.stringify([...on]);
+  const rows = [...host.querySelectorAll('.pall tr[data-callout]')].filter(r => on.has(r.dataset.callout));
+  if (rows.length) {
+    const box = sec.querySelector('.pdparts');
+    box.innerHTML = `<div class="sechead">Parts on this drawing</div><table class="plines"><tbody></tbody></table>`;
+    const tb = box.querySelector('tbody');
+    rows.forEach(r => { const c = r.cloneNode(true); c.classList.remove('on'); tb.appendChild(c); });
+    sec.querySelector('.pdcount').textContent = ` — ${rows.length} part${rows.length > 1 ? 's' : ''}`;
+  }
+  const wraps = [...host.querySelectorAll('.pdsec .pdwrap')];
+  if (!wraps.every(x => x.dataset.done)) return;
+  const shown = new Set(wraps.flatMap(x => JSON.parse(x.dataset.cos || '[]')));
+  const all = host.querySelector('.pall');
+  if (!shown.size || !all) return;
+  let left = 0;
+  all.querySelectorAll('tbody tr').forEach(r => {
+    r.hidden = shown.has(r.dataset.callout);
+    left += !r.hidden;
+  });
+  all.hidden = !left;
+  all.querySelector('.sechead').textContent = 'Other parts on this page';
+}
+// Callouts are picked from either side, several at once (the user,
+// 2026-10-24: "can we select multiple parts on the diagram?"): a tap adds a
+// number to the picks, a second tap on it takes it off, "Clear" empties
+// them. Every pick's rows and numbers are marked, and the line above the
+// drawing lists them; what is brought into view is in the same drawing's
+// dropdown when it can be.
+const calloutRows = (host, co) => [...host.querySelectorAll('tr[data-callout]')].filter(r => r.dataset.callout === co);
+const calloutMarks = (host, co) => [...host.querySelectorAll('.pco')].filter(b => b.dataset.co === co);
+function showPicks(host) {
+  const sel = JSON.parse(host.dataset.picks || '[]');
+  host.querySelectorAll('tr.pick.on, .pco.on').forEach(x => x.classList.remove('on'));
+  const f = host.querySelector('.pfind');
+  const lines = sel.map(co => {
+    const rows = calloutRows(host, co), marks = calloutMarks(host, co);
+    rows.forEach(r => r.classList.add('on'));
+    marks.forEach(b => b.classList.add('on'));
+    const listed = rows.filter(r => r.closest('.pall'));   // each part once
+    const r = listed[0] || rows[0];
+    return `<div class="pfline">` + (r
+      ? `<b class="cbig">${esc(co)}</b> &mdash; ${esc(r.dataset.cname)}, <span class="pn">${esc(r.dataset.cpn)}</span>`
+        + (listed.length > 1 ? ` <span class="muted">(+${listed.length - 1} more in the list)</span>` : '')
+        + (marks.length ? '' : ' <span class="muted">&mdash; look for this number on the drawing</span>')
+      : `<b class="cbig">${esc(co)}</b> <span class="muted">is not in this page's parts list</span>`) + `</div>`;
+  });
+  if (!f) return;
+  f.hidden = !sel.length;
+  f.innerHTML = lines.join('') + (sel.length
+    ? `<div class="pfbar"><span class="muted">${sel.length} picked &middot; tap a number again to take it off</span>`
+      + `<button type="button" class="ghost" data-clear-picks>Clear</button></div>` : '');
+}
+function pickCallout(host, co, from, el) {
+  let sel = JSON.parse(host.dataset.picks || '[]');
+  const adding = !sel.includes(co);
+  sel = adding ? [...sel, co] : sel.filter(x => x !== co);
+  host.dataset.picks = JSON.stringify(sel);
+  showPicks(host);
+  if (!adding) return;                 // taking one off moves nothing
+  const rows = calloutRows(host, co), marks = calloutMarks(host, co), f = host.querySelector('.pfind');
+  const sec = el?.closest('.pdsec');
+  const near = xs => { const s = sec ? xs.filter(x => sec.contains(x)) : []; return s.length ? s : xs; };
+  const seen = near(rows.filter(r => !r.closest('[hidden]')));
+  // a drawing folded away is opened, then the other side is brought into view
+  const m = near(marks)[0];
+  if (from === 'row' && m) {
+    const d = m.closest('details'); if (d) d.open = true;
+    m.scrollIntoView({behavior: 'smooth', block: 'center'});
+  } else if (from === 'row') {
+    f?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  } else if (seen[0]) {
+    seen[0].scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-back-parts]')) { setTab('parts'); return; }
+  const clr = e.target.closest('[data-clear-picks]');
+  if (clr) { const host = clr.closest('.ppage'); if (host) { host.dataset.picks = '[]'; showPicks(host); } return; }
+  const b = e.target.closest('.pco');
+  if (b) { const host = b.closest('.ppage'); if (host) pickCallout(host, b.dataset.co, 'drawing', b); return; }
   const r = e.target.closest('tr[data-callout]');
   if (!r) return;
-  const f = $('#pfind');
-  if (!f) return;
-  srcout.querySelectorAll('tr.pick.on').forEach(x => x.classList.remove('on'));
-  r.classList.add('on');
-  f.hidden = false;
-  f.innerHTML = `Find <b class="cbig">${esc(r.dataset.callout)}</b> on the drawing &mdash; `
-    + `${esc(r.dataset.cname)}, <span class="pn">${esc(r.dataset.cpn)}</span>`;
-  f.scrollIntoView({behavior: 'smooth', block: 'start'});
+  const host = r.closest('.ppage');
+  if (host) pickCallout(host, r.dataset.callout, 'row', r);
 });
 
 // The car's parts diagrams as the catalogue reads (server: parts_browse.py):
-// chassis, engines, options > group > subgroup; a subgroup opens its page
-// (drawing + list). Shown in the Parts tab before a question, and folded
+// chassis, engines, options > group > subgroup; a subgroup is a dropdown
+// that shows its page (drawing + list) in place. Shown in the Parts tab before a question, and folded
 // under the results after one.
 let browseSeq = 0;
 async function partsBrowse(target) {
@@ -3316,14 +3722,76 @@ async function partsBrowse(target) {
       + s.groups.map(g => `<details class="pbgrp"><summary><span class="gno">${esc(g.group)}</span> ${esc(g.name || '')}</summary>`
         + g.subs.map(sub => {
             const p = sub.pages[0];
-            return `<button type="button" class="pbsub" data-page="${esc(p.page_no)}" data-doc="${esc(doc)}">`
+            return `<details class="pbdrop" data-pno="${esc(p.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub">`
               + `<span class="gno">${esc(sub.sub)}</span> ${esc(sub.name || '(no name)')}`
               + (p.drawings ? '' : ' <span class="muted">(no drawing)</span>')
               + (sub.pages.length > 1 ? ` <span class="muted">· ${sub.pages.length} catalogs</span>` : '')
-              + `</button>`;
+              + `</summary><div class="pbbody"></div></details>`;
           }).join('') + `</details>`).join('')
       + `</details>`).join(''));
 }
+// The Manual page tab before a question, and after "Manual contents": the
+// car's manual as contents (server: manual_browse.py) -- WIS by function
+// group > subgroup, other manuals by their own chapters -- a level fetched
+// when it is opened (a WIS car has ~30k documents). A document opens as the
+// manual page; "Manual contents" on it comes back with the sections left
+// open (the user, 2026-10-24: "like the parts page ... then i can still do
+// the keyword or ai search on the left").
+let manualSeq = 0, manualEl = null;
+const manualKey = () => `${docId()}|${variantIdx()}|${engineSel()}`;
+function manualLevel(doc, path) {
+  return api(`/api/manual/contents/${encodeURIComponent(doc)}?`
+    + (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
+    + (engineSel() ? `engine=${encodeURIComponent(engineSel())}&` : '')
+    + path.map(p => `path=${encodeURIComponent(p)}`).join('&'));
+}
+function manualLevelHtml(n) {
+  return n.children.map(c => `<details class="mbsec" data-path="${esc(JSON.stringify([...n.path, c.name]))}">`
+      + `<summary>${esc(c.name)} <span class="muted">(${c.count})</span></summary><div class="mbbody"></div></details>`).join('')
+    + (n.pages.length ? `<div class="mbpages">` + n.pages.map(p => `<button type="button" class="mbpage" ${pageAttrs(p.page_no)}>`
+      + (p.kind ? `<span class="mbkind">${esc(p.kind)}</span>` : '') + `<span>${esc(p.title)}</span></button>`).join('') + `</div>` : '');
+}
+async function showManualBrowse() {
+  const doc = docId();
+  if (!doc) return;
+  pageSeq++;                          // a page still loading must not replace this
+  if (manualEl && manualEl.dataset.key === manualKey()) { srcout.replaceChildren(manualEl); return; }
+  const seq = ++manualSeq, el = document.createElement('div'), label = carBoxLabel || currentCarLabel();
+  el.className = 'mbrowse'; el.dataset.key = manualKey(); el.dataset.doc = doc;
+  el.innerHTML = `<div class="card"><span class="spinner"></span> loading the manual&rsquo;s contents&hellip;</div>`;
+  manualEl = el;
+  srcout.replaceChildren(el);
+  try {
+    const n = await manualLevel(doc, []);
+    if (seq !== manualSeq) return;
+    el.innerHTML = `<div class="muted" style="margin:0 0 8px">Manual for <b>${esc(label)}</b> &mdash; ${n.count} pages`
+      + (n.path.length ? ` in <b>${esc(n.path.join(' › '))}</b>` : '') + ` by section. `
+      + `Search or ask on the left to find a page by its words.`
+      + (variantIdx() === null && !engineSel() ? ' Pick your model or engine above to narrow it.' : '') + `</div>`
+      + (n.count ? withDoc(doc, () => manualLevelHtml(n)) : `<div class="empty">No manual pages for this car.</div>`);
+  } catch (e) {
+    if (seq === manualSeq) el.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+// a section opened: its level fetched once
+document.addEventListener('toggle', async e => {
+  const d = e.target;
+  if (!d.matches?.('details.mbsec') || !d.open || d.dataset.loaded) return;
+  const el = d.closest('.mbrowse'), out = d.querySelector(':scope > .mbbody');
+  if (!el || !out) return;
+  d.dataset.loaded = '1';
+  out.innerHTML = `<span class="spinner"></span>`;
+  try {
+    const n = await manualLevel(el.dataset.doc, JSON.parse(d.dataset.path));
+    out.innerHTML = withDoc(el.dataset.doc, () => manualLevelHtml(n));
+  } catch (err) {
+    delete d.dataset.loaded;
+    out.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
+  }
+}, true);
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-manual-contents]')) showManualBrowse();
+});
 function showPartsBrowse() {
   const pane = $(PANE.parts);
   if (!pane || tabQuery) return;
@@ -3353,12 +3821,13 @@ async function tabSearch(tab, q, also, seq) {
     pane.innerHTML = withDoc(doc, () => head
       + (rows.length ? `<div class="card" style="padding:0">` + rows.map(r =>
           `<div class="tabhit">`
-          // the page's drawing beside it: tap to open the drawing and its list
-          + (r.drawings?.length ? `<button type="button" class="pthumb" ${pageAttrs(r.page_no)} title="Open the drawing">`
-              + `<img loading="lazy" alt="drawing" src="${imgUrl(r.drawings[0])}"></button>` : '')
           + `<button type="button" class="hit" style="padding:0" ${pageAttrs(r.page_no)}>
              <div class="t">${esc(r.title)}</div><div class="s">${esc(r.section_path)}</div></button>`
           + (r.lines?.length ? partLinesHtml(r.lines) : '')
+          // the page's drawing and whole list, opened in place
+          + `<details class="pbdrop" data-pno="${esc(r.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub pshow">`
+          + (r.drawings?.length ? 'Show drawing and all its parts' : 'Show all parts on this page')
+          + `</summary><div class="pbbody"></div></details>`
           + `</div>`).join('') + `</div>`
         : `<div class="card"><div class="notfound">${none}</div></div>`)
       + `<details class="pbmore"><summary>Browse all parts diagrams for this car</summary><div></div></details>`);
@@ -4927,8 +5396,7 @@ function manRender() {
         + `<span class="nm" title="${esc(r.file_path)}">${esc(r.label)}</span>`
         + (r.complete ? '' : '<span class="tag">partly imported</span>')
         + `<span class="sz">${r.pages.toLocaleString()} pages</span></label>`).join('') + '</div>'
-      + `<div class="rmbar"><button type="button" class="danger" data-rm="${group}" disabled>Remove selected</button>`
-      + `<label><input type="checkbox" class="mancompact"> shrink the index file afterwards (slower)</label></div>`;
+      + `<div class="rmbar"><button type="button" class="danger" data-rm="${group}" disabled>Remove selected</button></div>`;
     const sel = () => [...box.querySelectorAll('.dirlist input:checked')].map(c => c.value);
     const btn = box.querySelector('[data-rm]');
     box.querySelectorAll('.dirlist input').forEach(c => c.onchange = () => {
@@ -4944,43 +5412,52 @@ function manRender() {
       const pages = ids.reduce((n, d) => n + byId[d].pages, 0);
       const names = ids.slice(0, 5).map(d => '  • ' + byId[d].label).join('\n') + (ids.length > 5 ? `\n  … and ${ids.length - 5} more` : '');
       if (!confirm(`Remove ${ids.length} manual${ids.length > 1 ? 's' : ''} (${pages.toLocaleString()} pages) from the index?\n\n`
-          + names + '\n\nYour manual files on disk and the spend log are not touched. You can import them again later.')) return;
+          + names + '\n\nThe index file is shrunk afterwards. Your manual files on disk and the spend log '
+          + 'are not touched, so you can import them again later.')) return;
       btn.disabled = true;               // a second click asked twice
-      manRemove('remove', ids, box.querySelector('.mancompact').checked);
+      manRemove('remove', ids);
     };
   }
   const w = manData.wis, wb = $('#impWisManuals');
   wb.innerHTML = '<h4>Mercedes WIS in the index</h4>' + (w.entries
     ? `<div style="font-size:14px">${w.pages.toLocaleString()} pages in ${w.entries} models, engines and shared sections.`
       + ' It is removed as a whole: the models share engine and general pages.</div>'
-      + '<div class="rmbar"><button type="button" class="danger" id="impWisRemove">Remove all Mercedes WIS data</button>'
-      + '<label><input type="checkbox" id="impWisCompact" checked> shrink the index file afterwards (slower)</label></div>'
+      + '<div class="rmbar"><button type="button" class="danger" id="impWisRemove">Remove all Mercedes WIS data</button></div>'
+      + rmFiles(w.folders)
     : '<div class="muted" style="font-size:14px">None.</div>');
   if (w.entries) $('#impWisRemove').onclick = () => {
-    if (!confirm(`Remove ALL Mercedes WIS data (${w.pages.toLocaleString()} pages) from the index?\n\n`
-        + 'Your LEMON and other manuals, the extracted files on disk and the spend log are not touched. '
-        + 'Getting it back means importing the WIS corpus again (about 6 minutes).')) return;
-    manRemove('remove_wis', [], $('#impWisCompact').checked);
+    if (!confirm(`Remove ALL Mercedes WIS data (${w.pages.toLocaleString()} pages)?\n\n`
+        + rmSays(w.folders) + 'Your LEMON and other manuals and the spend log are not touched. '
+        + 'Getting it back means extracting it from the Mercedes VM again (hours).')) return;
+    manRemove('remove_wis', []);
   };
   // the EPC parts catalogue: one corpus, replaced or removed whole
   const e = manData.epc || {entries: 0, pages: 0}, eb = $('#impEpcManuals');
   eb.innerHTML = '<h4>Mercedes EPC parts catalogue in the index</h4>' + (e.entries
     ? `<div style="font-size:14px">${e.pages.toLocaleString()} parts pages in ${e.entries} models and engines,`
       + ' searched under each car alongside its manual. It is removed as a whole.</div>'
-      + '<div class="rmbar"><button type="button" class="danger" id="impEpcRemove">Remove all Mercedes EPC data</button>'
-      + '<label><input type="checkbox" id="impEpcCompact" checked> shrink the index file afterwards (slower)</label></div>'
+      + '<div class="rmbar"><button type="button" class="danger" id="impEpcRemove">Remove all Mercedes EPC data</button></div>'
+      + rmFiles(e.folders)
     : '<div class="muted" style="font-size:14px">None.</div>');
   if (e.entries) $('#impEpcRemove').onclick = () => {
-    if (!confirm(`Remove ALL Mercedes EPC parts data (${e.pages.toLocaleString()} pages) from the index?\n\n`
-        + 'The workshop manuals, the extracted files on disk and the spend log are not touched. '
-        + 'Getting it back means extracting or importing the EPC corpus again.')) return;
-    manRemove('remove_epc', [], $('#impEpcCompact').checked);
+    if (!confirm(`Remove ALL Mercedes EPC parts data (${e.pages.toLocaleString()} pages)?\n\n`
+        + rmSays(e.folders) + 'The workshop manuals and the spend log are not touched. '
+        + 'Getting it back means extracting it from the Mercedes VM again.')) return;
+    manRemove('remove_epc', []);
   };
 }
-async function manRemove(mode, ids, compact) {
+// Remove all WIS / EPC removes completely (the user, 2026-10-23): out of the
+// index, the index file shrunk, and the extracted files sent to the Recycle Bin
+const rmFiles = folders => `<div class="muted" style="font-size:13px; margin-top:6px">Removes it from the index, `
+  + `shrinks the index file, and sends ${folders?.length ? `the extracted files to the Recycle Bin: `
+  + folders.map(f => `<code>${esc(f)}</code>`).join(', ') : 'any extracted files to the Recycle Bin (none found)'}.</div>`;
+const rmSays = folders => 'It is removed from the index and the index file is shrunk'
+  + (folders?.length ? `; these extracted folders go to the Recycle Bin:\n${folders.map(f => '  • ' + f).join('\n')}\n\n`
+                     : '.\n\n');
+async function manRemove(mode, ids) {
   try {
     impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: '', mode, vehicles: ids, compact})}));
+      body: JSON.stringify({path: '', mode, vehicles: ids})}));
     impWatch();
   } catch (e) { $('#impStatus').textContent = e.message; }
 }
@@ -5136,19 +5613,55 @@ async function impVms() {
   try {
     const r = await api('/api/vms');
     if (r.error) return noVm(r.error);
-    if (!r.vms.length) return noVm('No VirtualBox virtual machines were found on this PC.');
     $('#impVmControls').hidden = false; $('#impStart').hidden = false;
-    // the user picks the VM (the user, 2026-10-16): nothing is chosen for
-    // them, and the run's needs are checked once one is
-    const keep = $('#impVm').value || (impLast?.state === 'running' && impLast.vm) || '';
-    $('#impVm').innerHTML = '<option value="">Choose the virtual machine…</option>' + r.vms.map(v =>
-      `<option value="${esc(v.name)}">${esc(v.name)} (${esc(v.state)})</option>`).join('');
-    if (r.vms.some(v => v.name === keep)) $('#impVm').value = keep;
+    // the user picks the VM's file (the user, 2026-10-16 and 2026-10-23):
+    // nothing is chosen for them; their last pick is remembered (vm_file)
+    const running = impLast?.state === 'running' && impLast.vm;
+    vmSetChosen(running && running !== r.chosen?.name ? {name: running, file: ''}
+                : r.chosen && r.vms.some(v => v.name === r.chosen.name) ? r.chosen : null);
     $('#impVmNote').innerHTML = `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`;
-    impVmCheck();
-    impVmSnaps();
   } catch (e) { noVm(e.message); }
 }
+function vmSetChosen(c) {
+  $('#impVm').value = c?.name || '';
+  $('#impVmChosen').innerHTML = c?.name
+    ? `<b>${esc(c.name)}</b>${c.file ? ` <span class="muted" style="font-size:13px">${esc(c.file)}</span>` : ''}`
+    : '<span class="muted">No VM chosen yet.</span>';
+  $('#impVmBrowse').textContent = c?.name ? 'Change…' : 'Choose VM file…';
+  $('#impVm').dispatchEvent(new Event('change'));   // its checks and snapshots
+}
+async function vmBrowse(path) {
+  const box = $('#impVmFiles');
+  box.hidden = false;
+  try {
+    const r = await api('/api/vms/browse?path=' + encodeURIComponent(path || ''));
+    const join = n => r.path.replace(/[\\/]$/, '') + (r.path.includes('\\') ? '\\' : '/') + n;
+    box.innerHTML = `<div class="vmpath">${esc(r.path)}</div>`
+      + (r.parent ? '<button type="button" data-up>&#8593; Up a folder</button>' : '')
+      + r.files.map(f => `<button type="button" data-f="${esc(f)}">&#128421; <b>${esc(f)}</b></button>`).join('')
+      + r.dirs.map(d => `<button type="button" data-d="${esc(d)}">&#128193; ${esc(d)}</button>`).join('')
+      + (r.files.length ? '' : '<div class="muted" style="padding:8px 10px; font-size:13px">No VirtualBox '
+         + 'machine file (.vbox) here. A VM’s file is in its own folder, usually under “VirtualBox VMs”.</div>');
+    box.querySelector('[data-up]')?.addEventListener('click', () => vmBrowse(r.parent));
+    box.querySelectorAll('[data-d]').forEach(b => b.onclick = () => vmBrowse(join(b.dataset.d)));
+    box.querySelectorAll('[data-f]').forEach(b => b.onclick = () => vmPick(join(b.dataset.f)));
+  } catch (e) { box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`; }
+}
+async function vmPick(file) {
+  try {
+    const r = await api('/api/vms/pick', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({file})});
+    $('#impVmFiles').hidden = true;
+    vmSetChosen(r);
+  } catch (e) {
+    $('#impVmFiles').querySelector('.errbox')?.remove();
+    $('#impVmFiles').insertAdjacentHTML('afterbegin', `<div class="errbox">${esc(e.message)}</div>`);
+  }
+}
+$('#impVmBrowse').addEventListener('click', () => {
+  if (!$('#impVmFiles').hidden) { $('#impVmFiles').hidden = true; return; }
+  vmBrowse('');
+});
 // what a run on the chosen VM needs, checked without booting it
 // (vm_pipeline.py --check): Extract and Test stay off until nothing fails
 let vmCheckSeq = 0, vmReady = false;
@@ -5355,7 +5868,7 @@ $('.srctabs').addEventListener('keydown', e => {
 });
 $('#impStart').onclick = async () => {
   if (impSource() === 'vm' && !$('#impVm').value) {
-    $('#impStatus').textContent = 'Choose the virtual machine first.'; $('#impVm').focus(); return;
+    $('#impStatus').textContent = 'Choose the VM file first.'; $('#impVmBrowse').focus(); return;
   }
   if (impSource() === 'vm' && impVmWhat() === 'epc') {
     if (!confirm(`Extract the EPC parts catalogue from ${$('#impVm').value} and replace it in the index? `

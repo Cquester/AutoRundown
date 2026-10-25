@@ -55,6 +55,10 @@ class Config:
     # the Mercedes WIS extractor (vm_pipeline.py lives there); "" = this
     # repo's extractor/. Its data goes outside the repo: see extractor/wis_paths.py
     extractor_dir: str = ""
+    # the Mercedes VM's VirtualBox machine file (.vbox), picked by the user
+    # in Shop setup's Mercedes VM tab (the user, 2026-10-23: a file to choose,
+    # not a list filled in for them); "" = none chosen yet
+    vm_file: str = ""
     # other devices must sign in with a mechanic account (auth.py); off =
     # anyone on the network can search and ask. The PC itself never signs in.
     require_signin: bool = False

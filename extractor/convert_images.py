@@ -35,6 +35,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))  # the installed app's Python does not add a script's folder
 from wis_paths import out_root  # noqa: E402  (data stays outside the repo)
 OUT_ROOT = out_root()
 LABEL_CAP = 4000

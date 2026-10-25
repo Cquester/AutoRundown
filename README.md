@@ -62,9 +62,9 @@ that runs the same question as a (free) keyword search.
 ### Windows: the installer
 
 Download `AutoRundown-<version>.msi` from the repo's
-[Releases](https://github.com/Cquester/AutoRundown/releases) (each new
-version on `main` publishes one, with a `.sha256` beside it) and
-double-click it. It needs no admin rights and no Python. It installs for your
+[Releases](https://github.com/Cquester/AutoRundown/releases) (with a
+`.sha256` beside it), or build the current one yourself with
+`packaging\windows\build.ps1` (it lands in `dist\`), and double-click it. It needs no admin rights and no Python. It installs for your
 user only, in `%LOCALAPPDATA%\Programs\AutoRundown`, and adds AutoRundown to
 the Start menu and desktop. The installer asks whether to **start AutoRundown
 when you sign in** (ticked by default) and, on the last page, offers to
@@ -106,7 +106,9 @@ files. "Start when I sign in" runs it as you, in the background.
   (it needs the Mercedes software next to it, so it can't be part of the
   installer). It is found automatically at `Desktop\Mercedes Documents\autorundown_extractor`;
   anywhere else, set it under Shop setup → *Advanced* → *Mercedes extractor folder*.
-  The installer includes the Python packages it needs. The same tab can pull
+  The installer includes the Python packages it needs. Choose the VM with
+  *Choose VM file…*: browse to its `.vbox` file (usually in its own folder
+  under `VirtualBox VMs`); the choice is remembered. The same tab can pull
   the **EPC parts catalogue** (*What to extract* → *EPC*): part
   numbers and exploded drawings then show under each car beside its manual.
   *Both* runs WIS and then EPC as one job (EPC is not started if WIS fails);
@@ -325,11 +327,20 @@ chose:
 
 | Tab | Shows |
 |---|---|
-| **Manual page** | The page the answer points at, or any page you open. |
-| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one for its exploded drawing and its parts list; tap a part to see which callout ("7C") to find on the drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- with the page's drawing beside it, and the diagrams folded underneath. |
+| **Manual page** | Before a question: **your car's manual as contents** -- a Mercedes WIS car by function group and subgroup (42 Brakes > 42.10 > its documents), other manuals by their own chapters; open a section, then a page (**← Manual contents** goes back with your sections still open). After a question: the page the answer points at, or any page you open. |
+| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one and its exploded drawing and parts list show right there; tap a number on the drawing to mark that part in the list, or a part in the list to mark its number on the drawing (the picked number turns red, as in Mercedes' viewer; tap more numbers to pick several, tap one again or Clear to drop it). A page with several drawings puts each in its own dropdown with the parts printed on that drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- each page's drawing and full list one tap away, and the diagrams folded underneath. |
 | **Labour times** | Mercedes flat-rate times for the exact model (WIS) -- empty until you ask or search, then the job itself (both versions where an automatic and a manual gearbox differ), with any other operations that mention it folded away below. |
 | **Capacities** | On top, **Fluids for your car** (WIS, once you pick the model or engine): engine oil with its Mercedes oil sheets (MB 229.x), coolant, axles, transfer case, power steering, brake fluid, refrigerant, fuel tank -- each in your car's column of WIS's capacity sheets. Below, the capacities on this job's pages. |
 | **Torque specs** | The torque values of this job, part then specification: on the answer's pages (or the top search hits) and, for WIS, on the procedures they link to ("remove the oil pan bottom section" brings its bolts). |
+
+Under the question, **History** lists earlier questions (on the PC everyone's;
+a signed-in mechanic sees their own): opening an AI answer shows it again
+exactly as it was, with no new charge. **Clear question** puts every tab back
+to browsing the car (Parts diagrams, Fluids) without changing the car. On a
+wide screen, **⇤ Wider** at the end of the tab row hides the question column
+so the results get the whole window; for a little more or less, drag the line
+between the two sides (double-click it to put it back). Both are remembered on
+that device.
 
 WIS value tables are read from the document's own table layout, so each value
 stays with its own part and only your engine's or model's column is shown;

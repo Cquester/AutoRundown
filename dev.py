@@ -65,6 +65,22 @@ def build(index: Path, env: dict) -> None:
          "--importer", "lemon", "--only", "2015-ford-f-150"], env)
 
 
+def fake_vbox_files(root: Path) -> Path:
+    """VirtualBox machine files for tools/fake_extractor's pretend VMs, laid
+    out as VirtualBox does (<root>/<name>/<name>.vbox)."""
+    from xml.sax.saxutils import quoteattr
+    sys.path.insert(0, str(ROOT / "tools" / "fake_extractor"))
+    from vm_pipeline import VMS
+    for i, (name, _) in enumerate(VMS):
+        d = root / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{name}.vbox").write_text(
+            '<?xml version="1.0"?>\n<VirtualBox xmlns="http://www.virtualbox.org/" version="1.19-windows">\n'
+            f'  <Machine uuid="{{00000000-0000-4000-8000-{i:012d}}}" name={quoteattr(name)} OSType="Windows7"/>\n'
+            '</VirtualBox>\n', encoding="utf-8")
+    return root
+
+
 def open_when_up(url: str) -> None:
     for _ in range(60):
         try:
@@ -129,6 +145,8 @@ def main() -> int:
         conf["extractor_dir"] = str(ROOT / "tools" / "fake_extractor")
         env["AR_FAKE_VM_OUT"] = str(DEV / "fake_vm_out")
         env["AUTORUNDOWN_PART_PAUSE"] = "5"
+        # a machine file per pretend VM, to choose in the VM tab as on a real PC
+        env["AUTORUNDOWN_VMS_DIR"] = str(fake_vbox_files(DEV / "VirtualBox VMs"))
     elif conf.get("extractor_dir", "").endswith("fake_extractor"):
         conf["extractor_dir"] = ""        # a --fake-vm run before this one set it
     cfg.write_text(json.dumps(conf, indent=2), encoding="utf-8")

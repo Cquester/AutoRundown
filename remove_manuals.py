@@ -2,8 +2,12 @@
 
     python remove_manuals.py --doc-id <id> [--doc-id <id> ...] [--index index.db]
     python remove_manuals.py --source mercedes-wis [--index index.db]
-    add --compact to shrink the file afterwards (VACUUM: slow on a big index,
-    needs free disk about the size of the index)
+    add --compact to shrink the file afterwards (FTS optimize + VACUUM: slow
+    on a big index, needs free disk about the size of the index)
+    add --recycle <folder> (repeatable) to send extract folders to the
+    Recycle Bin afterwards -- Shop setup's "Remove all Mercedes WIS / EPC
+    data" passes the corpus folders; rebuild_wis.py and the VM import,
+    which re-ingest from those folders, never do
 
 A LEMON car or a folder import is removed one by one (--doc-id): each has its
 own pages, chunks and connectors, and duplicate pages are only ever matched
@@ -15,7 +19,8 @@ removing one model would leave the rest half-working. A WIS doc_id given to
 --doc-id is refused for that reason.
 
 Never touched: the spend log (usage_log), every manual not named, and the
-manual files on disk. Free: no API calls.
+manual files on disk other than --recycle's (only extract folders by name:
+autorundown/recycle.py). Free: no API calls.
 """
 from __future__ import annotations
 
@@ -25,7 +30,7 @@ import sys
 import time
 from pathlib import Path
 
-from autorundown import config, index
+from autorundown import config, index, recycle
 
 # sources removed only as a whole: WIS models share engine and general
 # pages; EPC is one corpus that a re-import replaces in full
@@ -53,12 +58,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--source", help="remove every vehicle whose source starts with this "
                                      f"(allowed: {', '.join(GROUPED)})")
     ap.add_argument("--compact", action="store_true", help="VACUUM afterwards to shrink the file")
+    ap.add_argument("--recycle", action="append", default=[], metavar="FOLDER",
+                    help="an extract folder to send to the Recycle Bin afterwards (repeatable)")
     args = ap.parse_args(argv)
     if bool(args.doc_id) == bool(args.source):
         ap.error("give --doc-id (one or more) or --source, not both")
     path = Path(args.index).expanduser()
     if not path.is_file():
         print(f"! no index at {path}")
+        return 1
+    # refuse before removing anything, not halfway
+    bad = [w for w in (recycle.allowed(Path(f), keep=[path]) for f in args.recycle if Path(f).exists()) if w]
+    if bad:
+        print(f"! will not send to the Recycle Bin: {bad[0]}")
         return 1
     conn = index.connect(path)
     rows = {d: (s, f"{y or ''} {mk or ''} {mo or ''}".strip()) for d, s, y, mk, mo in conn.execute(
@@ -105,7 +117,15 @@ def main(argv: list[str] | None = None) -> int:
           f"spend log kept ({usage_after} rows)")
     if args.compact:
         before = path.stat().st_size
-        print("compacting (VACUUM)…", flush=True)
+        # FTS5 only marks deleted rows; their space stays in the tables'
+        # segments until an optimize merges them (2026-10-23: after removing
+        # WIS and EPC, parts_fts still held 84,598 data blocks for 0 rows,
+        # and VACUUM alone kept them)
+        print("compacting (search tables, then VACUUM)…", flush=True)
+        for fts in ("chunks_fts", "parts_fts"):
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name=?", (fts,)).fetchone():
+                conn.execute(f"INSERT INTO {fts}({fts}) VALUES('optimize')")
+                conn.commit()
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.execute("VACUUM")
         # in WAL mode VACUUM lands in the -wal file; the main file shrinks on checkpoint
@@ -114,9 +134,19 @@ def main(argv: list[str] | None = None) -> int:
             print("  (the server is reading the index; the file shrinks fully on its next checkpoint)")
         print(f"index size: {before / 1e6:,.0f} MB -> {path.stat().st_size / 1e6:,.0f} MB")
     else:
-        print("the freed space is reused by later imports (tick 'shrink the index file' to give it back now)")
+        print("the freed space is reused by later imports (--compact gives it back now)")
     conn.close()
-    return 0
+    failed = 0
+    for f in args.recycle:
+        if not Path(f).exists():
+            continue
+        print(f"sending {f} to the Recycle Bin…", flush=True)
+        try:
+            print(f"  moved to {recycle.recycle(Path(f), keep=[path])}", flush=True)
+        except (RuntimeError, OSError) as exc:
+            print(f"! {exc}")
+            failed += 1
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

@@ -191,10 +191,27 @@ def main():
     c.execute("INSERT INTO meta VALUES ('counts', ?)", (json.dumps(counts),))
     c.commit()
     c.close()
-    os.replace(tmp, os.path.join(OUT, NAME))
+    replace(tmp, os.path.join(OUT, NAME))
     print("-> " + os.path.join(OUT, NAME))
     for k, v in counts.items():
         print(f"  {k:15} {v:>10,}")
+
+
+def replace(tmp: str, dest: str) -> None:
+    """Put the new sidecar in place. On Windows a program that has the old
+    one open (an AutoRundown left running from before an update, 2026-10-23)
+    blocks this: wait a little, then say what to do rather than a traceback."""
+    import time
+    for i in range(10):
+        try:
+            os.replace(tmp, dest)
+            return
+        except PermissionError:
+            time.sleep(1 + i)
+    sys.exit(f"STOP: {dest} is open in another program, so it can't be replaced. "
+             "Quit AutoRundown (tray icon > Quit) and any other copy of it that is "
+             "still running (Task Manager: pythonw.exe), then run the import again; "
+             f"the new file is kept at {tmp}.")
 
 
 def dotted(code: str) -> str:

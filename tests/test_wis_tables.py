@@ -213,7 +213,6 @@ def main() -> int:
     with sqlite3.connect(cdir / wis_links.NAME) as c:
         c.execute("CREATE TABLE docnr(docnr TEXT, dok_nr_id INTEGER, dok_id INTEGER)")
         c.executemany("INSERT INTO docnr VALUES (?,?,?)", [(n, i, d) for i, (n, d) in enumerate(DOCNRS)])
-    wis_links._open.clear()
     conn = index.connect(idx)
     vs = index.vehicles(conn)
     conn.close()

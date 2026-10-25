@@ -92,5 +92,21 @@ states = {v["folder"]: v["state"] for v in r["vehicles"]}
 check(states == {"2015-ford-f-150": "imported", "1987-mercedes-190e": "imported",
                  "2008-toyota-camry": "new"}, f"only the pick was added: {states}")
 
+print("manual contents (the Manual page tab before a question)")
+f150 = next(d for d in imported(db) if "f-150" in d)
+url = f"/api/manual/contents/{f150}"
+top = pc.get(url).json()
+check(top["path"] == [] and {"Engine, Cooling and Exhaust", "Brakes and Traction Control"}
+      <= {c["name"] for c in top["children"]},
+      f"the manual's own chapters at the top: {[c['name'] for c in top['children']]}")
+n = pc.get(url, params={"path": ["Engine, Cooling and Exhaust", "Engine", "Specifications"]}).json()
+check([p["title"] for p in n["pages"]] == ["Engine Oil Capacity"],
+      f"a chapter lists its pages: {[p['title'] for p in n['pages']]}")
+check(not any(c["name"] == "Engine Oil Capacity" for c in n["children"]),
+      "a page is listed in its chapter, not as a chapter of its own")
+check(n["count"] == len(n["pages"]) + sum(c["count"] for c in n["children"]), "the counts add up")
+check(pc.get(url, params={"path": ["No such chapter"]}).status_code == 404, "an unknown chapter is 404")
+check(phone.get(url).status_code in (200, 401, 403), "a phone gets the same rules as search")
+
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

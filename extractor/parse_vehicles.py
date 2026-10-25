@@ -34,6 +34,7 @@ import sys
 from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, str(HERE))  # the installed app's Python does not add a script's folder
 from wis_paths import out_root  # noqa: E402  (out root: see wis_paths.py)
 VEH = os.environ.get("AR_VEH") or os.path.join(out_root(), "wis_vehicles")
 OUT = os.environ.get("AR_OUT") or os.path.join(out_root(), "wis_extract")
