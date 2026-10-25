@@ -523,6 +523,11 @@ two drawings is listed under both; rows no drawing shows (no callout, or
 not printed) stay below as "Other parts on this page", hidden when there
 are none. Without sidecars the page keeps its one list. Picking scrolls
 within the same drawing's dropdown when it can.
+**Several parts can be picked at once** (the user, 2026-10-24): a tap adds
+a number to the picks (`.ppage` `data-picks`), a second tap on it takes it
+off, and "Clear" empties them; every pick stays red on the drawing and in
+the lists, and the line above the drawing lists each pick (`showPicks`).
+Taking one off scrolls nothing.
 
 **Wider, Clear question, History (2026-10-23, the user's list).**
 - "⇤ Wider" at the end of the right box's tab row hides the question column

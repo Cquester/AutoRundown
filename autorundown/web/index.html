@@ -487,6 +487,10 @@
   .pfind{position:sticky; top:0; z-index:2; padding:8px 10px; margin-bottom:8px; border-radius:8px;
     background:var(--panel-2); border:1px solid var(--accent-dim); font-size:14px}
   .pfind .cbig{font-size:20px}
+  .pfind{max-height:40vh; overflow:auto}
+  .pfline + .pfline{margin-top:4px}
+  .pfbar{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; font-size:12px}
+  .pfbar button{padding:4px 10px}
   .pcap{text-align:center; margin:-4px 0 10px; font-size:12px}
   .tabhit::after{content:""; display:block; clear:both}
   .pbmore{margin-top:12px}
@@ -3496,6 +3500,9 @@ function placeCallouts(root) {
         b.title = `Part ${c.c}`; b.setAttribute('aria-label', `Show part ${c.c} in the list`);
         w.appendChild(b);
       }
+      // numbers placed after something was picked: mark the picks on them too
+      const h = w.closest('.ppage');
+      if (h?.dataset.picks) showPicks(h);
     };
     if (img.complete) put(); else img.addEventListener('load', put, {once: true});
   });
@@ -3533,27 +3540,47 @@ function splitParts(w, cs) {
   all.hidden = !left;
   all.querySelector('.sechead').textContent = 'Other parts on this page';
 }
-// one callout picked, from either side: its rows and its numbers marked;
-// what is brought into view is in the same drawing's dropdown when it can be
-function pickCallout(host, co, from, el) {
+// Callouts are picked from either side, several at once (the user,
+// 2026-10-24: "can we select multiple parts on the diagram?"): a tap adds a
+// number to the picks, a second tap on it takes it off, "Clear" empties
+// them. Every pick's rows and numbers are marked, and the line above the
+// drawing lists them; what is brought into view is in the same drawing's
+// dropdown when it can be.
+const calloutRows = (host, co) => [...host.querySelectorAll('tr[data-callout]')].filter(r => r.dataset.callout === co);
+const calloutMarks = (host, co) => [...host.querySelectorAll('.pco')].filter(b => b.dataset.co === co);
+function showPicks(host) {
+  const sel = JSON.parse(host.dataset.picks || '[]');
   host.querySelectorAll('tr.pick.on, .pco.on').forEach(x => x.classList.remove('on'));
-  const rows = [...host.querySelectorAll('tr[data-callout]')].filter(r => r.dataset.callout === co);
-  const marks = [...host.querySelectorAll('.pco')].filter(b => b.dataset.co === co);
-  rows.forEach(r => r.classList.add('on'));
-  marks.forEach(b => b.classList.add('on'));
-  const sec = el?.closest('.pdsec');
-  const near = xs => { const s = sec ? xs.filter(x => sec.contains(x)) : []; return s.length ? s : xs; };
-  const listed = rows.filter(r => r.closest('.pall'));   // each part once
-  const seen = near(rows.filter(r => !r.closest('[hidden]')));
-  const f = host.querySelector('.pfind'), r = listed[0] || rows[0];
-  if (f) {
-    f.hidden = false;
-    f.innerHTML = r
+  const f = host.querySelector('.pfind');
+  const lines = sel.map(co => {
+    const rows = calloutRows(host, co), marks = calloutMarks(host, co);
+    rows.forEach(r => r.classList.add('on'));
+    marks.forEach(b => b.classList.add('on'));
+    const listed = rows.filter(r => r.closest('.pall'));   // each part once
+    const r = listed[0] || rows[0];
+    return `<div class="pfline">` + (r
       ? `<b class="cbig">${esc(co)}</b> &mdash; ${esc(r.dataset.cname)}, <span class="pn">${esc(r.dataset.cpn)}</span>`
         + (listed.length > 1 ? ` <span class="muted">(+${listed.length - 1} more in the list)</span>` : '')
         + (marks.length ? '' : ' <span class="muted">&mdash; look for this number on the drawing</span>')
-      : `<b class="cbig">${esc(co)}</b> <span class="muted">is not in this page's parts list</span>`;
-  }
+      : `<b class="cbig">${esc(co)}</b> <span class="muted">is not in this page's parts list</span>`) + `</div>`;
+  });
+  if (!f) return;
+  f.hidden = !sel.length;
+  f.innerHTML = lines.join('') + (sel.length
+    ? `<div class="pfbar"><span class="muted">${sel.length} picked &middot; tap a number again to take it off</span>`
+      + `<button type="button" class="ghost" data-clear-picks>Clear</button></div>` : '');
+}
+function pickCallout(host, co, from, el) {
+  let sel = JSON.parse(host.dataset.picks || '[]');
+  const adding = !sel.includes(co);
+  sel = adding ? [...sel, co] : sel.filter(x => x !== co);
+  host.dataset.picks = JSON.stringify(sel);
+  showPicks(host);
+  if (!adding) return;                 // taking one off moves nothing
+  const rows = calloutRows(host, co), marks = calloutMarks(host, co), f = host.querySelector('.pfind');
+  const sec = el?.closest('.pdsec');
+  const near = xs => { const s = sec ? xs.filter(x => sec.contains(x)) : []; return s.length ? s : xs; };
+  const seen = near(rows.filter(r => !r.closest('[hidden]')));
   // a drawing folded away is opened, then the other side is brought into view
   const m = near(marks)[0];
   if (from === 'row' && m) {
@@ -3567,6 +3594,8 @@ function pickCallout(host, co, from, el) {
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-back-parts]')) { setTab('parts'); return; }
+  const clr = e.target.closest('[data-clear-picks]');
+  if (clr) { const host = clr.closest('.ppage'); if (host) { host.dataset.picks = '[]'; showPicks(host); } return; }
   const b = e.target.closest('.pco');
   if (b) { const host = b.closest('.ppage'); if (host) pickCallout(host, b.dataset.co, 'drawing', b); return; }
   const r = e.target.closest('tr[data-callout]');
