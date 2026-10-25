@@ -553,7 +553,16 @@ car"; "what if i just want a little more or less").**
   0051, not 00.51, which showed as an unnamed "00.51" until the user
   asked; `NO_GROUP` DH, WB: even the group digits are a chapter, so they
   go under Other documents); every other kind falls 98-100% in a named
-  subgroup, and the rest (335 damage-code documents) show their number), each with
+  subgroup, and the rest (335 damage-code documents) show their number).
+  **Damage-code menus are left out** (`LEFT_OUT` SS, the 99xxxxxx picture
+  menus for picking a warranty fault code; their text is code lists):
+  17,997 of them, filed under no car, made up over half of every car's
+  contents -- the user saw "Connecting rod, piston" twenty times, for the
+  M271.9, OM470 and a Fuso 4D34i, under a W210 (2026-10-24). W210 whole
+  series 34,238 -> 16,241 documents. Keyword search still finds them
+  (one ranked #1 for "connecting rod piston"). Each document is listed with
+  its kind; those left (pairs of one title) are one per engine, e.g. the
+  E 320's M104 and M112 "Connecting rods"), each with
   what it is (Repair = AR, Function = GF, Service information = SI,
   Capacities = BF, Wiring diagram from `doc_type`; other codes shown as
   they are, never guessed); no number -> "Other documents". **Other
