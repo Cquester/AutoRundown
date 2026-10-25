@@ -7,8 +7,8 @@ Edge/Chrome, or Playwright's) with the vendored libraries served from
 autorundown/web/vendor/ exactly as /vendor/ serves them -- no server, no
 network (every other request is refused). Pictures are generated here
 (tests/_vin_images.py): Code 39 (with and without the import "I"), Data
-Matrix and QR barcodes, and printed VIN labels, clean and roughened like a
-phone photo. No real VIN photo is used or stored.
+Matrix and QR barcodes, printed VIN labels, clean and roughened like a
+phone photo, and whole 12 MP phone photos with the label in a part of them. No real VIN photo is used or stored.
 
 Checks: every barcode is read exactly; printed text is read exactly in most
 cases (the rate is printed, and must stay above a floor); a read VIN is never
@@ -28,7 +28,7 @@ import time
 from PIL import Image, ImageDraw
 
 from _paths import ROOT
-from _vin_images import _font, barcode, fin, text_label, us_vin
+from _vin_images import _font, barcode, fin, phone_photo, text_label, us_vin, with_check
 
 HTML = (ROOT / "autorundown" / "web" / "index.html").read_text(encoding="utf-8")
 VENDOR = ROOT / "autorundown" / "web" / "vendor"
@@ -40,6 +40,11 @@ FAILS: list[str] = []
 # rough (bold, blurred, noisy, shaded, JPEG 70) 13/20 -- its misses are
 # 8/9/6/0 confusions; a US VIN's are caught by its check digit, a FIN's are not
 TEXT_FLOOR = {"clean": 0.9, "rough": 0.5}
+# whole 12 MP phone photos, the label 30-65% of the width (at 25% a blurred
+# Code 39 is borderline and falls back to the text):
+# every barcode must be read (none was below half the width before
+# 2026-10-25); the printed VIN alone, at least this share
+PHONE_TEXT_FLOOR = 0.6
 
 
 def fail(msg: str) -> None:
@@ -100,6 +105,15 @@ def main() -> int:
     for i in range(args.n * 2):
         v = us_vin(rnd) if i % 2 else fin(rnd)
         cases.append(("text-rough", v, text_label(v, rnd, hard=True, spaced=i % 4 == 3)))
+    for i in range(args.n):
+        v = us_vin(rnd) if i % 2 else fin(rnd)
+        cases.append(("phone-code", v, phone_photo(v, rnd, frac=0.3 + 0.35 * i / max(1, args.n - 1))))
+        v = us_vin(rnd) if i % 2 else fin(rnd)
+        cases.append(("phone-text", v, phone_photo(v, rnd, frac=0.3 + 0.3 * i / max(1, args.n - 1),
+                                                   barcode_too=False)))
+    # another make's VIN, printed: put in the box (Find then says it isn't a
+    # Mercedes), not dropped as "no VIN found"
+    cases.append(("other-make", v := with_check("3FA6P0H70ER123456"), text_label(v, rnd)))
 
     with sync_playwright() as pw:
         browser = None
@@ -126,7 +140,7 @@ def main() -> int:
                 # a wrong US VIN that still passes its check digit is the bad case
                 if r["vin"] and r["check"] == "ok":
                     wrong_ok += 1
-            if kind.startswith(("code39", "datamatrix", "qr")) and r["source"] == "printed text (OCR)":
+            if kind.startswith(("code39", "datamatrix", "qr", "phone-code")) and r["source"] == "printed text (OCR)":
                 print(f"   note {kind} read from the text, not the barcode")
             if r["vin"] and not r["crop"]:
                 fail(f"{kind} {truth}: no crop shown")
@@ -136,10 +150,12 @@ def main() -> int:
             ms = sorted(m for _, m in rows)
             print(f"   {kind:11} {ok}/{len(rows)} read exactly  (median {ms[len(ms) // 2]} ms, max {ms[-1]} ms)")
             rate = ok / len(rows)
-            if kind in ("code39", "datamatrix", "qr") and ok != len(rows):
+            if kind in ("code39", "datamatrix", "qr", "phone-code", "other-make") and ok != len(rows):
                 fail(f"{kind}: {len(rows) - ok} barcodes not read")
             if kind.startswith("text-") and rate < TEXT_FLOOR[kind[5:]]:
                 fail(f"{kind}: {rate:.0%} read exactly, the floor is {TEXT_FLOOR[kind[5:]]:.0%}")
+            if kind == "phone-text" and rate < PHONE_TEXT_FLOOR:
+                fail(f"{kind}: {rate:.0%} read exactly, the floor is {PHONE_TEXT_FLOOR:.0%}")
         if wrong_ok:
             fail(f"{wrong_ok} wrong VIN(s) passed the check digit")
 

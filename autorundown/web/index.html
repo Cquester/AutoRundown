@@ -4806,7 +4806,8 @@ function vinFromText(text, isMaker) {
         if (isMaker && isMaker(fixed.slice(0, 3))) score += 3;
         if (i === 0) score += 0.5;               // a VIN usually starts its run
         if (!seen.has(fixed) || seen.get(fixed).score < score)
-          seen.set(fixed, {vin: fixed, raw, changed: c.changed, check: cc.check, score});
+          seen.set(fixed, {vin: fixed, raw, changed: c.changed, check: cc.check, score,
+                           whole: run.length === 17});
       }
     }
   }
@@ -4853,8 +4854,12 @@ function vinVote(reads) {
      by the browser's cache.
    - In the browser, not on the server: the photo never leaves the phone,
      the server gains no upload route, and the PC needs no OCR engine.
-   The photo is scaled down first (long side 1600 px for the barcode, the
-   VIN's line for display). */
+   Sizes (2026-10-25): a phone photo is ~4000 px across and a door-jamb
+   barcode a small part of it. Scaled to 1600 px first, its bars came out
+   under 1 px and no barcode was read unless the label filled over half the
+   picture; the barcode is now read at up to 4096 px (zxing tries smaller
+   sizes itself), the text at 1600 px and then, if nothing was found and
+   the photo is bigger, at 3000 px. */
 const SCAN_BASE = '/vendor/', SCAN_ZX = 'zxing-wasm-3.1.4', SCAN_TS = 'tesseract-7.0.0';
 const scanAbs = p => new URL(SCAN_BASE + p, location.href).href;
 const scanScripts = {};
@@ -4990,15 +4995,18 @@ async function vinScan(file, {isMaker, onStatus} = {}) {
   const say = s => onStatus && onStatus(s);
   say('Opening the photo…');
   const img = await scanPicture(file);
-  const big = scanCanvas(img, 1600);
+  const big = scanCanvas(img, 4096);
   say('Looking for a VIN barcode…');
   let codes = [];
   try { codes = await scanBarcodes(big); } catch (e) { say('Barcode reader unavailable; reading the text…'); }
   // what read text may put in the box: a VIN with a Mercedes maker code --
   // not "WR2763KGMADE1NSEP" from the line below the VIN, nor a stretch of
-  // other text whose check digit fits by chance (1 in 11). Without a maker
-  // test, any 17 characters with a right check digit.
-  const usable = best => !!best && (isMaker ? isMaker(best.vin.slice(0, 3)) : best.check === 'ok');
+  // other text whose check digit fits by chance (1 in 11). Another make's
+  // VIN passes when it is a whole word of 17 with a right check digit, so it
+  // gets vinLookup's "not a Mercedes" message, not "no VIN found".
+  // Without a maker test, any 17 characters with a right check digit.
+  const usable = best => !!best && ((isMaker && isMaker(best.vin.slice(0, 3)))
+    || (best.check === 'ok' && (!isMaker || best.whole)));
   for (const b of codes) {
     // a barcode holding just a VIN is taken as it is (another make's VIN
     // then gets vinLookup's "not a Mercedes" message, not "no VIN found")
@@ -5009,8 +5017,11 @@ async function vinScan(file, {isMaker, onStatus} = {}) {
   say('Reading the text (the first time loads the reader, about 5 MB)…');
   const w = await scanOcr();
   let seen = '', firstCrop = null;
-  for (const turn of [0, 90, 270]) {
-    const c = scanGrey(scanCanvas(img, 1600, turn));
+  // upright, upright again sharper (small text in a big photo), then turned
+  const long = Math.max(img.naturalWidth, img.naturalHeight);
+  const passes = [[0, 1600], ...(long > 2000 ? [[0, 3000]] : []), [90, 1600], [270, 1600]];
+  for (const [turn, max] of passes) {
+    const c = scanGrey(scanCanvas(img, max, turn));
     const {data} = await w.recognize(c, {}, {text: true, blocks: true});
     const lines = (data.blocks || []).flatMap(b => b.paragraphs || []).flatMap(p => p.lines || []);
     let pick = null;
@@ -5054,7 +5065,7 @@ async function vinScan(file, {isMaker, onStatus} = {}) {
     }
     if (pick) return {best: pick.best, source: 'printed text (OCR)', crop: scanCrop(c, pick.ln.bbox),
                       text: pick.ln.text.trim(), tried: ['barcode', 'text']};
-    say('Turning the photo and reading again…');
+    say(max === 1600 && !turn && long > 2000 ? 'Reading again, sharper…' : 'Turning the photo and reading again…');
   }
   return {best: null, source: null, text: seen,
           crop: scanCrop(firstCrop, {x0: 0, y0: 0, x1: firstCrop.width, y1: firstCrop.height}),

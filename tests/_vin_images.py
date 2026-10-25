@@ -116,3 +116,38 @@ def text_label(vin: str, rnd: random.Random, hard: bool = False, spaced: bool = 
                   blur=rnd.uniform(0.6, 1.3) if hard else rnd.uniform(0, 0.6),
                   noise=28 if hard else 12, shade=hard, scale=rnd.uniform(0.9, 1.4),
                   quality=70 if hard else 88)
+
+
+def phone_photo(vin: str, rnd: random.Random, frac: float, barcode_too: bool = True) -> bytes:
+    """A whole phone photo (4032 x 3024, 12 MP) of a door-jamb label that
+    fills only `frac` of its width: maker lines, the VIN printed and, if
+    `barcode_too`, as a Code 39 barcode under it. Scan VIN once shrank such
+    a photo to 1600 px first and lost the barcode's bars (2026-10-25)."""
+    from pystrich.code39 import Code39Encoder
+    code = (Code39Encoder(("I" if rnd.random() < 0.5 else "") + vin).get_pilimage(bar_width=rnd.choice([2, 3]))
+            .convert("RGB") if barcode_too else None)
+    lab = Image.new("RGB", (max(code.width + 80 if code else 0, 900), (code.height if code else 0) + 520),
+                    (248, 248, 244))
+    d = ImageDraw.Draw(lab)
+    y = 20
+    for t, s in [("MANUFACTURED BY: MERCEDES-BENZ AG", 22), ("DATE: 06/12   GVWR: 2390 KG (5269 LB)", 22),
+                 ("GAWR FRT: 1120 KG  GAWR RR: 1310 KG", 22),
+                 ("THIS VEHICLE CONFORMS TO ALL APPLICABLE FEDERAL MOTOR", 18),
+                 ("VEHICLE SAFETY STANDARDS IN EFFECT ON THE DATE OF MANUFACTURE.", 18)]:
+        d.text((30, y), t, fill=(20, 20, 20), font=_font(s))
+        y += s + 14
+    d.text((30, y + 10), "VIN: " + vin, fill=(10, 10, 10), font=_font(30))
+    y += 60
+    if code:
+        lab.paste(code, (30, y))
+        y += code.height + 20
+    d.text((30, y), "TYPE: PASS CAR   MADE IN GERMANY", fill=(20, 20, 20), font=_font(20))
+    k = 4032 * frac / lab.width
+    lab = lab.resize((int(lab.width * k), int(lab.height * k)), Image.LANCZOS)
+    lab = lab.rotate(rnd.uniform(-3, 3), expand=True, fillcolor=(90, 90, 90), resample=Image.BICUBIC)
+    img = Image.new("RGB", (4032, 3024), tuple(rnd.randint(60, 120) for _ in range(3)))
+    img.paste(lab, ((img.width - lab.width) // 2 + rnd.randint(-300, 300), (img.height - lab.height) // 2))
+    img = img.filter(ImageFilter.GaussianBlur(rnd.uniform(0.8, 1.4)))
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=88)
+    return out.getvalue()
