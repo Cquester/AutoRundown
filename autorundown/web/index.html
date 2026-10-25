@@ -1217,6 +1217,12 @@
             <div class="implog" id="impLog" hidden></div>
           </aside>
         </div>
+        <h3 class="subhead">What to show</h3>
+        <label class="check"><input type="checkbox" id="sDamage"> Show Mercedes damage-code menus
+          <span class="savedmark" id="mDamage" role="status"></span></label>
+        <div class="help">WIS has about 18,000 picture menus for picking a warranty fault code. They are not repair
+          documents and are not filed under any car, so when shown they appear for every car, in search, answers
+          and the manual's contents. Off unless you file warranty claims.</div>
       </section>
 
       <section class="setsec" id="sec-ai" hidden>
@@ -3145,9 +3151,12 @@ async function keywordSearch() {
 
 // "Original layout": the WIS document redrawn from its own page layout
 // (server: wis_original.py), in an iframe so its absolute positioning and
-// styles stay out of this page. The choice is remembered per viewer.
-const ORIGINAL_KEY = 'autorundown.wisOriginal';
-function wantOriginal() { try { return localStorage.getItem(ORIGINAL_KEY) === '1'; } catch (_) { return false; } }
+// styles stay out of this page. The choice is remembered per viewer; the
+// original is the default (the user, 2026-10-24: "I dont think the way we
+// have reading view looks good. Lets default to original document"). A new
+// key, so a reading view picked under the old default doesn't stick.
+const ORIGINAL_KEY = 'autorundown.pageView.v2';
+function wantOriginal() { try { return localStorage.getItem(ORIGINAL_KEY) !== 'reading'; } catch (_) { return true; } }
 function viewToggle(doc, pageNo) {
   const on = wantOriginal();
   return `<div class="viewtoggle" role="group" aria-label="Page view">
@@ -3155,25 +3164,36 @@ function viewToggle(doc, pageNo) {
     <button type="button" class="${on ? 'on' : ''}" aria-pressed="${on}" data-view="original" data-doc="${esc(doc)}" data-pno="${esc(pageNo)}">Original layout</button>
   </div>`;
 }
+let origWis = true;     // the page shown is WIS (redrawn) or LEMON / folder HTML (its own)
 function originalFrame(doc, pageNo) {
   const url = `/api/original/${encodeURIComponent(doc)}/${encodeURIComponent(pageNo)}`;
   // most WIS pages are landscape: on a phone the fitted page is small, so
   // offer it on its own, where pinch-zoom and turning the phone work best
-  return `<div id="origWrap"><div class="muted" style="margin-bottom:6px">Redrawn from the
-      WIS page layout; approximate. &nbsp;<a class="fulllink" href="${url}" target="_blank" rel="noopener">Open full screen &#8599;</a></div>
-    <iframe class="origframe" id="origFrame" title="Original layout" src="${url}"></iframe></div>`;
+  return `<div id="origWrap"><div class="muted" style="margin-bottom:6px">${origWis
+      ? 'Redrawn from the WIS page layout; approximate.' : 'The manual&rsquo;s own page.'}
+      &nbsp;<a class="fulllink" href="${url}" target="_blank" rel="noopener">Open full screen &#8599;</a></div>
+    <iframe class="origframe" id="origFrame" title="Original layout" data-doc="${esc(doc)}" src="${url}"></iframe></div>`;
 }
 // the server marks a page it can't draw; show that here, not in a grey frame
 function origLoaded(fr) {
   let msg = null;
   try { msg = fr.contentDocument.querySelector('[data-unavailable]'); } catch (_) {}
   if (!msg) return;
-  $('#origWrap').innerHTML = `<div class="notfound" title="${esc(msg.textContent)}">The original layout isn't
-    available for this page.
-    <div style="margin-top:10px"><button type="button" class="ghost" data-view="reading">Back to reading view</button></div></div>`;
+  // the original is the default, so a page without one falls back to its
+  // text by itself -- the viewer's choice stays as it was for the next page
+  const reading = $('#readingView');
+  if (!reading) return;
+  $('#origWrap').remove();
+  reading.hidden = false;
+  document.querySelectorAll('.viewtoggle button').forEach((b, i) => {
+    b.classList.toggle('on', i === 0); b.setAttribute('aria-pressed', i === 0);
+    if (i === 1) { b.disabled = true; b.title = msg.textContent; }
+  });
+  reading.insertAdjacentHTML('beforebegin', `<div class="muted" id="origNone" style="margin-bottom:8px">No
+    original layout for this page; showing its text.</div>`);
 }
 function setPageView(original, doc, pageNo) {
-  try { localStorage.setItem(ORIGINAL_KEY, original ? '1' : '0'); } catch (_) {}
+  try { localStorage.setItem(ORIGINAL_KEY, original ? 'original' : 'reading'); } catch (_) {}
   const reading = $('#readingView');
   if (reading) reading.hidden = original;
   document.querySelectorAll('.viewtoggle button').forEach((b, i) => {
@@ -3189,8 +3209,10 @@ function setPageView(original, doc, pageNo) {
 srcout.addEventListener('load', e => { if (e.target.id === 'origFrame') origLoaded(e.target); }, true);
 addEventListener('message', e => {
   const fr = $('#origFrame');
-  if (fr && e.source === fr.contentWindow && e.data && e.data.wisOriginalHeight)
-    fr.style.height = (e.data.wisOriginalHeight + 4) + 'px';
+  if (!fr || e.source !== fr.contentWindow || !e.data) return;
+  if (e.data.wisOriginalHeight) fr.style.height = (e.data.wisOriginalHeight + 4) + 'px';
+  // a link inside a LEMON page (html_original.py): open that page here
+  if (/^\d{1,9}$/.test(String(e.data.openPage || ''))) showPage(String(e.data.openPage), fr.dataset.doc);
 });
 
 // -- WIS cross-references -------------------------------------------------
@@ -3333,6 +3355,9 @@ async function showPage(pageNo, doc, open = true) {
     // into the WIS car, so not in `vehicles`) falls back to the WIS car here:
     // it has no original layout, and offering one showed an error page.
     const wis = p.doc_type !== 'parts' && WIS_SOURCE.test(owner?.source_name || '');
+    // WIS redrawn from its layout, a LEMON / folder page as its own HTML
+    const orig = p.has_original ?? wis;
+    origWis = wis;
     // WIS pages end with the text read out of their diagrams ("Diagram
     // labels: N26/15 X63/4 ...") and the figure numbers. That is there to be
     // searched, not read -- the diagram itself is on the page.
@@ -3359,10 +3384,10 @@ async function showPage(pageNo, doc, open = true) {
          ? '<div class="warnbox">This page documents a different variant or trim.</div>' : ''}
        ${p.outside_scope
          ? `<div class="warnbox">This document is filed under <b>${esc(p.outside_scope)}</b>, not under the car you picked. Check that it applies before using its values.</div>` : ''}
-       ${wis ? viewToggle(p.doc_id, p.page_no) : ''}
+       ${orig ? viewToggle(p.doc_id, p.page_no) : ''}
        ${parts ? partsPageHtml(p, body)
-         : `<div class="src" id="readingView"${wis && wantOriginal() ? ' hidden' : ''}>${bodyHtml}</div>`}
-       ${wis && wantOriginal() ? originalFrame(p.doc_id, p.page_no) : ''}`
+         : `<div class="src" id="readingView"${orig && wantOriginal() ? ' hidden' : ''}>${bodyHtml}</div>`}
+       ${orig && wantOriginal() ? originalFrame(p.doc_id, p.page_no) : ''}`
       + (p.links?.length
           ? `<div class="sechead">Referenced pages</div>`
             + p.links.map(l =>
@@ -3396,8 +3421,6 @@ document.addEventListener('click', e => {
   if (cn) { e.preventDefault(); showConnector(cn.dataset.conn); return; }
   const vw = e.target.closest('[data-view]');
   if (vw) {
-    // "Back to reading view" under an unavailable page: drop that frame
-    if (!vw.dataset.doc) $('#origWrap')?.remove();
     setPageView(vw.dataset.view === 'original', vw.dataset.doc, vw.dataset.pno);
   }
 });
@@ -4031,6 +4054,7 @@ async function loadSetup() {
   $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
   $('#sAutostart').checked = !!s.autostart;
   $('#sSignin').checked = !!s.require_signin;
+  $('#sDamage').checked = !!s.show_damage_codes;
   showProvider(s);
   showKeyMode(s);
   showKeyFor(s);
@@ -4291,6 +4315,11 @@ $('#sModel').onchange = async () => {
 $('#sSignin').onchange = async e => {
   const v = e.target.checked;
   if (await saveSetting({require_signin: v}, '#mSignin')) { me.require_signin = v; openUsers(); }
+  else e.target.checked = !v;
+};
+$('#sDamage').onchange = async e => {
+  const v = e.target.checked;
+  if (await saveSetting({show_damage_codes: v}, '#mDamage')) manualEl = null;   // contents rebuilt on next view
   else e.target.checked = !v;
 };
 $('#sAutostart').onchange = async e => {

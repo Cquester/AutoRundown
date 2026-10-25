@@ -298,7 +298,25 @@ Reading view / Original layout toggle (`viewToggle()` in `index.html`,
 choice remembered per viewer in `localStorage`); the original is an iframe on
 `/api/original/<doc_id>/<page_no>`, served by `autorundown/wis_original.py`
 (self-contained; `tools/sids_render.py <dok_id>` is a CLI over it). Free, no
-API calls. What it knows about SIDS, each measured on a corpus sample:
+API calls. **The original is the default** (2026-10-24, the user: "I dont
+think the way we have reading view looks good. Lets default to original
+document"): stored as `autorundown.pageView.v2` = "reading" only when the
+viewer picks Reading view (a new key, so the old key's "0" from the old
+default doesn't stick); a page with no original falls back to its text by
+itself ("No original layout for this page; showing its text", Original
+layout greyed), leaving the choice as it was. **LEMON and folder HTML
+pages have an original too** (`html_original.py`, `has_original` on
+`/api/page`): the page's `div.main` only (not LEMON's header, breadcrumbs,
+footer, stylesheet or script), cleaned to an allow-list of tags and
+attributes, pictures re-pointed at `/api/image` (inside `images/` only),
+links to other pages turned into `data-page` that the frame posts to the
+app (`openPage`), and served with a CSP that runs only the frame's own
+script (a nonce per response), pictures and styles from this site only.
+Not a sandboxed iframe: the app's browser pane blocked a sandboxed
+frame's picture requests (`ERR_BLOCKED_BY_CLIENT`). All 3,000 first pages
+of the real F-150 render. Tests: `tests/test_lemon_import.py` (hostile
+markup: scripts, handlers, iframes, forms, svg, javascript: links, outside
+pictures and styles all dropped). What it knows about SIDS, each measured on a corpus sample:
 - **Reads one body, not the pack.** A sidecar `bodies.pack.idx.sqlite` next
   to `bodies.pack` holds DokID -> offset/length and graphic nr -> image file
   (figures.tsv + images/catalog.tsv). Built on first request (~2.5 s), and

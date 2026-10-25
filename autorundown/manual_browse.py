@@ -26,7 +26,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from . import wis_links
+from . import search, wis_links
 from .search import _filters, _types_clause, as_ids
 
 MAX_PAGES = 120000
@@ -43,12 +43,10 @@ OTHER = "Other documents"
 # so they are listed in their group with no subgroup. In DH and WB even the
 # first two digits are a chapter, not a group (dh03 = "3.2 Adaptive damping
 # system", wb65 = oil consumption test sheets): those go under Other documents.
-# SS are damage-code picture menus (the 99xxxxxx documents: a drawing to pick
-# a warranty fault code from; their text is code lists): 17,997, filed under
-# no car, so every car listed all of them -- over half the W210's contents,
-# "Connecting rod, piston, M271.9 / OM470 / 4D34i" twenty times over
-# (2026-10-24, the user). Not repair documents: not in the contents.
-LEFT_OUT = {"ss"}
+# Damage-code picture menus (SS, search.is_damage_menu) were over half of
+# every WIS car's contents -- "Connecting rod, piston, M271.9 / OM470 /
+# 4D34i" twenty times over under a W210 (2026-10-24, the user). Left out
+# unless the shop turns them on (search.show_damage_codes, Shop setup).
 OWN_NUMBERS = {"ra", "wh", "ea"}
 NO_GROUP = {"dh", "wb"}
 
@@ -92,10 +90,10 @@ def _wis_tree(rows: list[tuple], corpus: Path) -> dict:
     numbers = wis_links.docnrs(corpus, [int(r[1]) for r in rows if str(r[1]).isdigit()])
     names = wis_links.group_names(corpus)
     for doc_id, page_no, title, _, doc_type in rows:
+        if not search.show_damage_codes and search.is_damage_menu(page_no):
+            continue
         nrs = sorted(numbers.get(int(page_no), []) if str(page_no).isdigit() else [])
         m = next((m for m in map(_DOCNR.match, nrs) if m), None)
-        if m and m[1] in LEFT_OUT:
-            continue
         # a wiring diagram says so; else the number's kind ("AR": a repair
         # procedure, though it has a table), then "has a table", then the code
         kind = (DOC_TYPE["wiring"] if doc_type == "wiring" else "") or (KIND.get(m[1]) if m else "") \
@@ -139,7 +137,8 @@ def tree(conn: sqlite3.Connection, vehicle: dict, scope, wis: bool) -> dict:
     side = Path(vehicle.get("file_path") or "") / wis_links.NAME     # rebuilt by parse_links.py
     state = (*state, side.stat().st_mtime if wis and side.is_file() else 0)
     key = (vehicle["doc_id"], tuple(as_ids(scope)), getattr(scope, "engines", ()),
-           getattr(scope, "codes", ()), getattr(scope, "types", ""), wis, tuple(state))
+           getattr(scope, "codes", ()), getattr(scope, "types", ""), wis, tuple(state),
+           search.show_damage_codes)
     with _lock:
         if key in _cache:
             return _cache[key]

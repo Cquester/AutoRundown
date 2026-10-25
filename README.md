@@ -127,6 +127,10 @@ files. "Start when I sign in" runs it as you, in the background.
   current extractor folder over it): the check says so when it's too old.
   **If your manuals are already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,
   and pick `Mercedes Documents\autorundown_out\wis_extract`.
+  WIS also holds ~18,000 **damage-code menus** (pictures for picking a warranty
+  fault code, filed under no car). They are left out of search, answers and the
+  manual's contents; Shop setup → *Manuals* → *Show Mercedes damage-code menus*
+  turns them on.
 - The command-line tools are installed too:
   `"%LOCALAPPDATA%\Programs\AutoRundown\python\python.exe" "%LOCALAPPDATA%\Programs\AutoRundown\app\ask.py" --usage`.
 
@@ -351,8 +355,11 @@ doesn't know.
 
 Values that name only another engine or model are left out, and every row
 links to the page it came from: tables often list several engines, so the page
-is where you confirm the row is yours. A WIS page opens in **Reading view** or
-**Original layout** (the page redrawn from WIS); a parts page opens as its list.
+is where you confirm the row is yours. A manual page opens in its **Original
+layout** -- a WIS page redrawn from WIS, a LEMON page as the manual's own page
+(without LEMON's website around it) -- with **Reading view** (the extracted
+text) a tap away; a page with no original shows its text. A parts page opens
+as its list.
 
 ## How it answers
 
@@ -678,6 +685,7 @@ autorundown/             the app (everything the installer ships)
   lemon_catalogue.py     the LEMON catalogue tree
   wis_links.py           WIS cross-references, wiring-diagram hotspots, codes, labour
   wis_original.py        WIS "Original layout" view
+  html_original.py       LEMON / folder HTML pages' "Original layout" (cleaned)
   launcher.py, autostart.py, mdns.py   Windows tray, start at sign-in, autorundown.local
   web/index.html         the whole UI, one responsive page
 

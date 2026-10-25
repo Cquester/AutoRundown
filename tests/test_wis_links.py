@@ -17,6 +17,7 @@ extractor/parse_links.py writes it, and drives the real server in-process
 from __future__ import annotations
 
 from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
+import json
 import os
 import shutil
 import sqlite3
@@ -32,7 +33,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import ingest  # noqa: E402
 import test_records  # noqa: E402
-from autorundown import index, server, wis_links  # noqa: E402
+from autorundown import index, search, server, wis_links  # noqa: E402
 
 fails = 0
 
@@ -47,6 +48,12 @@ def check(label, got, want):
 def main() -> int:
     try:
         cdir = test_records.build_corpus(TMP / "archive")
+        # a damage-code picture menu (DokID 99xxxxxx, filed under no car) and
+        # an ordinary unfiled document sharing its word
+        with (cdir / "records.jsonl").open("a", encoding="utf-8", newline="\n") as f:
+            for r in (test_records.rec(99026283, "Connecting rod, piston", "argt0 ;; 03305 quuxrod"),
+                      test_records.rec(1002350, "Notes on quuxrod bolts", "quuxrod bolts text")):
+                f.write(json.dumps(r) + "\n")
         idx = TMP / "index.db"
         with open(os.devnull, "w") as quiet:
             out, sys.stdout = sys.stdout, quiet
@@ -248,8 +255,7 @@ def main() -> int:
         before = app.get(url).json()["count"]
         with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
             c.executemany("INSERT INTO docnr VALUES (?,?,?)",
-                          [("wh0051pkw0000x", 8, int(loose[0])), ("dh0302pf10021x", 9, int(loose[1])),
-                           ("ss031003618260", 10, int(loose[2]))])
+                          [("wh0051pkw0000x", 8, int(loose[0])), ("dh0302pf10021x", 9, int(loose[1]))])
         top = app.get(url).json()
         g00 = app.get(url, params={"path": ["00"]}).json()
         check("own-numbered kinds: in their group, no subgroup made of their item number",
@@ -259,9 +265,24 @@ def main() -> int:
               ("03" in " ".join(c["name"][:2] for c in top["children"]),
                [p["page_no"] for p in app.get(url, params={"path": ["Other documents", "DH documents"]})
                 .json()["pages"]]), (False, [loose[1]]))
-        every = walk()
-        check("a damage-code menu (SS) is not in the contents, and the count drops with it",
-              (loose[2] in every, len(every), top["count"]), (False, before - 1, before - 1))
+        check("moving documents between sections keeps the count",
+              (len(walk()), top["count"]), (before, before))
+
+        print("damage-code menus: off by default, a Shop setup setting shows them")
+
+        def found(q):
+            r = app.get("/api/search", params={"doc_id": c176, "q": q}).json()
+            return sorted({x["page_no"] for x in (r["results"] if isinstance(r, dict) else r)})
+        check("off: search leaves the menu out, keeps the ordinary unfiled document",
+              (app.get("/api/settings").json()["show_damage_codes"], found("quuxrod")),
+              (False, ["1002350"]))
+        check("off: not in the contents", "99026283" in walk(), False)
+        check("the setting saves",
+              app.post("/api/settings", json={"show_damage_codes": True}).json(), {"ok": True})
+        check("on: search finds it", found("quuxrod"), ["1002350", "99026283"])
+        check("on: in the contents", "99026283" in walk(), True)
+        app.post("/api/settings", json={"show_damage_codes": False})
+        check("off again: gone", (found("quuxrod"), search.show_damage_codes), (["1002350"], False))
         v23, v26 = names.index("190 E 2.3 16"), names.index("190 E 2.6")
         check("labour times need the exact model",
               app.get(f"/api/wis/labour/{c201}").json()["need"], "variant")
