@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import json
 import re
+import secrets
 import socket
 import sqlite3
 import time
@@ -32,8 +33,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from . import auth, config, handoff, index, providers, qr, query, tls
-from . import (autostart, importer_jobs, lemon_catalogue, parts_browse, synonyms, tab_values,
+from . import search as search_mod
+from . import auth, config, handoff, history, index, providers, qr, query, tls
+from . import (autostart, html_original, importer_jobs, lemon_catalogue, manual_browse, parts_browse, synonyms, tab_values,
                wis_links, wis_original)
 from .search import (get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
@@ -58,6 +60,9 @@ class AskBody(BaseModel):
     # without saving settings first: any model in the requester's menu
     # (config.menu_models), whichever provider it is from
     model: str | None = None
+    # a follow-up in a chat: the history entry the chat is kept in. Its car
+    # and earlier turns come from that entry, never from this body.
+    chat: int | None = None
 
 
 class SettingsBody(BaseModel):
@@ -70,6 +75,8 @@ class SettingsBody(BaseModel):
     # Windows: start in the background at sign-in (autostart.py)
     autostart: bool | None = None
     require_signin: bool | None = None
+    # WIS damage-code menus in search and the Manual contents
+    show_damage_codes: bool | None = None
     # "company" | "per_mechanic" (config.pick_key)
     key_mode: str | None = Field(None, pattern="^(company|per_mechanic)$")
     # the AI provider answering questions (providers.py)
@@ -123,6 +130,10 @@ class MechanicKeyBody(BaseModel):
     remove: bool = False
 
 
+class VmPickBody(BaseModel):
+    file: str = Field(max_length=1000)    # the VM's .vbox file
+
+
 class LemonPickBody(BaseModel):
     # a folder of the catalogue tree: [make], [make, year], ... or a variant
     path: list[str]
@@ -144,8 +155,6 @@ class ImportBody(BaseModel):
     # mode "lemon": the vehicle folders to import, relative to path
     # mode "remove": the doc_ids to remove (LEMON / folder manuals only)
     vehicles: list[str] = []
-    # modes "remove" / "remove_wis" / "remove_epc": VACUUM afterwards to shrink the file
-    compact: bool = False
 
 
 def _vehicle_or_404(conn, doc_id: str) -> dict:
@@ -303,6 +312,14 @@ IMAGE_HEADERS = {
 }
 
 
+# a LEMON / folder page shown as its own HTML (html_original.py): cleaned to
+# an allow-list, and this CSP besides -- only its own script (height, links;
+# a nonce per response) runs, pictures and styles from this site only
+HTML_ORIGINAL_CSP = ("default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; "
+                     "script-src 'nonce-{}'; frame-ancestors 'self'; base-uri 'none'; "
+                     "form-action 'none'")
+
+
 # the iframe's page when there is nothing to draw; the UI looks for the marker
 UNAVAILABLE = "<p data-unavailable='1' style='font-family:sans-serif'>{}</p>"
 
@@ -405,6 +422,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app.state.auth_path = auth_path or auth.AUTH_PATH
     app.state.https = False
     app.state.port = 8756
+    # damage-code menus in search and the Manual contents (Shop setup)
+    search_mod.show_damage_codes = config.load().show_damage_codes
     throttle = auth.Throttle()
     app.state.mdns_name = ""          # serve() sets it once announced
     app.state.shutdown = lambda: None   # make_server() wires the real one
@@ -650,13 +669,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                         "application/json")
 
     @app.get("/api/search")
-    def api_search(doc_id: str, q: str = Query(max_length=500),
+    def api_search(request: Request, doc_id: str, q: str = Query(max_length=500),
                    limit: int = Query(12, ge=1, le=50),
                    include_other_variants: bool = False,
                    variant: int | None = None,
                    engine: str | None = Query(None, max_length=64),
                    tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$"),
-                   also: list[str] = Query(default=[])) -> list[dict]:
+                   also: list[str] = Query(default=[]),
+                   record: bool = False) -> list[dict]:
         """Keyword search for one of the UI's tabs, always within the car.
 
         workshop: the manual's pages only (as before the parts catalogue);
@@ -684,6 +704,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 engs, models = query.mentioned_codes(line, codes["families"], codes["series"])
                 return bool((codes["engines"] and engs and not engs & codes["engines"])
                             or (codes["models"] and models and not models & codes["models"]))
+            # the question box's own Search (not a tab's): kept in the history
+            if record and tab == "workshop":
+                _remember(request.state.who, "search", vehicle, variant, engine, None, q)
             if not scope:
                 return []
             # the manual's wording first ("valve cover" -> "cylinder head
@@ -765,19 +788,80 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 key = config.pick_key(cfg, who.user_id, who.admin, provider)
             except config.NoKeyForRequest as exc:
                 raise HTTPException(400, str(exc))
+            variant, engine, year, earlier = body.variant, body.engine, body.year, None
+            if body.chat is not None:
+                # a follow-up: only a chat this requester can see, about this
+                # car; the car as the chat had it (the car box may have moved on)
+                aconn = adb()
+                try:
+                    entry = history.get(aconn, body.chat, who)
+                finally:
+                    aconn.close()
+                if entry is None or entry["kind"] != "ask" or entry["doc_id"] != vehicle["doc_id"]:
+                    raise HTTPException(404, "That conversation is not in your history.")
+                earlier = query.earlier_turns(entry)
+                if len(earlier) > query.MAX_FOLLOWUPS:
+                    raise HTTPException(400, f"This conversation has {query.MAX_FOLLOWUPS} follow-ups; "
+                                             "start a new one for the next question.")
+                variant, engine, year = entry["variant"], entry["engine"], entry["year"]
             try:
                 result = query.ask(
                     conn, vehicle, body.question, key.key,
                     include_other_variants=body.include_other_variants,
-                    model=chosen, source="web", variant=body.variant,
-                    engine=body.engine, year=body.year,
+                    model=chosen, source="web", variant=variant,
+                    engine=engine, year=year,
                     user_id=who.user_id, user_name=who.name or None,
-                    key_ref=key.ref, provider=provider)
+                    key_ref=key.ref, provider=provider, earlier=earlier)
             except (query.NoApiKey, query.ApiUnavailable) as exc:
                 raise HTTPException(400, str(exc))
-            return result.as_dict()
+            out = result.as_dict()
+            # kept whole: a paid answer can be opened again without paying; a
+            # follow-up goes into its chat's entry
+            if body.chat is not None:
+                aconn = adb()
+                try:
+                    history.add_turn(aconn, body.chat, who, body.question, out)
+                except (sqlite3.Error, TypeError, ValueError):
+                    pass
+                finally:
+                    aconn.close()
+                out["chat_id"] = body.chat
+            else:
+                out["chat_id"] = _remember(who, "ask", vehicle, variant, engine, year,
+                                           body.question, out)
+            return out
         finally:
             conn.close()
+
+    def _remember(who, kind, vehicle, variant, engine, year, question, result=None):
+        # never let the history break a good answer or search
+        aconn = adb()
+        try:
+            return history.add(aconn, who, kind, history.pick(vehicle, variant, engine, year),
+                               question, result)
+        except (sqlite3.Error, TypeError, ValueError):
+            return None
+        finally:
+            aconn.close()
+
+    @app.get("/api/history")
+    def api_history(request: Request, limit: int = Query(history.SHOW, ge=1, le=200)) -> list[dict]:
+        aconn = adb()
+        try:
+            return history.visible_to(aconn, request.state.who, limit)
+        finally:
+            aconn.close()
+
+    @app.get("/api/history/{entry_id}")
+    def api_history_entry(request: Request, entry_id: int) -> dict:
+        aconn = adb()
+        try:
+            d = history.get(aconn, entry_id, request.state.who)
+        finally:
+            aconn.close()
+        if d is None:     # someone else's or gone: all alike
+            raise HTTPException(404, "No such entry in your history.")
+        return d
 
     @app.get("/api/page/{doc_id}/{page_no}")
     def api_page(request: Request, doc_id: str, page_no: str) -> dict:
@@ -799,6 +883,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     scope_ids(vehicle), _corpus_ids(conn, vehicle), page_no)
                 page["diagram"] = page_no.isdigit() and wis_links.has_diagram(
                     Path(vehicle["file_path"]), int(page_no))
+            # a LEMON / folder HTML page can be shown as itself (/api/original)
+            page["has_original"] = page.get("doc_type") != "parts" and (
+                _is_wis(vehicle) or str(page.get("file_path") or "").lower().endswith((".html", ".htm")))
             if not request.state.who.admin:
                 page.pop("file_path", None)
             page["images"] = [i for i in (page.get("images") or "").split("\n") if i]
@@ -846,6 +933,26 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             conn.close()
         return _etagged(request, json.dumps(rows, separators=(",", ":")).encode(),
                         "application/json")
+
+    @app.get("/api/manual/contents/{doc_id}")
+    def api_manual_contents(doc_id: str, variant: int | None = None,
+                            engine: str | None = Query(None, max_length=64),
+                            path: list[str] = Query([], max_length=8)) -> dict:
+        """The car's manual as contents, one level at a time: WIS by function
+        group and subgroup, other manuals by their own chapters
+        (manual_browse.py). The manual scope only, filtered like search. Free."""
+        path = [p[:300] for p in path]
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            t = manual_browse.tree(conn, vehicle, manual, _is_wis(vehicle))
+        finally:
+            conn.close()
+        n = manual_browse.node(t, path)
+        if n is None:
+            raise HTTPException(404, "no such section")
+        return n
 
     @app.get("/api/fluids/{doc_id}")
     def api_fluids(doc_id: str, variant: int | None = None,
@@ -964,12 +1071,30 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
             page, _ = _wis_page(conn, vehicle, page_no)
+            owner = (_vehicle_or_404(conn, page["doc_id"]) if page and page.get("doc_id") != doc_id
+                     else vehicle)
         finally:
             conn.close()
+        from urllib.parse import quote
+        if page and page.get("doc_type") != "parts" and not _is_wis(owner) \
+                and str(page.get("file_path") or "").lower().endswith((".html", ".htm")):
+            # a LEMON / folder HTML page: its own HTML, cleaned (html_original.py)
+            nonce = secrets.token_urlsafe(16)
+            try:
+                body = html_original.render(
+                    Path(page["file_path"]), Path(owner.get("file_path") or ""),
+                    page.get("title") or "",
+                    lambda f: f"/api/image/{quote(owner['doc_id'])}/{quote(f)}", nonce)
+            except (html_original.NotAvailable, OSError) as exc:
+                why = (str(exc) if request.state.who.admin
+                       else "The original layout isn't available for this page.")
+                return HTMLResponse(UNAVAILABLE.format(
+                    why.replace("&", "&amp;").replace("<", "&lt;")), 404)
+            return HTMLResponse(body, headers={
+                "Content-Security-Policy": HTML_ORIGINAL_CSP.format(nonce)})
         if not page or not page_no.isdigit() or not re.match(
                 r"mercedes-wis", vehicle.get("source_name") or ""):
             return HTMLResponse(UNAVAILABLE.format("There is no original layout for this page."), 404)
-        from urllib.parse import quote
         try:
             body = wis_original.render(
                 Path(vehicle["file_path"]), int(page_no), page.get("title") or "",
@@ -984,8 +1109,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     # `:path` because diagrams may sit in nested directories, e.g.
     # images/IMP49Q313/euro210/551068321.png
-    @app.get("/api/image/{doc_id}/{name:path}")
-    def api_image(request: Request, doc_id: str, name: str) -> FileResponse:
+    def _image_path(request: Request, doc_id: str, name: str) -> Path:
+        """The picture's file on disk -- the car's own images, or a joined
+        parts catalogue's -- never outside them; 404 otherwise."""
         # a NUL (x.png%00.db) made Path.resolve() raise: an unhandled 500,
         # without the security headers. No picture is named that way.
         if "\x00" in name or "\x00" in doc_id:
@@ -1010,7 +1136,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 continue
             if hit.is_file() and hit.suffix.lower() in IMAGE_TYPES \
                     and not (Path(vehicle["file_path"]) / "images" / name).is_file():
-                return FileResponse(hit, headers=IMAGE_HEADERS)
+                return hit
         images_dir = (Path(vehicle["file_path"]) / "images").resolve()
         if not images_dir.is_dir():
             if not request.state.who.admin:
@@ -1030,7 +1156,29 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(404, "image not found")
         if not target.is_file() or target.suffix.lower() not in IMAGE_TYPES:
             raise HTTPException(404, "image not found")
-        return FileResponse(target, headers=IMAGE_HEADERS)
+        return target
+
+    @app.get("/api/image/{doc_id}/{name:path}")
+    def api_image(request: Request, doc_id: str, name: str) -> FileResponse:
+        return FileResponse(_image_path(request, doc_id, name), headers=IMAGE_HEADERS)
+
+    @app.get("/api/callouts/{doc_id}/{name:path}")
+    def api_callouts(request: Request, doc_id: str, name: str) -> list[dict]:
+        """Where each callout number sits on a parts drawing, in its pixels:
+        the extractor's <drawing>.callouts.json beside the PNG (from the
+        drawing's own annotation layer). [] when the drawing has none or was
+        pulled before callouts were saved."""
+        side = _image_path(request, doc_id, name).with_suffix(".callouts.json")
+        try:
+            data = json.loads(side.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        out = []
+        for c in data if isinstance(data, list) else []:
+            if (isinstance(c, dict) and isinstance(c.get("x"), int) and isinstance(c.get("y"), int)
+                    and isinstance(c.get("c"), str) and 0 < len(c["c"]) <= 8):
+                out.append({"x": c["x"], "y": c["y"], "c": c["c"]})
+        return out
 
     @app.get("/api/connectors/{doc_id}")
     def api_connector_ids(doc_id: str) -> list[str]:
@@ -1206,6 +1354,25 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def api_vms() -> dict:
         return importer_jobs.list_vms()
 
+    # the VM is chosen as a file (its .vbox), browsed like an import folder
+    @app.get("/api/vms/browse")
+    def api_vm_browse(path: str = Query("", max_length=1000)) -> dict:
+        if _local_path_error(path):
+            raise HTTPException(400, _local_path_error(path))
+        try:
+            return importer_jobs.browse_vbox(path)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc))
+
+    @app.post("/api/vms/pick")
+    def api_vm_pick(body: VmPickBody) -> dict:
+        if _local_path_error(body.file):
+            raise HTTPException(400, _local_path_error(body.file))
+        try:
+            return importer_jobs.pick_vm(body.file)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(400, str(exc))
+
     WIS_STEPS = ("docs", "applic", "vehicles", "images", "build")
 
     def vm_steps(what: str, steps: str) -> str:
@@ -1330,8 +1497,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 raise HTTPException(400, "There is no Mercedes EPC data in the index.")
             try:
                 return jobs.start(Path("."), app.state.index_path, body.mode,
-                                  only=body.vehicles if body.mode == "remove" else None,
-                                  compact=body.compact)
+                                  only=body.vehicles if body.mode == "remove" else None)
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
         if _local_path_error(body.path):
@@ -1409,6 +1575,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "autostart": autostart.is_enabled() if autostart.supported() else None,
             "phone_urls": _phone_urls(),
             "require_signin": cfg.require_signin,
+            "show_damage_codes": cfg.show_damage_codes,
             "config_path": str(config.CONFIG_PATH),
         }
 
@@ -1466,7 +1633,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         cfg = config.load()
         for field_name in ("archive_dir", "index_path", "importer",
                            "model", "extractor_dir", "require_signin", "key_mode",
-                           "provider"):
+                           "provider", "show_damage_codes"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)
@@ -1489,6 +1656,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             else:
                 cfg.provider_keys = {**(cfg.provider_keys or {}), kp: body.api_key.strip()}
         cfg.save()
+        search_mod.show_damage_codes = cfg.show_damage_codes
         # only a new index path moves the server: saving anything else (the
         # model, sign-in) used to swap a `serve.py --index X` server onto the
         # config's index

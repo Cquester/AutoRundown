@@ -18,6 +18,12 @@ import threading
 import time
 from pathlib import Path
 
+# The installed app runs without a console (pythonw), so every console
+# program a job starts -- Python, and under it VBoxManage and Java -- opened
+# a terminal window of its own (the user, 2026-10-23). A hidden console here
+# is inherited by everything the job starts in turn. 0 off Windows.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 from . import importers
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -113,7 +119,7 @@ def _list_vms() -> dict:
                          + ". Set its folder under Settings (the gear) -> Mercedes extractor folder."}
     r = subprocess.run([sys.executable, str(ext / "vm_pipeline.py"), "--list-vms"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       timeout=60)
+                       timeout=60, creationflags=NO_WINDOW)
     if r.returncode != 0:
         return {"extractor": str(ext), "vms": [],
                 # a string: the UI showed "(s ?? "").replace is not a function"
@@ -125,10 +131,91 @@ def _list_vms() -> dict:
         out_root = extractor_out_root(ext)
     except RuntimeError as e:
         return {"extractor": str(ext), "vms": vms, "error": str(e)}
-    return {"extractor": str(ext), "vms": vms, "out_root": str(out_root)}
+    return {"extractor": str(ext), "vms": vms, "out_root": str(out_root), "chosen": chosen_vm()}
 
 
-VM_STEPS = {"wis": "docs,applic,vehicles,images,build", "epc": "epc",
+# The VM is chosen as a file, like a folder for an import (the user,
+# 2026-10-23: "it should be a file explorer option, where i choose what vm to
+# use"), not from VirtualBox's list. The file names the machine; runs still
+# address it by that name, so it must be added to VirtualBox -- this never
+# registers one (no changes to VirtualBox's settings).
+VBOX_MAX = 5_000_000      # a .vbox is a few KB of XML
+
+
+def vbox_machine(path: Path) -> dict:
+    """{"name", "uuid"} of the VM a VirtualBox .vbox file describes."""
+    import xml.etree.ElementTree as ET
+    if path.suffix.lower() != ".vbox" or not path.is_file():
+        raise ValueError(f"{path.name} is not a VirtualBox machine file (.vbox)")
+    if path.stat().st_size > VBOX_MAX:
+        raise ValueError(f"{path.name} is too big to be a VirtualBox machine file")
+    try:
+        m = ET.parse(path).getroot().find("{*}Machine")
+    except ET.ParseError as exc:
+        raise ValueError(f"{path.name} could not be read: {exc}") from None
+    if m is None or not m.get("name"):
+        raise ValueError(f"{path.name} does not describe a virtual machine")
+    return {"name": m.get("name"), "uuid": (m.get("uuid") or "").strip("{}")}
+
+
+def chosen_vm() -> dict | None:
+    """The VM file picked in Shop setup, if it is still there."""
+    from . import config
+    f = config.load().vm_file
+    if not f:
+        return None
+    try:
+        return {"file": f, **vbox_machine(Path(f))}
+    except (ValueError, OSError):
+        return None
+
+
+def browse_vbox(path: str) -> dict:
+    """A folder's subfolders and .vbox files, for choosing the VM. Starts
+    where the chosen file is, else VirtualBox's own "VirtualBox VMs"."""
+    from . import config
+    if path:
+        p = Path(path).expanduser()
+        if not p.is_dir():
+            raise FileNotFoundError(f"Folder not found: {p}")
+    else:
+        f = config.load().vm_file
+        # AUTORUNDOWN_VMS_DIR: dev.py --fake-vm's pretend machine files
+        vms_dir = os.environ.get("AUTORUNDOWN_VMS_DIR") or Path.home() / "VirtualBox VMs"
+        p = next((c for c in (Path(f).parent.parent if f else None, Path(vms_dir), Path.home())
+                  if c and c.is_dir()), Path.home())
+    dirs, files = [], []
+    try:
+        for c in p.iterdir():
+            if c.name.startswith("."):
+                continue
+            if c.is_dir():
+                dirs.append(c.name)
+            elif c.suffix.lower() == ".vbox":
+                files.append(c.name)
+    except OSError:
+        pass
+    return {"path": str(p), "parent": str(p.parent) if p.parent != p else "",
+            "dirs": sorted(dirs, key=str.lower)[:500], "files": sorted(files, key=str.lower)}
+
+
+def pick_vm(file: str) -> dict:
+    """Remember the VM file the user chose, once VirtualBox knows its VM."""
+    from . import config
+    m = vbox_machine(Path(file))
+    info = list_vms()
+    if info.get("error") and not info.get("vms"):
+        raise ValueError(info["error"])
+    if m["name"] not in {v["name"] for v in info.get("vms", [])}:
+        raise ValueError(f"VirtualBox doesn't have the VM {m['name']!r} added yet. Open VirtualBox, "
+                         f"use Machine > Add… and choose this file, then choose it here again.")
+    cfg = config.load()
+    cfg.vm_file = str(Path(file))
+    cfg.save()
+    return {"file": cfg.vm_file, **m}
+
+
+VM_STEPS ={"wis": "docs,applic,vehicles,images,build", "epc": "epc",
             "both": "docs,applic,vehicles,images,build,epc"}
 
 
@@ -163,7 +250,7 @@ def _check_vm(vm: str, steps: str) -> dict:
         r = subprocess.run([sys.executable, str(ext / "vm_pipeline.py"), "--vm", vm, "--steps", steps,
                             "--out-root", str(info["out_root"]), "--check"],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
-                           env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                           env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=NO_WINDOW)
         checks = parse_checks(r.stdout)
     except subprocess.TimeoutExpired:
         checks = [{"key": "extractor", "level": "fail", "message": "The check took over 90 s; is VirtualBox busy?"}]
@@ -192,7 +279,8 @@ def _list_snapshots(vm: str) -> dict:
         return {"snapshots": [], "error": f"There is no VirtualBox VM named {vm!r}."}
     r = subprocess.run([sys.executable, str(Path(info["extractor"]) / "vm_pipeline.py"), "--vm", vm,
                         "--list-snapshots"], capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", timeout=60, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                       errors="replace", timeout=60, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                       creationflags=NO_WINDOW)
     snaps = []
     for line in r.stdout.splitlines():
         p = line.split("\t")
@@ -315,17 +403,22 @@ def manuals(index_path: str | Path) -> dict:
     except sqlite3.Error:
         return out
     wis_sources = set()
+    corpus = {"wis": set(), "epc": set()}
     for d, src, year, make, model, fp, n, complete in rows:
         src = src or ""
         if src.startswith("mercedes-wis"):
             out["wis"]["entries"] += 1
             out["wis"]["pages"] += n or 0
             wis_sources.add(src)
+            if fp:
+                corpus["wis"].add(fp)
             continue
         if src.startswith("mercedes-epc"):
             # the EPC parts catalogue: one corpus, replaced and removed whole
             out["epc"]["entries"] += 1
             out["epc"]["pages"] += n or 0
+            if fp:
+                corpus["epc"].add(fp)
             continue
         group = "lemon" if src == "lemon" else "folder"
         label = " ".join(x for x in (year, make, model) if x) or d
@@ -334,6 +427,27 @@ def manuals(index_path: str | Path) -> dict:
     for g in ("lemon", "folder"):
         out[g].sort(key=lambda r: r["label"].lower())
     out["wis"]["sources"] = sorted(wis_sources)
+    for k in ("wis", "epc"):
+        out[k]["folders"] = [str(f) for f in extract_dirs(k, corpus[k], p)]
+    return out
+
+
+def extract_dirs(kind: str, corpus_dirs, index_path: Path) -> list[Path]:
+    """The folders "Remove all Mercedes WIS / EPC data" sends to the Recycle
+    Bin: the corpus folder each manual was imported from (vehicles.file_path)
+    and, beside a `wis_extract`, the extractor's other WIS outputs. Taken
+    from the index, not from the extractor's settings, so a test's throwaway
+    corpus can never point at the real autorundown_out. Only extract-folder
+    names (recycle.EXTRACT_NAMES) that exist, never one holding the index."""
+    from . import recycle
+    names = recycle.WIS_DIRS if kind == "wis" else recycle.EPC_DIRS
+    out: list[Path] = []
+    for c in sorted(corpus_dirs):
+        c = Path(c)
+        cands = [c.parent / n for n in names] if c.name == names[0] else [c]
+        for f in cands:
+            if f not in out and not recycle.allowed(f, keep=[index_path]):
+                out.append(f)
     return out
 
 
@@ -596,7 +710,7 @@ class ImportJobs:
         return cmds
 
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
-              steps: str = "", only: list[str] | None = None, compact: bool = False) -> dict:
+              steps: str = "", only: list[str] | None = None) -> dict:
         """`parts` are run one after the other, each a list of commands (or a
         function giving them, called when that part starts); the first
         failing command stops the job, and later parts are never started."""
@@ -646,16 +760,19 @@ class ImportJobs:
                     cmd += ["--only", o]
                 cmds = [cmd]
             elif mode in ("remove", "remove_wis", "remove_epc"):
-                # remove_manuals.py: LEMON / folder manuals by doc_id, WIS and EPC whole
-                cmd = [*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path)]
-                if mode == "remove_wis":
-                    cmd += ["--source", "mercedes-wis"]
-                if mode == "remove_epc":
-                    cmd += ["--source", "mercedes-epc"]
+                # remove_manuals.py: LEMON / folder manuals by doc_id, WIS and EPC
+                # whole. A Remove button removes completely (the user,
+                # 2026-10-23): the index always shrinks, and WIS / EPC's
+                # extracted files go to the Recycle Bin (a LEMON or folder
+                # manual's files are the user's own and stay)
+                cmd = [*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path), "--compact"]
+                if mode in ("remove_wis", "remove_epc"):
+                    kind = mode[len("remove_"):]
+                    cmd += ["--source", f"mercedes-{kind}"]
+                    for f in manuals(index_path)[kind]["folders"]:
+                        cmd += ["--recycle", f]
                 for o in only or []:
                     cmd += ["--doc-id", o]
-                if compact:
-                    cmd += ["--compact"]
                 cmds = [cmd]
             elif mode == "rebuild_wis":
                 # removes WIS in place, re-ingests; every other manual and the
@@ -807,7 +924,8 @@ class ImportJobs:
                    "AR_CANCEL_FILE": str(self.cancel_file()), "AR_PARENT_PID": str(os.getpid())}
             proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True, env=env,
-                                    encoding="utf-8", errors="replace", bufsize=1)
+                                    encoding="utf-8", errors="replace", bufsize=1,
+                                    creationflags=NO_WINDOW)
             self._proc = proc
             pipeline = Path(cmd[2]).name == "vm_pipeline.py" if len(cmd) > 2 else False
 

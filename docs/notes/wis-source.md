@@ -298,7 +298,26 @@ Reading view / Original layout toggle (`viewToggle()` in `index.html`,
 choice remembered per viewer in `localStorage`); the original is an iframe on
 `/api/original/<doc_id>/<page_no>`, served by `autorundown/wis_original.py`
 (self-contained; `tools/sids_render.py <dok_id>` is a CLI over it). Free, no
-API calls. What it knows about SIDS, each measured on a corpus sample:
+API calls. **The original is the default** (2026-10-24, the user: "I dont
+think the way we have reading view looks good. Lets default to original
+document"): stored as `autorundown.pageView.v3` = "reading" only when the
+viewer picks Reading view (v2's click handler matched `<body data-view>`,
+so any click on the page saved "reading" and pages kept opening as text --
+fixed 2026-10-25, and the key renamed so that stray value doesn't stick); a page with no original falls back to its text by
+itself ("No original layout for this page; showing its text", Original
+layout greyed), leaving the choice as it was. **LEMON and folder HTML
+pages have an original too** (`html_original.py`, `has_original` on
+`/api/page`): the page's `div.main` only (not LEMON's header, breadcrumbs,
+footer, stylesheet or script), cleaned to an allow-list of tags and
+attributes, pictures re-pointed at `/api/image` (inside `images/` only),
+links to other pages turned into `data-page` that the frame posts to the
+app (`openPage`), and served with a CSP that runs only the frame's own
+script (a nonce per response), pictures and styles from this site only.
+Not a sandboxed iframe: the app's browser pane blocked a sandboxed
+frame's picture requests (`ERR_BLOCKED_BY_CLIENT`). All 3,000 first pages
+of the real F-150 render. Tests: `tests/test_lemon_import.py` (hostile
+markup: scripts, handlers, iframes, forms, svg, javascript: links, outside
+pictures and styles all dropped). What it knows about SIDS, each measured on a corpus sample:
 - **Reads one body, not the pack.** A sidecar `bodies.pack.idx.sqlite` next
   to `bodies.pack` holds DokID -> offset/length and graphic nr -> image file
   (figures.tsv + images/catalog.tsv). Built on first request (~2.5 s), and
@@ -351,7 +370,9 @@ found **no parts catalogue** -- no part numbers with quantities, no exploded
 drawings; that is EPC, locked (above). What it did find, now pulled:
 - `pull_vehicles.js` also pulls `W_Dokumente` (DokNrID -> docnr), `SACode` /
   `SANummer`, `AW_AssystFuellmengen` (oil), `SSTeilID` / `SSTeilBenennung`
-  (damage codes) and the `ASRA_*` labour tables -- English rows only
+  (damage codes), the `ASRA_*` labour tables and `Gruppen` (function group
+  and subgroup names per vehicle type, 2026-10-24 -> `wis_group`, the
+  Manual tab's section names) -- English rows only
   (`WHERE` per table, `AR_LANG`). `pull_links.js` (new `links` step in
   `vm_pipeline.py`, resumable, 400 DokIDs per query) pulls `DXF`,
   `DXFLegendePos`, `DXFLegende`, `AW_DXFReferenz`, `AW_SVGReferenz` for the
@@ -359,6 +380,13 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   writes **`wis_links.sqlite` next to the corpus**; the server reads it
   through `autorundown/wis_links.py`. No rebuild of the index needed. Every
   lookup treats a missing sidecar or table as "no data", never a 500.
+  **The server opens the sidecar per lookup and never holds it** (2026-10-23):
+  it used to keep one connection per process, and on Windows that open
+  handle made a re-extraction's `parse_links.py` fail with `WinError 5` on
+  the final `os.replace` (an AutoRundown left running from before an MSI
+  update held it). `parse_links.py` now retries for ~a minute and then stops
+  with a message naming the cause; `tests/test_wis_links.py` replaces the
+  sidecar after lookups.
 - **Cross-references open their page** (`wis_links.resolve`, `/api/page`
   returns `xrefs`). **A printed number leaves off the variant letters**:
   `AR15.40-P-5710E` is stored as `...5710ea`, `...eb`, `...ecm`, one per

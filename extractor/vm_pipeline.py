@@ -75,6 +75,9 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# no terminal window for VBoxManage / Java when run from the site (0 off Windows)
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+sys.path.insert(0, str(HERE))  # the installed app's Python does not add a script's folder
 from wis_paths import home, out_root, check_outside_repo  # noqa: E402
 DEFAULT_OUT = out_root()
 STEPS = ("docs", "applic", "vehicles", "links", "images", "build")   # the default: WIS
@@ -178,7 +181,7 @@ def vbox(*args: str, check: bool = True) -> str:
     # wait and another try (seen on the real VM, 2026-10-16)
     for attempt in range(6):
         r = subprocess.run([VBOX, *args], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace")
+                           encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
         if r.returncode == 0 or "lock request pending" not in r.stderr:
             break
         time.sleep(1 + attempt)
@@ -343,6 +346,14 @@ def vm_up(vm: str, port: int, subnet: str, wait_s: int) -> str:
             return ip
         log("database never came up; shutting down cleanly for one more boot")
         vm_down(vm)
+        if vm_state(vm) == "saved":
+            # Windows ignored the power button, so the "boot" would only
+            # resume the same Windows (2026-10-23: a blue screen behind it,
+            # resumed twice, 20 minutes lost). A person has to look.
+            die(f"Windows in {vm} did not shut down when asked, so another boot would resume it "
+                f"as it is -- see the picture of its screen. Open the VM in VirtualBox: if it "
+                f"shows an error (a blue screen), use Machine > Reset; then shut it down from the "
+                f"Start menu, or roll back to a snapshot in Shop setup, and run this again.")
         sleep(60)
     die("unreachable")   # _vm_up_once(final=True) already stopped with the reason
 
@@ -529,8 +540,11 @@ def boot_check(vm: str, steps: list[str], subnet: str, wait_s: int, wis_port: in
 
 # Errors that a power-cycle cannot fix: the pull itself is wrong, not the
 # database. On 2026-10-15 an OutOfMemoryError in pull_epc.js was retried six
-# times, the VM rebooted each time.
-FATAL_MARKERS = ("OutOfMemoryError", "SyntaxError")   # never a dropped connection
+# times, the VM rebooted each time; on 2026-10-23 a script bug (a Java
+# array's missing forEach) was too. A null from a lost database can raise a
+# TypeError, so only the messages a code mistake gives are listed.
+FATAL_MARKERS = ("OutOfMemoryError", "SyntaxError", "ReferenceError",
+                 "has no such function", "is not a function")   # never a dropped connection
 LAST_FATAL = ""
 
 
@@ -540,7 +554,7 @@ def run(cmd: list[str], env: dict, cwd: Path) -> int:
     log("$ " + " ".join(Path(c).name if i == 0 else c for i, c in enumerate(cmd)))
     p = subprocess.Popen(cmd, cwd=cwd, env={**os.environ, **env, "PYTHONIOENCODING": "utf-8"},
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                         encoding="utf-8", errors="replace", bufsize=1)
+                         encoding="utf-8", errors="replace", bufsize=1, creationflags=NO_WINDOW)
 
     def watch() -> None:       # a cancel stops the pull (each one resumes where it stopped)
         while p.poll() is None:

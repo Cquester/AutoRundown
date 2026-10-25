@@ -9,6 +9,7 @@ import argparse
 import sys
 
 from autorundown import config, index, providers, query
+from autorundown import search as search_mod
 from autorundown.search import scope_ids, search
 
 
@@ -32,6 +33,7 @@ def money(x) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     cfg = config.load()
+    search_mod.show_damage_codes = cfg.show_damage_codes
     ap = argparse.ArgumentParser(description="Query the manual archive.")
     ap.add_argument("question", nargs="*", help="your question")
     ap.add_argument("--index", default=cfg.index_path)

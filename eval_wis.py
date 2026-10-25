@@ -375,8 +375,16 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     ("epc-w124-part-number", "foreign"): (1, "engine-bucket"),
     # WIS general-pool W207 pages (oil filter cover, transmission oil change),
     # not EPC results (measured 2026-10-15, WIS + all 443 EPC catalogs)
-    ("epc-w210-e320-oil-filter", "wrong"): (1, "general-untied"),
-    ("epc-w210-e320-oil-filter", "foreign"): (1, "general-untied"),
+    # Raised 2026-10-24 when the damage-code menus (99xxxxxx, search.
+    # show_damage_codes) left search: their general-pool slots ("Oil filter,
+    # BR 600", "Cylinder head cover, BR 400" -- other vehicles too, but named in
+    # a form the guards don't read) now go to the next general documents, the
+    # same untied pages that already offend elsewhere. Same gap, now counted.
+    ("epc-w210-e320-oil-filter", "wrong"): (3, "general-untied"),
+    ("epc-w210-e320-oil-filter", "foreign"): (2, "general-untied"),
+    ("w201-2316-valve-cover", "foreign"): (2, "general-untied"),
+    ("epc-w201-2316-thermostat", "wrong"): (2, "general-untied"),
+    ("epc-w201-2316-thermostat", "foreign"): (2, "general-untied"),
     ("epc-w204-c220cdi-glow-plugs", "foreign"): (1, "general-untied"),
 }
 

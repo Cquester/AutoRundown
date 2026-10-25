@@ -8,12 +8,17 @@ remove them; a LEMON car is removed alone (its pages, chunks and search hits
 gone, the other car still found); a WIS entry can't be removed on its own;
 "remove all Mercedes WIS" takes every WIS entry and nothing else; the spend
 log survives every removal; a phone on the LAN can't list or remove; and
---compact shrinks the file. Uses a throwaway AUTORUNDOWN_HOME.
+--compact shrinks the file. "Remove all WIS" also sends the extract folders
+(the corpus' wis_extract and its sister outputs, nothing else) to the
+Recycle Bin -- here a throwaway folder (AUTORUNDOWN_RECYCLE_TO), never the
+PC's -- and shrinks the index, search tables included. Uses a throwaway
+AUTORUNDOWN_HOME.
 """
 from __future__ import annotations
 
 from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -23,6 +28,8 @@ from pathlib import Path
 
 TMP = Path(tempfile.mkdtemp(prefix="ar_remove_"))
 os.environ["AUTORUNDOWN_HOME"] = str(TMP / "home")  # before importing autorundown
+BIN = TMP / "recycle-bin"              # the jobs' child processes inherit it
+os.environ["AUTORUNDOWN_RECYCLE_TO"] = str(BIN)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -56,9 +63,17 @@ docs = TMP / "docs" / "shop-notes"
 docs.mkdir(parents=True)
 (docs / "brakes.txt").write_text("Caliper bracket bolts 95 Nm. Bleed screw 9 Nm.", encoding="utf-8")
 ingest.main(["--archive", str(TMP / "docs"), "--index", str(db), "--importer", "folder"])
-wis = ROOT / "sample_corpus" / "wis_en"
-if not (wis / "manifest.json").is_file():
+sample = ROOT / "sample_corpus" / "wis_en"
+if not (sample / "manifest.json").is_file():
     subprocess.run([sys.executable, str(ROOT / "tools" / "make_sample_corpus.py")], check=True, cwd=ROOT)
+# laid out as the extractor's autorundown_out: the corpus in wis_extract,
+# two of its sister outputs, and a folder that is not the extractor's
+OUT = TMP / "autorundown_out"
+wis = OUT / "wis_extract"
+shutil.copytree(sample, wis)
+for d in ("wis_applic", "wis_images", "wis_tables_survey"):
+    (OUT / d).mkdir()
+    (OUT / d / "x.txt").write_text(d, encoding="utf-8")
 ingest.main(["--archive", str(wis), "--index", str(db)])
 con = sqlite3.connect(db)
 con.execute("INSERT INTO usage_log (ts, source, model, question, calls, input_tokens, output_tokens, cost_usd) "
@@ -92,6 +107,8 @@ n_wis = q(db, "SELECT COUNT(*) FROM vehicles WHERE source_name LIKE 'mercedes-wi
 check(m["wis"]["entries"] == n_wis > 0 and m["wis"]["pages"] > 0,
       f"WIS grouped: {m['wis']['entries']} entries of {n_wis}")
 check(phone.get("/api/import/manuals").status_code == 403, "a phone can't list")
+check(sorted(Path(f).name for f in m["wis"]["folders"]) == ["wis_applic", "wis_extract", "wis_images"],
+      f"WIS's extract folders are listed, not the survey folder: {m['wis']['folders']}")
 
 ford = next(r for r in m["lemon"] if "Ford" in r["label"])
 camry = next(r for r in m["lemon"] if "Camry" in r["label"])
@@ -120,9 +137,17 @@ check(q(db, "SELECT COUNT(*) FROM usage_log")[0][0] == 1, "the spend log is kept
 
 print("remove all Mercedes WIS")
 wis_n = q(db, "SELECT COUNT(*) FROM vehicles WHERE source_name LIKE 'mercedes-wis%'")[0][0]
+size, fts_blocks = db.stat().st_size, q(db, "SELECT COUNT(*) FROM chunks_fts_data")[0][0]
 check(pc.post("/api/import", json={"path": "", "mode": "remove_wis"}, headers=same).status_code == 200, "started")
 s = wait_job()
-check(s["state"] == "done", f"job finished: {s['state']}")
+check(s["state"] == "done", f"job finished: {s['state']}  " + " | ".join(s.get("log", [])[-3:]))
+binned = sorted(p.name.rsplit("-", 2)[0] for p in BIN.iterdir()) if BIN.is_dir() else []
+check(binned == ["wis_applic", "wis_extract", "wis_images"],
+      f"its extract folders went to the Recycle Bin: {binned}")
+check((OUT / "wis_tables_survey" / "x.txt").is_file(), "a folder that is not an extract output stays")
+check(db.stat().st_size < size, f"the index shrank: {size // 1024} KB -> {db.stat().st_size // 1024} KB")
+check(q(db, "SELECT COUNT(*) FROM chunks_fts_data")[0][0] < fts_blocks,
+      f"and its search table was optimized: {fts_blocks} -> {q(db, 'SELECT COUNT(*) FROM chunks_fts_data')[0][0]} blocks")
 check(any(f"{wis_n} manual(s)" in line for line in s["log"]), f"it removed all {wis_n} WIS entries")
 check(q(db, "SELECT COUNT(*) FROM vehicles WHERE source_name LIKE 'mercedes-wis%'")[0][0] == 0, "no WIS left")
 check(q(db, "SELECT COUNT(*) FROM pages WHERE doc_id NOT IN (SELECT doc_id FROM vehicles)")[0][0] == 0,
@@ -134,12 +159,22 @@ check(pc.post("/api/import", json={"path": "", "mode": "remove_wis"}, headers=sa
       "asking again when there is none is refused")
 
 print("command line")
+keep = TMP / "keep" / "wis_extract"
+keep.mkdir(parents=True)
+check(remove_manuals.main(["--index", str(db), "--doc-id", camry["doc_id"], "--recycle", str(TMP)]) == 1
+      and q(db, "SELECT 1 FROM vehicles WHERE doc_id=?", camry["doc_id"]),
+      "--recycle refuses a folder that is not an extract output, before removing anything")
+shutil.copy(db, keep / "index.db")
+check(remove_manuals.main(["--index", str(keep / "index.db"), "--doc-id", camry["doc_id"],
+                           "--recycle", str(keep)]) == 1 and keep.is_dir(),
+      "--recycle refuses the folder that holds the index")
 check(remove_manuals.main(["--index", str(db), "--source", "lemon"]) == 1, "--source is only for WIS")
 check(remove_manuals.main(["--index", str(db), "--doc-id", "no-such-car"]) == 1, "an unknown doc_id fails")
 size = db.stat().st_size
 folder_id = m["folder"][0]["doc_id"]
 check(remove_manuals.main(["--index", str(db), "--doc-id", folder_id, "--compact"]) == 0, "remove the folder import, compacted")
-check(db.stat().st_size < size, f"the file shrank: {size // 1024} KB -> {db.stat().st_size // 1024} KB")
+# (already compacted by "remove all WIS" above, so it need not get smaller)
+check(db.stat().st_size <= size, f"the file did not grow: {size // 1024} KB -> {db.stat().st_size // 1024} KB")
 check([r[0] for r in q(db, "SELECT doc_id FROM vehicles")] == [camry["doc_id"]], "only the Camry is left")
 
 print(f"\n{fails} failure(s)")

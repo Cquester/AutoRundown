@@ -31,6 +31,39 @@ function decodeFV4(buf){
   while(last>=0){ var o=last*1024, blank=true; for(var i=0;i<1024;i++) if(data[o+i]!=-1){ blank=false; break; } if(!blank) break; last--; }
   return {img:img, rows:st.row, hdrRows:hdrRows, contentRows:Math.min(st.row,last+17)};
 }
+// The callout labels printed on a drawing and where: the annotation overlay
+// (header record 32/1), as the client's ImageExtractorFV4.saveCallouts reads
+// it. Block bytes 18-19: record stride; 20-21: count; records from byte 22,
+// each a byte (kind) then x(2) y(2) -- the label's CENTRE in drawing pixels
+// (EPCCalloutButton centres its button there) -- then the label, NUL-ended;
+// the next record starts at the stride, rounded up to 4.
+// fv4Callouts(javaByteArray) -> [{x, y, c}] ([] when there is no overlay).
+function fv4Callouts(buf){
+  var n=buf.length; if(n<64) return [];
+  var overlays=buf[45], off=46, aOff=0, aLen=0;
+  if(overlays>2) return [];
+  while(overlays-- > 0){
+    if(buf[off]==32&&buf[off+1]==1){ aOff=((buf[off+6]&255)<<8)+(buf[off+7]&255); aLen=((buf[off+10]&255)<<8)+(buf[off+11]&255); }
+    off+=16;
+  }
+  if(aOff==0||aLen<22||aOff+aLen>n) return [];
+  function u(i){ return buf[aOff+i]&255; }
+  var stride=u(18)*256+u(19), count=u(20)*256+u(21), out=[], i=22;
+  if(stride<=0) return [];
+  for(var k=0;k<count && i<aLen;k++){
+    var base=i-1;
+    if(i+4>aLen) break;
+    var x=(u(i)<<8)|u(i+1), y=(u(i+2)<<8)|u(i+3); i+=4;
+    var s="", j=i; while(j<aLen && u(j)!=0){ s+=String.fromCharCode(u(j)); j++; }
+    i=j;
+    while(i<aLen && (i-base)%stride!=0) i++;
+    while(i<aLen && (i-base)%4!=0) i++;
+    i++;
+    s=s.replace(/^\s+|\s+$/g,"");
+    if(s) out.push({x:x, y:y, c:s});
+  }
+  return out;
+}
 function decodeChunk(buf,bo,bb,bpp,data,st){
   var n=buf.length, p, planesOdd=[], planesEven=[];
   for(p=0;p<bpp;p++){ planesOdd.push(zeros(1026)); planesEven.push(zeros(1026)); }

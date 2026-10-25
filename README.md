@@ -62,9 +62,9 @@ that runs the same question as a (free) keyword search.
 ### Windows: the installer
 
 Download `AutoRundown-<version>.msi` from the repo's
-[Releases](https://github.com/Cquester/AutoRundown/releases) (each new
-version on `main` publishes one, with a `.sha256` beside it) and
-double-click it. It needs no admin rights and no Python. It installs for your
+[Releases](https://github.com/Cquester/AutoRundown/releases) (with a
+`.sha256` beside it), or build the current one yourself with
+`packaging\windows\build.ps1` (it lands in `dist\`), and double-click it. It needs no admin rights and no Python. It installs for your
 user only, in `%LOCALAPPDATA%\Programs\AutoRundown`, and adds AutoRundown to
 the Start menu and desktop. The installer asks whether to **start AutoRundown
 when you sign in** (ticked by default) and, on the last page, offers to
@@ -106,7 +106,9 @@ files. "Start when I sign in" runs it as you, in the background.
   (it needs the Mercedes software next to it, so it can't be part of the
   installer). It is found automatically at `Desktop\Mercedes Documents\autorundown_extractor`;
   anywhere else, set it under Shop setup → *Advanced* → *Mercedes extractor folder*.
-  The installer includes the Python packages it needs. The same tab can pull
+  The installer includes the Python packages it needs. Choose the VM with
+  *Choose VM file…*: browse to its `.vbox` file (usually in its own folder
+  under `VirtualBox VMs`); the choice is remembered. The same tab can pull
   the **EPC parts catalogue** (*What to extract* → *EPC*): part
   numbers and exploded drawings then show under each car beside its manual.
   *Both* runs WIS and then EPC as one job (EPC is not started if WIS fails);
@@ -114,6 +116,9 @@ files. "Start when I sign in" runs it as you, in the background.
   back after a page reload.
   **Choose the VM** first: the tab then checks what the run needs (network,
   Java, the extractor's scripts, disk space) and lists anything missing.
+  It checks again only when you pick another VM or change what to extract
+  (or click *Check now*), not each time you open the tab; Import checks it
+  anyway before it starts.
   **Test the VM** boots it, checks Windows starts and the database answers,
   and shuts it down. **Cancel** stops a run and shuts the VM down cleanly; a
   re-run resumes. The VM is never switched off by force: if Windows doesn't
@@ -125,6 +130,10 @@ files. "Start when I sign in" runs it as you, in the background.
   current extractor folder over it): the check says so when it's too old.
   **If your manuals are already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,
   and pick `Mercedes Documents\autorundown_out\wis_extract`.
+  WIS also holds ~18,000 **damage-code menus** (pictures for picking a warranty
+  fault code, filed under no car). They are left out of search, answers and the
+  manual's contents; Shop setup → *Manuals* → *Show Mercedes damage-code menus*
+  turns them on.
 - The command-line tools are installed too:
   `"%LOCALAPPDATA%\Programs\AutoRundown\python\python.exe" "%LOCALAPPDATA%\Programs\AutoRundown\app\ask.py" --usage`.
 
@@ -313,23 +322,48 @@ python ask.py --list
 
 ## What you can look up
 
-One question fills every source at once. The answer (or, for **Search**, the
-manual's matching pages) stays on the left; the **right box** has a tab for
+The left side has two tabs, each with its own box and results, so you can
+switch between them without losing either:
+
+- **AI chat**: ask a question and the AI gives a short answer from the manual
+  and opens the page it comes from. Then tell it what you tested and what you
+  found ("did tests A1-A4, all OK; A5 shows 0 V -- is the switch the
+  culprit?") and press **Send**: it answers from the manual again -- what the
+  page says those results mean, or its next step -- citing the page, and says
+  so when the manual doesn't settle it. It never answers from outside your
+  manuals. Each reply's sources are checked like the first answer's, and the
+  pages the chat already used are sent again so the test stays in view. Each
+  message is one AI call; a chat holds 10 follow-ups, and **New chat** starts
+  another.
+- **Keyword search**: the manual's own words, free, no AI.
+
+One question fills every source at once. The answer (or the search's
+matching pages) stays on the left; the **right box** has a tab for
 each source -- on a phone, the bar at the bottom with the short names Manual,
-Parts, Labour, Fluids, Torque, each opening the **Document** view. After
-**Ask**, every tab is searched with the same search terms the AI made from
-your question; after **Search**, with the words you typed. That is a keyword
+Parts, Labour, Fluids, Torque, each opening the **Document** view. After an
+AI answer, every tab is searched with the same search terms the AI made from
+your question; after a keyword search, with the words you typed. That is a keyword
 search, not another AI call, so the tabs cost nothing, and each tab shows how
 many results it has (a tab with none is dimmed). Always within the car you
 chose:
 
 | Tab | Shows |
 |---|---|
-| **Manual page** | The page the answer points at, or any page you open. |
-| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one for its exploded drawing and its parts list; tap a part to see which callout ("7C") to find on the drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- with the page's drawing beside it, and the diagrams folded underneath. |
+| **Manual page** | Before a question: **your car's manual as contents** -- a Mercedes WIS car by function group and subgroup (42 Brakes - hydraulic and mechanical systems > 42.10 Service brake > its documents; names from WIS, pulled with the vehicle tables), other manuals by their own chapters; open a section, then a page (**← Manual contents** goes back with your sections still open). After a question: the page the answer points at, or any page you open. |
+| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one and its exploded drawing and parts list show right there; tap a number on the drawing to mark that part in the list, or a part in the list to mark its number on the drawing (the picked number turns red, as in Mercedes' viewer; tap more numbers to pick several, tap one again or Clear to drop it). A page with several drawings puts each in its own dropdown with the parts printed on that drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- each page's drawing and full list one tap away, and the diagrams folded underneath. |
 | **Labour times** | Mercedes flat-rate times for the exact model (WIS) -- empty until you ask or search, then the job itself (both versions where an automatic and a manual gearbox differ), with any other operations that mention it folded away below. |
 | **Capacities** | On top, **Fluids for your car** (WIS, once you pick the model or engine): engine oil with its Mercedes oil sheets (MB 229.x), coolant, axles, transfer case, power steering, brake fluid, refrigerant, fuel tank -- each in your car's column of WIS's capacity sheets. Below, the capacities on this job's pages. |
 | **Torque specs** | The torque values of this job, part then specification: on the answer's pages (or the top search hits) and, for WIS, on the procedures they link to ("remove the oil pan bottom section" brings its bolts). |
+
+Under the question, **History** lists earlier chats and searches (on the PC
+everyone's; a signed-in mechanic sees their own): opening a chat shows it
+again exactly as it was, every follow-up included, with no new charge, and you
+can carry on from there. **New chat** (or **Clear search**) puts every tab back
+to browsing the car (Parts diagrams, Fluids) without changing the car. On a
+wide screen, **⇤ Wider** at the end of the tab row hides the question column
+so the results get the whole window; for a little more or less, drag the line
+between the two sides (double-click it to put it back). Both are remembered on
+that device.
 
 WIS value tables are read from the document's own table layout, so each value
 stays with its own part and only your engine's or model's column is shown;
@@ -340,8 +374,11 @@ doesn't know.
 
 Values that name only another engine or model are left out, and every row
 links to the page it came from: tables often list several engines, so the page
-is where you confirm the row is yours. A WIS page opens in **Reading view** or
-**Original layout** (the page redrawn from WIS); a parts page opens as its list.
+is where you confirm the row is yours. A manual page opens in its **Original
+layout** -- a WIS page redrawn from WIS, a LEMON page as the manual's own page
+(without LEMON's website around it) -- with **Reading view** (the extracted
+text) a tap away; a page with no original shows its text. A parts page opens
+as its list.
 
 ## How it answers
 
@@ -374,8 +411,9 @@ reads as this one's source.
 
 **On a phone** the screen is one column: the car as a single line at the top
 (tap **Change** for the car box, Browse, VIN, the scope note and Options, full
-screen), **Answer | Document** under it, the question docked at the bottom with
-**Ask** and a magnifier for the keyword search, and the right box's tabs as a
+screen), **Answer | Document** under it, then **AI chat | Keyword search**,
+the question docked at the bottom (**Ask** / **Send**, or a magnifier in
+Keyword search), and the right box's tabs as a
 bottom bar (Manual, Parts, Labour, Fluids, Torque; a tap opens that tab in
 **Document**). An answer's page loads into
 **Document** (a dot says one is waiting) and opens with *Open manual page*;
@@ -667,6 +705,7 @@ autorundown/             the app (everything the installer ships)
   lemon_catalogue.py     the LEMON catalogue tree
   wis_links.py           WIS cross-references, wiring-diagram hotspots, codes, labour
   wis_original.py        WIS "Original layout" view
+  html_original.py       LEMON / folder HTML pages' "Original layout" (cleaned)
   launcher.py, autostart.py, mdns.py   Windows tray, start at sign-in, autorundown.local
   web/index.html         the whole UI, one responsive page
 

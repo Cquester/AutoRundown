@@ -126,6 +126,40 @@ def pipeline_checks() -> None:
     code = "\n".join(l.split("#")[0] for l in src.splitlines() if not l.lstrip().startswith("#"))
     check("the extractor never powers a VM off or discards its saved state",
           not re.search(r'"controlvm"[^)\n]*"poweroff"', code) and '"discardstate"' not in code)
+    # The installed app's Python (embeddable, python3XY._pth) does not put a
+    # script's own folder on sys.path, so `from wis_paths import ...` failed
+    # in Shop setup's VM tab (2026-10-23) -- while this test, which adds the
+    # folder itself above, passed. Every script importing a sibling must
+    # insert its folder first.
+    ext = ROOT / "extractor"
+    siblings = {p.stem for p in ext.glob("*.py")}
+    bad = []
+    for p in sorted(ext.glob("*.py")):
+        seen_insert = False
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if line.startswith("sys.path.insert("):
+                seen_insert = True
+            m = re.match(r"(?:from (\w+) import|import (\w+))", line)
+            mod = m and (m.group(1) or m.group(2))
+            if mod in siblings and not seen_insert:
+                bad.append(f"{p.name}: {line.strip()}")
+                break
+    check("every extractor script that imports a sibling puts its own folder on sys.path first",
+          not bad, bad)
+    # Each program a job starts must be started without a terminal window:
+    # under the installed app (no console) every VBoxManage / Java / Python
+    # opened one (2026-10-23).
+    loose = []
+    for p in (ROOT / "autorundown" / "importer_jobs.py", ext / "vm_pipeline.py"):
+        src = p.read_text(encoding="utf-8")
+        for m in re.finditer(r"subprocess\.(?:run|Popen|call|check_output)\(", src):
+            depth, i = 1, m.end()
+            while depth and i < len(src):
+                depth += {"(": 1, ")": -1}.get(src[i], 0)
+                i += 1
+            if "creationflags" not in src[m.start():i]:
+                loose.append(f"{p.name}:{src.count(chr(10), 0, m.start()) + 1}")
+    check("every program a job or the extractor starts opens no terminal window", not loose, loose)
 
 
 def wait(c: TestClient, seen: list, timeout: float = 90) -> dict:
@@ -161,6 +195,37 @@ def main() -> int:
         check("/api/vms lists the fake VMs", "Mercedes EWA (fake)" in [v["name"] for v in vms["vms"]], vms)
         check("... and writes to the temp out root, not the real one",
               Path(vms["out_root"]) == (TMP / "vm_out").resolve(), vms.get("out_root"))
+
+        print("\n-- the VM is chosen as its .vbox file --")
+        check("nothing is chosen for the user", vms.get("chosen") is None, vms.get("chosen"))
+        import dev
+        machines = dev.fake_vbox_files(TMP / "VirtualBox VMs")
+        ewa = machines / "Mercedes EWA (fake)" / "Mercedes EWA (fake).vbox"
+        b = pc.get("/api/vms/browse", params={"path": str(ewa.parent)}).json()
+        check("browsing a VM's folder shows its machine file", b["files"] == [ewa.name], b)
+        b = pc.get("/api/vms/browse", params={"path": str(machines)}).json()
+        check("... and the VMs folder its VMs' folders", "Mercedes EWA (fake)" in b["dirs"], b)
+        check("a missing folder is a 404", pc.get("/api/vms/browse", params={"path": str(TMP / "nope")}
+                                                  ).status_code == 404)
+        other = TMP / "Other" / "Other.vbox"
+        other.parent.mkdir()
+        other.write_text(ewa.read_text(encoding="utf-8").replace("Mercedes EWA (fake)", "Not added"),
+                         encoding="utf-8")
+        r = pc.post("/api/vms/pick", json={"file": str(other)})
+        check("a VM VirtualBox doesn't have is refused, saying how to add it",
+              r.status_code == 400 and "Machine > Add" in r.text, r.text)
+        (TMP / "notes.txt").write_text("x", encoding="utf-8")
+        r = pc.post("/api/vms/pick", json={"file": str(TMP / "notes.txt")})
+        check("a file that is not a .vbox is refused", r.status_code == 400, r.text)
+        r = pc.post("/api/vms/pick", json={"file": str(ewa)})
+        check("picking the file chooses its VM", r.status_code == 200 and r.json()["name"] == "Mercedes EWA (fake)",
+              r.text)
+        vms = pc.get("/api/vms").json()
+        check("... and it is remembered", (vms.get("chosen") or {}).get("file") == str(ewa), vms.get("chosen"))
+        phone = TestClient(app, base_url="http://192.168.1.10:8756", client=("192.168.1.50", 50000))
+        check("a phone can't browse for or pick a VM",
+              phone.get("/api/vms/browse").status_code == 403
+              and phone.post("/api/vms/pick", json={"file": str(ewa)}).status_code == 403)
 
         print("\n-- Both: WIS then EPC, one job --")
         r = pc.post("/api/import", json={"path": "", "mode": "vm_both", "vm": "Mercedes EWA (fake)",

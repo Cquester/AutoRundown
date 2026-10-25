@@ -122,8 +122,8 @@ The site runs the extraction; end users should do as little as possible.
   wide, <=1280 rows, 1/2/4 bpp, ~16 KB each). `extractor/epc_fv4.js` is a line
   for line port of the client's `ImageExtractorFV4`; checked offline on a saved
   blob (all rows decode, correct drawing), ~0.5 s per drawing in Nashorn.
-  The annotation overlay holds callout x/y positions (`saveCallouts`) -- usable
-  later for clickable hotspots; not extracted yet.
+  The annotation overlay holds callout x/y positions; `fv4Callouts` reads
+  them (format under "Tappable callouts" below).
 - **SA parts:** `BM_SAIDX_V(CATNUM, GROUPNUM) -> SANUM` + option codes
   (`CODEONE`, 3 chars each). `SANUM` is CHAR(6) and the server pads 5-digit
   numbers with a leading space -- unpadded queries return nothing. Part rows
@@ -333,6 +333,17 @@ index / WIS+EPC with the join off / joined:
 - One title per parts result: a series has one catalog per market/period (W124:
   4,178 parts pages, 582 distinct titles), so the tail is de-duplicated on the
   title without "(EPC catalog …)", over-fetching x12.
+- **A chosen car gets only the catalogues listing its model code**
+  (2026-10-25). Each catalogue page names its models in `section_path`
+  ("MODEL 126 > 126.044, 126.045, 126.046"; 47,400 of 52,520 parts pages),
+  but `codes_only` is empty for EPC, so the codes filter passed every one.
+  For a 560 SEC (126.045), "radiator shroud part no" got four of the W126's
+  13 RADIATOR pages, all for other 126 models, and the answer rightly said
+  none covered 126.045 -- A 126 505 01 55 sat on three pages it never saw.
+  `search._run_scope` now keeps a parts page whose section line lists codes
+  only if it lists one of the car's (model or engine); engine pages ("ENGINE
+  117") list none and pass. Query time, so no re-ingest. Only with a variant
+  chosen. Test: `tests/test_epc_join.py`; `eval_wis.py` unchanged.
 - **Parts have their own FTS table (`parts_fts`), the user's choice.** In the
   shared `chunks_fts`, EPC shifted WIS BM25 scores even with the join off
   (statistics are index-wide): `w204-c220cdi-glow-plugs` gained a W207 page
@@ -402,12 +413,25 @@ so in `caveats` rather than guessing.
    settings or the host network. Unreachable database -> the existing
    one-time message (start "Mercedes WSM EPC", host-only network, firewall
    off), the same bar as WIS.
-6. Callout hotspots from the FV4 annotation overlay. **Not extracted:**
-   `pull_epc.js` decodes each FV4 drawing to PNG and keeps no raw blob, so
-   the overlay (header type 32/1, `aOff`/`aLen` in `epc_fv4.js`) is gone;
-   getting positions means a new VM run that saves it, after the overlay
-   format is worked out again (the decompiled client is no longer on disk).
-   Until then the UI names the callout instead of pointing at it (below).
+6. Callout hotspots from the FV4 annotation overlay: **built 2026-10-23**,
+   see "Tappable callouts" below. An extract pulled before then has no
+   positions until the next pull (the PNGs are kept; the pull re-fetches
+   only the blob of a drawing with no sidecar). **That first version never
+   reached them on a finished extract**: a resume skips every done catalog,
+   so the user's 50,570 drawings from 2026-10-15 had 0 sidecars and no
+   number on any drawing could be tapped. `backfillCallouts()` now runs at
+   the start of every EPC pull with images: every PNG without a sidecar is
+   read once more from BM_IMAGES(_ARC) / SA_IMAGES(_ARC) for its callouts
+   alone (a non-FV4 drawing gets `[]`, so it isn't asked again), with
+   progress every 500. Checked in Node with a stand-in database; not yet on
+   the real one.
+   **Tried first and dropped (2026-10-23): reading the callout numbers off
+   the PNGs.** A glyph reader taught from the parts lists themselves (blobs
+   grouped into words, words matched to the page's callouts, retrained over
+   rounds; no OCR library) placed 76% of callouts on held-out pages, and
+   every callout on only ~50% of pages; letting the list decide doubtful
+   readings made it worse (66%, copies on leader-line stubs). Not good
+   enough to point a mechanic at a part, so the user chose the overlay.
 
 ## Parts diagrams (built 2026-10-17, the user's request)
 
@@ -447,6 +471,191 @@ PROPELLER SHAFT or AXLE SHAFT). Tests: `tests/test_synonyms.py`, and "sway
 bar" finding the sample STABILIZER line in `tests/test_parts_diagrams.py`.
 A parts page has "Back to Parts", which returns to the list with its groups
 still open.
+
+**Spellings (2026-10-23).** A W201 "Front window molding clip" Ask came
+back not found although CLIP, GARNISH MOULDING BELOW WINDSHIELD
+(A 201 988 05 78) is in the catalogue: parts passages *do* reach the
+answer without a workshop page, but EPC writes MOULDING 34,231 times to
+MOLDING 12,635, and WIS the other way round (molding 4,836, moulding 46).
+`synonyms.py` now adds molding -> moulding, rocker panel -> sill,
+weatherstrip -> sealing strip, tailpipe -> tail pipe; the typed word is
+still searched too. "Front window" vs WINDSHIELD is left to the planner.
+Not yet re-asked on a paid answer.
+
+**Drawings as wide as the screen (2026-10-23, the user's request).** On a
+parts page each drawing fills the box's width. On a wide screen "Full
+width" gives the box the whole window while a parts page is open
+(remembered on that device, `autorundown.wideDrawings`; any other tab or
+page goes back to two columns). **The drawing is not a button and does not
+fold:** a first try wrapped each in a "Drawing · tap to enlarge" section
+with a full-screen zoom on tap; the user did not want either (a tap on the
+drawing should pick a part -- that needs the overlay, item 6 above). A page
+with several drawings (a radiator page has 5) puts each in its own
+dropdown, "Drawing 1 of 5" open and the rest folded.
+
+**Drawings open in place (2026-10-23, the user: "by clicking a drop down
+it would generate the diagram").** In the Parts tab a subgroup is a
+dropdown: opening it fetches its page once and shows the drawing and the
+whole list right there, as wide as the box, with "Open as a page" for the
+page view (and Full width). Each search result has the same dropdown
+("Show drawing and all its parts") in place of the old thumbnail. A page's
+`[diagram: …]` markers are no longer rendered under the list -- the
+drawing showed twice. (The parts-only "Full width" was later replaced by
+"⇤ Wider" for every tab, below.)
+
+**Tappable callouts (2026-10-23, the user: "click on the diagram to select
+a part").** The overlay format, read from the EPC client's own
+`ImageExtractorFV4.saveCallouts` / `EPCCalloutButton` (`epc.jar`, fetched
+from the VM's web server at `/EPC-net/servlets/epc.jar?version-id=2.4.1.0`;
+Mercedes software, kept out of the repo): the header's overlay record
+32/1 gives the block's offset (+6..7) and length (+10..11); in the block,
+bytes 18-19 are a record stride and 20-21 the count; records start at
+byte 22: a kind byte, x (2, big-endian), y (2), the label NUL-ended, the
+next record at the stride rounded up to 4. x/y are the label's **centre**
+in drawing pixels -- the client centres a button `len(label) x width` by
+`height` there. `pull_epc.js` writes `<drawing>.callouts.json`
+(`[{x, y, c}]`, `[]` for none) beside each PNG; `GET /api/callouts/{doc}/
+{image}` serves it (same path checks as `/api/image`, items validated,
+`[]` on any error). In the UI each drawing is a `.pdwrap` with transparent
+`.pco` buttons placed in % of the drawing's natural size, so they scale
+with it; tapping one marks its rows and scrolls to them, tapping a row
+marks its number on the drawing (opening a folded drawing). A drawing with
+no sidecar still works as before: the row names the number to look for.
+`tools/make_sample_epc.py` writes sidecars for its invented drawings.
+A picked number **turns red** as in Mercedes' viewer (the user, 2026-10-23):
+the button carries the label and, when picked, draws it in red on white
+over the drawing's own (font size 24 drawing px, in `cqw` of the
+`.pdwrap` container, so it scales with the drawing); the row's callout
+goes red too. **Several drawings: each dropdown lists its own parts**
+(the user: "it should have the parts in the drop down associated with
+that picture"). `splitParts` copies into each drawing's dropdown the rows
+whose callout its sidecar has ("Drawing 2 of 5 — 4 parts"); a number on
+two drawings is listed under both; rows no drawing shows (no callout, or
+not printed) stay below as "Other parts on this page", hidden when there
+are none. Without sidecars the page keeps its one list. Picking scrolls
+within the same drawing's dropdown when it can.
+**Several parts can be picked at once** (the user, 2026-10-24): a tap adds
+a number to the picks (`.ppage` `data-picks`), a second tap on it takes it
+off, and "Clear" empties them; every pick stays red on the drawing and in
+the lists, and the line above the drawing lists each pick (`showPicks`).
+Taking one off scrolls nothing.
+
+**Manual contents and the divider (2026-10-24, the user: "change the Manual
+page to be like the parts page ... auto fill the page in sections for the
+car"; "what if i just want a little more or less").**
+- Before a question (a car picked, Clear question, a model/engine change
+  while the contents show) the Manual page tab shows the car's manual as
+  contents: `GET /api/manual/contents/{doc}?variant&engine&path=…`
+  (`manual_browse.py`), one level per call. The pages are the manual part
+  of `scope_ids`, filtered as search filters them (general pool
+  type-narrowed), so the contents are what a search for this car can find.
+  **WIS**: a page's `section_path` only names models, so documents are
+  grouped by their number (`wis_links.docnrs`): "ar4210…" = group 42 >
+  subgroup 42.10, named by `wis_links.group_names` from WIS's `Gruppen`
+  table (`wis_group`, pulled with the vehicle tables since 2026-10-24:
+  "42.10 Service brake"; passenger-car names first, then another vehicle
+  type's; before that table is pulled, groups take the labour book's
+  `labour_group` names and subgroups only their number; checked on the
+  real extract: 5,690 names, 264,711 of 271,643 numbered documents in a
+  named subgroup, sampled titles fit -- 42.30 ABS "Remove/install ABS
+  measuring ring", 88.20 Bumpers "Remove/install rear bumper"). Five
+  kinds number their own items after the group digits (`OWN_NUMBERS` RA,
+  WH, EA: listed in their group with no subgroup -- "wh0051" is item
+  0051, not 00.51, which showed as an unnamed "00.51" until the user
+  asked; `NO_GROUP` DH, WB: even the group digits are a chapter, so they
+  go under Other documents); every other kind falls 98-100% in a named
+  subgroup, and the rest (335 damage-code documents) show their number).
+  **Damage-code menus are left out** (`LEFT_OUT` SS, the 99xxxxxx picture
+  menus for picking a warranty fault code; their text is code lists):
+  17,997 of them, filed under no car, made up over half of every car's
+  contents -- the user saw "Connecting rod, piston" twenty times, for the
+  M271.9, OM470 and a Fuso 4D34i, under a W210 (2026-10-24). W210 whole
+  series 34,238 -> 16,241 documents. Search and Ask leave them out too
+  (one ranked #1 for "connecting rod piston"): `search.show_damage_codes`,
+  off unless Shop setup -> Manuals -> "Show Mercedes damage-code menus"
+  (`Config.show_damage_codes`, the user's choice: off by default, a
+  setting to show them). Both use one rule, `search.is_damage_menu` /
+  `_DAMAGE_MENU`: an 8-digit DokID starting 99 -- on the real index exactly
+  the 17,997 SS documents, nothing else. `eval_wis` ceilings rose on three
+  cases: the menus' general-pool slots now go to untied general documents
+  that name other models (the menus named other vehicles too, as "BR 400",
+  which the guards don't read). Each document is listed with
+  its kind; those left (pairs of one title) are one per engine, e.g. the
+  E 320's M104 and M112 "Connecting rods"), each with
+  what it is (Repair = AR, Function = GF, Service information = SI,
+  Capacities = BF, Wiring diagram from `doc_type`; other codes shown as
+  they are, never guessed); no number -> "Other documents". **Other
+  manuals**: their own `section_path` chapters; a page whose title ends its
+  path is listed in that chapter. A single top chapter opens by itself.
+  The tree is built once per car (W210 whole series: 34,238 documents,
+  ~2.4 s; a variant ~1.2 s) and cached against the index's page count and
+  the sidecar's mtime. A document opens as the manual page with
+  "← Manual contents", which puts the same contents back, sections left
+  open. Tests: `tests/test_wis_links.py`, `tests/test_lemon_import.py`.
+- The line between the question side and the right box is a divider
+  (`#splitter`, wide screens only, hidden with "Wider"): dragged, or arrow
+  keys; it stops at 300 px question / 360 px documents; kept as the
+  question side's share in `autorundown.split`; double-click or Home puts
+  the default layout back.
+
+**AI chat and Keyword search, follow-ups (2026-10-25, the user's request).**
+"If I had a follow up question it can search the database for me ... I can
+say I tried this and from the manual it can respond to that"; the first
+answer keeps its format ("it's gonna help you find the documentation you need
+but not try and give you the answers"); a follow-up "could only use the
+manual to respond, not any online source". Then: "a tab on the left page
+where one will be AI chat and then one will be keyword search".
+- The left side has two tabs (`#modeTabs`, `setMode`/`syncMode`): AI chat
+  in `#out`, Keyword search in `#outKw`, each with its own typed text
+  (drafts) and results; the right box shows whichever ran last. Remembered
+  per device (`autorundown.leftMode`). Clear is "New chat" / "Clear search"
+  and clears only that tab.
+- A chat is one `history` entry: the first answer is its `result`,
+  follow-ups go into `result.turns` (`history.add_turn`; cost added; the
+  entry moves to the top). `/api/ask` takes `chat` = that entry's id; the
+  server reads the entry as `who` can see it (else 404), requires the same
+  `doc_id`, and takes the car (variant, engine, year) and the earlier turns
+  from it -- never from the request. At most `query.MAX_FOLLOWUPS` (10).
+- A follow-up is one more planner + answer call. The planner sees the
+  conversation; the answer call uses `FOLLOWUP_SYSTEM` (ANSWER_SYSTEM plus:
+  earlier answers are context, not sources; say what the page says the
+  reported results mean or its next step, naming the step; if the manual
+  doesn't say, found=false; never diagnose from general knowledge). The
+  pages the chat cited (`_carried_pages`, newest first, at most 4, 8,000
+  chars each) are read again from the index in the car's scope and lead the
+  passages, marked "cited earlier in this conversation"; they are real
+  passages, so `_verify_citations` and the other checks apply unchanged.
+  A first question sends exactly the request it did before.
+- The chat shows newest first under the box: the latest question over its
+  full answer, then "Earlier in this chat", short. History shows "AI · N
+  follow-ups"; opening a chat redraws every turn for free and can go on.
+- Tests: `tests/test_chat.py` (the prompt the model gets, carried pages,
+  citation checks, who may follow up, the car from the entry, the limit).
+- **First paid chat (2026-10-25, the user's OK; Haiku, $0.032, 4 calls).**
+  2015 F-150, installed app: "Bed lamps not working" -> Pinpoint Test J
+  (page 4830), J1 and the bed-lamps-only branch, 3 sentences ($0.017).
+  Follow-up "J1: all lamps stay on after 30 s. J2: both switches off,
+  C2280E-8 to ground reads 50 ohms" -> "shorted to ground (the manual
+  specifies > 10,000 ohms) ... proceed to J3", which is the page's own "No"
+  branch; page 4830, nothing dropped ($0.016). Not yet tried on WIS.
+
+**Wider, Clear question, History (2026-10-23, the user's list).**
+- "⇤ Wider" at the end of the right box's tab row hides the question column
+  on wide screens (≥901 px; remembered, `autorundown.collapsed`); "⇥ Show
+  question" brings it back. Not on phones, where the box is already full.
+- "Clear question" (shown after an Ask or Search) empties the question and
+  the answer and puts every tab back to its no-question view -- Parts
+  browse, the empty Labour times, the car's Capacities -- without changing
+  the car. Changing car hides it.
+- "History": every Ask (the whole answer as returned, `as_dict()`) and every
+  question-box Search is kept in `auth.db` `history` (`history.py`; 500 per
+  person, 5,000 in all). The PC sees everyone's; a signed-in mechanic their
+  own; a phone not signed in only the not-signed-in ones. Opening an Ask
+  redraws the stored answer and refills the tabs from its search terms --
+  **no new AI call, no charge**; a Search is run again. The car is
+  re-picked the recent-cars way (`resolveCarHistory` + `applyCar`).
+  `GET /api/history`, `GET /api/history/{id}` (404 for someone else's).
+  Tests: `tests/test_history.py`.
 
 See also the decompiled sources (not committed — Mercedes software): the DAO
 classes and `QueryStrings` were decompiled with CFR during the investigation.

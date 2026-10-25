@@ -125,6 +125,8 @@ def main(argv=None):
             return pg
 
         def search(pg, tag):
+            if pg.locator("#searchBtn").is_hidden():
+                pg.click("#modeTabs [data-mode=kw]")     # the left side's Keyword search tab
             pg.fill("#q", tag)
             with pg.expect_response(lambda r: "/api/search?" in r.url and f"q={tag}&" in r.url):
                 pg.click("#searchBtn")
@@ -274,7 +276,7 @@ def main(argv=None):
         page.click("#carList .opt.hist:nth-child(3)")         # note, head, entry
         v = truth.vehicles[e["doc"]]
         check("a moved variant falls back to the whole series, and says so",
-              "not listed the same way" in (page.text_content("#out") or ""))
+              "not listed the same way" in (page.text_content("#left") or ""))
         check("... the box names the series", v["model"] in page.input_value("#carInput"),
               page.input_value("#carInput"))
         p = search(page, "stale")

@@ -34,6 +34,9 @@ check("a one-word phrase beside a several-word one keeps its word",
       ["ignition coil and flexible coupling", "ignition coil and joint disc"])
 check("case and plural", translations("Sway Bars"), ["anti-roll bar", "stabilizer", "torsion bar"])
 check("word boundaries: 'guibos' is not 'guibo'", translations("guibos"), [])
+check("US spelling -> the catalogue's British one", translations("front window molding clip"),
+      ["front window moulding clip"])
+check("... plural, and other spellings", translations("rocker panel moldings"), ["sill mouldings"])
 check("nothing to translate", translations("oil filter"), [])
 check("nothing: translate() is None", translate("oil filter"), None)
 

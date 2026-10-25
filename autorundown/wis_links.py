@@ -24,7 +24,6 @@ import functools
 import operator
 import re
 import sqlite3
-import threading
 from pathlib import Path
 
 NAME = "wis_links.sqlite"
@@ -33,43 +32,69 @@ NAME = "wis_links.sqlite"
 DOCNR_RE = re.compile(
     r"\b[A-Z]{2}[0-9]{2}\.[0-9]{2}-[A-Z]{1,2}-[0-9]{3,4}[A-Z]?(?:-[0-9]{2}[A-Z]?)?\b")
 
-_lock = threading.Lock()
-_open: dict[str, sqlite3.Connection | None] = {}
-
-
 def norm(docnr: str) -> str:
     """'AR42.10-P-0100A' (printed) and 'ar4210p0100a' (stored) -> the same."""
     return re.sub(r"[^0-9a-z]", "", docnr.lower())
 
 
-def _db(corpus: Path) -> sqlite3.Connection | None:
-    """The corpus's sidecar, opened read-only once per process; None if absent."""
+def _path(corpus: Path) -> Path | None:
+    """The corpus's sidecar, or None if it has none."""
     path = Path(corpus) / NAME
-    key = str(path)
-    with _lock:
-        if key not in _open or _open[key] is None:
-            if not path.is_file():
-                return None
-            try:
-                _open[key] = sqlite3.connect(f"file:{path}?mode=ro", uri=True,
-                                             check_same_thread=False)
-            except sqlite3.Error:
-                return None
-        return _open[key]
+    return path if path.is_file() else None
 
 
 def _rows(corpus: Path, sql: str, args=()) -> list[tuple] | None:
     """Rows from the sidecar; None without one, [] if a table is missing (a
     sidecar from an older parse_links.py) -- a page view must never fail
-    over a lookup that only adds to it."""
-    db = _db(corpus)
-    if db is None:
+    over a lookup that only adds to it. Opened per lookup, never held: on
+    Windows an open handle stops parse_links.py from replacing the file, and
+    a running server then breaks a re-extraction (2026-10-23)."""
+    path = _path(corpus)
+    if path is None:
         return None
     try:
-        with _lock:
-            return db.execute(sql, args).fetchall()
+        db = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        return db.execute(sql, args).fetchall()
     except sqlite3.Error:
         return []
+    finally:
+        db.close()
+
+
+def docnrs(corpus: Path, dok_ids: list[int]) -> dict[int, list[str]]:
+    """{DokID: its stored document numbers ('ar4210p0100a', ...)}; {} without
+    the sidecar. For the Manual tab's contents (manual_browse.py)."""
+    out: dict[int, list[str]] = {}
+    ids = sorted(set(dok_ids))
+    for i in range(0, len(ids), 900):              # SQLite's bound-variable limit
+        part = ids[i:i + 900]
+        rows = _rows(corpus, f"SELECT dok_id, docnr FROM docnr WHERE dok_id IN "
+                             f"({','.join('?' * len(part))})", part)
+        if rows is None:
+            return {}
+        for dok, nr in rows:
+            out.setdefault(dok, []).append(nr)
+    return out
+
+
+def group_names(corpus: Path) -> dict[str, str]:
+    """{'42': 'Brakes - hydraulic and mechanical systems', '42.10': 'Service brake', ...}:
+    Mercedes' function groups and subgroups, the same numbers as WIS document
+    numbers. WIS's own names (`wis_group`, passenger cars first, then the
+    other vehicle types for a number cars don't have); a group WIS doesn't
+    name keeps the labour book's name; a subgroup with no name has none."""
+    out = {kg: name for kg, name in (_rows(corpus, "SELECT kg, name FROM labour_group") or [])}
+    named = set()
+    for fgr, fug, name in _rows(corpus, "SELECT fgr, fug, name FROM wis_group "
+                                        "ORDER BY vehicle_type != 1, vehicle_type") or []:
+        key = f"{fgr:02d}" + ("" if fug < 0 else f".{fug:02d}")
+        if key not in named:
+            out[key] = name
+            named.add(key)
+    return out
 
 
 def candidates(corpus: Path, printed: str) -> list[int]:
@@ -148,7 +173,7 @@ def resolve(conn: sqlite3.Connection, corpus: Path, text: str,
             scope: list[str], wis_ids: list[str], own_page: str = "") -> list[dict]:
     """The references in `text` that open a page, in order of first mention:
     [{"docnr": as printed, "pages": pages_for(...)}]."""
-    if _db(corpus) is None or not wis_ids:
+    if _path(corpus) is None or not wis_ids:
         return []
     out, seen = [], set()
     for m in DOCNR_RE.finditer(text or ""):

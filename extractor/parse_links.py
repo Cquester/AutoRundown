@@ -28,6 +28,10 @@ Tables written (all English, as pulled):
                                124.026 is in "124 (up to 09/92)" and the later
                                book), so the server lists them, never guesses
   labour_book(sparte, pl, family, type, family_name, type_name)
+  wis_group(vehicle_type, fgr, fug, name)   WIS function group names
+                               (Gruppen): fgr 42 = the "42" of a document
+                               number, fug 10 its subgroup ("42.10"), fug
+                               -1 the group itself; vehicle_type 1 = car
   labour_group(kg, name), labour_subgroup(sparte, kg, entry, name)
   labour_op(sparte, kg, op, entry, category, text)   English operation texts
   labour_time(sparte, pl, family, kg, op, typenart, raw)   raw times;
@@ -129,6 +133,8 @@ def main():
                                 PRIMARY KEY (dok_id, code, docnr));
     CREATE TABLE sa_code(vehicle_type INTEGER, code TEXT, name TEXT, PRIMARY KEY (vehicle_type, code));
     CREATE TABLE sa_number(number TEXT PRIMARY KEY, name TEXT);
+    CREATE TABLE wis_group(vehicle_type INTEGER, fgr INTEGER, fug INTEGER, name TEXT,
+                           PRIMARY KEY (vehicle_type, fgr, fug));
     CREATE TABLE oil(series TEXT, engine TEXT, engine_type INTEGER, litres REAL,
                      unit TEXT, note TEXT);
     CREATE INDEX docnr_id ON docnr(dok_nr_id);
@@ -186,15 +192,39 @@ def main():
     c.executemany("INSERT INTO oil VALUES (?,?,?,?,?,?)", sorted(set(oil)))
     counts["oil"] = len(set(oil))
 
+    print("function groups")
+    ins("wis_group", 4, ((num(r["FzgArtCode"]), num(r["FGRCode"]), num(r["FUGCode"]),
+                          fix_mojibake(r["Name"]).strip())
+                         for r in tsv(VEH, "Gruppen")
+                         if num(r.get("FGRCode")) is not None and num(r["FGRCode"]) >= 0
+                         and num(r.get("FUGCode")) is not None and r.get("Name", "").strip()))
+
     labour(c, counts)
 
     c.execute("INSERT INTO meta VALUES ('counts', ?)", (json.dumps(counts),))
     c.commit()
     c.close()
-    os.replace(tmp, os.path.join(OUT, NAME))
+    replace(tmp, os.path.join(OUT, NAME))
     print("-> " + os.path.join(OUT, NAME))
     for k, v in counts.items():
         print(f"  {k:15} {v:>10,}")
+
+
+def replace(tmp: str, dest: str) -> None:
+    """Put the new sidecar in place. On Windows a program that has the old
+    one open (an AutoRundown left running from before an update, 2026-10-23)
+    blocks this: wait a little, then say what to do rather than a traceback."""
+    import time
+    for i in range(10):
+        try:
+            os.replace(tmp, dest)
+            return
+        except PermissionError:
+            time.sleep(1 + i)
+    sys.exit(f"STOP: {dest} is open in another program, so it can't be replaced. "
+             "Quit AutoRundown (tray icon > Quit) and any other copy of it that is "
+             "still running (Task Manager: pythonw.exe), then run the import again; "
+             f"the new file is kept at {tmp}.")
 
 
 def dotted(code: str) -> str:

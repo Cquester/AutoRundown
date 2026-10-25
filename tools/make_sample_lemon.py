@@ -45,7 +45,7 @@ PAGES = [
      "<li>Disconnect the negative battery cable.</li>"
      "<li>Remove the ignition coils and the valve cover bolts.</li>"
      "<li>Install a new gasket. Tighten the bolts in sequence to 10 Nm (89 inch lbs.).</li></ol>"
-     '<p>Refer to: <a href="2.html">Engine Oil Capacity</a></p>'),
+     '<p>Refer to: <a href="../pages/2.html">Engine Oil Capacity</a></p>'),
     (["Starting and Charging", "Charging System", "Specifications"], "Generator Specifications",
      "<p>SAMPLE DATA -- not from a manual.</p>"
      "<table><tr><th>Item</th><th>Value</th></tr>"
@@ -64,8 +64,8 @@ SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160" viewBox
 def _page(crumbs: list[str], title: str, body: str) -> str:
     bc = " &gt;&gt; ".join(f'<a class="breadcrumb-part" href="#">{html.escape(c)}</a>' for c in crumbs)
     return (f"<!doctype html><html><head><meta charset='utf-8'><title>{html.escape(title)}</title></head>"
-            f"<body><div class='breadcrumbs'>{bc}</div><h1>{html.escape(title)}</h1>"
-            f"<div class='main'>{body}</div></body></html>")
+            f"<body><div class='breadcrumbs'>{bc}</div>"
+            f"<div class='main'><h1>{html.escape(title)}</h1>{body}</div></body></html>")
 
 
 def make(out: Path) -> Path:

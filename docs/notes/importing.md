@@ -76,12 +76,29 @@ WIS doc_id. Removal runs `remove_manuals.py` as an import job (log, one job
 at a time): deletes the car's chunks (the FTS trigger follows), pages,
 connectors and vehicle row, one commit per car. Safe per car because
 duplicate pages are only matched within a doc_id (`index.add_page`). It
-checks the spend log row count is unchanged and never touches files on disk.
-"Shrink the index file" = VACUUM + `wal_checkpoint(TRUNCATE)` (in WAL mode
-VACUUM lands in the -wal file; without the checkpoint the file doesn't
-shrink -- the test caught it); off by default for single cars, on for WIS.
-`/api/import/manuals` lists, `POST /api/import` modes `remove` /
-`remove_wis`, both admin-only. Test: `tests/test_remove_manuals.py`.
+checks the spend log row count is unchanged.
+**A Remove button removes completely** (2026-10-23, the user: "if i click a
+delete button on a local site, it should delete the data completly"; the
+"shrink the index file afterwards" box confused). No box any more: every
+Remove shrinks the index (`--compact`: FTS5 `optimize` on `chunks_fts` and
+`parts_fts`, then VACUUM + `wal_checkpoint(TRUNCATE)` -- FTS5 only marks
+deleted rows, so VACUUM alone left 84,598 `parts_fts` blocks for 0 parts on
+the live index; in WAL mode VACUUM lands in the -wal file and needs the
+checkpoint). "Remove all Mercedes WIS / EPC data" also sends the extracted
+files to the **Recycle Bin** (the user's choice over a permanent delete or
+leaving them): the corpus folder each manual was imported from
+(`vehicles.file_path`) and, beside a `wis_extract`, its sister outputs
+(`importer_jobs.extract_dirs`, listed on the tab and in the confirm).
+Folders come from the index, never from the extractor's settings, so a
+test's corpus can't point at the real `autorundown_out`; `recycle.py` takes
+only extract-folder names and never one holding the index; Windows asks
+first if a folder is too big for the Recycle Bin. A LEMON or folder
+manual's files are the user's own and stay. `rebuild_wis.py` and the VM
+EPC import call `remove_manuals.py` too but never pass `--recycle` -- they
+re-ingest from those folders. `/api/import/manuals` lists, `POST
+/api/import` modes `remove` / `remove_wis` / `remove_epc`, admin-only.
+Test: `tests/test_remove_manuals.py` (Recycle Bin = a temp folder via
+`AUTORUNDOWN_RECYCLE_TO`).
 
 **LEMON folder import** (inside the LEMON tab): open the archive folder, get one row per vehicle folder with
 "imported" / "partly imported" read from the index (opened `mode=ro`), tick
@@ -160,7 +177,25 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   anything else comes from the swarm.
 
 **From a Mercedes virtual machine** (third source in the same dialog):
-`/api/vms` lists VirtualBox VMs; the job runs the extractor's
+**The VM is chosen as a file** (2026-10-23, the user: "it should be a file
+explorer option, where i choose what vm to use", after the tab had listed
+VirtualBox's VMs for them): "Choose VM file…" browses folders and `.vbox`
+files (`/api/vms/browse`, starting where the last pick was, else
+`~/VirtualBox VMs`; `AUTORUNDOWN_VMS_DIR` for `dev.py --fake-vm`'s pretend
+files), and `POST /api/vms/pick` reads the file's `<Machine name>`
+(`importer_jobs.vbox_machine`), checks VirtualBox has that VM, and keeps
+it as `Config.vm_file`. Runs still address the VM by name. A VM that
+isn't added to VirtualBox is refused with how to add it (Machine > Add…):
+this never registers one, as it never changes VirtualBox's settings.
+**No terminal windows**: under the installed app (pythonw, no console)
+every console program a job started -- Python, VBoxManage, Java -- opened
+a window of its own (the user saw "a bunch of different terminal
+windows", 2026-10-23). `importer_jobs` and `vm_pipeline.py` start every
+process with `CREATE_NO_WINDOW`; the hidden console is inherited by
+everything under it. `tests/test_vm_jobs.py` checks every `subprocess`
+call carries `creationflags`.
+`/api/vms` lists VirtualBox's VMs (to check a pick and show their state)
+and the chosen one; the job runs the extractor's
 `vm_pipeline.py --vm <name> --out-root <autorundown_out> --steps …` and then
 `rebuild_wis.py` on `<out_root>/wis_extract`. The pipeline is the manual
 procedure in one resumable script: docs (`pull.js`, power-cycle + resume on a
@@ -187,7 +222,16 @@ found three gaps, now fixed in `vm_pipeline.py`: every pull (not just
 the connection on its last table; a failed run always shuts the VM down
 (`STARTED` + `finally`) — it had been left running; and `vm_up` tries a
 second cold boot before giving up — one boot after 12 clean batches never
-brought the DB up in 10 min. Conversion sorts largest-first, so its ETA
+brought the DB up in 10 min. (Since 2026-10-23, only if the clean shutdown
+worked: when Windows ignores the power button the state is saved, and the
+"second boot" would just resume it -- a blue-screened guest was resumed
+twice that way. It stops instead and says to Reset / roll back.)
+**The installed app runs the extractor with its own embeddable Python**,
+whose `._pth` does not put a script's folder on `sys.path`: every extractor
+script that imports a sibling (`wis_paths`, `parse_sids`, …) inserts its
+own folder first. Five did not, so the VM tab of the installed 0.1.6
+showed "No module named 'wis_paths'" once the Desktop copy was updated
+(2026-10-23; from source it worked). `tests/test_vm_jobs.py` checks it. Conversion sorts largest-first, so its ETA
 reads ~3 h while on the DXF/SVG diagrams and then drops; ~40 min in total.
 
 **The EPC parts catalogue from the same tab** (2026-10-15). The Mercedes VM
@@ -261,6 +305,13 @@ closed and the extractor kept running on its own).
   free disk (images ~30 GB). An extractor too old to know `--check` prints
   no CHECK lines: that is a failure saying to update the copy. `POST
   /api/import` runs the same check and refuses with the failing messages.
+  **The page runs it only on a new pick** (2026-10-25, the user: "not …
+  every time i hit that tab", only on a new VM or the test button), or when
+  *What to extract* / the steps change what the run needs. Opening the tab
+  with the remembered VM shows the last result of this page visit for the
+  same VM, what and steps, else "Not checked since this page was opened"
+  with *Check now*; Import and *Test the VM* stay on, since both check the
+  VM on the server first.
 - **Test the VM** (job mode `vm_check`, `--check --boot`): boots it, checks
   Windows starts and the WIS / EPC database (as the steps need) answers,
   shuts it down cleanly if it started it; imports nothing. The results join
