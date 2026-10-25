@@ -547,7 +547,13 @@ car"; "what if i just want a little more or less").**
   `labour_group` names and subgroups only their number; checked on the
   real extract: 5,690 names, 264,711 of 271,643 numbered documents in a
   named subgroup, sampled titles fit -- 42.30 ABS "Remove/install ABS
-  measuring ring", 88.20 Bumpers "Remove/install rear bumper"), each with
+  measuring ring", 88.20 Bumpers "Remove/install rear bumper"). Five
+  kinds number their own items after the group digits (`OWN_NUMBERS` RA,
+  WH, EA: listed in their group with no subgroup -- "wh0051" is item
+  0051, not 00.51, which showed as an unnamed "00.51" until the user
+  asked; `NO_GROUP` DH, WB: even the group digits are a chapter, so they
+  go under Other documents); every other kind falls 98-100% in a named
+  subgroup, and the rest (335 damage-code documents) show their number), each with
   what it is (Repair = AR, Function = GF, Service information = SI,
   Capacities = BF, Wiring diagram from `doc_type`; other codes shown as
   they are, never guessed); no number -> "Other documents". **Other

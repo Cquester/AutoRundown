@@ -238,6 +238,25 @@ def main() -> int:
         sub = app.get(url, params={"path": ["42 Brakes, mechanical, hydraulic"]}).json()
         check("subgroups are named (a new sidecar rebuilds the contents)",
               [c["name"] for c in sub["children"]], ["42.10 Disc brake"])
+        # kinds that number their own items after the group digits: a
+        # workshop-handbook item sits in its group with no made-up subgroup
+        # ("wh0051" is item 0051, not 00.51); a diagnosis manual's digits are
+        # a chapter, not a group, so it goes under Other documents
+        loose = app.get(url, params={"path": ["Other documents"]}).json()
+        loose = [p["page_no"] for c in loose["children"]
+                 for p in app.get(url, params={"path": ["Other documents", c["name"]]}).json()["pages"]]
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executemany("INSERT INTO docnr VALUES (?,?,?)",
+                          [("wh0051pkw0000x", 8, int(loose[0])), ("dh0302pf10021x", 9, int(loose[1]))])
+        top = app.get(url).json()
+        g00 = app.get(url, params={"path": ["00"]}).json()
+        check("own-numbered kinds: in their group, no subgroup made of their item number",
+              ([p["page_no"] for p in g00["pages"]], [c["name"] for c in g00["children"]]),
+              ([loose[0]], []))
+        check("a diagnosis manual's chapter number is not a group",
+              ("03" in " ".join(c["name"][:2] for c in top["children"]),
+               [p["page_no"] for p in app.get(url, params={"path": ["Other documents", "DH documents"]})
+                .json()["pages"]]), (False, [loose[1]]))
         v23, v26 = names.index("190 E 2.3 16"), names.index("190 E 2.6")
         check("labour times need the exact model",
               app.get(f"/api/wis/labour/{c201}").json()["need"], "variant")
