@@ -82,12 +82,13 @@ def start(page, url, rec):
 
 def search_scene(page, url, rec, open_hit):
     start(page, url, rec)
+    page.click("#modeTabs [data-mode=kw]")
     rec.type("#q", SEARCH)
     page.click("#searchBtn")
-    expect(page.locator("#out .hit").first).to_be_visible(timeout=10_000)
+    expect(page.locator("#outKw .hit").first).to_be_visible(timeout=10_000)
     rec.snap(1500)
     if open_hit is not None:
-        page.locator("#out .hit").nth(open_hit).click()
+        page.locator("#outKw .hit").nth(open_hit).click()
         expect(page.locator("#srcout")).not_to_contain_text(
             "Cited pages and diagrams appear here", timeout=10_000)
         page.mouse.move(0, 0)
@@ -96,6 +97,7 @@ def search_scene(page, url, rec, open_hit):
 
 def answer_scene(page, url, rec):
     start(page, url, rec)
+    page.click("#modeTabs [data-mode=ai]")
     page.select_option("#model", ANSWER_MODEL)
     rec.type("#q", QUESTION, every=3)
     page.click("#askBtn")

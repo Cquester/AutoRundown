@@ -158,6 +158,7 @@ python tests/test_epc_join.py                     # EPC parts joined into WIS ca
 python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
 python tests/test_history.py                      # question history: answers kept whole, who sees what (~2 s)
+python tests/test_chat.py                         # AI chat follow-ups vs the fake API, who may follow up (~5 s)
 python tests/test_vin.py                          # VIN check digit, I/O/Q, typos (~5 s)
 python tests/test_vin_scan.py [--n 8]             # Scan VIN on generated barcodes/labels (~1 min, Playwright)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
@@ -379,6 +380,18 @@ never calls the AI again. Who sees which entries follows sign-in (the PC
 all, a mechanic their own). Do not make "open from history" re-ask.
 Tests: `tests/test_history.py`. Details: `epc-source.md` ("Wider, Clear
 question, History").
+
+**AI chat: follow-ups answer from the manual only, checked like the first
+answer** (2026-10-25, the user's request). The left side has two tabs, AI
+chat and Keyword search. A chat's first answer is the usual brief + page;
+a follow-up ("tests 1-4 OK, 0 V at A5 -- the culprit?") is answered from
+the passages with `FOLLOWUP_SYSTEM`, the pages the chat cited sent again
+from the index, through the same `_verify_citations` and checks. A chat is
+one `history` entry; a follow-up's car and earlier turns come from that
+entry, never from the request. Earlier answers are never a source. Do not
+let a follow-up skip a check or answer from general knowledge. Tests:
+`tests/test_chat.py`. Details: `epc-source.md` ("AI chat and Keyword
+search").
 
 **An answer also sees the procedures its pages link to; still one AI call**
 (2026-10-17, the user's request). Search finds only pages sharing the

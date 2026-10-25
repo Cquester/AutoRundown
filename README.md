@@ -322,12 +322,27 @@ python ask.py --list
 
 ## What you can look up
 
-One question fills every source at once. The answer (or, for **Keyword**, the
-manual's matching pages) stays on the left; the **right box** has a tab for
+The left side has two tabs, each with its own box and results, so you can
+switch between them without losing either:
+
+- **AI chat**: ask a question and the AI gives a short answer from the manual
+  and opens the page it comes from. Then tell it what you tested and what you
+  found ("did tests A1-A4, all OK; A5 shows 0 V -- is the switch the
+  culprit?") and press **Send**: it answers from the manual again -- what the
+  page says those results mean, or its next step -- citing the page, and says
+  so when the manual doesn't settle it. It never answers from outside your
+  manuals. Each reply's sources are checked like the first answer's, and the
+  pages the chat already used are sent again so the test stays in view. Each
+  message is one AI call; a chat holds 10 follow-ups, and **New chat** starts
+  another.
+- **Keyword search**: the manual's own words, free, no AI.
+
+One question fills every source at once. The answer (or the search's
+matching pages) stays on the left; the **right box** has a tab for
 each source -- on a phone, the bar at the bottom with the short names Manual,
-Parts, Labour, Fluids, Torque, each opening the **Document** view. After
-**AI**, every tab is searched with the same search terms the AI made from
-your question; after **Keyword**, with the words you typed. That is a keyword
+Parts, Labour, Fluids, Torque, each opening the **Document** view. After an
+AI answer, every tab is searched with the same search terms the AI made from
+your question; after a keyword search, with the words you typed. That is a keyword
 search, not another AI call, so the tabs cost nothing, and each tab shows how
 many results it has (a tab with none is dimmed). Always within the car you
 chose:
@@ -340,9 +355,10 @@ chose:
 | **Capacities** | On top, **Fluids for your car** (WIS, once you pick the model or engine): engine oil with its Mercedes oil sheets (MB 229.x), coolant, axles, transfer case, power steering, brake fluid, refrigerant, fuel tank -- each in your car's column of WIS's capacity sheets. Below, the capacities on this job's pages. |
 | **Torque specs** | The torque values of this job, part then specification: on the answer's pages (or the top search hits) and, for WIS, on the procedures they link to ("remove the oil pan bottom section" brings its bolts). |
 
-Under the question, **History** lists earlier questions (on the PC everyone's;
-a signed-in mechanic sees their own): opening an AI answer shows it again
-exactly as it was, with no new charge. **Clear question** puts every tab back
+Under the question, **History** lists earlier chats and searches (on the PC
+everyone's; a signed-in mechanic sees their own): opening a chat shows it
+again exactly as it was, every follow-up included, with no new charge, and you
+can carry on from there. **New chat** (or **Clear search**) puts every tab back
 to browsing the car (Parts diagrams, Fluids) without changing the car. On a
 wide screen, **⇤ Wider** at the end of the tab row hides the question column
 so the results get the whole window; for a little more or less, drag the line
@@ -395,8 +411,9 @@ reads as this one's source.
 
 **On a phone** the screen is one column: the car as a single line at the top
 (tap **Change** for the car box, Browse, VIN, the scope note and Options, full
-screen), **Answer | Document** under it, the question docked at the bottom with
-**AI** and a magnifier for the keyword search, and the right box's tabs as a
+screen), **Answer | Document** under it, then **AI chat | Keyword search**,
+the question docked at the bottom (**Ask** / **Send**, or a magnifier in
+Keyword search), and the right box's tabs as a
 bottom bar (Manual, Parts, Labour, Fluids, Torque; a tap opens that tab in
 **Document**). An answer's page loads into
 **Document** (a dot says one is waiting) and opens with *Open manual page*;

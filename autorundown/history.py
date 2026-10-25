@@ -4,7 +4,9 @@ The user's request (2026-10-23): a history of the results -- "if we are
 having people pay for ai requests then it should be retrievable". An Ask is
 stored with its whole answer as the server returned it, so opening it again
 shows the same answer without a new AI call; a keyword search is stored as
-its words (running it again is free). Each entry keeps the car it was for as
+its words (running it again is free). An AI chat is one entry: the first
+answer is its result, the follow-ups are kept in `result.turns` (add_turn),
+and the chat's car is the entry's. Each entry keeps the car it was for as
 a structured pick (doc_id, variant index *and name*, engine, year), built
 here from the index, never from text the browser sent; the page checks it
 again before re-selecting the car, as it does for recent cars.
@@ -46,7 +48,8 @@ CREATE TABLE IF NOT EXISTS history(
     question  TEXT NOT NULL,
     model     TEXT,
     cost_usd  REAL,                 -- NULL: search, or cost not tracked
-    result    TEXT                  -- the answer as /api/ask returned it (ask only)
+    result    TEXT                  -- the answer as /api/ask returned it (ask only);
+                                    -- a chat's follow-ups in its `turns`
 );
 CREATE INDEX IF NOT EXISTS history_user ON history(user_id, created);
 """
@@ -98,6 +101,26 @@ def add(conn: sqlite3.Connection, who: auth.Who, kind: str, car: dict, question:
     return new_id
 
 
+def add_turn(conn: sqlite3.Connection, entry_id: int, who: auth.Who, question: str,
+             result: dict) -> int | None:
+    """A follow-up in a chat, kept in the chat's entry (`result.turns`), its
+    cost added to the entry's. Only an entry `who` can see; None otherwise.
+    Returns the number of follow-ups now kept."""
+    entry = get(conn, entry_id, who)
+    if entry is None or entry["kind"] != "ask" or not entry["result"]:
+        return None
+    stored = entry["result"]
+    stored.setdefault("turns", []).append({**result, "question": question[:2000]})
+    cost = (result.get("usage") or {}).get("cost_usd")
+    conn.execute(
+        """UPDATE history SET result=?, created=?,
+                  cost_usd=CASE WHEN ? IS NULL THEN cost_usd ELSE COALESCE(cost_usd, 0) + ? END
+           WHERE id=?""",
+        (json.dumps(stored), time.time(), cost, cost, entry_id))
+    conn.commit()
+    return len(stored["turns"])
+
+
 def _scope(who: auth.Who) -> tuple[str, tuple]:
     if who.admin:
         return "1=1", ()
@@ -112,7 +135,8 @@ def visible_to(conn: sqlite3.Connection, who: auth.Who, limit: int = SHOW) -> li
     rows = conn.execute(
         f"""SELECT id, user_name, admin, created, kind, doc_id, variant, vname, engine, year,
                    label, question, model, cost_usd,
-                   json_extract(result, '$.found') AS found
+                   json_extract(result, '$.found') AS found,
+                   json_array_length(result, '$.turns') AS followups
             FROM history WHERE {where} ORDER BY created DESC, id DESC LIMIT ?""",
         (*args, limit)).fetchall()
     out = []
@@ -122,8 +146,10 @@ def visible_to(conn: sqlite3.Connection, who: auth.Who, limit: int = SHOW) -> li
         d.pop("user_name", None)
         if d["kind"] == "ask":
             d["found"] = bool(d["found"])
+            d["followups"] = d["followups"] or 0
         else:
             d.pop("found")
+            d.pop("followups")
         out.append(d)
     return out
 
