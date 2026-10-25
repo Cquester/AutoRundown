@@ -300,9 +300,10 @@ choice remembered per viewer in `localStorage`); the original is an iframe on
 (self-contained; `tools/sids_render.py <dok_id>` is a CLI over it). Free, no
 API calls. **The original is the default** (2026-10-24, the user: "I dont
 think the way we have reading view looks good. Lets default to original
-document"): stored as `autorundown.pageView.v2` = "reading" only when the
-viewer picks Reading view (a new key, so the old key's "0" from the old
-default doesn't stick); a page with no original falls back to its text by
+document"): stored as `autorundown.pageView.v3` = "reading" only when the
+viewer picks Reading view (v2's click handler matched `<body data-view>`,
+so any click on the page saved "reading" and pages kept opening as text --
+fixed 2026-10-25, and the key renamed so that stray value doesn't stick); a page with no original falls back to its text by
 itself ("No original layout for this page; showing its text", Original
 layout greyed), leaving the choice as it was. **LEMON and folder HTML
 pages have an original too** (`html_original.py`, `has_original` on

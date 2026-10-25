@@ -3153,9 +3153,10 @@ async function keywordSearch() {
 // (server: wis_original.py), in an iframe so its absolute positioning and
 // styles stay out of this page. The choice is remembered per viewer; the
 // original is the default (the user, 2026-10-24: "I dont think the way we
-// have reading view looks good. Lets default to original document"). A new
-// key, so a reading view picked under the old default doesn't stick.
-const ORIGINAL_KEY = 'autorundown.pageView.v2';
+// have reading view looks good. Lets default to original document"). v3:
+// under v2 any click on the page saved "reading" (the click handler matched
+// <body data-view>), so that saved value is not the viewer's choice.
+const ORIGINAL_KEY = 'autorundown.pageView.v3';
 function wantOriginal() { try { return localStorage.getItem(ORIGINAL_KEY) !== 'reading'; } catch (_) { return true; } }
 function viewToggle(doc, pageNo) {
   const on = wantOriginal();
@@ -3419,7 +3420,9 @@ document.addEventListener('click', e => {
   if (cs) { e.preventDefault(); searchComp(+cs.dataset.compsearch); return; }
   const cn = e.target.closest('[data-conn]');
   if (cn) { e.preventDefault(); showConnector(cn.dataset.conn); return; }
-  const vw = e.target.closest('[data-view]');
+  // only the toggle's buttons: <body data-view="…"> names the screen, and
+  // matching it made every click pick Reading view
+  const vw = e.target.closest('.viewtoggle [data-view]');
   if (vw) {
     setPageView(vw.dataset.view === 'original', vw.dataset.doc, vw.dataset.pno);
   }
