@@ -193,6 +193,34 @@ def main() -> int:
             INSERT INTO labour_op VALUES ('00','16','1000','1000','G','Malformed formula op');
             INSERT INTO labour_time VALUES ('00','00','06','16','1000','00',10);
             """)
+
+        print("manual contents (the Manual page tab before a question)")
+        url = f"/api/manual/contents/{c176}"
+
+        def walk(path=()):
+            n = app.get(url, params={"path": list(path)}).json()
+            pages = [p["page_no"] for p in n["pages"]]
+            for c in n["children"]:
+                pages += walk((*n["path"], c["name"]))
+            return pages
+        top = app.get(url).json()
+        groups = [c["name"] for c in top["children"]]
+        check("WIS documents by function group, named from the labour book",
+              "42 Brakes" in groups, True)
+        check("documents with no number come last, under Other documents",
+              groups[-1], "Other documents")
+        check("a group holds its subgroups",
+              [c["name"] for c in app.get(url, params={"path": ["42 Brakes"]}).json()["children"]],
+              ["42.10"])
+        leaf = app.get(url, params={"path": ["42 Brakes", "42.10"]}).json()
+        check("a subgroup lists its documents, with what they are",
+              [(p["page_no"], p["kind"]) for p in leaf["pages"]], [("1002297", "Repair")])
+        every = walk()
+        check("every document once, and the counts add up",
+              (len(every) == len(set(every)), len(every)), (True, top["count"]))
+        check("another model's document is not in this car's contents", "1002304" in every, False)
+        check("an unknown section is 404",
+              app.get(url, params={"path": ["99 Nothing"]}).status_code, 404)
         v23, v26 = names.index("190 E 2.3 16"), names.index("190 E 2.6")
         check("labour times need the exact model",
               app.get(f"/api/wis/labour/{c201}").json()["need"], "variant")

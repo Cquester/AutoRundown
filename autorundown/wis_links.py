@@ -64,6 +64,28 @@ def _rows(corpus: Path, sql: str, args=()) -> list[tuple] | None:
         db.close()
 
 
+def docnrs(corpus: Path, dok_ids: list[int]) -> dict[int, list[str]]:
+    """{DokID: its stored document numbers ('ar4210p0100a', ...)}; {} without
+    the sidecar. For the Manual tab's contents (manual_browse.py)."""
+    out: dict[int, list[str]] = {}
+    ids = sorted(set(dok_ids))
+    for i in range(0, len(ids), 900):              # SQLite's bound-variable limit
+        part = ids[i:i + 900]
+        rows = _rows(corpus, f"SELECT dok_id, docnr FROM docnr WHERE dok_id IN "
+                             f"({','.join('?' * len(part))})", part)
+        if rows is None:
+            return {}
+        for dok, nr in rows:
+            out.setdefault(dok, []).append(nr)
+    return out
+
+
+def group_names(corpus: Path) -> dict[str, str]:
+    """{'42': 'Brakes, mechanical, hydraulic', ...}: Mercedes' function groups,
+    named in the labour book; the same numbers as WIS document numbers."""
+    return {kg: name for kg, name in (_rows(corpus, "SELECT kg, name FROM labour_group") or [])}
+
+
 def candidates(corpus: Path, printed: str) -> list[int]:
     """DokIDs a printed reference can mean: the same number, plus only
     variant letters. A number printed without its letter ("...-P-0100")

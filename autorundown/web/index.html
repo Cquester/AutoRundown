@@ -188,7 +188,15 @@
   button.ghost{background:var(--panel-2); color:var(--text); border:1px solid var(--line); font-weight:600}
   button:disabled{opacity:.5; cursor:default}
 
-  main{display:grid; grid-template-columns:1fr 1fr; flex:1; min-height:0}
+  main{display:grid; grid-template-columns:1fr 1fr; flex:1; min-height:0; position:relative}
+  /* the divider: a strip over the line between the sides (placeSplitter) */
+  #splitter{position:absolute; top:0; bottom:0; width:9px; z-index:5; cursor:col-resize; touch-action:none}
+  #splitter::after{content:""; position:absolute; top:0; bottom:0; left:4px; width:1px; background:transparent}
+  #splitter:hover::after, #splitter:focus-visible::after, body.resizing #splitter::after{
+    left:3px; width:3px; background:var(--accent)}
+  body.resizing{cursor:col-resize; user-select:none}
+  @media (max-width:900px){ #splitter{display:none} }
+  body.collapsed #splitter{display:none}
   @media (max-width:900px){ main{grid-template-columns:1fr} }
   .pane{overflow-y:auto; padding:16px; -webkit-overflow-scrolling:touch}
   #right{border-left:1px solid var(--line); background:var(--pane)}
@@ -469,6 +477,7 @@
   @media (max-width:900px){ #resTabs .widebtn{display:none} }
   @media (min-width:901px){
     .widebtn{display:inline-flex; align-items:center; margin-left:auto; color:var(--accent) !important}
+    body.split main{grid-template-columns:minmax(0, var(--lf)) minmax(0, var(--rf))}
     body.collapsed main{grid-template-columns:1fr}
     body.collapsed #left{display:none}
     body.collapsed #right{border-left:0}
@@ -515,6 +524,17 @@
   .popen{margin-top:10px}
   .pback{font:inherit; color:var(--accent); background:none; border:0; padding:0 0 8px; cursor:pointer}
   .gno{display:inline-block; min-width:2.2em; color:var(--muted); font-variant-numeric:tabular-nums}
+  /* the Manual page tab before a question: the car's manual as contents */
+  .mbsec{border-top:1px solid var(--line)}
+  .mbsec .mbsec{border-top:0; margin-left:14px}
+  .mbsec > summary{cursor:pointer; padding:6px 0}
+  .mbrowse > .mbsec > summary{font-weight:700}
+  .mbbody{padding-bottom:4px}
+  .mbpages{margin-left:14px}
+  .mbpage{display:flex; gap:8px; align-items:baseline; width:100%; text-align:left; padding:4px 0; font:inherit;
+    color:inherit; background:none; border:0; cursor:pointer}
+  .mbpage:hover span:last-child{text-decoration:underline}
+  .mbkind{flex:none; min-width:4.5em; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em}
   @media (max-width:700px){ .plines .co{display:block} }
   /* Torque specs / Capacities: what, then the value as printed */
   .menurow{display:flex; flex-wrap:wrap; gap:0 28px}
@@ -985,6 +1005,10 @@
       <div id="labOut" style="margin-top:10px"></div>
     </div>
   </section>
+  <!-- the divider between the two sides, dragged to resize (wide screens) -->
+  <div id="splitter" role="separator" aria-orientation="vertical" tabindex="0"
+       aria-label="Resize the question and document sides"
+       title="Drag to give the documents more or less room · double-click to reset"></div>
 </main>
 
 <section id="gate" class="gate" hidden>
@@ -1773,8 +1797,9 @@ function carChanged() {
   resetTabs();                        // each tab's results were for the old car
   out.innerHTML = emptyState();
   $('#clearBtn').hidden = true;
-  srcout.innerHTML = '<p class="muted">The manual page for an answer appears here.</p>';
+  manualEl = null;
   setTab('workshop');
+  showManualBrowse();                 // the Manual page tab starts as the car's contents
   hideRight();
   $('#segDot').hidden = true;
 }
@@ -2327,6 +2352,8 @@ function showScope() {
     if (curTab === 'parts') showPartsBrowse();
     if (curTab === 'capacity') showFluids();
   }
+  // the contents shown are for the old model or engine
+  if (srcout.firstElementChild?.classList.contains('mbrowse')) showManualBrowse();
   if (!out.innerHTML.trim()) out.innerHTML = emptyState();
   if (!v || !v._variants.length) { note.hidden = true; return; }
   setTimeout(() => showOil(v));
@@ -2998,7 +3025,7 @@ function clearQuestion() {
   ++searchSeq; pageSeq++;
   $('#q').value = '';
   out.innerHTML = emptyState();
-  srcout.innerHTML = '<p class="muted">The manual page for an answer appears here.</p>';
+  showManualBrowse();
   resetTabs();
   setTab(curTab);
   $('#clearBtn').hidden = true;
@@ -3018,6 +3045,65 @@ function setCollapsed(on) {
   try { localStorage.setItem(COLLAPSE_KEY, on ? '1' : '0'); } catch (_) {}
 }
 $('#wideBtn').onclick = () => setCollapsed(!document.body.classList.contains('collapsed'));
+
+// The divider between the question side and the right box, dragged to give
+// the documents a little more or less room (the user, 2026-10-24: "We
+// already have the wider button, but what if i just want a little more or
+// less"). Kept as the question side's share of the window, on this device;
+// double-click (or Home) puts the layout back. Arrow keys move it too.
+const SPLIT_KEY = 'autorundown.split', mainEl = document.querySelector('main'), splitter = $('#splitter');
+const SPLIT_MIN_LEFT = 300, SPLIT_MIN_RIGHT = 360;
+function placeSplitter() {
+  const l = $('#left').getBoundingClientRect(), m = mainEl.getBoundingClientRect();
+  splitter.style.left = (l.right - m.left - 4) + 'px';
+  splitter.setAttribute('aria-valuenow', String(Math.round(l.width / (m.width || 1) * 100)));
+}
+function setSplit(f, save = true) {
+  const w = mainEl.getBoundingClientRect().width;
+  if (f != null && w) f = Math.min(Math.max(f, SPLIT_MIN_LEFT / w), 1 - SPLIT_MIN_RIGHT / w);
+  document.body.classList.toggle('split', f != null);
+  if (f != null) {
+    mainEl.style.setProperty('--lf', `${f}fr`);
+    mainEl.style.setProperty('--rf', `${1 - f}fr`);
+  }
+  if (save) try { f == null ? localStorage.removeItem(SPLIT_KEY) : localStorage.setItem(SPLIT_KEY, String(f)); } catch (_) {}
+  placeSplitter();
+}
+splitter.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  try { splitter.setPointerCapture(e.pointerId); } catch (_) {}   // keeps the drag over an iframe
+  document.body.classList.add('resizing');
+  const move = ev => {
+    const m = mainEl.getBoundingClientRect();
+    setSplit((ev.clientX - m.left) / m.width, false);
+  };
+  const up = ev => {
+    splitter.removeEventListener('pointermove', move);
+    splitter.removeEventListener('pointerup', up);
+    splitter.removeEventListener('pointercancel', up);
+    document.body.classList.remove('resizing');
+    const l = $('#left').getBoundingClientRect(), m = mainEl.getBoundingClientRect();
+    setSplit(l.width / m.width);
+  };
+  splitter.addEventListener('pointermove', move);
+  splitter.addEventListener('pointerup', up);
+  splitter.addEventListener('pointercancel', up);
+});
+splitter.addEventListener('dblclick', () => setSplit(null));
+splitter.addEventListener('keydown', e => {
+  const m = mainEl.getBoundingClientRect(), l = $('#left').getBoundingClientRect();
+  const step = e.key === 'ArrowLeft' ? -0.02 : e.key === 'ArrowRight' ? 0.02 : null;
+  if (e.key === 'Home') { e.preventDefault(); setSplit(null); return; }
+  if (step === null) return;
+  e.preventDefault();
+  setSplit(l.width / m.width + step);
+});
+// #left is display:contents on a phone (no box to observe): watch the layout too
+const splitWatch = new ResizeObserver(placeSplitter);
+splitWatch.observe($('#left')); splitWatch.observe(mainEl);
+window.addEventListener('resize', placeSplitter);
+try { const f = parseFloat(localStorage.getItem(SPLIT_KEY)); if (f > 0 && f < 1) setSplit(f, false); } catch (_) {}
+placeSplitter();
 try { if (localStorage.getItem(COLLAPSE_KEY) === '1') setCollapsed(true); } catch (_) {}
 
 let searchSeq = 0;
@@ -3265,7 +3351,8 @@ async function showPage(pageNo, doc, open = true) {
     if (xrefs.length) bodyHtml = linkDocnrs(bodyHtml, xrefs);
     curXrefs = {list: xrefs, doc};
     srcout.innerHTML =
-      `<div class="muted">${esc(p.section_path)}</div>
+      (parts ? '' : `<button type="button" class="pback" data-manual-contents>&larr; Manual contents</button>`)
+      + `<div class="muted">${esc(p.section_path)}</div>
        <h3 style="margin:6px 0 2px">${esc(p.title)}</h3>
        <div class="muted" style="margin-bottom:12px">page ${esc(p.page_no)}</div>
        ${p.applicability!=='this_vehicle'
@@ -3643,6 +3730,68 @@ async function partsBrowse(target) {
           }).join('') + `</details>`).join('')
       + `</details>`).join(''));
 }
+// The Manual page tab before a question, and after "Manual contents": the
+// car's manual as contents (server: manual_browse.py) -- WIS by function
+// group > subgroup, other manuals by their own chapters -- a level fetched
+// when it is opened (a WIS car has ~30k documents). A document opens as the
+// manual page; "Manual contents" on it comes back with the sections left
+// open (the user, 2026-10-24: "like the parts page ... then i can still do
+// the keyword or ai search on the left").
+let manualSeq = 0, manualEl = null;
+const manualKey = () => `${docId()}|${variantIdx()}|${engineSel()}`;
+function manualLevel(doc, path) {
+  return api(`/api/manual/contents/${encodeURIComponent(doc)}?`
+    + (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
+    + (engineSel() ? `engine=${encodeURIComponent(engineSel())}&` : '')
+    + path.map(p => `path=${encodeURIComponent(p)}`).join('&'));
+}
+function manualLevelHtml(n) {
+  return n.children.map(c => `<details class="mbsec" data-path="${esc(JSON.stringify([...n.path, c.name]))}">`
+      + `<summary>${esc(c.name)} <span class="muted">(${c.count})</span></summary><div class="mbbody"></div></details>`).join('')
+    + (n.pages.length ? `<div class="mbpages">` + n.pages.map(p => `<button type="button" class="mbpage" ${pageAttrs(p.page_no)}>`
+      + (p.kind ? `<span class="mbkind">${esc(p.kind)}</span>` : '') + `<span>${esc(p.title)}</span></button>`).join('') + `</div>` : '');
+}
+async function showManualBrowse() {
+  const doc = docId();
+  if (!doc) return;
+  pageSeq++;                          // a page still loading must not replace this
+  if (manualEl && manualEl.dataset.key === manualKey()) { srcout.replaceChildren(manualEl); return; }
+  const seq = ++manualSeq, el = document.createElement('div'), label = carBoxLabel || currentCarLabel();
+  el.className = 'mbrowse'; el.dataset.key = manualKey(); el.dataset.doc = doc;
+  el.innerHTML = `<div class="card"><span class="spinner"></span> loading the manual&rsquo;s contents&hellip;</div>`;
+  manualEl = el;
+  srcout.replaceChildren(el);
+  try {
+    const n = await manualLevel(doc, []);
+    if (seq !== manualSeq) return;
+    el.innerHTML = `<div class="muted" style="margin:0 0 8px">Manual for <b>${esc(label)}</b> &mdash; ${n.count} pages`
+      + (n.path.length ? ` in <b>${esc(n.path.join(' › '))}</b>` : '') + ` by section. `
+      + `Search or ask on the left to find a page by its words.`
+      + (variantIdx() === null && !engineSel() ? ' Pick your model or engine above to narrow it.' : '') + `</div>`
+      + (n.count ? withDoc(doc, () => manualLevelHtml(n)) : `<div class="empty">No manual pages for this car.</div>`);
+  } catch (e) {
+    if (seq === manualSeq) el.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+// a section opened: its level fetched once
+document.addEventListener('toggle', async e => {
+  const d = e.target;
+  if (!d.matches?.('details.mbsec') || !d.open || d.dataset.loaded) return;
+  const el = d.closest('.mbrowse'), out = d.querySelector(':scope > .mbbody');
+  if (!el || !out) return;
+  d.dataset.loaded = '1';
+  out.innerHTML = `<span class="spinner"></span>`;
+  try {
+    const n = await manualLevel(el.dataset.doc, JSON.parse(d.dataset.path));
+    out.innerHTML = withDoc(el.dataset.doc, () => manualLevelHtml(n));
+  } catch (err) {
+    delete d.dataset.loaded;
+    out.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
+  }
+}, true);
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-manual-contents]')) showManualBrowse();
+});
 function showPartsBrowse() {
   const pane = $(PANE.parts);
   if (!pane || tabQuery) return;

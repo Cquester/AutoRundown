@@ -529,6 +529,34 @@ off, and "Clear" empties them; every pick stays red on the drawing and in
 the lists, and the line above the drawing lists each pick (`showPicks`).
 Taking one off scrolls nothing.
 
+**Manual contents and the divider (2026-10-24, the user: "change the Manual
+page to be like the parts page ... auto fill the page in sections for the
+car"; "what if i just want a little more or less").**
+- Before a question (a car picked, Clear question, a model/engine change
+  while the contents show) the Manual page tab shows the car's manual as
+  contents: `GET /api/manual/contents/{doc}?variant&engine&path=…`
+  (`manual_browse.py`), one level per call. The pages are the manual part
+  of `scope_ids`, filtered as search filters them (general pool
+  type-narrowed), so the contents are what a search for this car can find.
+  **WIS**: a page's `section_path` only names models, so documents are
+  grouped by their number (`wis_links.docnrs`): "ar4210…" = group 42
+  (named from `labour_group`, `wis_links.group_names`) > 42.10, each with
+  what it is (Repair = AR, Function = GF, Service information = SI,
+  Capacities = BF, Wiring diagram from `doc_type`; other codes shown as
+  they are, never guessed); no number -> "Other documents". **Other
+  manuals**: their own `section_path` chapters; a page whose title ends its
+  path is listed in that chapter. A single top chapter opens by itself.
+  The tree is built once per car (W210 whole series: 34,238 documents,
+  ~2.4 s; a variant ~1.2 s) and cached against the index's page count and
+  the sidecar's mtime. A document opens as the manual page with
+  "← Manual contents", which puts the same contents back, sections left
+  open. Tests: `tests/test_wis_links.py`, `tests/test_lemon_import.py`.
+- The line between the question side and the right box is a divider
+  (`#splitter`, wide screens only, hidden with "Wider"): dragged, or arrow
+  keys; it stops at 300 px question / 360 px documents; kept as the
+  question side's share in `autorundown.split`; double-click or Home puts
+  the default layout back.
+
 **Wider, Clear question, History (2026-10-23, the user's list).**
 - "⇤ Wider" at the end of the right box's tab row hides the question column
   on wide screens (≥901 px; remembered, `autorundown.collapsed`); "⇥ Show

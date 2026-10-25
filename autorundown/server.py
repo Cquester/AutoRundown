@@ -33,7 +33,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from . import auth, config, handoff, history, index, providers, qr, query, tls
-from . import (autostart, importer_jobs, lemon_catalogue, parts_browse, synonyms, tab_values,
+from . import (autostart, importer_jobs, lemon_catalogue, manual_browse, parts_browse, synonyms, tab_values,
                wis_links, wis_original)
 from .search import (get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
@@ -886,6 +886,26 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             conn.close()
         return _etagged(request, json.dumps(rows, separators=(",", ":")).encode(),
                         "application/json")
+
+    @app.get("/api/manual/contents/{doc_id}")
+    def api_manual_contents(doc_id: str, variant: int | None = None,
+                            engine: str | None = Query(None, max_length=64),
+                            path: list[str] = Query([], max_length=8)) -> dict:
+        """The car's manual as contents, one level at a time: WIS by function
+        group and subgroup, other manuals by their own chapters
+        (manual_browse.py). The manual scope only, filtered like search. Free."""
+        path = [p[:300] for p in path]
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            t = manual_browse.tree(conn, vehicle, manual, _is_wis(vehicle))
+        finally:
+            conn.close()
+        n = manual_browse.node(t, path)
+        if n is None:
+            raise HTTPException(404, "no such section")
+        return n
 
     @app.get("/api/fluids/{doc_id}")
     def api_fluids(doc_id: str, variant: int | None = None,

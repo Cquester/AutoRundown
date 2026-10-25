@@ -19,7 +19,10 @@ python tests/test_ui_picks.py --index .dev/index.db > /tmp/picks.log 2>&1 \
     && echo "ok   test_ui_picks ($((SECONDS - s)) s): $(tail -1 /tmp/picks.log)" \
     || { echo "FAIL test_ui_picks"; tail -15 /tmp/picks.log; rc=1; }
 # first start: a second, empty instance, driven in Chromium; screenshots in
-# /tmp/ui-shots (box.sh fetch <name> /tmp/ui-shots)
+# /tmp/ui-shots (box.sh fetch <name> /tmp/ui-shots). Its home is emptied
+# first: a second `check` in the same box found the first run's import there
+# and no first-start checklist (2026-10-24).
+rm -rf /tmp/ui-home
 AUTORUNDOWN_HOME=/tmp/ui-home python serve.py --host 127.0.0.1 --port 8759 > /tmp/ui-server.log 2>&1 &
 for _ in $(seq 60); do curl -sf http://127.0.0.1:8759/api/stats > /dev/null && break; sleep 0.5; done
 s=$SECONDS
