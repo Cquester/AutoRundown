@@ -214,6 +214,20 @@ misses are 8/9/6/0 confusions; on a US VIN those fail the check digit and
 show the warning, on a FIN nothing can catch them, hence "compare it with
 the car". **Not yet tried on a real phone or a real label.**
 
+**Full-size phone photos (2026-10-25).** The user reported Scan VIN read
+nothing on their phone, barcode or text. The tests had only used small
+pictures that were all label; a whole 12 MP photo (4032 px) was shrunk to
+1600 px before the barcode was read, so a door-jamb Code 39 lost its bars
+and was read only when the label filled over half the width (measured on
+generated 12 MP photos). Now the barcode is read at up to 4096 px (zxing
+tries smaller sizes itself) -- read from 25% of the width on -- and the
+text at 1600 px, then 3000 px if nothing was found. Another make's VIN
+read as text (a whole 17-character word with a right check digit) now
+goes in the box, so Find says "not a Mercedes" instead of the scan saying
+"No VIN found". `test_vin_scan.py` has whole phone photos now (label
+30-65% of the width: every barcode read; printed VIN alone 7/8). Still
+**not tried on a real phone and label** -- that is the real check.
+
 **Data cards (EPC) are not available — they are access-protected.** The EPC
 install has the data card databases (`DAG_DCPC`, `MBNA_DCNA`, `MBOE_DCCAR`,
 … 2016-11-23, up to 8 GB each, port 2034), but they refuse both accounts the
