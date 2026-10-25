@@ -116,6 +116,9 @@ files. "Start when I sign in" runs it as you, in the background.
   back after a page reload.
   **Choose the VM** first: the tab then checks what the run needs (network,
   Java, the extractor's scripts, disk space) and lists anything missing.
+  It checks again only when you pick another VM or change what to extract
+  (or click *Check now*), not each time you open the tab; Import checks it
+  anyway before it starts.
   **Test the VM** boots it, checks Windows starts and the database answers,
   and shuts it down. **Cancel** stops a run and shuts the VM down cleanly; a
   re-run resumes. The VM is never switched off by force: if Windows doesn't

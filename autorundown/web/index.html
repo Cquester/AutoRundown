@@ -5646,18 +5646,21 @@ async function impVms() {
     // the user picks the VM's file (the user, 2026-10-16 and 2026-10-23):
     // nothing is chosen for them; their last pick is remembered (vm_file)
     const running = impLast?.state === 'running' && impLast.vm;
+    // the remembered VM is not a new pick: no check on opening the tab (the
+    // user, 2026-10-25: only on a new selection or "Test the VM")
     vmSetChosen(running && running !== r.chosen?.name ? {name: running, file: ''}
-                : r.chosen && r.vms.some(v => v.name === r.chosen.name) ? r.chosen : null);
+                : r.chosen && r.vms.some(v => v.name === r.chosen.name) ? r.chosen : null, false);
     $('#impVmNote').innerHTML = `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`;
   } catch (e) { noVm(e.message); }
 }
-function vmSetChosen(c) {
+function vmSetChosen(c, check = true) {
   $('#impVm').value = c?.name || '';
   $('#impVmChosen').innerHTML = c?.name
     ? `<b>${esc(c.name)}</b>${c.file ? ` <span class="muted" style="font-size:13px">${esc(c.file)}</span>` : ''}`
     : '<span class="muted">No VM chosen yet.</span>';
   $('#impVmBrowse').textContent = c?.name ? 'Change…' : 'Choose VM file…';
-  $('#impVm').dispatchEvent(new Event('change'));   // its checks and snapshots
+  impVmSnaps();
+  if (check) impVmCheck(); else impVmLastCheck();
 }
 async function vmBrowse(path) {
   const box = $('#impVmFiles');
@@ -5693,7 +5696,8 @@ $('#impVmBrowse').addEventListener('click', () => {
 });
 // what a run on the chosen VM needs, checked without booting it
 // (vm_pipeline.py --check): Extract and Test stay off until nothing fails
-let vmCheckSeq = 0, vmReady = false;
+let vmCheckSeq = 0, vmReady = false, vmChecked = null;   // the last check: {key, ready, html}
+const vmCheckKey = () => [$('#impVm').value, impVmWhat(), impVmSteps()].join('|');
 const VM_CK_ICON = {ok: '✓', warn: '!', fail: '✗'};
 const vmChecksHtml = (checks, head) => (head ? `<div class="ckhead">${esc(head)}</div>` : '')
   + checks.map(c => `<div class="ck ${c.level}"><span class="i" aria-label="${c.level}">${VM_CK_ICON[c.level]}</span>`
@@ -5715,10 +5719,31 @@ async function impVmCheck() {
     if (seq !== vmCheckSeq) return;
     vmReady = r.ready;
     box.innerHTML = vmChecksHtml(r.checks, r.ready ? 'Ready to run' : 'Not ready: fix the ✗ first');
+    vmChecked = {key: vmCheckKey(), ready: r.ready, html: box.innerHTML};
   } catch (e) {
     if (seq !== vmCheckSeq) return;
     box.innerHTML = vmChecksHtml([{level: 'fail', message: e.message}]);
   }
+  $('#impStart').disabled = !vmReady || running;
+  $('#impVmTest').disabled = !vmReady || running;
+}
+// Opening the tab again: the last check's result for this VM, if there is
+// one, else nothing checked yet. Import and Test stay usable either way --
+// the server runs the same check before either starts and refuses a VM that
+// isn't ready (/api/import), so skipping it here only skips the wait.
+function impVmLastCheck() {
+  const vm = $('#impVm').value, box = $('#impVmChecks');
+  const running = impLast?.state === 'running';
+  vmCheckSeq++;                       // a check still in flight no longer shows
+  $('#impVmTestRow').hidden = !vm;
+  if (!vm) { box.hidden = true; $('#impStart').disabled = true; return; }
+  box.hidden = false;
+  const last = vmChecked?.key === vmCheckKey() ? vmChecked : null;
+  vmReady = last ? last.ready : true;
+  box.innerHTML = last ? last.html : `<div class="ckhead">Not checked since this page was opened.</div>
+    <div class="muted" style="font-size:13px">Import checks the VM before it starts; <b>Test the VM</b> checks
+    it and starts it. <button type="button" class="linkbtn" id="impVmCheckNow">Check now</button></div>`;
+  $('#impVmCheckNow')?.addEventListener('click', impVmCheck);
   $('#impStart').disabled = !vmReady || running;
   $('#impVmTest').disabled = !vmReady || running;
 }
@@ -5740,7 +5765,6 @@ async function impVmSnaps(prefer) {
     $('#impSnapNote').textContent = r.error || (snaps.length ? '' : 'This VM has no snapshots yet.');
   } catch (e) { $('#impSnapNote').textContent = e.message; }
 }
-$('#impVm').addEventListener('change', () => impVmSnaps());
 $('#impRollback').onclick = async () => {
   const vm = $('#impVm').value, snap = $('#impSnap').value;
   if (!snap || !confirm(`Roll ${vm} back to "${snap}"? Everything done inside the VM since then is undone. `
@@ -5752,7 +5776,7 @@ $('#impRollback').onclick = async () => {
     impWatch();
   } catch (e) { $('#impStatus').textContent = e.message; }
 };
-$('#impVm').addEventListener('change', impVmCheck);
+// what to extract changes what the run needs: a new selection, checked
 $('#impSteps').addEventListener('change', impVmCheck);
 $('#impVmTest').onclick = async () => {
   if (!confirm(`Start ${$('#impVm').value}, check Windows comes up and the database answers, `

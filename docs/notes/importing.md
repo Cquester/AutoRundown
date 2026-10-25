@@ -305,6 +305,13 @@ closed and the extractor kept running on its own).
   free disk (images ~30 GB). An extractor too old to know `--check` prints
   no CHECK lines: that is a failure saying to update the copy. `POST
   /api/import` runs the same check and refuses with the failing messages.
+  **The page runs it only on a new pick** (2026-10-25, the user: "not …
+  every time i hit that tab", only on a new VM or the test button), or when
+  *What to extract* / the steps change what the run needs. Opening the tab
+  with the remembered VM shows the last result of this page visit for the
+  same VM, what and steps, else "Not checked since this page was opened"
+  with *Check now*; Import and *Test the VM* stay on, since both check the
+  VM on the server first.
 - **Test the VM** (job mode `vm_check`, `--check --boot`): boots it, checks
   Windows starts and the WIS / EPC database (as the steps need) answers,
   shuts it down cleanly if it started it; imports nothing. The results join
