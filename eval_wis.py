@@ -194,6 +194,13 @@ CASES: list[dict] = [
          #   cover, Engine 102 KE in model 201" covers 102.983 (cap nuts 10 Nm,
          #   plastic screws 2 Nm). Needs exact-code filtering + boost.
          expect=["49013390"], forbid=["50000338", "49014337"], expect_engine=True),
+    dict(id="w201-2316-rear-window", series="201", variant=8,
+         variant_name="190 E 2.3 16", query="Removal and installation of rear window",
+         # The user's report, 2026-10-26: typing the title of 67-200 (a
+         # scanned page, no text) showed 67-220 but not 67-200 -- fifth in
+         # the W201 bucket by a hair of BM25, four W201 slots of twelve.
+         # search.title_fit breaks the tie.
+         expect=["49008404"]),
     dict(id="w201-2316-break-in-oils", series="201", variant=8,
          variant_name="190 E 2.3 16", query="approved break-in engine oils",
          # General pool + type narrowing. 12000483 "Approved break-in engine
@@ -386,6 +393,10 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     ("epc-w201-2316-thermostat", "wrong"): (2, "general-untied"),
     ("epc-w201-2316-thermostat", "foreign"): (2, "general-untied"),
     ("epc-w204-c220cdi-glow-plugs", "foreign"): (1, "general-untied"),
+    # hands-free speaker (124/129/140/202), rear-axle noises (204/211):
+    # untied general pages, the same before the title boost (2026-10-26)
+    ("w201-2316-rear-window", "wrong"): (2, "general-untied"),
+    ("w201-2316-rear-window", "foreign"): (2, "general-untied"),
 }
 
 

@@ -292,6 +292,41 @@ hidden in the page view. Images open full size on click (wiring diagrams are
 the server turns them into links when a page opens (see "WIS reference
 tables" below).
 
+**Old manuals' job numbers ("67-200") come from the figure names, and a
+title match breaks BM25 ties** (2026-10-26, the user: a 1986 190 E 2.3-16's
+"67-200 Removal and installation of rear window"). That page (49008404) is a
+scan: three images, no text, so "67-200" found nothing, and typing its title
+showed 67-220 but not 67-200 -- fifth in the W201 bucket by a hair of BM25
+(-13.69 vs -13.70, a longer body of image names), with the W201 getting 4 of
+12 rows beside the M102 and general buckets.
+- *Job numbers*: an old-manual figure name is `ra` + group + model (5) +
+  job (4) + sheet (4) + letter (`ra670020102000002p` = 67, W201, 0200), and
+  the title leads with the job ("0200 - ..."). `records.job_numbers` gives
+  "67-200" only when the two agree (1,124 of the 1,128 English records with
+  both; the 4 others reuse another job's figure); "2.1 - ..." chapter titles
+  get none. The importer writes "Job no.: 67-200" before "Figures:", shown
+  on the page. An index built before this gets it from
+  `tools/wis_job_numbers.py --index index.db --apply` (dry run without
+  `--apply`; 1,312 page rows on the live index; through `index.add_page`, so
+  FTS and duplicates stay right, and a second run changes nothing) instead
+  of a `rebuild_wis.py`. The four-digit form ("67-0200", as other pages
+  print it in brackets) is looked up instead, through
+  `wis_links.old_job_candidates` (see "Cross-references open their page"
+  below); this line is what makes the manual's own short form findable by
+  search.
+- *Title match*: `search.title_fit` is the share of a title's words the
+  search covers (0 unless every searched word is in it; numbers and "model"
+  left out), and `_title_rank` multiplies the page's best chunk by
+  1 + 0.05 x fit, for searches of 3+ words, re-ranking twice the rows it
+  keeps. Measured on `eval_wis`: x1.5 let one page take three rows and put
+  "Cleaning the brake discs using cleaning pads" over the W124's pad pages;
+  x1.1 lifted other engines' cylinder-head pages from engine buckets; on
+  two-word searches it cost ranks ("timing chain", C 230: 2 -> 8). At x1.05
+  and 3+ words: no case lost, W140 brake pads 4 -> 1, F-150 caliper and coil
+  2 -> 1, 67-200 first (`w201-2316-rear-window`). "rear window" alone still
+  misses 67-200; "67-200" finds it once the job numbers are in.
+  Tests: `tests/test_job_numbers.py`.
+
 **"Original layout": the document redrawn from WIS's own page layout.** The
 user found the reading view "bunched up" next to WIS. WIS pages get a
 Reading view / Original layout toggle (`viewToggle()` in `index.html`,

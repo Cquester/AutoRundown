@@ -152,6 +152,7 @@ python tests/test_wis_links.py                    # WIS cross-refs/diagrams/code
 python tests/test_wis_tables.py                   # Torque/Capacities tabs: job values, car's column, fluids (~5 s)
 python tests/test_parts_diagrams.py               # Parts tab: EPC drawings, browse by group (~10 s)
 python tests/test_synonyms.py                     # shop words -> WIS and EPC words (<1 s)
+python tests/test_job_numbers.py                  # old job numbers (67-200), title matches in search (<2 s)
 python tests/test_fake_api.py                     # Ask end to end vs the fake API (~5 s)
 python tests/test_providers.py                    # Ask on all 4 AI providers vs the fakes (~20 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
@@ -177,6 +178,7 @@ python tools/make_sample_epc.py                   # stand-in EPC parts + drawing
 python tools/readme_gifs.py --url <box admin url>  # README GIFs -> docs/images/ (free; --answer is PAID)
 python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogue snapshot
 python extractor/parse_links.py                   # rebuild wis_links.sqlite (offline, ~1 min)
+python tools/wis_job_numbers.py --index index.db [--apply]  # add "Job no.: 67-200" to an existing index's WIS pages
 
 # test environments
 wsl -d Ubuntu -- bash tools/container/box.sh up     # test box (Docker in WSL): admin + phone ports
@@ -549,6 +551,10 @@ NHTSA-derived years, which is why it is allowed.
 More decisions of the same weight, each with the failure that caused it, are
 in `docs/notes/`. The ones most likely to be undone by accident:
 
+- **A title match only breaks ties in keyword search** (x1.05, 3+ words,
+  `search.title_fit`); bigger boosts or two-word searches lost `eval_wis`
+  cases. Old job numbers ("67-200") come from WIS figure names, only where
+  the title's job agrees. (`wis-source.md`)
 - **WIS model filing uses schema 1.2's WS/WC join, checked against page
   text** (98.4% wrong-vehicle under 1.1); `eval_wis.py` checks page *text*,
   never buckets. Slash lists like `MODEL 639.601/603` are variants, not
