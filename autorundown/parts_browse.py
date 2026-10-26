@@ -14,8 +14,10 @@ EPC pull already writes one page per (catalog, group, subgroup) titled
 
 with its drawings in `images`. Pages come from the car's parts scope only
 (search.scope_ids / split_scope), filtered in SQL exactly as search filters
-(search._filters: the chosen engine and model codes), so a W210 with an
-M112 chosen lists the M112 catalog, never the M104's.
+(search._filters: the chosen engine and model codes; search.parts_codes_clause:
+a page whose section line lists model codes must list the car's), so a W210
+with an M112 chosen lists the M112 catalog, never the M104's, and a 190 E
+2.3-16 only the 201.034 catalogs.
 
 A series has one catalog per market and period (the W124: 4,178 parts pages,
 582 distinct titles), so a subgroup is listed once with every page that has
@@ -26,7 +28,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from .search import _filters, as_ids
+from .search import _filters, as_ids, parts_codes_clause
 
 _TITLE = re.compile(
     r"^Parts: (?P<kind>model|engine) (?P<code>\S+) \(EPC catalog (?P<cat>[^)]+)\), "
@@ -63,8 +65,10 @@ def diagrams(conn: sqlite3.Connection, parts_scope) -> list[dict]:
     ids = as_ids(parts_scope)
     if not ids:
         return []
-    where, args, _, _ = _filters(False, tuple(getattr(parts_scope, "engines", ()) or ()),
-                                 getattr(parts_scope, "codes", ((), ())) or ((), ()))
+    codes = getattr(parts_scope, "codes", ((), ())) or ((), ())
+    where, args, _, _ = _filters(False, tuple(getattr(parts_scope, "engines", ()) or ()), codes)
+    pclause, pargs = parts_codes_clause(codes)     # only the car's own catalogues
+    where, args = where + pclause, [*args, *pargs]
     rows = conn.execute(
         f"SELECT p.doc_id, p.page_no, p.title, p.images FROM pages p "
         f"WHERE p.doc_id IN ({','.join('?' * len(ids))}){where} LIMIT {MAX_PAGES}",
