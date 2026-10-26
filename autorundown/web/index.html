@@ -3658,7 +3658,7 @@ $('#peekDlg').addEventListener('click', e => {
   const pg = e.target.closest('#peekBody [data-page], #peekBody [data-peek]');
   if (pg) {
     e.preventDefault(); e.stopPropagation();
-    peekOpen({page_no: pg.dataset.page || pg.dataset.peek}, peek.cur.doc, true);
+    peekOpen({page_no: pg.dataset.page || pg.dataset.peek}, pg.dataset.doc || peek.cur.doc, true);
   }
 }, true);
 $('#peekBack').onclick = () => {
@@ -3747,7 +3747,7 @@ async function showPage(pageNo, doc, open = true) {
       + extra.map(imgTag).join('');
     curComps = {list: [], doc};
     if (p.diagram) loadDiagram(seq, doc, p);
-    if (parts) placeCallouts(srcout);
+    if (parts) { placeCallouts(srcout); fillProcs(srcout); }
   } catch (e) {
     if (seq === pageSeq) srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   } finally {
@@ -3761,7 +3761,7 @@ document.addEventListener('click', e => {
   const xr = e.target.closest('[data-xref]');
   if (xr) { e.preventDefault(); followXref(+xr.dataset.xref, xr.dataset.ver || null); return; }
   const pk = e.target.closest('[data-peek]');
-  if (pk) { e.preventDefault(); peekPage(pk.dataset.peek, curXrefs.doc || docId()); return; }
+  if (pk) { e.preventDefault(); peekPage(pk.dataset.peek, pk.dataset.doc || curXrefs.doc || docId()); return; }
   const hot = e.target.closest('[data-comp]');
   if (hot) { e.preventDefault(); showComp(+hot.dataset.comp); return; }
   const cs = e.target.closest('[data-compsearch]');
@@ -3895,8 +3895,50 @@ function partsPageHtml(p, body, inline = false) {
       + (imgs.length > 1 ? 'All parts on this page' : 'Parts on this drawing')
       + `</div>${partLinesHtml(parts, true)}</div>` : '')
     + (rest ? `<div class="src">${renderSource(rest)}</div>` : '')
+    + procsSlot(p)
     + (inline ? `<button type="button" class="ghost popen" ${pageAttrs(p.page_no)}>Open as a page</button>` : '')
     + `</div>`;
+}
+
+// -- Repair procedures for a part ---------------------------------------------
+// A parts page lists the manual's procedures for that part (the user,
+// 2026-10-26: "if i'm looking at a part, is it possible for me to see all
+// repair procedures for that?"). Nothing links the two sources, so the server
+// matches the subgroup's name in the car's manual, its own construction group
+// first (part_procedures.py) -- said here, as it is not the manual's own link.
+// Each opens in the reference pop-up, over the parts page.
+const PARTS_TITLE = /, group (\w+)\s.*? \/ subgroup \w+\s*(.+)$/;
+function procsSlot(p) {
+  const m = PARTS_TITLE.exec(p.title || '');
+  if (!m) return '';                  // an option (SA) page has no group
+  return `<div class="pprocs" data-doc="${esc(viewDoc())}" data-group="${esc(m[1])}"
+            data-name="${esc(m[2].trim())}"></div>`;
+}
+async function fillProcs(root) {
+  for (const el of root.querySelectorAll('.pprocs:not([data-loaded])')) {
+    el.dataset.loaded = '1';
+    const doc = el.dataset.doc;
+    el.innerHTML = `<div class="sechead">Repair procedures</div><span class="spinner"></span>`;
+    let rows;
+    try {
+      rows = await api(`/api/parts/procedures/${encodeURIComponent(doc)}?group=${encodeURIComponent(el.dataset.group)}`
+        + `&name=${encodeURIComponent(el.dataset.name)}`
+        + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
+        + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+    } catch (e) {
+      el.innerHTML = `<div class="sechead">Repair procedures</div><div class="errbox">${esc(e.message)}</div>`;
+      continue;
+    }
+    el.innerHTML = `<div class="sechead">Repair procedures</div>`
+      + (rows.length
+        ? `<div class="muted" style="margin:0 0 6px">Found in this car's manual by the part's name
+             (${esc(el.dataset.name.toLowerCase())}), not a link the manual makes.</div>`
+          + rows.map(r => `<button type="button" class="srcbtn" data-peek="${esc(r.page_no)}" data-doc="${esc(doc)}">`
+              + `<span class="pno">p${esc(r.page_no)}</span><span class="ptitle">${esc(r.title)}`
+              + (r.same_group === false ? '<span class="papplies">Another group of the manual</span>' : '')
+              + `</span></button>`).join('')
+        : `<div class="muted">No procedure in this car's manual matches this part's name.</div>`);
+  }
 }
 // one drawing: shown as it is (a tap that only enlarged it was not wanted);
 // several: each its own dropdown, the first open (the user, 2026-10-23: a
@@ -3924,6 +3966,7 @@ document.addEventListener('toggle', async e => {
     if (p.title && body.trimStart().startsWith(p.title)) body = body.trimStart().slice(p.title.length).trimStart();
     out.innerHTML = withDoc(doc, () => partsPageHtml(p, body, true));
     placeCallouts(out);
+    fillProcs(out);
   } catch (err) {
     delete d.dataset.loaded;
     out.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;

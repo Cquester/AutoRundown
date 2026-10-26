@@ -160,6 +160,7 @@ python tests/test_handoff.py                      # phone -> desk cars: who sees
 python tests/test_history.py                      # question history: answers kept whole, who sees what (~2 s)
 python tests/test_chat.py                         # AI chat follow-ups vs the fake API, who may follow up (~5 s)
 python tests/test_numbers.py                      # typed part / document numbers stay whole; words stay words (<1 s)
+python tests/test_part_procedures.py              # a part's repair procedures: own group first, jobs first (<1 s)
 python tests/test_vin.py                          # VIN check digit, I/O/Q, typos (~5 s)
 python tests/test_vin_scan.py [--n 8]             # Scan VIN on generated barcodes/labels (~1 min, Playwright)
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
@@ -257,6 +258,7 @@ autorundown/
   search.py        BM25 + mandatory vehicle filter, scopes, round-robin merge
   synonyms.py      shop words -> manual words for keyword search
   numbers.py       typed part numbers (one term, every printed form) and document numbers
+  part_procedures.py  a parts subgroup's repair procedures: its group's manual pages by name
   query.py         planner + answerer + citation / other-vehicle checks
   providers.py     the AI providers (Anthropic SDK; Gemini, xAI, DeepSeek over HTTPS),
                    their models, prices, schemas and errors
