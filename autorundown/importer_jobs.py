@@ -383,6 +383,25 @@ def lemon_vehicles(path: Path, index_path: str | Path) -> dict:
     return {"path": str(path), "vehicles": rows, "summary": summary}
 
 
+def lemon_on_disk(doc: str, index_path: str | Path) -> tuple[Path, str] | None:
+    """A LEMON car not in the index whose manual folder is already on this PC
+    -- (archive folder, vehicle folder relative to it) for a `lemon` import
+    job -- or None. Looked for only beside the LEMON manuals the index
+    already holds (each one's archive folder, `vehicles.file_path`'s
+    parent), never anywhere else on the disk."""
+    roots: list[Path] = []
+    for m in manuals(index_path)["lemon"]:
+        if m["file_path"]:
+            for r in (Path(m["file_path"]).parent, Path(m["file_path"]).parent.parent):
+                if r not in roots and r.is_dir() and r.parent != r:
+                    roots.append(r)
+    for root in roots:
+        for v in lemon_vehicles(root, index_path)["vehicles"]:
+            if v["doc_id"] == doc and v["state"] != "imported":
+                return root, v["folder"]
+    return None
+
+
 def manuals(index_path: str | Path) -> dict:
     """What is in the index, grouped the way the Import dialog's tabs remove
     it: LEMON and folder manuals one by one, Mercedes WIS as a whole
