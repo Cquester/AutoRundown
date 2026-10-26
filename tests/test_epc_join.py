@@ -30,7 +30,7 @@ os.environ["AUTORUNDOWN_HOME"] = str(TMP / "home")   # before importing autorund
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from autorundown import index, search, server  # noqa: E402
+from autorundown import index, parts_browse, search, server  # noqa: E402
 from autorundown.query import AnswerModel, _verify_citations, format_passages  # noqa: E402
 import ingest  # noqa: E402
 import test_records  # noqa: E402  (its synthetic WIS corpus)
@@ -207,6 +207,15 @@ def main() -> int:
               shrouds(s26) == ["P7"], shrouds(s26))
         check("the whole series gets one page per subgroup (either catalogue)",
               len(shrouds(all201)) == 1, shrouds(all201))
+        def listed(scope):     # the Parts tab's list (parts_browse), radiator subgroup's pages
+            _, parts = search.split_scope(scope)
+            return sorted(p["page_no"] for s in parts_browse.diagrams(conn, parts)
+                          for g in s["groups"] if g["group"] == "50"
+                          for sub in g["subs"] for p in sub["pages"])
+        check("the Parts list shows a car only its own model code's catalogue (2.3-16 bumpers)",
+              listed(s26) == ["P7"], listed(s26))
+        check("the Parts list for the whole series keeps every catalogue",
+              listed(all201) == ["P6", "P7"], listed(all201))
         alone = search.search(conn, search.scope_ids(e100), "brake pads", 10)
         check("an EPC-only car (W100) searches its own parts",
               [h["page_no"] for h in alone] == ["P4"], [h["page_no"] for h in alone])

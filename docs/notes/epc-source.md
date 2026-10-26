@@ -444,7 +444,12 @@ printed on the drawing ("7C"). No new extraction:
   codes) as chassis / engines / options > group > subgroup, parsed from
   the page titles. A subgroup filed in several catalogs (markets, periods:
   W124 4,178 pages, 582 titles) is one entry listing every page, the one
-  with a drawing first.
+  with a drawing first. With a variant chosen, only the catalogs whose
+  section line lists its model code (`search.parts_codes_clause`, the
+  same check search makes): until 2026-10-26 a 190 E 2.3-16 (201.034)
+  listed all 13 W201 catalogs' bumper pages, a plain 190 E's first, plus
+  the 2.5-16 Evolution I/II bumpers; now its own three (500 Europe, 580
+  USA, 581 Japan -- the same parts).
 - The Parts tab shows that list before a question, and folds it under the
   results after one; each result has its page's first drawing as a
   thumbnail (`/api/search?tab=parts` rows carry `drawings`).

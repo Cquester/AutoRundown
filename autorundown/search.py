@@ -109,6 +109,26 @@ FTS_TABLES = ("chunks_fts", "parts_fts")   # see index.SCHEMA: parts in their ow
 _CODE_GLOB = "*[0-9][0-9][0-9].[0-9][0-9][0-9]*"   # a model code ("126.045") in a section line
 
 
+def parts_codes_clause(codes: tuple = ((), ())) -> tuple[str, list]:
+    """SQL (on `p`, the pages table) keeping only the parts catalogue pages
+    that fit the car's model/engine codes.
+
+    A parts catalogue page names the models it covers in its section line
+    ("MODEL 126 > 126.021, 126.022"); its codes_only is empty. A series has
+    one catalogue per market and period, so a 560 SEC (126.045) asking for
+    its fan shroud got four radiator pages for other 126 models and none of
+    the three listing 126.045 (2026-10-25), and a 190 E 2.3-16's Parts list
+    showed every W201 catalogue's bumpers, Evolution ones included, a plain
+    190 E's first (2026-10-26). A page listing codes must list one of the
+    car's; engine pages ("ENGINE 117") list none and pass. No codes (the
+    whole series): no clause."""
+    mine = (*codes[0], *codes[1])
+    if not mine:
+        return "", []
+    return (f" AND (p.section_path NOT GLOB '{_CODE_GLOB}' OR "
+            + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine) + ")"), list(mine)
+
+
 def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
          include_other_variants: bool, types: str = "",
          engines: tuple[str, ...] = (), codes: tuple = ((), ()),
@@ -164,17 +184,10 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
     if general in doc_ids and not show_damage_codes:
         where += f" AND (c.doc_id != ? OR NOT {_DAMAGE_MENU})"
         args = [*args, general]
-    # A parts catalogue page names the models it covers in its section line
-    # ("MODEL 126 > 126.021, 126.022"); its codes_only is empty. A series has
-    # one catalogue per market and period, so a 560 SEC (126.045) asking for
-    # its fan shroud got four radiator pages for other 126 models and none of
-    # the three listing 126.045 (2026-10-25). A page listing codes must list
-    # one of the car's; engine pages ("ENGINE 117") list none and pass.
-    mine = (*codes[0], *codes[1])
-    if fts == "parts_fts" and mine:
-        where += (f" AND (p.section_path NOT GLOB '{_CODE_GLOB}' OR "
-                  + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine) + ")")
-        args = [*args, *mine]
+    if fts == "parts_fts":
+        pclause, pargs = parts_codes_clause(codes)
+        where += pclause
+        args = [*args, *pargs]
     marks = ",".join("?" for _ in doc_ids)
     sql = f"""
         SELECT * FROM (
