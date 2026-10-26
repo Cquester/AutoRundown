@@ -309,7 +309,11 @@ showed 67-220 but not 67-200 -- fifth in the W201 bucket by a hair of BM25
   `tools/wis_job_numbers.py --index index.db --apply` (dry run without
   `--apply`; 1,312 page rows on the live index; through `index.add_page`, so
   FTS and duplicates stay right, and a second run changes nothing) instead
-  of a `rebuild_wis.py`.
+  of a `rebuild_wis.py`. The four-digit form ("67-0200", as other pages
+  print it in brackets) is looked up instead, through
+  `wis_links.old_job_candidates` (see "Cross-references open their page"
+  below); this line is what makes the manual's own short form findable by
+  search.
 - *Title match*: `search.title_fit` is the share of a title's words the
   search covers (0 unless every searched word is in it; numbers and "model"
   left out), and `_title_rank` multiplies the page's best chunk by
