@@ -17,6 +17,8 @@ import re
 import sqlite3
 from typing import Iterable, Sequence
 
+from . import numbers
+
 # letters of any language: "Ölwanne" was searched as "lwanne". The FTS
 # tokenizer (unicode61) folds the accents on both sides.
 TOKEN_RE = re.compile(r"[^\W_][\w./-]*")
@@ -98,12 +100,15 @@ def build_match(query: str, mode: str = "and") -> str:
     """Build a safe FTS5 MATCH expression.
 
     Every token is double-quoted, which both escapes FTS operators and keeps
-    part numbers like `3.5l` or `f-150` intact as single terms.
+    part numbers like `3.5l` or `f-150` intact as single terms. A typed part
+    number ("A 201 880 25 71") is one term matching every form it is printed
+    in (numbers.fts_terms), not four loose numbers.
     """
-    tokens = tokenize(query)
-    if not tokens:
+    numbered, query = numbers.fts_terms(query)
+    tokens = tokenize(query) if query.strip() else []
+    if not tokens and not numbered:
         return ""
-    quoted = ['"' + t.replace('"', "") + '"' for t in tokens]
+    quoted = numbered + ['"' + t.replace('"', "") + '"' for t in tokens]
     joiner = " AND " if mode == "and" else " OR "
     return joiner.join(quoted)
 
@@ -554,8 +559,12 @@ def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str) -> str:
             if l.strip() and not l.startswith(("Applies to:", "Noted in the manual:"))]
     end = next((i for i, l in enumerate(lines) if l == "Footnotes:"), len(lines))
     table, notes = lines[start + 1:end], lines[end + 1:]
-    terms = [t[:-1] if len(t) > 3 and t.endswith("s") else t
-             for t in tokenize(query) if t not in _PARTS_STOP]
+    # a typed part number is its compact form, which every line carries
+    # ("(A2018802571, 2018802571)"), not its loose digit groups
+    keys = numbers.line_keys(query)
+    rest = numbers.parts(query)[1] if keys else query
+    terms = keys + [t[:-1] if len(t) > 3 and t.endswith("s") else t
+                    for t in (tokenize(rest) if rest.strip() else []) if t not in _PARTS_STOP]
     if not terms:
         return row["body"]
     low = [l.lower() for l in table]

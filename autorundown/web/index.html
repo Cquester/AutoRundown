@@ -297,6 +297,21 @@
   .srcbtn .ptitle{font-size:14px; line-height:1.35}
   .srcbtn .papplies{display:block; color:var(--muted); font-size:12.5px; margin-top:2px}
   .srcbtn .pother{display:block; color:var(--warn); font-size:12.5px; margin-top:2px}
+  /* the reference pop-up: wide, the page as tall as the window allows */
+  #peekDlg{width:min(980px, 96vw)}
+  #peekDlg[open]{height:min(90vh, 1100px); max-height:min(90vh, 1100px)}
+  #peekDlg .dlgbody{flex:1}
+  #peekDlg .peekhead{display:flex; gap:12px; align-items:center; padding-bottom:10px;
+    border-bottom:1px solid var(--line)}
+  #peekDlg .peekvers{margin:10px 0}
+  #peekDlg .peekvers .srcbtn.on{outline:2px solid var(--accent)}
+  #peekDlg .origframe{width:100%; border:0}
+  @media (max-width:700px){
+    #peekDlg{width:100vw; max-width:100vw; border-radius:0; margin:0}
+    #peekDlg[open]{height:100dvh; max-height:100dvh}
+  }
+  .hit .numhit{font-size:12px; font-weight:600; color:var(--accent); margin-bottom:2px}
+  .hit .numhit .pother{color:var(--warn); font-weight:400; margin-left:6px}
   .xrefgroup{scroll-margin-top:12px; border-radius:10px}
   .xrefgroup.flash{outline:2px solid var(--accent); outline-offset:4px}
   .xrefgroup .docnr{font-family:Consolas,monospace; font-size:13px; color:var(--muted); margin-top:10px}
@@ -1428,6 +1443,18 @@
   <div class="row" style="margin-top:16px; justify-content:flex-end">
     <button class="ghost" id="signinLater" hidden>Not now</button>
     <button id="signinGo">Sign in</button>
+  </div>
+</dialog>
+
+<dialog id="peekDlg" class="framed" aria-labelledby="peekTitle">
+  <div class="dlghead peekhead">
+    <button type="button" class="ghost" id="peekBack" hidden>&larr; Back</button>
+    <h3 id="peekTitle" style="margin:0">Referenced page</h3>
+  </div>
+  <div class="dlgbody" id="peekBody"></div>
+  <div class="dlgfoot">
+    <button type="button" class="ghost" id="peekOpenPage">Open as page</button>
+    <button type="button" id="peekClose">Close</button>
   </div>
 </dialog>
 
@@ -2670,7 +2697,7 @@ function inline(s, layout = false) {
   h = h.replace(/\[diagram:\s*([^\]]+)\]/g, (_, n) => imgTag(n.trim()));
   // cross-references the manual itself carried, made followable again
   h = h.replace(/\[\[ref:(\d+)::([^\]]*)\]\]/g,
-    (_, pg, label) => `<button type="button" class="xref" data-page="${esc(pg)}">${label}</button>`);
+    (_, pg, label) => `<button type="button" class="xref" data-peek="${esc(pg)}">${label}</button>`);
   // connector ids are bare text in the manual; link only ids we actually
   // have pages for, so DTC codes and table data do not become dead links
   if (connectorIds.size) {
@@ -3292,6 +3319,8 @@ async function keywordSearch() {
                          + `<b>${esc(alt.query)}</b></div>` : '')
       + (rows.length ? `<div class="card" style="padding:0">` + rows.map(r =>
       `<button type="button" class="hit" ${pageAttrs(r.page_no)}>
+         ${r.number ? `<div class="numhit">Document ${esc(r.number)}${r.outside
+           ? ' <span class="pother">Filed under another model</span>' : ''}</div>` : ''}
          <div class="t">${esc(r.title)}${r.applicability!=='this_vehicle'
            ? ' <span style="color:var(--warn)">[other variant]</span>' : ''}</div>
          <div class="s">${esc(r.section_path)}</div>
@@ -3361,28 +3390,80 @@ function setPageView(original, doc, pageNo) {
 }
 // the drawn page reports its height so the iframe never scrolls inside the pane
 // iframe load events don't bubble; capture them on the panel
-srcout.addEventListener('load', e => { if (e.target.id === 'origFrame') origLoaded(e.target); }, true);
+srcout.addEventListener('load', e => {
+  if (e.target.id !== 'origFrame') return;
+  origLoaded(e.target);
+  markFrameRefs(e.target, curXrefs.list, i => followXref(i));
+}, true);
 addEventListener('message', e => {
-  const fr = $('#origFrame');
-  if (!fr || e.source !== fr.contentWindow || !e.data) return;
+  const fr = [$('#origFrame'), $('#peekFrame')].find(f => f && e.source === f.contentWindow);
+  if (!fr || !e.data) return;
   if (e.data.wisOriginalHeight) fr.style.height = (e.data.wisOriginalHeight + 4) + 'px';
-  // a link inside a LEMON page (html_original.py): open that page here
-  if (/^\d{1,9}$/.test(String(e.data.openPage || ''))) showPage(String(e.data.openPage), fr.dataset.doc);
+  // a link inside a LEMON page (html_original.py): a reference, so it opens
+  // in the pop-up over the page being read
+  if (/^\d{1,9}$/.test(String(e.data.openPage || ''))) {
+    if (fr.id === 'peekFrame') peekOpen({page_no: String(e.data.openPage)}, fr.dataset.doc, true);
+    else peekPage(String(e.data.openPage), fr.dataset.doc);
+  }
 });
 
 // -- WIS cross-references -------------------------------------------------
-// A page names other documents by number ("Refer to: AR42.10-P-0100A"). The
-// server resolves the ones that open a page, the chosen car's variant first;
-// a number with one sensible target opens it, one with several jumps to the
-// "Referenced documents" list, where each variant shows what it applies to.
+// A page names other documents by number ("Refer to: AR42.10-P-0100A", an
+// old manual's "(09-0400)"). The server resolves the ones that open a page,
+// the chosen car's variant first (wis_links.resolve); each opens in the
+// reference pop-up below, where several versions can be picked.
 let curXrefs = {list: [], doc: null};
-const DOCNR_HTML = /\b[A-Z]{2}[0-9]{2}\.[0-9]{2}-[A-Z]{1,2}-[0-9]{3,4}[A-Z]?(?:-[0-9]{2}[A-Z]?)?\b/g;
 
-function linkDocnrs(html, xrefs) {
-  const at = new Map(xrefs.map((x, i) => [x.docnr, i]));
+// exactly the numbers the server resolved, never part of a longer one
+function refPattern(xrefs) {
+  if (!xrefs.length) return null;
+  const alts = xrefs.map(x => x.docnr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .sort((a, b) => b.length - a.length);
+  return new RegExp(`(?<![\\w.-])(?:${alts.join('|')})(?![\\w.-])`, 'g');
+}
+
+function linkDocnrs(html, xrefs, attr = 'data-xref') {
+  const at = new Map(xrefs.map((x, i) => [x.docnr, i])), re = refPattern(xrefs);
+  if (!re) return html;
   // text between tags only, so no attribute is ever rewritten
-  return html.replace(/(^|>)([^<]+)/g, (_, gt, txt) => gt + txt.replace(DOCNR_HTML, m =>
-    at.has(m) ? `<button type="button" class="xref" data-xref="${at.get(m)}">${m}</button>` : m));
+  return html.replace(/(^|>)([^<]+)/g, (_, gt, txt) => gt + txt.replace(re, m =>
+    at.has(m) ? `<button type="button" class="xref" ${attr}="${at.get(m)}">${m}</button>` : m));
+}
+
+// the same numbers inside an "Original layout" frame (same origin, so no
+// script of its own is needed): each becomes a link that calls pick(i) here
+function markFrameRefs(frame, xrefs, pick) {
+  let d;
+  try { d = frame.contentDocument; } catch (_) { return; }
+  const re = refPattern(xrefs);
+  if (!d?.body || !re || d.body.dataset.refsMarked) return;
+  d.body.dataset.refsMarked = '1';
+  const at = new Map(xrefs.map((x, i) => [x.docnr, i]));
+  const walk = d.createTreeWalker(d.body, NodeFilter.SHOW_TEXT), nodes = [];
+  while (walk.nextNode()) {
+    re.lastIndex = 0;
+    if (re.test(walk.currentNode.data)) nodes.push(walk.currentNode);
+  }
+  for (const n of nodes) {
+    const frag = d.createDocumentFragment();
+    let last = 0;
+    n.data.replace(re, (m, off) => {
+      frag.append(n.data.slice(last, off));
+      const a = d.createElement('a');
+      a.textContent = m; a.href = '#'; a.dataset.xri = at.get(m);
+      Object.assign(a.style, {color: 'inherit', textDecoration: 'underline', cursor: 'pointer',
+                              background: 'rgba(255, 196, 0, .35)', borderRadius: '2px'});
+      frag.append(a);
+      last = off + m.length;
+      return m;
+    });
+    frag.append(n.data.slice(last));
+    n.replaceWith(frag);
+  }
+  d.addEventListener('click', e => {
+    const a = e.target.closest?.('[data-xri]');
+    if (a) { e.preventDefault(); pick(+a.dataset.xri); }
+  });
 }
 
 function xrefTarget(x) {
@@ -3398,7 +3479,7 @@ function xrefList(xrefs, doc) {
   return `<div class="sechead">Referenced documents</div>` + xrefs.map((x, i) =>
     `<div class="xrefgroup" id="xref-${i}"><div class="docnr">${esc(x.docnr)}</div>`
     + x.pages.slice(0, 8).map(pg =>
-        `<button class="srcbtn" data-page="${esc(pg.page_no)}" data-doc="${esc(doc)}">`
+        `<button class="srcbtn" data-xref="${i}" data-ver="${esc(pg.page_no)}">`
         + `<span class="pno">p${esc(pg.page_no)}</span><span class="ptitle">${esc(pg.title)}`
         + (x.pages.length > 1 && pg.applies ? `<span class="papplies">${esc(pg.applies)}</span>` : '')
         + (pg.in_scope ? '' : '<span class="pother">Filed under another model</span>')
@@ -3474,16 +3555,146 @@ function searchComp(i) {
   if (narrow()) closeRight();
 }
 
-function followXref(i) {
+function followXref(i, ver = null) {
   const x = curXrefs.list[i];
-  if (!x) return;
-  const t = xrefTarget(x);
-  if (t) { showPage(t.page_no, curXrefs.doc); return; }
-  const g = document.getElementById(`xref-${i}`);
-  if (!g) return;
-  g.scrollIntoView({behavior: 'smooth', block: 'start'});
-  g.classList.add('flash');
-  setTimeout(() => g.classList.remove('flash'), 1600);
+  if (x) peekRef(x, curXrefs.doc, ver);
+}
+
+// -- Reference pop-up -------------------------------------------------------
+// A reference opens its page over the one being read, so closing it leaves
+// you where you were (the user, 2026-10-26: "if a manual has a page for a
+// procedure but references another there should be a link on that page for
+// us to go there maybe have a pop up for that"). A document filed once per
+// model or engine lists every version, the car's own first; "Open as page"
+// makes it the page. References inside the pop-up open in it, with Back.
+const peek = {stack: [], cur: null, seq: 0, xrefs: []};
+function peekRef(x, doc, ver = null) {
+  peek.stack = [];
+  const page = ver || (xrefTarget(x) || x.pages[0]).page_no;
+  peekOpen({docnr: x.docnr, pages: x.pages, page_no: page}, doc);
+}
+function peekPage(pageNo, doc) { peek.stack = []; peekOpen({page_no: String(pageNo)}, doc); }
+
+function peekReading(body, wis, doc) {
+  renderDoc = doc;
+  try { return `<div class="src">${linkDocnrs(renderSource(body, wis), peek.xrefs, 'data-pxref')}</div>`; }
+  finally { renderDoc = null; }
+}
+
+async function peekOpen(item, doc, push = false) {
+  const dlg = $('#peekDlg');
+  doc = doc || docId();
+  if (push && peek.cur) peek.stack.push(peek.cur);
+  peek.cur = {item, doc};
+  const seq = ++peek.seq;
+  $('#peekBack').hidden = !peek.stack.length;
+  $('#peekTitle').textContent = item.docnr ? `Referenced document ${item.docnr}` : 'Referenced page';
+  $('#peekBody').innerHTML = '<span class="spinner"></span>';
+  if (!dlg.open) dlg.showModal();
+  let p;
+  try { p = await api(`/api/page/${encodeURIComponent(doc)}/${encodeURIComponent(item.page_no)}`); }
+  catch (e) {
+    if (seq === peek.seq) $('#peekBody').innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  if (seq !== peek.seq) return;
+  const {body, wis, orig} = pageText(p, doc);
+  peek.xrefs = p.xrefs || [];
+  peek.cur.text = {body, wis};
+  const vers = (item.pages || []).length > 1
+    ? `<div class="peekvers"><div class="muted">${item.pages.length} versions of this document, your car's first:</div>`
+      + item.pages.slice(0, 12).map((pg, i) =>
+          `<button type="button" class="srcbtn${pg.page_no === String(item.page_no) ? ' on' : ''}" data-peekver="${i}">`
+          + `<span class="ptitle">${esc(pg.title)}`
+          + (pg.applies ? `<span class="papplies">${esc(pg.applies)}</span>` : '')
+          + (pg.in_scope ? '' : '<span class="pother">Filed under another model</span>')
+          + `</span></button>`).join('') + `</div>` : '';
+  const html = orig && wantOriginal() && p.doc_type !== 'parts'
+    ? `<iframe class="origframe" id="peekFrame" title="Original layout" data-doc="${esc(doc)}"
+         src="/api/original/${encodeURIComponent(p.doc_id)}/${encodeURIComponent(p.page_no)}"></iframe>`
+    : peekReading(body, wis, doc);
+  $('#peekBody').innerHTML = vers
+    + `<h3 style="margin:6px 0 2px">${esc(p.title)}</h3>
+       <div class="muted" style="margin-bottom:10px">${esc(p.section_path)} · page ${esc(p.page_no)}</div>`
+    + (p.outside_scope ? `<div class="warnbox">This document is filed under <b>${esc(p.outside_scope)}</b>,
+         not under the car you picked. Check that it applies before using its values.</div>` : '')
+    + html;
+  $('#peekBody').scrollTop = 0;
+  $('#peekOpenPage').dataset.page = p.page_no;
+  $('#peekOpenPage').dataset.doc = doc;
+}
+
+// iframe load events don't bubble; capture them on the pop-up's body
+$('#peekBody').addEventListener('load', e => {
+  const fr = e.target;
+  if (fr.id !== 'peekFrame') return;
+  let gone = null;
+  try { gone = fr.contentDocument.querySelector('[data-unavailable]'); } catch (_) {}
+  // no original for this page: its text instead, as the page view does
+  if (gone && peek.cur?.text) {
+    const {body, wis} = peek.cur.text;
+    fr.outerHTML = peekReading(body, wis, peek.cur.doc);
+    return;
+  }
+  markFrameRefs(fr, peek.xrefs, i => peekXref(i));
+}, true);
+function peekXref(i) {
+  const x = peek.xrefs[i];
+  if (x) peekOpen({docnr: x.docnr, pages: x.pages, page_no: (xrefTarget(x) || x.pages[0]).page_no},
+                  peek.cur.doc, true);
+}
+$('#peekDlg').addEventListener('click', e => {
+  const dlg = $('#peekDlg');
+  if (e.target === dlg) { dlg.close(); return; }           // the backdrop
+  const v = e.target.closest('[data-peekver]');
+  if (v) {
+    e.stopPropagation();
+    const {item, doc} = peek.cur;
+    peekOpen({...item, page_no: item.pages[+v.dataset.peekver].page_no}, doc);
+    return;
+  }
+  const x = e.target.closest('[data-pxref]');
+  if (x) { e.preventDefault(); e.stopPropagation(); peekXref(+x.dataset.pxref); return; }
+  const pg = e.target.closest('#peekBody [data-page], #peekBody [data-peek]');
+  if (pg) {
+    e.preventDefault(); e.stopPropagation();
+    peekOpen({page_no: pg.dataset.page || pg.dataset.peek}, pg.dataset.doc || peek.cur.doc, true);
+  }
+}, true);
+$('#peekBack').onclick = () => {
+  const prev = peek.stack.pop();
+  if (prev) peekOpen(prev.item, prev.doc);
+};
+$('#peekClose').onclick = () => $('#peekDlg').close();
+$('#peekOpenPage').onclick = e => {
+  const {page, doc} = e.currentTarget.dataset;
+  $('#peekDlg').close();
+  showPage(page, doc);
+};
+
+// a page's text to read, and what kind of page it is (the page view and the
+// reference pop-up both draw pages)
+function pageText(p, doc) {
+  // the extracted text repeats the page title as its first line
+  let body = p.text || '';
+  if (p.title && body.trimStart().startsWith(p.title)) {
+    body = body.trimStart().slice(p.title.length).trimStart();
+  }
+  // the page may come from a companion bucket (general, engine), so look
+  // up the vehicle that owns it, falling back to the selected one
+  const owner = vehicles.find(x => x.doc_id === p.doc_id)
+             || vehicles.find(x => x.doc_id === doc);
+  // A parts catalogue page is never a WIS page, though its vehicle (joined
+  // into the WIS car, so not in `vehicles`) falls back to the WIS car here:
+  // it has no original layout, and offering one showed an error page.
+  const wis = p.doc_type !== 'parts' && WIS_SOURCE.test(owner?.source_name || '');
+  // WIS pages end with the text read out of their diagrams ("Diagram
+  // labels: N26/15 X63/4 ...") and the figure numbers. That is there to be
+  // searched, not read -- the diagram itself is on the page.
+  if (wis) body = body.split('\n')
+    .filter(l => !/^(Diagram labels|Figures): /.test(l)).join('\n');
+  // WIS redrawn from its layout, a LEMON / folder page as its own HTML
+  return {body, wis, orig: p.has_original ?? wis};
 }
 
 let pageSeq = 0;
@@ -3497,27 +3708,8 @@ async function showPage(pageNo, doc, open = true) {
   try {
     const p = await api(`/api/page/${encodeURIComponent(doc)}/${encodeURIComponent(pageNo)}`);
     if (seq !== pageSeq) return;
-    // the extracted text repeats the page title as its first line
-    let body = p.text || '';
-    if (p.title && body.trimStart().startsWith(p.title)) {
-      body = body.trimStart().slice(p.title.length).trimStart();
-    }
-    // the page may come from a companion bucket (general, engine), so look
-    // up the vehicle that owns it, falling back to the selected one
-    const owner = vehicles.find(x => x.doc_id === p.doc_id)
-               || vehicles.find(x => x.doc_id === doc);
-    // A parts catalogue page is never a WIS page, though its vehicle (joined
-    // into the WIS car, so not in `vehicles`) falls back to the WIS car here:
-    // it has no original layout, and offering one showed an error page.
-    const wis = p.doc_type !== 'parts' && WIS_SOURCE.test(owner?.source_name || '');
-    // WIS redrawn from its layout, a LEMON / folder page as its own HTML
-    const orig = p.has_original ?? wis;
+    let {body, wis, orig} = pageText(p, doc);
     origWis = wis;
-    // WIS pages end with the text read out of their diagrams ("Diagram
-    // labels: N26/15 X63/4 ...") and the figure numbers. That is there to be
-    // searched, not read -- the diagram itself is on the page.
-    if (wis) body = body.split('\n')
-      .filter(l => !/^(Diagram labels|Figures): /.test(l)).join('\n');
     renderDoc = doc;
     // any diagram not already placed inline goes at the end
     const shown = new Set([...(p.text||'').matchAll(/\[diagram:\s*([^\]]+)\]/g)]
@@ -3555,7 +3747,7 @@ async function showPage(pageNo, doc, open = true) {
       + extra.map(imgTag).join('');
     curComps = {list: [], doc};
     if (p.diagram) loadDiagram(seq, doc, p);
-    if (parts) placeCallouts(srcout);
+    if (parts) { placeCallouts(srcout); fillProcs(srcout); }
   } catch (e) {
     if (seq === pageSeq) srcout.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   } finally {
@@ -3567,7 +3759,9 @@ document.addEventListener('click', e => {
   const pg = e.target.closest('[data-page]');
   if (pg) { e.preventDefault(); showPage(pg.dataset.page, pg.dataset.doc); return; }
   const xr = e.target.closest('[data-xref]');
-  if (xr) { e.preventDefault(); followXref(+xr.dataset.xref); return; }
+  if (xr) { e.preventDefault(); followXref(+xr.dataset.xref, xr.dataset.ver || null); return; }
+  const pk = e.target.closest('[data-peek]');
+  if (pk) { e.preventDefault(); peekPage(pk.dataset.peek, pk.dataset.doc || curXrefs.doc || docId()); return; }
   const hot = e.target.closest('[data-comp]');
   if (hot) { e.preventDefault(); showComp(+hot.dataset.comp); return; }
   const cs = e.target.closest('[data-compsearch]');
@@ -3701,8 +3895,50 @@ function partsPageHtml(p, body, inline = false) {
       + (imgs.length > 1 ? 'All parts on this page' : 'Parts on this drawing')
       + `</div>${partLinesHtml(parts, true)}</div>` : '')
     + (rest ? `<div class="src">${renderSource(rest)}</div>` : '')
+    + procsSlot(p)
     + (inline ? `<button type="button" class="ghost popen" ${pageAttrs(p.page_no)}>Open as a page</button>` : '')
     + `</div>`;
+}
+
+// -- Repair procedures for a part ---------------------------------------------
+// A parts page lists the manual's procedures for that part (the user,
+// 2026-10-26: "if i'm looking at a part, is it possible for me to see all
+// repair procedures for that?"). Nothing links the two sources, so the server
+// matches the subgroup's name in the car's manual, its own construction group
+// first (part_procedures.py) -- said here, as it is not the manual's own link.
+// Each opens in the reference pop-up, over the parts page.
+const PARTS_TITLE = /, group (\w+)\s.*? \/ subgroup \w+\s*(.+)$/;
+function procsSlot(p) {
+  const m = PARTS_TITLE.exec(p.title || '');
+  if (!m) return '';                  // an option (SA) page has no group
+  return `<div class="pprocs" data-doc="${esc(viewDoc())}" data-group="${esc(m[1])}"
+            data-name="${esc(m[2].trim())}"></div>`;
+}
+async function fillProcs(root) {
+  for (const el of root.querySelectorAll('.pprocs:not([data-loaded])')) {
+    el.dataset.loaded = '1';
+    const doc = el.dataset.doc;
+    el.innerHTML = `<div class="sechead">Repair procedures</div><span class="spinner"></span>`;
+    let rows;
+    try {
+      rows = await api(`/api/parts/procedures/${encodeURIComponent(doc)}?group=${encodeURIComponent(el.dataset.group)}`
+        + `&name=${encodeURIComponent(el.dataset.name)}`
+        + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
+        + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+    } catch (e) {
+      el.innerHTML = `<div class="sechead">Repair procedures</div><div class="errbox">${esc(e.message)}</div>`;
+      continue;
+    }
+    el.innerHTML = `<div class="sechead">Repair procedures</div>`
+      + (rows.length
+        ? `<div class="muted" style="margin:0 0 6px">Found in this car's manual by the part's name
+             (${esc(el.dataset.name.toLowerCase())}), not a link the manual makes.</div>`
+          + rows.map(r => `<button type="button" class="srcbtn" data-peek="${esc(r.page_no)}" data-doc="${esc(doc)}">`
+              + `<span class="pno">p${esc(r.page_no)}</span><span class="ptitle">${esc(r.title)}`
+              + (r.same_group === false ? '<span class="papplies">Another group of the manual</span>' : '')
+              + `</span></button>`).join('')
+        : `<div class="muted">No procedure in this car's manual matches this part's name.</div>`);
+  }
 }
 // one drawing: shown as it is (a tap that only enlarged it was not wanted);
 // several: each its own dropdown, the first open (the user, 2026-10-23: a
@@ -3730,6 +3966,7 @@ document.addEventListener('toggle', async e => {
     if (p.title && body.trimStart().startsWith(p.title)) body = body.trimStart().slice(p.title.length).trimStart();
     out.innerHTML = withDoc(doc, () => partsPageHtml(p, body, true));
     placeCallouts(out);
+    fillProcs(out);
   } catch (err) {
     delete d.dataset.loaded;
     out.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;

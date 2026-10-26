@@ -433,6 +433,33 @@ so in `caveats` rather than guessing.
    readings made it worse (66%, copies on leader-line stubs). Not good
    enough to point a mechanic at a part, so the user chose the overlay.
 
+## Repair procedures for a part (2026-10-26, the user's request)
+
+"If i'm looking at a part, is it possible for me to see all repair
+procedures for that?" Measured on the 190 E 2.3-16 first: nothing links the
+two sources. Its part numbers can't (7 of 9,864 are printed anywhere in its
+WIS pages); group plus a shared title word found something for 20-37% of
+subgroups and missed REAR BUMPER (a scanned page, no text); a manual search
+by the subgroup's name 90%, noisy (ENGINE HOOD -> an EGR valve page).
+`part_procedures.py`, `/api/parts/procedures/{doc}?group=&name=`:
+- the part's own construction group's pages, from the car's Manual contents
+  tree (`manual_browse.tree`, cached; EPC group 88 = WIS 88, old job
+  numbers too), whose title shares one word of the name;
+- plus a manual search per part of the name ("OIL PAN & OIL LEVEL DISPLAY"
+  is two), whose pages from other groups must share two words ("PANE
+  WASHER" is not a gear's thrust washer) -- one in a manual with no groups;
+- own group first, real jobs (remove / install / replace) before tests and
+  descriptions, then shared words, "rear"/"front" breaking ties; special
+  tools' pages and duplicate titles out; at most 6.
+On the 2.3-16: 205 of 231 subgroups get procedures, 161 led by a job of the
+part's own group (rear bumper -> 88-0220, front wheel brake -> brake pads
+and disc jobs, oil pan -> both oil sump jobs; "oil pan" -> "oil sump" added
+to `synonyms.py`); ~0.1-1 s per subgroup. Shown under every parts page and
+Parts dropdown as "Repair procedures", said to be "found by the part's name,
+not a link the manual makes"; each opens in the reference pop-up. Tests:
+`tests/test_part_procedures.py` (ranking), `tests/test_parts_diagrams.py`
+(endpoint).
+
 ## Parts diagrams (built 2026-10-17, the user's request)
 
 The extract already had the drawings (PNG, ~46k, 1.5 GB) in each parts
@@ -476,6 +503,29 @@ PROPELLER SHAFT or AXLE SHAFT). Tests: `tests/test_synonyms.py`, and "sway
 bar" finding the sample STABILIZER line in `tests/test_parts_diagrams.py`.
 A parts page has "Back to Parts", which returns to the list with its groups
 still open.
+
+**Searching by number (2026-10-26, the user: "searching by manual
+numbers").** Measured on the real index first: `A2018802571` found the 190 E
+2.3-16 rear bumper, but `A 201 880 25 71` -- as the catalogue and WIS print
+it -- was searched as the loose words 201, 880, 25, 71 (an oil sump and a
+fuel tank page); `AR20.10-P-1271A` came at rank 0-5 behind pages naming it;
+the W201's old job number `88-0220` found nothing (a scanned page).
+- `numbers.py`: a typed part number becomes one FTS term matching every
+  form it is printed in -- EPC's "A 201 880 25 71 (A2018802571,
+  2018802571)" and WIS's spaced text -- in `search.build_match`, so Keyword
+  search, the Parts tab and the AI's own searches all get it. The start of a
+  number ("A 201 880") is a prefix. Without the "A" a part needs ten digits
+  or to be the whole query ("190 E 2.3 16" stays words). A parts page shows
+  the lines carrying that number (`line_keys`), not every line with "25".
+- Document numbers are looked up, not searched: `wis_links.pages_for` (now
+  also old job numbers, `old_job_candidates`: "ra" + group + five-digit
+  vehicle code + job, e.g. ra88002010220z = 88-0220 for model 201), the
+  car's own version first, others marked "Filed under another model", at
+  the top of Keyword search (`number` on the row). A number WIS doesn't
+  have for the car is never guessed: 09-0400 (air cleaner) exists only for
+  engines 116/117 and 601-603, so a 2.3-16 gets those two, marked.
+- Tests: `tests/test_numbers.py`, part numbers in `tests/test_epc_join.py`,
+  document numbers in `tests/test_wis_links.py`.
 
 **Spellings (2026-10-23).** A W201 "Front window molding clip" Ask came
 back not found although CLIP, GARNISH MOULDING BELOW WINDSHIELD

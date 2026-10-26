@@ -335,7 +335,11 @@ switch between them without losing either:
   pages the chat already used are sent again so the test stays in view. Each
   message is one AI call; a chat holds 10 follow-ups, and **New chat** starts
   another.
-- **Keyword search**: the manual's own words, free, no AI.
+- **Keyword search**: the manual's own words, free, no AI. Numbers work too:
+  a part number as printed (`A 201 880 25 71`, `A2018802571`, or its start,
+  `A 201 880`) finds the parts that carry it, and a manual document number
+  (`AR20.10-P-1271A`, or an older manual's job number such as `88-0220`)
+  opens that document first, your car's version before other models'.
 
 One question fills every source at once. The answer (or the search's
 matching pages) stays on the left; the **right box** has a tab for
@@ -350,7 +354,7 @@ chose:
 | Tab | Shows |
 |---|---|
 | **Manual page** | Before a question: **your car's manual as contents** -- a Mercedes WIS car by function group and subgroup (42 Brakes - hydraulic and mechanical systems > 42.10 Service brake > its documents; names from WIS, pulled with the vehicle tables), other manuals by their own chapters; open a section, then a page (**← Manual contents** goes back with your sections still open). After a question: the page the answer points at, or any page you open. |
-| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one and its exploded drawing and parts list show right there; tap a number on the drawing to mark that part in the list, or a part in the list to mark its number on the drawing (the picked number turns red, as in Mercedes' viewer; tap more numbers to pick several, tap one again or Clear to drop it). A page with several drawings puts each in its own dropdown with the parts printed on that drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- each page's drawing and full list one tap away, and the diagrams folded underneath. |
+| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one and its exploded drawing and parts list show right there; tap a number on the drawing to mark that part in the list, or a part in the list to mark its number on the drawing (the picked number turns red, as in Mercedes' viewer; tap more numbers to pick several, tap one again or Clear to drop it). A page with several drawings puts each in its own dropdown with the parts printed on that drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- each page's drawing and full list one tap away, and the diagrams folded underneath. Under every parts drawing, **Repair procedures**: the manual's jobs for that part (rear bumper: "Removal and installation of rear bumper"), found by the part's name in your car's manual, its own group first -- a match by name, not a link the manual makes; each opens in a pop-up. |
 | **Labour times** | Mercedes flat-rate times for the exact model (WIS) -- empty until you ask or search, then the job itself (both versions where an automatic and a manual gearbox differ), with any other operations that mention it folded away below. |
 | **Capacities** | On top, **Fluids for your car** (WIS, once you pick the model or engine): engine oil with its Mercedes oil sheets (MB 229.x), coolant, axles, transfer case, power steering, brake fluid, refrigerant, fuel tank -- each in your car's column of WIS's capacity sheets. Below, the capacities on this job's pages. |
 | **Torque specs** | The torque values of this job, part then specification: on the answer's pages (or the top search hits) and, for WIS, on the procedures they link to ("remove the oil pan bottom section" brings its bolts). |
@@ -449,7 +453,13 @@ call is involved in either.
 
 **The manual's own cross-references.** "Refer to: Interior Lamps for schematic
 and connector information" was a real link in the source HTML. Those are
-preserved and clickable, plus listed under "Referenced pages".
+preserved and clickable, plus listed under "Referenced pages". A Mercedes WIS
+page's references to other documents ("AR42.10-P-0100A", or an older manual's
+"Removing and installing air cleaner (09-0400)") are links too, in both
+Reading view and Original layout. Any reference opens the page in a pop-up
+over the one you are reading: pick another model's version if the document
+has several (your car's first), follow references inside it with Back, or
+"Open as page".
 
 **Connector IDs.** `C906` appears as bare text, but the archive files its
 pinout and its physical location on two separate pages. Those are indexed by

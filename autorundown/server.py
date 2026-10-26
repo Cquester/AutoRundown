@@ -34,10 +34,10 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from . import search as search_mod
-from . import auth, config, handoff, history, index, providers, qr, query, tls
-from . import (autostart, html_original, importer_jobs, lemon_catalogue, manual_browse, parts_browse, synonyms, tab_values,
-               wis_links, wis_original)
-from .search import (get_page, part_lines, scope_ids, search, split_scope, value_lines,
+from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
+from . import (autostart, html_original, importer_jobs, lemon_catalogue, manual_browse, part_procedures,
+               parts_browse, synonyms, tab_values, wis_links, wis_original)
+from .search import (as_ids, get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
 
 jobs = importer_jobs.ImportJobs()
@@ -732,6 +732,20 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # the query that found it, so a query whose words are not in its
             # value lines must not hide the row another query would give
             seen, out = set(), []
+            # a typed WIS document number ("AR20.10-P-1271A", or an old job
+            # number "88-0220") is looked up, not searched: its page first,
+            # the car's own version before other models' (numbers.py)
+            if tab == "workshop" and _is_wis(vehicle):
+                for printed in numbers.documents(q)[:3]:
+                    for pg in wis_links.pages_for(conn, Path(vehicle["file_path"]), printed,
+                                                  as_ids(manual), _corpus_ids(conn, vehicle))[:4]:
+                        if pg["page_no"] in seen:
+                            continue
+                        seen.add(pg["page_no"])
+                        out.append({"page_no": pg["page_no"], "doc_id": pg["doc_id"],
+                                    "title": pg["title"], "section_path": pg["applies"],
+                                    "applicability": "this_vehicle", "number": printed,
+                                    "outside": not pg["in_scope"]})
             for r in rows:
                 if r["page_no"] in seen:
                     continue
@@ -933,6 +947,23 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             conn.close()
         return _etagged(request, json.dumps(rows, separators=(",", ":")).encode(),
                         "application/json")
+
+    @app.get("/api/parts/procedures/{doc_id}")
+    def api_part_procedures(doc_id: str, group: str = Query(pattern=r"^\w{1,4}$"),
+                            name: str = Query(min_length=1, max_length=200),
+                            variant: int | None = None,
+                            engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """The car's repair procedures for a parts subgroup: its own
+        construction group's manual pages sharing a word with the name, then
+        others sharing two (part_procedures.py). Matched by name, not a link
+        the manual makes. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            return part_procedures.procedures(conn, vehicle, manual, _is_wis(vehicle), group, name)
+        finally:
+            conn.close()
 
     @app.get("/api/manual/contents/{doc_id}")
     def api_manual_contents(doc_id: str, variant: int | None = None,

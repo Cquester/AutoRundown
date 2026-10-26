@@ -52,6 +52,11 @@ def main() -> int:
         # an ordinary unfiled document sharing its word
         with (cdir / "records.jsonl").open("a", encoding="utf-8", newline="\n") as f:
             for r in (test_records.rec(99026283, "Connecting rod, piston", "argt0 ;; 03305 quuxrod"),
+                      # an old manual's page citing jobs by number (wis_links.printed_numbers)
+                      test_records.rec(1002352, "0210 - Disassembly of bumpers",
+                                       "Preceding work: Removing and installing bumper (88-0220). "
+                                       "Not a reference: 10-2015 and a range 12-2000 in text; "
+                                       "(88-0221, 88-0220) again", series=["176"]),
                       test_records.rec(1002350, "Notes on quuxrod bolts", "quuxrod bolts text")):
                 f.write(json.dumps(r) + "\n")
         idx = TMP / "index.db"
@@ -109,6 +114,43 @@ def main() -> int:
               app.get(f"/api/original/{c176}/1002306").status_code in (200, 404), True)
         check("an unknown page is still 404",
               app.get(f"/api/page/{c176}/9999999").status_code, 404)
+
+        print("searching by document number (numbers.py)")
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executemany("INSERT INTO docnr VALUES (?,?,?)", [
+                ("ra88001760220z", 4, 1002297),    # old job 88-0220 for model 176
+                ("ra88002460220z", 5, 1002304),    # ... for model 246
+                ("ra88002460221z", 6, 1002306),    # another job: never
+            ])
+        check("an old job number: every model's document, no other job",
+              wis_links.old_job_candidates(cdir, "88-0220"), [1002297, 1002304])
+
+        def numbered(q):
+            rows = app.get("/api/search", params={"doc_id": c176, "q": q}).json()
+            return [(r["page_no"], r.get("number"), r.get("outside")) for r in rows if r.get("number")]
+        check("a typed document number opens its page first, the car's own version first",
+              numbered("AR42.10-P-0100A"),
+              [("1002297", "AR42.10-P-0100A", False), ("1002304", "AR42.10-P-0100A", True)])
+        check("typed in lower case too", numbered("ar42.10-p-0100a")[:1],
+              [("1002297", "AR42.10-P-0100A", False)])
+        check("an old job number the same way", numbered("88-0220"),
+              [("1002297", "88-0220", False), ("1002304", "88-0220", True)])
+        rows = app.get("/api/search", params={"doc_id": c176, "q": "88-0220"}).json()
+        check("each page once", len({r["page_no"] for r in rows}), len(rows))
+        check("an unknown number adds nothing", numbered("88-9999"), [])
+
+        print("old job numbers on a page (wis_links.printed_numbers / resolve)")
+        check("bracketed job numbers only, in order, once each",
+              wis_links.printed_numbers("x (88-0220). 10-2015 y (88-0221, 88-0220) AR42.10-P-0100A"),
+              ["88-0220", "88-0221", "AR42.10-P-0100A"])
+        x = app.get(f"/api/page/{c176}/1002352").json()["xrefs"]
+        check("an old reference resolves, the car's own version first",
+              [(r["docnr"], [(p["page_no"], p["in_scope"]) for p in r["pages"]]) for r in x],
+              [("88-0220", [("1002297", True), ("1002304", False)]),
+               ("88-0221", [("1002306", False)])])        # filed for another model only
+        check("only on the manual's tab",
+              [r for r in app.get("/api/search", params={"doc_id": c176, "q": "88-0220",
+                                                          "tab": "parts"}).json() if r.get("number")], [])
 
         print("wiring diagrams, oil")
         c201 = ids["201"]
