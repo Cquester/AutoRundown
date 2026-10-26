@@ -297,6 +297,8 @@
   .srcbtn .ptitle{font-size:14px; line-height:1.35}
   .srcbtn .papplies{display:block; color:var(--muted); font-size:12.5px; margin-top:2px}
   .srcbtn .pother{display:block; color:var(--warn); font-size:12.5px; margin-top:2px}
+  .hit .numhit{font-size:12px; font-weight:600; color:var(--accent); margin-bottom:2px}
+  .hit .numhit .pother{color:var(--warn); font-weight:400; margin-left:6px}
   .xrefgroup{scroll-margin-top:12px; border-radius:10px}
   .xrefgroup.flash{outline:2px solid var(--accent); outline-offset:4px}
   .xrefgroup .docnr{font-family:Consolas,monospace; font-size:13px; color:var(--muted); margin-top:10px}
@@ -3292,6 +3294,8 @@ async function keywordSearch() {
                          + `<b>${esc(alt.query)}</b></div>` : '')
       + (rows.length ? `<div class="card" style="padding:0">` + rows.map(r =>
       `<button type="button" class="hit" ${pageAttrs(r.page_no)}>
+         ${r.number ? `<div class="numhit">Document ${esc(r.number)}${r.outside
+           ? ' <span class="pother">Filed under another model</span>' : ''}</div>` : ''}
          <div class="t">${esc(r.title)}${r.applicability!=='this_vehicle'
            ? ' <span style="color:var(--warn)">[other variant]</span>' : ''}</div>
          <div class="s">${esc(r.section_path)}</div>

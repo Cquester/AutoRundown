@@ -108,6 +108,26 @@ def candidates(corpus: Path, printed: str) -> list[int]:
                    or docnr == key})
 
 
+# The old manuals' job numbers ("Removing and installing air cleaner
+# (09-0400)") are stored as "ra" + group + a five-digit vehicle code + job
+# + letters: "ra88002010220z" is job 88-0220 filed for model 201 (00201),
+# "ra01981020310x" job 01-0310 for engine 102 (98102). One printed job number
+# is one document per model or engine (2,605 numbers, 5,239 documents), so,
+# as for modern numbers, the car's own version is picked by its scope.
+_OLD_STORED = re.compile(r"^ra(\d{2})(\d{5})(\d{4})[a-z]*$")
+
+
+def old_job_candidates(corpus: Path, printed: str) -> list[int]:
+    """DokIDs an old job number ("09-0400") can mean, every model's."""
+    m = re.fullmatch(r"(\d{2})-(\d{4})", printed.strip())
+    if not m:
+        return []
+    rows = _rows(corpus, "SELECT docnr, dok_id FROM docnr WHERE docnr >= ? AND docnr < ?",
+                 (f"ra{m[1]}", f"ra{m[1]}{{")) or []
+    return sorted({dok for docnr, dok in rows
+                   if (x := _OLD_STORED.match(docnr)) and x[3] == m[2]})
+
+
 def linked_pages(conn: sqlite3.Connection, corpus: Path, pages: list[dict],
                  scope: list[str], wis_ids: list[str], prefixes: tuple[str, ...],
                  limit: int) -> list[tuple[dict, str]]:
@@ -145,11 +165,14 @@ def capacity_sheets(corpus: Path) -> dict[str, str]:
 
 def pages_for(conn: sqlite3.Connection, corpus: Path, printed: str,
               scope: list[str], wis_ids: list[str], own_page: str = "") -> list[dict]:
-    """The pages a document number opens: [{page_no, title, applies, doc_id,
+    """The pages a document number opens -- modern ("AR42.10-P-0100A") or an
+    old job number ("09-0400") -- [{page_no, title, applies, doc_id,
     in_scope}], the chosen car's scope first (in scope order), then the same
     document filed under other models. Looked up in `wis_ids` only -- the
     doc_ids of this corpus's vehicles."""
-    doks = [str(d) for d in candidates(corpus, printed) if str(d) != own_page]
+    old = re.fullmatch(r"\d{2}-\d{4}", printed.strip())
+    doks = [str(d) for d in (old_job_candidates if old else candidates)(corpus, printed)
+            if str(d) != own_page]
     if not doks or not wis_ids:
         return []
     rows = conn.execute(
