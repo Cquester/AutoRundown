@@ -207,6 +207,17 @@ def main() -> int:
               shrouds(s26) == ["P7"], shrouds(s26))
         check("the whole series gets one page per subgroup (either catalogue)",
               len(shrouds(all201)) == 1, shrouds(all201))
+        # a part number in any printed form finds its line, never loose digits
+        # (numbers.py; "A 201 880 25 71" found an oil sump page, 2026-10-26)
+        for typed in ("A 004 159 52 03", "A0041595203", "0041595203", "004 159 52 03",
+                      "spark plug A 004 159 52 03"):
+            got = [h for h in search.search(conn, s102, typed, 10) if h.get("parts")]
+            check(f"part number {typed!r} finds its page and line",
+                  [h["page_no"] for h in got] == ["P5"] and "PLATINUM" in got[0]["body"]
+                  and "A 004 159 51 03 (" not in got[0]["body"].split("matching")[-1],
+                  [(h["page_no"], h["body"][-200:]) for h in got])
+        got = [h["page_no"] for h in search.search(conn, s102, "A 004 159", 10) if h.get("parts")]
+        check("the start of a number finds the numbers it starts", got == ["P5"], got)
         def listed(scope):     # the Parts tab's list (parts_browse), radiator subgroup's pages
             _, parts = search.split_scope(scope)
             return sorted(p["page_no"] for s in parts_browse.diagrams(conn, parts)

@@ -477,6 +477,29 @@ bar" finding the sample STABILIZER line in `tests/test_parts_diagrams.py`.
 A parts page has "Back to Parts", which returns to the list with its groups
 still open.
 
+**Searching by number (2026-10-26, the user: "searching by manual
+numbers").** Measured on the real index first: `A2018802571` found the 190 E
+2.3-16 rear bumper, but `A 201 880 25 71` -- as the catalogue and WIS print
+it -- was searched as the loose words 201, 880, 25, 71 (an oil sump and a
+fuel tank page); `AR20.10-P-1271A` came at rank 0-5 behind pages naming it;
+the W201's old job number `88-0220` found nothing (a scanned page).
+- `numbers.py`: a typed part number becomes one FTS term matching every
+  form it is printed in -- EPC's "A 201 880 25 71 (A2018802571,
+  2018802571)" and WIS's spaced text -- in `search.build_match`, so Keyword
+  search, the Parts tab and the AI's own searches all get it. The start of a
+  number ("A 201 880") is a prefix. Without the "A" a part needs ten digits
+  or to be the whole query ("190 E 2.3 16" stays words). A parts page shows
+  the lines carrying that number (`line_keys`), not every line with "25".
+- Document numbers are looked up, not searched: `wis_links.pages_for` (now
+  also old job numbers, `old_job_candidates`: "ra" + group + five-digit
+  vehicle code + job, e.g. ra88002010220z = 88-0220 for model 201), the
+  car's own version first, others marked "Filed under another model", at
+  the top of Keyword search (`number` on the row). A number WIS doesn't
+  have for the car is never guessed: 09-0400 (air cleaner) exists only for
+  engines 116/117 and 601-603, so a 2.3-16 gets those two, marked.
+- Tests: `tests/test_numbers.py`, part numbers in `tests/test_epc_join.py`,
+  document numbers in `tests/test_wis_links.py`.
+
 **Spellings (2026-10-23).** A W201 "Front window molding clip" Ask came
 back not found although CLIP, GARNISH MOULDING BELOW WINDSHIELD
 (A 201 988 05 78) is in the catalogue: parts passages *do* reach the

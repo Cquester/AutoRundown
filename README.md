@@ -335,7 +335,11 @@ switch between them without losing either:
   pages the chat already used are sent again so the test stays in view. Each
   message is one AI call; a chat holds 10 follow-ups, and **New chat** starts
   another.
-- **Keyword search**: the manual's own words, free, no AI.
+- **Keyword search**: the manual's own words, free, no AI. Numbers work too:
+  a part number as printed (`A 201 880 25 71`, `A2018802571`, or its start,
+  `A 201 880`) finds the parts that carry it, and a manual document number
+  (`AR20.10-P-1271A`, or an older manual's job number such as `88-0220`)
+  opens that document first, your car's version before other models'.
 
 One question fills every source at once. The answer (or the search's
 matching pages) stays on the left; the **right box** has a tab for

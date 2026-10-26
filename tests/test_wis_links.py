@@ -110,6 +110,33 @@ def main() -> int:
         check("an unknown page is still 404",
               app.get(f"/api/page/{c176}/9999999").status_code, 404)
 
+        print("searching by document number (numbers.py)")
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executemany("INSERT INTO docnr VALUES (?,?,?)", [
+                ("ra88001760220z", 4, 1002297),    # old job 88-0220 for model 176
+                ("ra88002460220z", 5, 1002304),    # ... for model 246
+                ("ra88002460221z", 6, 1002306),    # another job: never
+            ])
+        check("an old job number: every model's document, no other job",
+              wis_links.old_job_candidates(cdir, "88-0220"), [1002297, 1002304])
+
+        def numbered(q):
+            rows = app.get("/api/search", params={"doc_id": c176, "q": q}).json()
+            return [(r["page_no"], r.get("number"), r.get("outside")) for r in rows if r.get("number")]
+        check("a typed document number opens its page first, the car's own version first",
+              numbered("AR42.10-P-0100A"),
+              [("1002297", "AR42.10-P-0100A", False), ("1002304", "AR42.10-P-0100A", True)])
+        check("typed in lower case too", numbered("ar42.10-p-0100a")[:1],
+              [("1002297", "AR42.10-P-0100A", False)])
+        check("an old job number the same way", numbered("88-0220"),
+              [("1002297", "88-0220", False), ("1002304", "88-0220", True)])
+        rows = app.get("/api/search", params={"doc_id": c176, "q": "88-0220"}).json()
+        check("each page once", len({r["page_no"] for r in rows}), len(rows))
+        check("an unknown number adds nothing", numbered("88-9999"), [])
+        check("only on the manual's tab",
+              [r for r in app.get("/api/search", params={"doc_id": c176, "q": "88-0220",
+                                                          "tab": "parts"}).json() if r.get("number")], [])
+
         print("wiring diagrams, oil")
         c201 = ids["201"]
         check("no diagram data: the page says so", page.get("diagram"), False)
