@@ -28,6 +28,64 @@ STOPWORDS = {
 # (title, section_path, body) -- SQLite BM25: lower score = better match
 WEIGHTS = (6.0, 3.0, 1.0)
 CODE_BOOST = 1.35  # see _run: pages naming the chosen car's exact engine codes
+TITLE_BOOST = 0.05  # see _title_rank: a title that is the query, up to x1.05
+TITLE_WORDS = 3    # fewer words: no title boost (see _title_rank)
+
+
+def _same_word(a: str, b: str) -> bool:
+    # "remove" / "removal", "installing" / "installation": the FTS porter
+    # stemmer already matched them, so the title check must too
+    return a == b or (len(a) >= 5 and len(b) >= 5 and a[:5] == b[:5])
+
+
+def title_fit(query: str, title: str) -> float:
+    """How much of `title` the query is, 0..1; 0 unless every word is in it.
+
+    BM25 hardly tells "Removal and installation of the rear window" from
+    "... of the window opener in rear door" -- both hold all four words, and a
+    scanned page (no text, three image names) scores a hair worse than one
+    image. On the W201 that left 67-200 fifth in its bucket, off the 12-row
+    list (2026-10-26). The share of the title's words the query covers is
+    what sets them apart. Numbers ("0200", "201") and "model" are left out of
+    the share: WIS pads its titles with "Model 201".
+    """
+    words = [t.lower() for t in TOKEN_RE.findall(title or "")]
+    tokens = tokenize(query)
+    if not tokens or not all(any(_same_word(t, w) for w in words) for t in tokens):
+        return 0.0
+    named = [w for w in words if w not in STOPWORDS and not any(ch.isdigit() for ch in w)
+             and w not in ("model", "models")]
+    if not named:
+        return 1.0
+    return sum(1 for w in named if any(_same_word(t, w) for t in tokens)) / len(named)
+
+
+def _title_rank(rows: list[dict], query: str, limit: int) -> list[dict]:
+    """Re-rank fetched rows by `title_fit`, keep the best `limit`. Callers
+    fetch twice `limit`, so a title match from just below the cut gets in.
+
+    A tie-breaker, not a ranking of its own, and only on the page's best
+    chunk. Measured with eval_wis (2026-10-26): x1.5 let one long page take
+    three of the ten rows (every chunk boosted) and put "Cleaning the brake
+    discs using cleaning pads" over the W124's brake pad pages; even x1.1
+    lifted other engines' "Removing and installing cylinder head" pages from
+    the engine buckets (a known-bad guard) for a whole-series W124. x1.05
+    with three or more words keeps every case, lifts four (W140 brake pads
+    4 -> 1, F-150 caliper and coil 2 -> 1), and puts 67-200 first for its
+    own title. On two-word searches it cost ranks ("timing chain" for a
+    C 230: 2 -> 8, "Replace timing chain" over "Timing chain drive"): a
+    short search names a part, not a page title."""
+    if TITLE_BOOST and len(tokenize(query)) >= TITLE_WORDS:
+        boosted: set[str] = set()
+        for r in rows:          # best first, as fetched
+            if r["page_uid"] in boosted:
+                continue
+            fit = title_fit(query, r.get("title") or "")
+            if fit:
+                boosted.add(r["page_uid"])
+                r["score"] = r["score"] * (1 + TITLE_BOOST * fit)
+        rows.sort(key=lambda r: r["score"])
+    return rows[:limit]
 
 
 def tokenize(query: str) -> list[str]:
@@ -223,8 +281,12 @@ def _search_scope(conn: sqlite3.Connection, doc_ids: list[str], query: str, limi
     """`_search_one` for every doc_id of a scope, in two statements: AND
     first, then OR only for the doc_ids that came up short. Returns the lists
     in `doc_ids` order, exactly as one `_search_one` per doc_id would."""
-    lists = _run_scope(conn, doc_ids, build_match(query, "and"), limit,
+    # parts titles are catalog/group/subgroup lines, never the query: not re-ranked
+    titled = fts == "chunks_fts"
+    lists = _run_scope(conn, doc_ids, build_match(query, "and"), limit * 2 if titled else limit,
                        include_other_variants, types, general, engines, codes, fts)
+    if titled:
+        lists = {d: _title_rank(rows, query, limit) for d, rows in lists.items()}
     short = [d for d in doc_ids if len(lists.get(d, [])) < limit]
     if short:
         more = _run_scope(conn, short, build_match(query, "or"), limit * 2,
@@ -370,7 +432,8 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
     for raw in (row[1] or "").split("\n"):
         line = " ".join(raw.split())
         if not line or line.startswith(("Applies to:", "Noted in the manual:", "Validity:",
-                                        "Diagram labels:", "Figures:", "Refer to:")):
+                                        "Diagram labels:", "Figures:", "Refer to:",
+                                        "Job no.:")):
             continue
         # a flattened WIS table row: "Nm 20 – Oil level sensor on oil pan top
         # part" -- the 20 Nm is the previous line's part (the screw plug), the
@@ -612,8 +675,8 @@ def _search_one(conn: sqlite3.Connection, doc_id: str, query: str, limit: int,
 
     Pages belonging to a different trim or engine are excluded by default.
     """
-    results = _run(conn, doc_id, build_match(query, "and"), limit,
-                   include_other_variants, types, engines, codes)
+    results = _title_rank(_run(conn, doc_id, build_match(query, "and"), limit * 2,
+                               include_other_variants, types, engines, codes), query, limit)
     if len(results) < limit:
         seen = {r["page_uid"] + str(r["ord"]) for r in results}
         for row in _run(conn, doc_id, build_match(query, "or"), limit * 2,

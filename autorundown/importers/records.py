@@ -659,6 +659,32 @@ def sample_names(variants: list[dict], n: int = 3) -> str:
     return ", ".join(dict.fromkeys(picks)) + " …"
 
 
+# The old printed manuals' job number ("67-200": group 67, job 200) is on the
+# scanned page, never in the text. WIS's figure names carry it: "ra" + group
+# + model (5) + job (4) + sheet (4) + letter -- ra670020102000002p is group 67,
+# model 201, job 0200 -- and the title leads with the job ("0200 - Removal and
+# installation of the rear window"). Of 1,128 English records with both, 1,124
+# agree; the 4 that don't are a figure reused from another job, so a number is
+# only given when the two agree. Titles numbered "2.1 - ..." (123 records, a
+# book's chapter numbering) get none.
+_OLD_FIGURE_RE = re.compile(r"^ra(\d{2})\d{5}(\d{4})\d{4}[a-z]$")
+_TITLE_JOB_RE = re.compile(r"^\s*(\d{4})\s*-\s")
+
+
+def job_numbers(title: str, figure_nrs: list[str]) -> list[str]:
+    """["67-200"], as the old manuals print it, or [] (see _OLD_FIGURE_RE)."""
+    m = _TITLE_JOB_RE.match(title or "")
+    if not m:
+        return []
+    job = m.group(1)
+    out = []
+    for nr in figure_nrs:
+        f = _OLD_FIGURE_RE.match(nr or "")
+        if f and f.group(2) == job:
+            out.append(f"{f.group(1)}-{job[1:] if job.startswith('0') else job}")
+    return list(dict.fromkeys(out))
+
+
 def _page_text(rec: dict, catalogue=None, trust_structured: bool = True,
                images: list[str] | None = None) -> str:
     """Body plus the two things worth making searchable alongside it.
@@ -711,6 +737,11 @@ def _page_text(rec: dict, catalogue=None, trust_structured: bool = True,
         parts.append("Diagram labels: " + labels)
     if rec.get("image_files"):
         nrs = [g.get("graphik_nr") for g in (rec.get("figures") or []) if g.get("graphik_nr")]
+        # shown on the page too (the Figures line is hidden): it is the number
+        # the mechanic knows the job by, and "67-200" is an FTS phrase "67 200"
+        jobs = job_numbers(rec.get("title") or "", nrs)
+        if jobs:
+            parts.append("Job no.: " + ", ".join(jobs))
         if nrs:
             parts.append("Figures: " + ", ".join(dict.fromkeys(nrs)))
     return "\n\n".join(parts)
