@@ -192,15 +192,32 @@ def pages_for(conn: sqlite3.Connection, corpus: Path, printed: str,
             for p, (r, d, t, sec) in sorted(best.items(), key=lambda kv: (kv[1][0], kv[0]))]
 
 
+# an old manual's reference: "Removing and installing air cleaner (09-0400)",
+# "(01-0006, 32-0300)" -- job numbers inside brackets only, so a date or a
+# range in running text is never taken for one (3,866 on 1,391 WIS pages;
+# 84% name a stored document, measured 2026-10-26)
+_BRACKETS = re.compile(r"\(([^()]{7,120})\)")
+_OLD_JOB = re.compile(r"(?<![\w.-])\d{2}-\d{4}(?![\w.-])")
+
+
+def printed_numbers(text: str) -> list[str]:
+    """The document numbers printed in `text`, in order of first mention:
+    modern ("AR42.10-P-0100A") and old job numbers in brackets ("09-0400")."""
+    found = [(m.start(), m.group(0)) for m in DOCNR_RE.finditer(text or "")]
+    for b in _BRACKETS.finditer(text or ""):
+        found += [(b.start(1) + m.start(), m.group(0)) for m in _OLD_JOB.finditer(b.group(1))]
+    return list(dict.fromkeys(n for _, n in sorted(found)))
+
+
 def resolve(conn: sqlite3.Connection, corpus: Path, text: str,
             scope: list[str], wis_ids: list[str], own_page: str = "") -> list[dict]:
     """The references in `text` that open a page, in order of first mention:
-    [{"docnr": as printed, "pages": pages_for(...)}]."""
+    [{"docnr": as printed, "pages": pages_for(...)}] -- modern numbers and
+    old job numbers alike."""
     if _path(corpus) is None or not wis_ids:
         return []
     out, seen = [], set()
-    for m in DOCNR_RE.finditer(text or ""):
-        printed = m.group(0)
+    for printed in printed_numbers(text):
         if printed in seen:
             continue
         seen.add(printed)

@@ -397,8 +397,20 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   first, reverted) matched only 46% exactly and would have picked another
   model's version blind. Measured: 69-76% of printed refs open a page on
   W211/W201/W124, ~3 ms per page; the rest are mostly owner's-manual (BA)
-  numbers WIS doesn't hold. UI: one target opens directly; several jump to a
-  "Referenced documents" list showing what each applies to. A page filed
+  numbers WIS doesn't hold. **Old manuals' job numbers** (W201 era: "Removing
+  and installing air cleaner (09-0400)") are references too since
+  2026-10-26 (`printed_numbers`: inside brackets only, so a date in running
+  text is never one; `old_job_candidates`: stored as "ra" + group + a
+  five-digit vehicle code + job, e.g. ra88002010220z = 88-0220 for model
+  201). 3,866 on 1,391 pages, 84% name a stored document. **UI: every
+  reference opens in a pop-up over the page** (the user, 2026-10-26: "maybe
+  have a pop up for that"; before, a reference replaced the page with no way
+  back) -- from Reading view, from the "Referenced documents" list, and
+  inside "Original layout" (same-origin frame: the app marks the numbers in
+  its text, `markFrameRefs`; the frame runs no script of its own). Several
+  versions: a picker, the car's own first. "Open as page" makes it the page;
+  references inside the pop-up open in it, with Back. LEMON "Refer to" links
+  open in the same pop-up. A page filed
   only under other models opens with an `outside_scope` warning
   (`server._wis_page`); search and answers never come through that path.
   WIS's own titles can mislead: BT40.15-P-0080-01A is "Valve body gasket
