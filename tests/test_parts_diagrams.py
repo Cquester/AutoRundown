@@ -102,6 +102,19 @@ def main() -> int:
     check("the whole W201: both engines, labelled",
           [s["section"] for s in d] == ["Chassis 201", "Engine 102", "Engine 103"], [s["section"] for s in d])
 
+    # the repair procedures for a part (part_procedures.py): the sample manual
+    # has no document numbers, so its pages are matched by the name alone
+    procs = app.get(f"/api/parts/procedures/{w201['doc_id']}",
+                    params={"group": "42", "name": "FRONT WHEEL BRAKE",
+                            "variant": variant(w201, "190 E 2.3 16"), "engine": "102"}).json()
+    check("a part's repair procedures come from the car's own manual",
+          procs and all(r["page_no"].isdigit() for r in procs)
+          and any("brake" in r["title"].lower() for r in procs), procs)
+    r = app.get(f"/api/parts/procedures/{w201['doc_id']}", params={"group": "4 2;", "name": "x"})
+    check("a bad group is refused", r.status_code == 422, r.status_code)
+    r = app.get("/api/parts/procedures/nope", params={"group": "42", "name": "x"})
+    check("an unknown car is 404", r.status_code == 404, r.status_code)
+
     page = app.get(f"/api/page/{w210['doc_id']}/P900003").json()
     check("a subgroup's page opens from the car, as a parts page with its drawings",
           page.get("doc_type") == "parts" and len(page.get("images", [])) == 2, page.get("images"))

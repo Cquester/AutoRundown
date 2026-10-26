@@ -433,6 +433,33 @@ so in `caveats` rather than guessing.
    readings made it worse (66%, copies on leader-line stubs). Not good
    enough to point a mechanic at a part, so the user chose the overlay.
 
+## Repair procedures for a part (2026-10-26, the user's request)
+
+"If i'm looking at a part, is it possible for me to see all repair
+procedures for that?" Measured on the 190 E 2.3-16 first: nothing links the
+two sources. Its part numbers can't (7 of 9,864 are printed anywhere in its
+WIS pages); group plus a shared title word found something for 20-37% of
+subgroups and missed REAR BUMPER (a scanned page, no text); a manual search
+by the subgroup's name 90%, noisy (ENGINE HOOD -> an EGR valve page).
+`part_procedures.py`, `/api/parts/procedures/{doc}?group=&name=`:
+- the part's own construction group's pages, from the car's Manual contents
+  tree (`manual_browse.tree`, cached; EPC group 88 = WIS 88, old job
+  numbers too), whose title shares one word of the name;
+- plus a manual search per part of the name ("OIL PAN & OIL LEVEL DISPLAY"
+  is two), whose pages from other groups must share two words ("PANE
+  WASHER" is not a gear's thrust washer) -- one in a manual with no groups;
+- own group first, real jobs (remove / install / replace) before tests and
+  descriptions, then shared words, "rear"/"front" breaking ties; special
+  tools' pages and duplicate titles out; at most 6.
+On the 2.3-16: 205 of 231 subgroups get procedures, 161 led by a job of the
+part's own group (rear bumper -> 88-0220, front wheel brake -> brake pads
+and disc jobs, oil pan -> both oil sump jobs; "oil pan" -> "oil sump" added
+to `synonyms.py`); ~0.1-1 s per subgroup. Shown under every parts page and
+Parts dropdown as "Repair procedures", said to be "found by the part's name,
+not a link the manual makes"; each opens in the reference pop-up. Tests:
+`tests/test_part_procedures.py` (ranking), `tests/test_parts_diagrams.py`
+(endpoint).
+
 ## Parts diagrams (built 2026-10-17, the user's request)
 
 The extract already had the drawings (PNG, ~46k, 1.5 GB) in each parts

@@ -80,6 +80,10 @@ PHRASES: dict[str, str | tuple[str, ...]] = {
     "weatherstrips": "sealing strips",
     "weatherstrip": "sealing strip",
     "tailpipe": "tail pipe",
+    # the old WIS manuals (W201, W124 era) say "oil sump": "0310 - Removal and
+    # installation of the oil sump" for the oil pan (2026-10-26); the typed
+    # words are still searched for the newer manuals and EPC's OIL PAN
+    "oil pan": "oil sump",
 }
 _RE = re.compile(r"\b(" + "|".join(re.escape(k) for k in
                                     sorted(PHRASES, key=len, reverse=True)) + r")\b", re.I)
