@@ -52,6 +52,11 @@ def main() -> int:
         # an ordinary unfiled document sharing its word
         with (cdir / "records.jsonl").open("a", encoding="utf-8", newline="\n") as f:
             for r in (test_records.rec(99026283, "Connecting rod, piston", "argt0 ;; 03305 quuxrod"),
+                      # an old manual's page citing jobs by number (wis_links.printed_numbers)
+                      test_records.rec(1002352, "0210 - Disassembly of bumpers",
+                                       "Preceding work: Removing and installing bumper (88-0220). "
+                                       "Not a reference: 10-2015 and a range 12-2000 in text; "
+                                       "(88-0221, 88-0220) again", series=["176"]),
                       test_records.rec(1002350, "Notes on quuxrod bolts", "quuxrod bolts text")):
                 f.write(json.dumps(r) + "\n")
         idx = TMP / "index.db"
@@ -133,6 +138,16 @@ def main() -> int:
         rows = app.get("/api/search", params={"doc_id": c176, "q": "88-0220"}).json()
         check("each page once", len({r["page_no"] for r in rows}), len(rows))
         check("an unknown number adds nothing", numbered("88-9999"), [])
+
+        print("old job numbers on a page (wis_links.printed_numbers / resolve)")
+        check("bracketed job numbers only, in order, once each",
+              wis_links.printed_numbers("x (88-0220). 10-2015 y (88-0221, 88-0220) AR42.10-P-0100A"),
+              ["88-0220", "88-0221", "AR42.10-P-0100A"])
+        x = app.get(f"/api/page/{c176}/1002352").json()["xrefs"]
+        check("an old reference resolves, the car's own version first",
+              [(r["docnr"], [(p["page_no"], p["in_scope"]) for p in r["pages"]]) for r in x],
+              [("88-0220", [("1002297", True), ("1002304", False)]),
+               ("88-0221", [("1002306", False)])])        # filed for another model only
         check("only on the manual's tab",
               [r for r in app.get("/api/search", params={"doc_id": c176, "q": "88-0220",
                                                           "tab": "parts"}).json() if r.get("number")], [])

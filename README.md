@@ -453,7 +453,13 @@ call is involved in either.
 
 **The manual's own cross-references.** "Refer to: Interior Lamps for schematic
 and connector information" was a real link in the source HTML. Those are
-preserved and clickable, plus listed under "Referenced pages".
+preserved and clickable, plus listed under "Referenced pages". A Mercedes WIS
+page's references to other documents ("AR42.10-P-0100A", or an older manual's
+"Removing and installing air cleaner (09-0400)") are links too, in both
+Reading view and Original layout. Any reference opens the page in a pop-up
+over the one you are reading: pick another model's version if the document
+has several (your car's first), follow references inside it with Back, or
+"Open as page".
 
 **Connector IDs.** `C906` appears as bare text, but the archive files its
 pinout and its physical location on two separate pages. Those are indexed by
