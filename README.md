@@ -354,7 +354,7 @@ chose:
 | Tab | Shows |
 |---|---|
 | **Manual page** | Before a question: **your car's manual as contents** -- a Mercedes WIS car by function group and subgroup (42 Brakes - hydraulic and mechanical systems > 42.10 Service brake > its documents; names from WIS, pulled with the vehicle tables), other manuals by their own chapters; open a section, then a page (**← Manual contents** goes back with your sections still open). After a question: the page the answer points at, or any page you open. |
-| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one and its exploded drawing and parts list show right there; tap a number on the drawing to mark that part in the list, or a part in the list to mark its number on the drawing (the picked number turns red, as in Mercedes' viewer; tap more numbers to pick several, tap one again or Clear to drop it). A page with several drawings puts each in its own dropdown with the parts printed on that drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- each page's drawing and full list one tap away, and the diagrams folded underneath. Under every parts drawing, **Repair procedures**: the manual's jobs for that part (rear bumper: "Removal and installation of rear bumper"), found by the part's name in your car's manual, its own group first -- a match by name, not a link the manual makes; each opens in a pop-up. |
+| **Parts** | The Mercedes parts catalogue (EPC), when imported. Before a question: **your car's parts diagrams**, by group as the catalogue reads (chassis, each engine, options > group > subgroup) -- open one and its exploded drawing and parts list show right there; tap numbers on the drawing to build a list of **Picked parts** -- name and part number, in a panel beside the drawing (below it on a phone or a narrow box), and the view stays where it is; the picked numbers turn red, as in Mercedes' viewer; tap one again, its **×** in the list, or Clear to drop it. A part in the parts list marks (and shows) its number on the drawing. A page with several drawings puts each in its own dropdown with the parts printed on that drawing. After a question: each matching page's part lines -- callout, number, name, which models it fits and how many, supersessions and footnotes ("up to engine 32946334") -- each page's drawing and full list one tap away, and the diagrams folded underneath. Under every parts drawing, **Repair procedures**: the manual's jobs for that part (rear bumper: "Removal and installation of rear bumper"), found by the part's name in your car's manual, its own group first -- a match by name, not a link the manual makes; each opens in a pop-up. |
 | **Labour times** | Mercedes flat-rate times for the exact model (WIS) -- empty until you ask or search, then the job itself (both versions where an automatic and a manual gearbox differ), with any other operations that mention it folded away below. |
 | **Capacities** | On top, **Fluids for your car** (WIS, once you pick the model or engine): engine oil with its Mercedes oil sheets (MB 229.x), coolant, axles, transfer case, power steering, brake fluid, refrigerant, fuel tank -- each in your car's column of WIS's capacity sheets. Below, the capacities on this job's pages. |
 | **Torque specs** | The torque values of this job, part then specification: on the answer's pages (or the top search hits) and, for WIS, on the procedures they link to ("remove the oil pan bottom section" brings its bolts). |
@@ -429,6 +429,15 @@ arrow keys and Enter, picks one again with the same model, engine and year it
 had. Each row has a **×** to drop it, and **Clear history** empties the list.
 The list is kept in that browser only, so each phone in the shop has its own;
 typing in the box replaces it with the usual suggestions.
+
+**Cars not downloaded yet.** Typing a car also lists, under your own manuals,
+cars from the LEMON catalogue (the same list as Shop setup → Manuals → LEMON)
+that aren't on this PC, marked **Not downloaded** -- "2016 Ford F-150" gives
+the 2016 F-150s; more words narrow it. Picking one shows **Add this car** under
+the box (on this PC only): if the car's LEMON folder is already on the PC,
+beside LEMON manuals imported before, it is imported in the background with a
+progress bar and selected when done; otherwise it goes on the LEMON download
+list (downloads themselves aren't built yet).
 
 **Scan VIN.** In the car sheet (or the VIN dialog, Browse → VIN) **Scan VIN**
 opens the phone's camera: photograph the VIN label, its barcode (Code 39 on

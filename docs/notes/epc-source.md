@@ -594,6 +594,30 @@ a number to the picks (`.ppage` `data-picks`), a second tap on it takes it
 off, and "Clear" empties them; every pick stays red on the drawing and in
 the lists, and the line above the drawing lists each pick (`showPicks`).
 Taking one off scrolls nothing.
+**Picks docked, nothing jumps** (2026-10-26, the user: clicking a part
+"should add it to the selected-parts list at the top and leave the view
+exactly where it is"; the list "floats over the nav bar and the result
+tabs"). The cause: `.pfind` was `position:sticky; top:0` at the same
+z-index as the sticky tab bar and later in the page, so it drew over it;
+and a tap on the drawing scrolled to the part's row. Now:
+- the picks are a panel of their own (`.pfind` in `.pdgrid`, an `<aside>`),
+  docked beside the drawing when the drawing's box is 560 px or wider
+  (container query on `.pdraw`; the right box at the default split on a
+  1400 px window is ~600) and sticking just under the tab bar
+  (`--picks-top`, measured by `placePicksTop`); below the drawing, in the
+  flow, when narrower -- a phone included, where the tabs are the bottom bar.
+  Never an overlay. The tab bar is z-index 4, the panel 1.
+- The panel is there while empty ("Tap numbers on the drawing to build a
+  list"), so the first pick doesn't narrow the drawing; each line has the
+  number in the drawing's red, name, part number and a x.
+- A tap on the drawing or the x moves nothing. Chrome's scroll anchoring
+  still moved the drawing up (by the panel's growth) when the panel sat
+  above the anchor; `.ppage{overflow-anchor:none}`. A row of the list still
+  scrolls to its number on the drawing (that is "where is it").
+Checked on the real W201 hand brake page (EPC P1000, 17 numbers) on the
+live index opened read-only, 1400x900 and 375x812: four picks, scroll and
+drawing position unchanged, panel beside / below, the tab bar on top at
+every scroll depth. Tests: `tests/test_drawing_ui.py`.
 
 **Manual contents and the divider (2026-10-24, the user: "change the Manual
 page to be like the parts page ... auto fill the page in sections for the

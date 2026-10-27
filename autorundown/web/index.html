@@ -548,11 +548,15 @@
      (the user, 2026-10-26: the old floating line covered the tab bar). Its
      place is kept while empty, so the first pick doesn't move the drawing. */
   .pdraw{container-type:inline-size}
+  /* the browser's scroll anchoring moved the drawing when the panel grew
+     under it (the anchor was the list below): a parts page never anchors */
+  .ppage{overflow-anchor:none}
   .pdgrid{display:grid; grid-template-columns:minmax(0, 1fr); gap:12px}
   .pfind{padding:10px 12px; border-radius:10px; background:var(--panel-2); border:1px solid var(--line);
     font-size:14px; align-self:start; margin-bottom:8px}
-  @container (min-width:640px){
-    .pdgrid{grid-template-columns:minmax(0, 1fr) clamp(220px, 30%, 300px)}
+  /* 560: the box at the default split on a 1400 px window is ~600 */
+  @container (min-width:560px){
+    .pdgrid{grid-template-columns:minmax(0, 1fr) clamp(200px, 30%, 300px)}
     /* stays in view while the drawing scrolls, under the sticky tab bar */
     .pfind{position:sticky; top:var(--picks-top, 56px); z-index:1; margin-bottom:0;
       max-height:calc(100vh - var(--picks-top, 56px) - 120px); overflow:auto}
@@ -2260,16 +2264,16 @@ $('#carInput').addEventListener('input', () => {
 // typing pauses, never per keystroke. Picking one shows "Add this car" under
 // the box: the same LEMON import job Shop setup runs when the car's folder is
 // on this PC, else the car goes on Shop setup's download list.
-let catTimer = 0, catSeq = 0, catPending = null, addJob = null;
+let sugTimer = 0, sugSeq = 0, catPending = null, addJob = null;
 function catalogueSuggest(q, hits) {
-  clearTimeout(catTimer);
-  const seq = ++catSeq;
+  clearTimeout(sugTimer);
+  const seq = ++sugSeq;
   if (looksLikeVin(q) || !/[a-z]{2}|\d[a-z]|[a-z]\d/i.test(q.replace(/\b(19|20)\d\d\b/g, ''))) return;
-  catTimer = setTimeout(async () => {
+  sugTimer = setTimeout(async () => {
     let cat;
     try { cat = await api(`/api/catalogue/suggest?q=${encodeURIComponent(q)}`); } catch { return; }
     // still the words in the box, and the list still the box's suggestions
-    if (seq !== catSeq || $('#carInput').value.trim() !== q || $('#carList')._hist) return;
+    if (seq !== sugSeq || $('#carInput').value.trim() !== q || $('#carList')._hist) return;
     if (!cat.rows.length) return;
     const k = carSel;
     showCarList(hits, cat);
@@ -2308,7 +2312,8 @@ function renderAddCar(state = null) {
       + `<button type="button" class="ghost" data-add-close>Close</button>`;
   } else {
     body = `<div class="actext">${name}<div class="acsub"><span class="nodl">Not downloaded</span>`
-      + (me.admin ? 'Not on this PC yet. Adding it imports the manual in the background; you can keep working.'
+      + (me.admin ? 'Not on this PC yet. If its LEMON folder is here, it is imported in the background '
+                    + 'while you keep working; if not, it goes on the LEMON download list.'
                   : 'Only the shop PC can add a car.') + `</div></div>`
       + (me.admin ? `<button type="button" data-add-car>Add this car</button>` : '')
       + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
