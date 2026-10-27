@@ -109,6 +109,22 @@ class TorrentSwarm(Swarm):
                 last = time.time()
             time.sleep(0.5)
 
+    def _why_alone(self) -> str:
+        """What the trackers and the DHT said, for the log when no peer comes."""
+        out = []
+        try:
+            for t in self.h.trackers():
+                host = t["url"].split("//")[-1].split("/")[0]
+                msgs = {e.get("message", "") for e in t.get("endpoints", [])} - {""}
+                fails = max([e.get("fails", 0) for e in t.get("endpoints", [])] or [0])
+                out.append(f"{host}: {'; '.join(sorted(msgs)) or 'no reply'}"
+                           + (f", {fails} fails" if fails else ""))
+            st = self.session.status()
+            out.append(f"DHT nodes {getattr(st, 'dht_nodes', '?')}")
+        except Exception as e:      # only a log line: never stop a download for it
+            out.append(f"status unavailable: {e}")
+        return "; ".join(out)
+
     def have(self) -> set[int]:
         return {i for i in range(self.ti.num_pieces()) if self.h.have_piece(i)}
 
@@ -140,7 +156,8 @@ class TorrentSwarm(Swarm):
                     lonely = time.time()
                 elif time.time() - lonely > 90:
                     # nobody yet: ask the trackers, the DHT and CHARM's own peer again
-                    self.log("no peers yet; asking the trackers and charm.li:17471 again")
+                    self.log("no peers yet; asking the trackers and charm.li:17471 again"
+                             f" ({self._why_alone()})")
                     self.h.force_reannounce()
                     self.h.force_dht_announce()
                     self._add_peers()
@@ -156,6 +173,9 @@ class TorrentSwarm(Swarm):
                 if not self.h.have_piece(p):
                     self.h.piece_priority(p, 0)
         self.h.flush_cache()
+        # kept after every fetch, not only at close: a crash or a kill would
+        # otherwise forget the pieces (hours of swarm) or force the 8-min check
+        self._save_resume()
         if progress:
             st = self.h.status()
             progress(len(want), len(want), 0, st.num_peers, st.total_payload_upload)
@@ -164,20 +184,25 @@ class TorrentSwarm(Swarm):
         """Stop sharing at once, keep the resume data, close the session."""
         if self.session is None:
             return
-        lt = self.lt
         self.h.pause()
+        self._save_resume()
+        self.session.remove_torrent(self.h)
+        self.session = None
+
+    def _save_resume(self) -> None:
+        lt = self.lt
         self.h.save_resume_data(lt.torrent_handle.save_info_dict)
         end = time.time() + 30
         while time.time() < end:
             for a in self.session.pop_alerts():
                 if isinstance(a, lt.save_resume_data_alert):
-                    self.resume.write_bytes(lt.write_resume_data_buf(a.params))
+                    tmp = self.resume.with_suffix(".tmp")      # never a half-written file
+                    tmp.write_bytes(lt.write_resume_data_buf(a.params))
+                    tmp.replace(self.resume)
                     end = 0
                 elif isinstance(a, lt.save_resume_data_failed_alert):
                     end = 0
             time.sleep(0.2)
-        self.session.remove_torrent(self.h)
-        self.session = None
 
 
 class LocalSwarm(Swarm):

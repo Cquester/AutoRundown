@@ -161,10 +161,21 @@ def image_pieces(job: Job, keys: list[bytes]) -> set[int]:
     """The pieces of the leaves holding these images (each image's data was
     measured to sit beside its leaf), read from branch pages only."""
     c = job.charm
-    out: set[int] = set()
-    for k in sorted(keys):
-        out |= job.need(c.images.children_pieces, k, k + b"\0", 0)
-    return out
+
+    def every_key():
+        # all keys in one pass, so a level's missing pages are fetched together:
+        # one key at a time waited for one piece per key (hours for a car)
+        out: set[int] = set()
+        need: set[int] = set()
+        for k in sorted(keys):
+            try:
+                out |= c.images.children_pieces(k, k + b"\0", 0)
+            except Missing as m:
+                need.update(m.pieces)
+        if need:
+            raise Missing(need)
+        return out
+    return job.need(every_key)
 
 
 def doc_id_of(make: str, year: str, car: str) -> str:
