@@ -75,22 +75,34 @@ class TorrentSwarm(Swarm):
             p = lt.add_torrent_params()
         p.ti = self.ti
         p.save_path = str(self.root)
-        p.flags &= ~(lt.torrent_flags.auto_managed | lt.torrent_flags.paused
-                     | lt.torrent_flags.seed_mode)
+        # added wanting nothing (priorities in the add itself: a plain add
+        # wants every piece until told otherwise) and not paused -- a paused
+        # torrent never checks its files, so waiting for the check hung; a
+        # peer added while the files are being checked is dropped (a real
+        # run sat at 0 peers), so peers come after the check
+        p.flags &= ~(lt.torrent_flags.auto_managed | lt.torrent_flags.seed_mode
+                     | lt.torrent_flags.paused)
+        p.piece_priorities = [0] * self.ti.num_pieces()
         self.h = self.session.add_torrent(p)
-        self.h.prioritize_pieces([0] * self.ti.num_pieces())
+        self._wait_checked()
+        self._add_peers()
+
+    def _add_peers(self) -> None:
         for host, port in EXTRA_PEERS:
             try:
                 for *_, addr in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM):
                     self.h.connect_peer((addr[0], port))
             except OSError:
                 pass
-        self._wait_checked()
 
     def _wait_checked(self) -> None:
         lt = self.lt
-        while self.h.status().state in (lt.torrent_status.checking_files,
-                                        lt.torrent_status.checking_resume_data):
+        last = time.time()
+        while (st := self.h.status()).state in (lt.torrent_status.checking_files,
+                                                lt.torrent_status.checking_resume_data):
+            if time.time() - last >= 30:
+                self.log(f"checking the pieces on disk: {st.progress * 100:.0f}%")
+                last = time.time()
             time.sleep(0.5)
 
     def have(self) -> set[int]:
@@ -102,7 +114,9 @@ class TorrentSwarm(Swarm):
             return
         for p in want:
             self.h.piece_priority(p, 7)
-        t0, last = time.time(), 0.0
+        t0, last, lonely = time.time(), 0.0, time.time()
+        self.h.force_reannounce()
+        self.h.force_dht_announce()
         try:
             while True:
                 done = sum(1 for p in want if self.h.have_piece(p))
@@ -113,6 +127,15 @@ class TorrentSwarm(Swarm):
                 for a in self.session.pop_alerts():
                     if isinstance(a, (self.lt.file_error_alert, self.lt.torrent_error_alert)):
                         raise OSError(a.message())
+                if self.h.status().num_peers:
+                    lonely = time.time()
+                elif time.time() - lonely > 90:
+                    # nobody yet: ask the trackers, the DHT and CHARM's own peer again
+                    self.log("no peers yet; asking the trackers and charm.li:17471 again")
+                    self.h.force_reannounce()
+                    self.h.force_dht_announce()
+                    self._add_peers()
+                    lonely = time.time()
                 if progress and time.time() - last >= 5:
                     st = self.h.status()
                     progress(done, len(want), st.download_payload_rate, st.num_peers,
