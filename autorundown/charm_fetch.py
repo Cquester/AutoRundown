@@ -28,6 +28,10 @@ class Swarm:
     def have(self) -> set[int]:
         raise NotImplementedError
 
+    def zero_pieces(self) -> set[int]:
+        """Pieces that are all zeros: on disk without being fetched."""
+        return set()
+
     def fetch(self, pieces, progress=None, cancelled=None) -> None:
         raise NotImplementedError
 
@@ -108,13 +112,18 @@ class TorrentSwarm(Swarm):
     def have(self) -> set[int]:
         return {i for i in range(self.ti.num_pieces()) if self.h.have_piece(i)}
 
+    def zero_pieces(self) -> set[int]:
+        import hashlib
+        z = hashlib.sha1(bytes(self.ti.piece_length())).digest()
+        return {i for i in range(self.ti.num_pieces()) if self.ti.hash_for_piece(i) == z}
+
     def fetch(self, pieces, progress=None, cancelled=None) -> None:
         want = sorted({p for p in pieces if not self.h.have_piece(p)})
         if not want:
             return
         for p in want:
             self.h.piece_priority(p, 7)
-        t0, last, lonely = time.time(), 0.0, time.time()
+        last, lonely = 0.0, time.time()
         self.h.force_reannounce()
         self.h.force_dht_announce()
         try:

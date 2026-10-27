@@ -656,6 +656,9 @@ class Progress:
                 self.activity = f"{m.group(3)} KB/s from {m.group(4)} peers"
         elif m := re.match(r"images (\d+)/(\d+)$", line):
             self._set(m.group(1), m.group(2), "images")
+        elif m := re.match(r"checking the pieces on disk: (\d+)%", line):
+            # libtorrent's first check of the 758 GB layout: ~8 min
+            self.detail = f"checking the pieces already on disk: {m.group(1)}% (the first time takes ~8 min)"
         # -- ingest.py / rebuild_wis.py
         elif m := re.match(r"found (\d+) vehicle\(s\)", line):
             self._set(0, m.group(1), "vehicles")

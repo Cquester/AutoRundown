@@ -211,7 +211,7 @@ folder inside the LEMON torrent:
   `SPECIAL_<its path>` (a year page lists its cars). Images are
   `<img src='/images/<key>'>` in the HTML.
 
-Measured on the 1987 190E 2.3-16 (201.034) (384 MB fetched, 2026-10-26/27):
+Measured on the 1987 190E 2.3-16 (201.034) (416 MB fetched, 2026-10-26/27):
 12,954 paths (the LEMON zip: 12,904 pages), 5,724 articles, 8.7 MB HTML,
 5,161 images (zip: 5,091). Its path leaves are all in **one** piece
 (42906), its articles in 6 (42906, 42907, 42946, 42947, 44369-44371), the
@@ -258,11 +258,33 @@ How it is built (`autorundown/charm.py`, `charm_fetch.py`, `charm_download.py`):
 - `recycle.downloaded_car`: a marked folder directly in
   `APP_DIR/manuals` is the one other thing Remove may recycle.
 
+**The real text-only run** (2026-10-27, the 190E into a throwaway home):
+26 real pieces in all (416 MB on disk; the last one 16 MB in ~2.5 min at
+~200 KB/s from 5-15 peers, upload held at the 4 KB/s cap), 12,954 pages
+written in 7 s, `ingest.py --importer lemon` 6 s. Against the LEMON zip
+of the same car, each in its own throwaway index: the same doc_id, make,
+model and engine; 12,886 vs 12,833 pages, 5,483 vs 5,624 unique; every
+LEMON title is in CHARM (CHARM has 15 more, e.g. "Replacing Fuel Filter");
+and with link numbers, image references and dead-link markers set aside,
+4,533 of LEMON's 4,534 page texts are in CHARM (the one left is LEMON's
+own index page). LEMON shows a link to a page missing from its own zip
+as `[[name]]`; CHARM's export sends it to 404 and the name is plain text.
+The real 1987 year listing gave 14 cars through `listing_names`;
+"190E 2.3-16" + "L4-2.3L" offers the right car first, never takes it.
+Two things that broke on the real swarm and are fixed: a torrent added
+unpaused wanted every piece and a peer added during the file check was
+dropped (0 peers for 38 min), and one added paused never checked its
+files at all -- now the zero priorities go in the add itself, unpaused,
+peers after the check. libtorrent's first check of the 758 GB sparse
+layout takes **~8 min** (logged as "checking the pieces on disk: N%");
+the resume data saved at the end skips it next time. 385 of the
+torrent's pieces are all zeros and "on disk" with nothing fetched; the
+plan's `fetched_pieces` leaves them out.
+
 Not verified yet: the image download on the real swarm (only one real
-image was read); the year listings' real HTML (`listing_names` is written
-for `<a href='Name/'>`; piece 43139 is needed to see one); libtorrent inside
-the MSI's embeddable Python (a cp312 win_amd64 wheel exists); a peak-disk
-cap (pieces stay on disk until the end: sparse files, ~9 GB for a car).
+image was read); libtorrent inside the MSI's embeddable Python (a cp312
+win_amd64 wheel exists); a peak-disk cap (pieces stay on disk until the
+end: sparse files, ~9 GB for a car).
 CHARM names cars the old LEMON-zip way ("190E 2.3-16 (201.034) L4-2.3L
 (102.983)"), so a LEMON catalogue path usually needs the plan's candidates.
 Test: `tests/test_charm.py` (sample data, `tools/make_sample_charm.py`).

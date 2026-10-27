@@ -36,7 +36,6 @@ import make_sample_charm  # noqa: E402
 from autorundown import charm, recycle  # noqa: E402
 from autorundown.charm import (BadData, Charm, Layout, Missing, Store, car_key, image_file,  # noqa: E402
                                image_refs, listing_names, match_car, page_html, year_key)
-from autorundown.charm_fetch import LocalSwarm  # noqa: E402
 
 fails = 0
 CAR = ("Mercedes Benz", "1987", "190E 2.3-16 (201.034) L4-2.3L (102.983)")
@@ -278,6 +277,9 @@ pr.feed("[01:02:03] == CHARM: images (40 pieces)")
 pr.feed("[01:02:09] pieces 12/40  310 KB/s  9 peers  uploaded 3 KB")
 check(pr.phase == "CHARM: images (40 pieces)" and (pr.done, pr.total, pr.unit) == (12, 40, "pieces")
       and "9 peers" in pr.activity, f"pieces and peers fill the bar: {pr.as_dict()}")
+pr.feed("[01:02:03] == CHARM: opening the torrent (checking the pieces already on disk)")
+pr.feed("[01:02:33] checking the pieces on disk: 6%")
+check("6%" in pr.detail, f"the first file check shows how far it is: {pr.as_dict()}")
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'all passed' if not fails else f'{fails} FAILED'}")

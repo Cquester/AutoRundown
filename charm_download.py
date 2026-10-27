@@ -305,6 +305,9 @@ def run(a, job: Job, work: Path) -> int:
         img_pieces = image_pieces(job, list(keys))
     have = job.swarm.have()
     todo = img_pieces - have
+    # the torrent's 385 all-zero pieces match the sparse files with nothing
+    # fetched and take no disk: count only the real ones
+    have -= job.swarm.zero_pieces()
     plan = {
         "car": car, "make": make, "year": year, "doc_id": doc,
         "pages": len(paths), "articles": len(arts), "images": 0 if a.text_only else len(keys),
