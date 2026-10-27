@@ -4,6 +4,12 @@
 is unchanged apart from file paths (tests/, tools/). "Above" / "below" and
 section names may refer to CLAUDE.md or another file in docs/notes/. -->
 
+**The car box also lists LEMON catalogue cars that are not downloaded**
+(2026-10-26: `catalogueSuggest` / `offerCatalogueCar` in index.html, after
+the box's own `carMatches` hits; a pick of one never calls `applyCar`'s
+normal path, it shows "Add this car"). Server side and the rules:
+`importing.md`, "LEMON cars in the car box".
+
 Built: **Year → Make → Model → Variant (optional)**, plus a VIN box.
 
 - **Model is the generation** ("W201 190", "R107/C107 SL/SLC"). Years are

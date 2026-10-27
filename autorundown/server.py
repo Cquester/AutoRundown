@@ -1377,6 +1377,37 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(404, str(exc.args[0]))
         return lemon_catalogue.browse(app.state.index_path, tuple(body.path[:-1]))
 
+    # The car box's "Not downloaded" suggestions: LEMON catalogue cars the
+    # index does not hold (lemon_catalogue.search). Any device that can search
+    # sees them -- the list is the torrent's public index -- but only this PC
+    # adds one (/api/import/lemon-add, admin).
+    @app.get("/api/catalogue/suggest")
+    def api_catalogue_suggest(q: str = Query("", max_length=200)) -> dict:
+        return lemon_catalogue.search(q, app.state.index_path)
+
+    @app.post("/api/import/lemon-add")
+    def api_lemon_add(body: LemonPickBody) -> dict:
+        """"Add this car" from the car box: the same import job as Shop setup's
+        LEMON folder import when the car's folder is on this PC beside the LEMON
+        manuals already imported; otherwise the car goes on Shop setup's LEMON
+        download list (the download itself is not built yet)."""
+        if len(body.path) != 4:
+            raise HTTPException(400, "path must name one car: make, year, model, variant")
+        cat = lemon_catalogue.load()
+        if lemon_catalogue._node(cat, tuple(body.path)) is None:
+            raise HTTPException(404, "Not in the LEMON catalogue: " + " / ".join(body.path))
+        doc = lemon_catalogue.doc_id(*body.path)
+        found = importer_jobs.lemon_on_disk(doc, app.state.index_path)
+        if found:
+            root, folder = found
+            try:
+                job = jobs.start(root, app.state.index_path, "lemon", only=[folder])
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
+            return {"action": "import", "doc_id": doc, "folder": str(root / folder), "job": job}
+        lemon_catalogue.set_pick(tuple(body.path), True)
+        return {"action": "queued", "doc_id": doc}
+
     @app.get("/api/import/manuals")
     def api_import_manuals() -> dict:
         return importer_jobs.manuals(app.state.index_path)

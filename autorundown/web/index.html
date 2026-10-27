@@ -139,6 +139,26 @@
     font-weight:400; line-height:1}
   .suggest button.histx:hover, .suggest button.histx:focus-visible{background:var(--line); color:var(--text)}
   .suggest button.histclear:focus-visible, .suggest button.histx:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  /* LEMON catalogue cars that are not on this PC, after the box's own */
+  .suggest .cathead{display:flex; flex-wrap:wrap; justify-content:space-between; gap:2px 10px;
+    padding:8px 12px 6px; border-bottom:1px solid var(--line); border-top:1px solid var(--line);
+    background:var(--panel-2); color:var(--muted); font-size:13px; font-weight:600}
+  .suggest .cathead span{font-weight:400}
+  .suggest .cathead:first-child{border-top:0}
+  .nodl{display:inline-block; margin-right:8px; padding:0 7px; border-radius:6px; font-size:12px;
+    font-weight:700; line-height:20px; border:1px dashed var(--muted); color:var(--text)}
+  /* "Add this car": a row of the header, under the box */
+  .addcar{flex:1 0 100%; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:10px 12px; border:1px solid var(--line); border-left:4px solid var(--accent);
+    border-radius:10px; background:var(--panel-2)}
+  .addcar .actext{flex:1 1 260px; min-width:0}
+  .addcar .acsub{color:var(--muted); font-size:13px; margin-top:2px}
+  .addcar button{min-height:44px}
+  .acbar{height:6px; margin-top:8px; border-radius:3px; background:var(--line); overflow:hidden; max-width:420px}
+  .acbar > i{display:block; height:100%; background:var(--accent); transition:width .4s ease}
+  .acbar.indet > i{animation:acslide 1.4s ease-in-out infinite}
+  @keyframes acslide{from{transform:translateX(-100%)} to{transform:translateX(340%)}}
+  @media (prefers-reduced-motion: reduce){ .acbar.indet > i{animation:none; width:100% !important; opacity:.5} }
   .picker{display:flex; gap:8px; flex:1 0 100%; min-width:0; flex-wrap:wrap}
   .picker[hidden]{display:none}
   .picker #year{flex:0 1 124px}
@@ -456,7 +476,7 @@
     border:1px solid var(--line); border-radius:10px; padding:0 6px}
   .restabs button.none{opacity:.55}
   /* at the top of the right box, staying in view while the page scrolls */
-  #right > .restabs{position:sticky; top:-16px; z-index:2; background:var(--pane);
+  #right > .restabs{position:sticky; top:-16px; z-index:4; background:var(--pane);
     margin:-16px -16px 12px; padding:8px 10px 0}
   @media (max-width:900px){ #right > .restabs{top:40px; margin:0 -16px 12px} }
   .restabs button[aria-selected="true"]{background:var(--panel-2); color:var(--text);
@@ -523,13 +543,41 @@
   .hkind{display:inline-block; font-size:12px; font-weight:700; border-radius:8px; padding:0 6px;
     margin-right:6px; border:1px solid var(--line); background:var(--panel-2)}
   .hkind.ai{color:var(--accent); border-color:var(--accent-dim)}
-  .pfind{position:sticky; top:0; z-index:2; padding:8px 10px; margin-bottom:8px; border-radius:8px;
-    background:var(--panel-2); border:1px solid var(--accent-dim); font-size:14px}
-  .pfind .cbig{font-size:20px}
-  .pfind{max-height:40vh; overflow:auto}
-  .pfline + .pfline{margin-top:4px}
-  .pfbar{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; font-size:12px}
-  .pfbar button{padding:4px 10px}
+  /* the picked parts: a panel of their own, docked beside the drawing when the
+     box is wide enough and below it when not -- never laid over anything
+     (the user, 2026-10-26: the old floating line covered the tab bar). Its
+     place is kept while empty, so the first pick doesn't move the drawing. */
+  .pdraw{container-type:inline-size}
+  /* the browser's scroll anchoring moved the drawing when the panel grew
+     under it (the anchor was the list below): a parts page never anchors */
+  .ppage{overflow-anchor:none}
+  .pdgrid{display:grid; grid-template-columns:minmax(0, 1fr); gap:12px}
+  .pfind{padding:10px 12px; border-radius:10px; background:var(--panel-2); border:1px solid var(--line);
+    font-size:14px; align-self:start; margin-bottom:8px}
+  /* 560: the box at the default split on a 1400 px window is ~600 */
+  @container (min-width:560px){
+    .pdgrid{grid-template-columns:minmax(0, 1fr) clamp(200px, 30%, 300px)}
+    /* stays in view while the drawing scrolls, under the sticky tab bar */
+    .pfind{position:sticky; top:var(--picks-top, 56px); z-index:1; margin-bottom:0;
+      max-height:calc(100vh - var(--picks-top, 56px) - 120px); overflow:auto}
+  }
+  .pfempty b{display:block; margin-bottom:2px}
+  .pfempty .muted{font-size:13px}
+  .pfhead{display:flex; align-items:center; gap:8px; margin-bottom:6px}
+  .pfhead .muted{flex:1}
+  .pfhead button{min-height:34px; padding:0 12px; font-size:13px}
+  .pflist{list-style:none; margin:0; padding:0}
+  .pfline{display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:8px; align-items:start;
+    padding:6px 0; border-top:1px solid var(--line)}
+  /* the number in the drawing's own red on white, as it is marked there */
+  .pfline .cbig{min-width:2.2em; padding:1px 5px; text-align:center; border:2px solid #d40000;
+    border-radius:4px; background:#fff; color:#d40000; font:700 15px/1.3 Arial, Helvetica, sans-serif}
+  .pftext{display:flex; flex-direction:column; min-width:0; overflow-wrap:anywhere; line-height:1.35}
+  .pftext .pn{font-weight:700}
+  .pftext .muted{font-size:12.5px}
+  .pfx{width:32px; min-height:32px; height:32px; padding:0; background:none; border:0; border-radius:8px;
+    color:var(--muted); font-size:20px; font-weight:400; line-height:1}
+  .pfx:hover, .pfx:focus-visible{background:var(--line); color:var(--text)}
   .pcap{text-align:center; margin:-4px 0 10px; font-size:12px}
   .tabhit::after{content:""; display:block; clear:both}
   .pbmore{margin-top:12px}
@@ -948,6 +996,9 @@
     <!-- a phone (in the car sheet): photograph the VIN label or barcode -->
     <button class="ghost scanbtn" id="sheetScanBtn" type="button" title="Photograph the VIN or its barcode">Scan VIN</button>
   </div>
+  <!-- a LEMON catalogue car picked in the box that is not on this PC:
+       "Add this car" and its progress (renderAddCar) -->
+  <div class="addcar" id="addCar" role="status" aria-live="polite" hidden></div>
   <div class="picker" id="picker" hidden>
     <select id="year" aria-label="Year"></select>
     <select id="make" aria-label="Make"></select>
@@ -1969,21 +2020,35 @@ function carMatches(q) {
   const rank = e => (e.year === year && year ? 0 : e.generation ? 1 : 2) * 1000 + e.label.length;
   return {year, hits: hits.sort((a, b) => rank(a) - rank(b)).slice(0, 12)};
 }
-function showCarList(items) {
+// cat: the LEMON catalogue's cars for the same words that are not downloaded
+// (catalogueSuggest), listed after the manuals here and marked so
+function showCarList(items, cat = null) {
   const list = $('#carList');
-  carSel = items.length ? 0 : -1;
-  list._items = items; list._hist = false;
-  list.innerHTML = items.length ? items.map((e, k) =>
-    `<div class="opt${k === 0 ? ' on' : ''}" data-k="${k}"><div>${esc(e.label)}</div>`
+  const more = (cat?.rows || []).map(r => ({cat: r, label: r.label}));
+  const all = [...items, ...more];
+  carSel = all.length ? 0 : -1;
+  list._items = all; list._hist = false;
+  const opt = (e, k) => `<div class="opt${k === 0 ? ' on' : ''}${e.cat ? ' catopt' : ''}" data-k="${k}">`
+    + `<div>${esc(e.label)}</div>`
+    + (e.cat ? `<div class="sub"><span class="nodl">Not downloaded</span>`
+               + (me.admin ? 'Pick it to add this car' : 'The shop PC can add it') + `</div>` : '')
     + (e.sub ? `<div class="sub">${esc(e.sub)}</div>` : '')
-    + (e.warn ? `<div class="sub vinwarn">${esc(e.warn)}</div>` : '') + `</div>`).join('')
-    : '<div class="opt"><div class="sub">No match — try fewer words, or Browse.</div></div>';
+    + (e.warn ? `<div class="sub vinwarn">${esc(e.warn)}</div>` : '') + `</div>`;
+  list.innerHTML = (items.length ? items.map(opt).join('')
+      : more.length ? '' : '<div class="opt"><div class="sub">No match — try fewer words, or Browse.</div></div>')
+    + (more.length
+      ? `<div class="cathead">In the LEMON catalogue, not on this PC`
+        + (cat.total > more.length ? `<span>${more.length} of ${cat.total.toLocaleString()} — add words to narrow</span>` : '')
+        + `</div>` + more.map((e, i) => opt(e, items.length + i)).join('')
+      : '');
   list.hidden = false;
   list.querySelectorAll('.opt[data-k]').forEach(o =>
     o.onmousedown = ev => { ev.preventDefault(); applyCar(list._items[+o.dataset.k]); });
 }
 function applyCar(e, typedYear) {
   if (!e) return;
+  if (e.cat) return offerCatalogueCar(e.cat);
+  $('#addCar').hidden = !addJob;  // a running "Add this car" keeps its progress in view
   $('#picker').hidden = true;     // the header shrinks back once a car is chosen
   $('#year').value = ''; $('#make').value = '';
   refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
@@ -2189,6 +2254,110 @@ $('#carInput').addEventListener('input', () => {
   }
   const {hits} = carMatches(q);
   showCarList(hits);
+  catalogueSuggest(q, hits);
+});
+
+// -- cars in the LEMON catalogue that are not downloaded ----------------------
+// The box also offers cars this PC has no manual for yet, from the same LEMON
+// catalogue Shop setup's LEMON tab lists (server: lemon_catalogue.search;
+// a local file, never the LEMON site), marked "Not downloaded". Asked once
+// typing pauses, never per keystroke. Picking one shows "Add this car" under
+// the box: the same LEMON import job Shop setup runs when the car's folder is
+// on this PC, else the car goes on Shop setup's download list.
+let sugTimer = 0, sugSeq = 0, catPending = null, addJob = null;
+function catalogueSuggest(q, hits) {
+  clearTimeout(sugTimer);
+  const seq = ++sugSeq;
+  if (looksLikeVin(q) || !/[a-z]{2}|\d[a-z]|[a-z]\d/i.test(q.replace(/\b(19|20)\d\d\b/g, ''))) return;
+  sugTimer = setTimeout(async () => {
+    let cat;
+    try { cat = await api(`/api/catalogue/suggest?q=${encodeURIComponent(q)}`); } catch { return; }
+    // still the words in the box, and the list still the box's suggestions
+    if (seq !== sugSeq || $('#carInput').value.trim() !== q || $('#carList')._hist) return;
+    if (!cat.rows.length) return;
+    const k = carSel;
+    showCarList(hits, cat);
+    if (k > 0) { carSel = k; $('#carList').querySelectorAll('.opt[data-k]').forEach((o, i) => o.classList.toggle('on', i === k)); }
+  }, 280);
+}
+function offerCatalogueCar(r) {
+  catPending = r;
+  $('#carList').hidden = true;
+  setCarBox(carBoxLabel);           // the box keeps saying the car selected now
+  renderAddCar();
+  $('#addCar').querySelector('button[data-add-car]')?.focus();
+}
+function renderAddCar(state = null) {
+  const box = $('#addCar'), r = catPending;
+  if (!r && !state) { box.hidden = true; return; }
+  const name = `<b>${esc(r ? r.label : '')}</b>`;
+  let body;
+  if (state?.kind === 'progress') {
+    const p = state.progress || {}, pct = p.total ? Math.round(100 * (p.done || 0) / p.total) : null;
+    body = `<div class="actext">Adding ${name}<div class="acsub">${esc(p.phase || 'Starting')}`
+      + (p.done != null ? ` — ${p.done.toLocaleString()}${p.total ? ' / ' + p.total.toLocaleString() : ''} ${esc(p.unit || '')}` : '')
+      + `</div><div class="acbar${pct === null ? ' indet' : ''}" role="progressbar" aria-label="Adding this car"`
+      + (pct === null ? '' : ` aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"`)
+      + `><i style="width:${pct === null ? 30 : pct}%"></i></div></div>`;
+  } else if (state?.kind === 'done') {
+    body = `<div class="actext">${name} is added.<div class="acsub">Its manual is selected.</div></div>`
+      + `<button type="button" class="ghost" data-add-close>OK</button>`;
+  } else if (state?.kind === 'queued') {
+    body = `<div class="actext">${name} is on the LEMON download list.`
+      + `<div class="acsub">Its folder isn't on this PC, and LEMON downloads aren't built yet: `
+      + `the list is kept in Shop setup → Manuals → LEMON until they are.</div></div>`
+      + `<button type="button" class="ghost" data-add-close>OK</button>`;
+  } else if (state?.kind === 'error') {
+    body = `<div class="actext">${name} wasn't added.<div class="acsub errnote">${esc(state.msg)}</div></div>`
+      + `<button type="button" class="ghost" data-add-close>Close</button>`;
+  } else {
+    body = `<div class="actext">${name}<div class="acsub"><span class="nodl">Not downloaded</span>`
+      + (me.admin ? 'Not on this PC yet. If its LEMON folder is here, it is imported in the background '
+                    + 'while you keep working; if not, it goes on the LEMON download list.'
+                  : 'Only the shop PC can add a car.') + `</div></div>`
+      + (me.admin ? `<button type="button" data-add-car>Add this car</button>` : '')
+      + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
+  }
+  box.innerHTML = body;
+  box.hidden = false;
+}
+async function addCatalogueCar() {
+  const r = catPending;
+  if (!r) return;
+  renderAddCar({kind: 'progress', progress: {phase: 'Starting'}});
+  let res;
+  try {
+    res = await api('/api/import/lemon-add', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                              body: JSON.stringify({path: r.path})});
+  } catch (e) { return renderAddCar({kind: 'error', msg: e.message}); }
+  if (res.action === 'queued') return renderAddCar({kind: 'queued'});
+  addJob = {doc: r.doc_id, started: res.job?.started};
+  watchAddJob();
+}
+async function watchAddJob() {
+  if (!addJob) return;
+  let j;
+  try { j = await api('/api/import'); } catch { j = null; }
+  if (j && j.state === 'running') {
+    renderAddCar({kind: 'progress', progress: j.progress});
+    return setTimeout(watchAddJob, 1500);
+  }
+  if (!j) return setTimeout(watchAddJob, 3000);
+  const doc = addJob.doc;
+  addJob = null;
+  if (j.state !== 'done') {
+    return renderAddCar({kind: 'error', msg: (j.progress?.error || (j.log || []).slice(-1)[0] || `The import ${j.state}.`)});
+  }
+  await loadVehicles();
+  const v = vehicles.find(x => x.doc_id === doc);
+  if (!v) return renderAddCar({kind: 'error', msg: 'The import finished but the manual is not in the list.'});
+  applyCar({doc: v.doc_id, variant: null, engine: null, year: null,
+            label: `${v.year_range || ''} ${v.make || ''} ${v.model}`.replace(/\s+/g, ' ').trim(), sub: ''});
+  renderAddCar({kind: 'done'});
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-add-car]')) { addCatalogueCar(); return; }
+  if (e.target.closest('[data-add-close]')) { catPending = null; $('#addCar').hidden = true; }
 });
 $('#carInput').addEventListener('keydown', ev => {
   const list = $('#carList'), items = list._items || [];
@@ -3889,7 +4058,8 @@ function partsPageHtml(p, body, inline = false) {
     + (inline ? ''
       : `<button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`)
     + (imgs.length
-      ? `<div class="pdraw"><div class="pfind" hidden></div>` + drawingsHtml(imgs) + `</div>`
+      ? `<div class="pdraw"><div class="pdgrid"><div class="pdfig">` + drawingsHtml(imgs) + `</div>`
+        + `<aside class="pfind" aria-label="Picked parts" aria-live="polite">${picksEmpty}</aside></div></div>`
       : `<div class="muted">No drawing for this group in the parts catalogue.</div>`)
     + (parts.length ? `<div class="pall"><div class="sechead">`
       + (imgs.length > 1 ? 'All parts on this page' : 'Parts on this drawing')
@@ -4047,9 +4217,24 @@ function splitParts(w, cs) {
 // Callouts are picked from either side, several at once (the user,
 // 2026-10-24: "can we select multiple parts on the diagram?"): a tap adds a
 // number to the picks, a second tap on it takes it off, "Clear" empties
-// them. Every pick's rows and numbers are marked, and the line above the
-// drawing lists them; what is brought into view is in the same drawing's
-// dropdown when it can be.
+// them. Every pick's rows and numbers are marked, and the picks panel docked
+// beside the drawing (below it in a narrow box) lists them. A tap on the
+// drawing moves nothing (the user, 2026-10-26: "leave the view exactly where
+// it is"; it used to scroll to the part's row, and the list floated over the
+// tab bar): the panel is always there, so a pick never shifts the drawing.
+// A tap on a row of the list still brings its number on the drawing into view.
+// where the docked panel sticks: just under the tab bar, which sticks itself
+// (its own top differs by width: under the slide-over's bar at <=900 px)
+function placePicksTop() {
+  const t = $('#resTabs'), right = $('#right');
+  if (!t || !right) return;
+  const top = parseFloat(getComputedStyle(t).top);
+  right.style.setProperty('--picks-top', `${(isNaN(top) ? 0 : top) + t.offsetHeight + 8}px`);
+}
+if (window.ResizeObserver) new ResizeObserver(placePicksTop).observe($('#resTabs'));
+addEventListener('resize', placePicksTop);
+const picksEmpty = `<div class="pfempty"><b>Picked parts</b><span class="muted">Tap numbers on the drawing to `
+  + `build a list. Tap a number again to take it off.</span></div>`;
 const calloutRows = (host, co) => [...host.querySelectorAll('tr[data-callout]')].filter(r => r.dataset.callout === co);
 const calloutMarks = (host, co) => [...host.querySelectorAll('.pco')].filter(b => b.dataset.co === co);
 function showPicks(host) {
@@ -4062,17 +4247,20 @@ function showPicks(host) {
     marks.forEach(b => b.classList.add('on'));
     const listed = rows.filter(r => r.closest('.pall'));   // each part once
     const r = listed[0] || rows[0];
-    return `<div class="pfline">` + (r
-      ? `<b class="cbig">${esc(co)}</b> &mdash; ${esc(r.dataset.cname)}, <span class="pn">${esc(r.dataset.cpn)}</span>`
-        + (listed.length > 1 ? ` <span class="muted">(+${listed.length - 1} more in the list)</span>` : '')
-        + (marks.length ? '' : ' <span class="muted">&mdash; look for this number on the drawing</span>')
-      : `<b class="cbig">${esc(co)}</b> <span class="muted">is not in this page's parts list</span>`) + `</div>`;
+    return `<li class="pfline"><b class="cbig">${esc(co)}</b><span class="pftext">` + (r
+      ? `${esc(r.dataset.cname)}<span class="pn">${esc(r.dataset.cpn)}</span>`
+        + (listed.length > 1 ? `<span class="muted">+${listed.length - 1} more in the list</span>` : '')
+        + (marks.length ? '' : '<span class="muted">Look for this number on the drawing</span>')
+      : `<span class="muted">Not in this page's parts list</span>`)
+      + `</span><button type="button" class="pfx" data-unpick="${esc(co)}" title="Take ${esc(co)} off the list"`
+      + ` aria-label="Take part ${esc(co)} off the list">&times;</button></li>`;
   });
   if (!f) return;
-  f.hidden = !sel.length;
-  f.innerHTML = lines.join('') + (sel.length
-    ? `<div class="pfbar"><span class="muted">${sel.length} picked &middot; tap a number again to take it off</span>`
-      + `<button type="button" class="ghost" data-clear-picks>Clear</button></div>` : '');
+  f.innerHTML = sel.length
+    ? `<div class="pfhead"><b>Picked parts</b><span class="muted">${sel.length}</span>`
+      + `<button type="button" class="ghost" data-clear-picks>Clear</button></div>`
+      + `<ol class="pflist">${lines.join('')}</ol>`
+    : picksEmpty;
 }
 function pickCallout(host, co, from, el) {
   let sel = JSON.parse(host.dataset.picks || '[]');
@@ -4080,26 +4268,22 @@ function pickCallout(host, co, from, el) {
   sel = adding ? [...sel, co] : sel.filter(x => x !== co);
   host.dataset.picks = JSON.stringify(sel);
   showPicks(host);
-  if (!adding) return;                 // taking one off moves nothing
-  const rows = calloutRows(host, co), marks = calloutMarks(host, co), f = host.querySelector('.pfind');
+  // taking one off, or picking on the drawing, moves nothing
+  if (!adding || from !== 'row') return;
   const sec = el?.closest('.pdsec');
   const near = xs => { const s = sec ? xs.filter(x => sec.contains(x)) : []; return s.length ? s : xs; };
-  const seen = near(rows.filter(r => !r.closest('[hidden]')));
-  // a drawing folded away is opened, then the other side is brought into view
-  const m = near(marks)[0];
-  if (from === 'row' && m) {
-    const d = m.closest('details'); if (d) d.open = true;
-    m.scrollIntoView({behavior: 'smooth', block: 'center'});
-  } else if (from === 'row') {
-    f?.scrollIntoView({behavior: 'smooth', block: 'start'});
-  } else if (seen[0]) {
-    seen[0].scrollIntoView({behavior: 'smooth', block: 'center'});
-  }
+  // a row: its number on the drawing (a drawing folded away is opened)
+  const m = near(calloutMarks(host, co))[0];
+  if (!m) return;
+  const d = m.closest('details'); if (d) d.open = true;
+  m.scrollIntoView({behavior: 'smooth', block: 'center'});
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-back-parts]')) { setTab('parts'); return; }
   const clr = e.target.closest('[data-clear-picks]');
   if (clr) { const host = clr.closest('.ppage'); if (host) { host.dataset.picks = '[]'; showPicks(host); } return; }
+  const un = e.target.closest('[data-unpick]');
+  if (un) { const host = un.closest('.ppage'); if (host) pickCallout(host, un.dataset.unpick, 'list', un); return; }
   const b = e.target.closest('.pco');
   if (b) { const host = b.closest('.ppage'); if (host) pickCallout(host, b.dataset.co, 'drawing', b); return; }
   const r = e.target.closest('tr[data-callout]');

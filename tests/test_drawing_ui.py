@@ -18,6 +18,10 @@ two drawings and callout sidecars) and checks what the user asked for on
   - a tapped number turns red (on the drawing and in the list); several can
     be picked; a second tap takes one off; a row in a folded drawing's list
     opens that drawing; Clear empties the picks;
+  - picking on the drawing moves nothing (the right box's scroll and the
+    drawing's place stay put; 2026-10-26); the picks panel is docked beside
+    the drawing in a wide box and below it in a narrow one, never over the
+    tab bar, and an x in it takes a pick off;
   - the divider between the sides drags, stops at its limits, is kept after
     a reload, resets on double-click, and is hidden on a phone.
 
@@ -160,23 +164,35 @@ def main(argv=None):
                 return {marks: [...h.querySelectorAll('.pco.on')].map(b => b.dataset.co),
                         rows: [...new Set([...h.querySelectorAll('tr.on')].map(r => r.dataset.callout))],
                         listed: [...h.querySelectorAll('.pfline .cbig')].map(b => b.textContent),
-                        hidden: h.querySelector('.pfind').hidden}; }""")
+                        empty: !!h.querySelector('.pfind .pfempty')}; }""")
 
         def tap(co):
             pg.evaluate("co => [...document.querySelectorAll('#srcout .pco')].find(b => b.dataset.co === co).click()", co)
             pg.wait_for_timeout(150)
 
+        geo = """() => { const h = document.querySelector('#srcout .ppage');
+                return {scroll: document.querySelector('#right').scrollTop,
+                        img: Math.round(h.querySelector('.pdwrap').getBoundingClientRect().top),
+                        imgR: Math.round(h.querySelector('.pdwrap').getBoundingClientRect().right),
+                        panelL: Math.round(h.querySelector('.pfind').getBoundingClientRect().left)}; }"""
+        before = pg.evaluate(geo)
         tap("10")
+        after = pg.evaluate(geo)
+        check("pick: a tap on the drawing moves nothing", before == after, f"{before} -> {after}")
+        check("pick: the picks panel is beside the drawing in a wide box",
+              after["panelL"] >= after["imgR"], str(after))
         mark = pg.evaluate("getComputedStyle([...document.querySelectorAll('#srcout .pco.on')][0]).color")
         row = pg.evaluate("getComputedStyle(document.querySelector('#srcout tr.on td.co')).color")
         check("pick: a tapped number turns red on the drawing and in the list",
               mark == RED and row == RED, f"{mark} / {row}")
-        check("pick: its part is named above the drawing", state()["listed"] == ["10"], str(state()))
+        check("pick: its part is listed in the picks panel", state()["listed"] == ["10"], str(state()))
         tap("30")
         s = state()
         check("pick: several at once", s["marks"] == ["10", "30"] and s["listed"] == ["10", "30"], str(s))
+        b4 = pg.evaluate(geo)
         tap("10")
         s = state()
+        check("pick: taking one off moves nothing", pg.evaluate(geo) == b4)
         check("pick: a second tap takes one off", s["marks"] == ["30"] and s["rows"] == ["30"], str(s))
         pg.evaluate("[...document.querySelectorAll('#srcout .pdsec')[1].querySelectorAll('tr[data-callout]')]"
                     ".find(r => r.dataset.callout === '20').click()")
@@ -185,9 +201,20 @@ def main(argv=None):
         check("pick: a row in a folded drawing's list opens it and marks its number",
               pg.evaluate("document.querySelectorAll('#srcout .pdsec')[1].open")
               and set(s["marks"]) == {"30", "20"}, str(s))
+        pg.click("#srcout [data-unpick='20']")
+        s = state()
+        check("pick: the x in the panel takes one off", s["marks"] == ["30"] and s["listed"] == ["30"], str(s))
+        # scrolled down the box: the tab bar stays on top of the panel
+        pg.evaluate("document.querySelector('#right').scrollTop = 400")
+        pg.wait_for_timeout(100)
+        over = pg.evaluate("""() => { const t = document.querySelector('#resTabs').getBoundingClientRect(),
+                                     p = document.querySelector('#srcout .pfind').getBoundingClientRect();
+                                     return {tabsBottom: t.bottom, panelTop: p.top}; }""")
+        check("pick: scrolled, the panel stays under the tab bar", over["panelTop"] >= over["tabsBottom"] - 0.5, str(over))
         pg.click("#srcout [data-clear-picks]")
         s = state()
-        check("pick: Clear empties the picks", not s["marks"] and not s["rows"] and s["hidden"], str(s))
+        check("pick: Clear empties the picks", not s["marks"] and not s["rows"] and s["empty"], str(s))
+        pg.evaluate("document.querySelector('#right').scrollTop = 0")
 
         # -- the divider ------------------------------------------------------
         def left():
@@ -220,6 +247,35 @@ def main(argv=None):
         pg.set_viewport_size({"width": 375, "height": 812})
         pg.wait_for_timeout(200)
         check("divider: hidden on a phone", not pg.locator("#splitter").is_visible())
+
+        # -- the picks panel on a phone: below the drawing, never over the tabs
+        pg.reload()
+        pg.wait_for_function("vehicles.length > 0")
+        pg.evaluate("([pno, doc]) => showPage(pno, doc)", ["P900003", epc_doc])
+        pg.wait_for_selector("#srcout .ppage .pdsec .pco", timeout=10_000)
+        pg.evaluate("document.querySelector('#srcout .pdsec .pdwrap').scrollIntoView()")
+        pg.wait_for_timeout(200)
+        before = pg.evaluate(geo)
+        tap("10")
+        tap("30")
+        after = pg.evaluate(geo)
+        check("phone: picking moves nothing", before == after, f"{before} -> {after}")
+        lay = pg.evaluate("""() => { const h = document.querySelector('#srcout .ppage'),
+                 r = e => e.getBoundingClientRect();
+                 const p = r(h.querySelector('.pfind')), f = r(h.querySelector('.pdfig')), t = r(document.querySelector('#resTabs'));
+                 return {panelTop: p.top, figBottom: f.bottom, panelBottom: p.bottom, tabsTop: t.top,
+                         pos: getComputedStyle(h.querySelector('.pfind')).position,
+                         listed: [...h.querySelectorAll('.pfline .cbig')].map(b => b.textContent)}; }""")
+        check("phone: the picks panel sits below the drawing, in the flow",
+              lay["panelTop"] >= lay["figBottom"] - 0.5 and lay["pos"] == "static"
+              and lay["listed"] == ["10", "30"], str(lay))
+        pg.evaluate("document.querySelector('#srcout .pfind').scrollIntoView({block: 'end'})")
+        pg.wait_for_timeout(150)
+        lay2 = pg.evaluate("""() => ({panelBottom: document.querySelector('#srcout .pfind').getBoundingClientRect().bottom,
+                                      tabsTop: document.querySelector('#resTabs').getBoundingClientRect().top})""")
+        check("phone: scrolled to the panel, it ends above the tab bar",
+              lay2["panelBottom"] <= lay2["tabsTop"] + 0.5, str(lay2))
+        pg.screenshot(path=str(Path(tempfile.gettempdir()) / "ar_picks_phone.png"))
 
         browser.close()
     srv.should_exit = True
