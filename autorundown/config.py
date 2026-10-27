@@ -69,6 +69,9 @@ class Config:
     # where the LEMON torrent is (or will be) downloaded; its lemon/index.json
     # replaces the built-in catalogue snapshot (lemon_catalogue.py)
     lemon_torrent_dir: str = ""
+    # Operation CHARM's operation-charm.torrent (from charm.li's "Download our
+    # data!"): one car at a time is downloaded from its swarm (charm_download.py)
+    charm_torrent: str = ""
     # whose API key pays for an answer (pick_key): "company" = `api_key` for
     # everyone; "per_mechanic" = each signed-in mechanic's own key from
     # `mechanic_keys`, the PC itself still on `api_key`

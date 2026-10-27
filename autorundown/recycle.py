@@ -3,9 +3,12 @@ Mercedes WIS / EPC data" buttons' extracted files (the user, 2026-10-23: "if
 i click a delete button on a local site, it should delete the data
 completly"; the Recycle Bin, not a permanent delete, was their choice).
 
-Only names in EXTRACT_NAMES are ever accepted: whatever path a caller
-computes, nothing else -- a manual folder, the index's folder, a home
-directory -- can be thrown away by this.
+Only names in EXTRACT_NAMES are ever accepted, and a car AutoRundown
+downloaded itself (charm_download.py: a folder directly in
+<app dir>/manuals holding DOWNLOAD_MARK) -- the agreed LEMON/CHARM rule:
+removing a downloaded car deletes its folder. Whatever path a caller
+computes, nothing else -- a manual folder of the user's own, the index's
+folder, a home directory -- can be thrown away by this.
 
 AUTORUNDOWN_RECYCLE_TO=<folder> moves into that folder instead (tests, and
 the Linux test boxes), so a test never fills the PC's Recycle Bin.
@@ -23,12 +26,24 @@ from pathlib import Path
 WIS_DIRS = ("wis_extract", "wis_applic", "wis_applic2", "wis_vehicles", "wis_images", "wis_links")
 EPC_DIRS = ("epc_extract",)
 EXTRACT_NAMES = frozenset(WIS_DIRS + EPC_DIRS)
+DOWNLOAD_MARK = ".autorundown-download"
+
+
+def downloaded_car(path: Path) -> bool:
+    """A car folder charm_download.py wrote: <app dir>/manuals/<doc_id>/."""
+    from . import config
+    p = Path(path)
+    try:
+        return (p.parent.resolve() == (config.APP_DIR / "manuals").resolve()
+                and (p / DOWNLOAD_MARK).is_file())
+    except OSError:
+        return False
 
 
 def allowed(path: Path, keep: list[Path] = ()) -> str:
     """Why `path` must not be thrown away, or "" when it may."""
     p = Path(path)
-    if p.name not in EXTRACT_NAMES:
+    if p.name not in EXTRACT_NAMES and not downloaded_car(p):
         return f"{p} is not an extract folder ({', '.join(sorted(EXTRACT_NAMES))})"
     if not p.is_dir():
         return f"{p} is not a folder"

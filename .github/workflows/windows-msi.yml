@@ -141,7 +141,7 @@ jobs:
           if ($p.ExitCode) { Get-Content install.log -Tail 40; throw "install failed: $($p.ExitCode)" }
           $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
           # (+ Scan VIN's vendored barcode/OCR libraries)
-          foreach ($f in "python\python.exe", "app\ingest.py", "app\rebuild_wis.py", "app\remove_manuals.py", "app\autorundown\web\index.html",
+          foreach ($f in "python\python.exe", "app\ingest.py", "app\rebuild_wis.py", "app\remove_manuals.py", "app\charm_download.py", "app\autorundown\web\index.html",
                          "app\autorundown\web\vendor\zxing-wasm-3.1.4\zxing_reader.wasm", "app\autorundown\web\vendor\tesseract-7.0.0\eng.traineddata.gz",
                          "app\autorundown\web\vendor\tesseract-7.0.0\tesseract-core-simd-lstm.wasm.js") {
             if (-not (Test-Path "$inst\$f")) { throw "missing after install: $f" }

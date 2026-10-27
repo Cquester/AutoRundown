@@ -627,6 +627,9 @@
   details.lemfolder{margin-top:12px}
   details.lemhow ul{margin:6px 0 0; padding-left:20px; font-size:14px; color:var(--text)}
   details.lemhow li{margin:0 0 6px}
+  table.kv{border-collapse:collapse; font-size:14px; margin-top:8px}
+  table.kv th{text-align:left; color:var(--muted); font-weight:500; padding:3px 14px 3px 0; vertical-align:top}
+  table.kv td{padding:3px 0}
   details.lemfolder > summary{cursor:pointer; color:var(--muted); font-size:14px}
   #impStatus a{color:var(--accent)}
   .implog{max-height:260px; overflow:auto; background:var(--log-bg); border-radius:10px; padding:10px;
@@ -1157,6 +1160,32 @@
         <li><b>Only the torrent.</b> Nothing is fetched from the LEMON website itself.</li>
       </ul>
     </details>
+      </div>
+    </details>
+    <details class="lemcard" name="lemoncards" id="impCharmBox">
+      <summary><span class="lc-title">One car from Operation CHARM</span><span class="badge">1982&ndash;2013</span><span class="lc-sub" id="charmSum"></span></summary>
+      <div class="lc-body">
+        <p class="muted" style="margin:0 0 8px">CHARM (charm.li) shares its whole archive as one torrent; this
+          downloads one car from it at a time and imports it. The same rules as LEMON: the size first, only the
+          swarm, never seeding, and afterwards the torrent data is deleted &mdash; only the car's own folder stays.
+          A car's text is about 200&nbsp;MB to download; its images can be several GB, because one car's
+          pictures are spread through the image file (cars of the same make share those parts).</p>
+        <div id="charmTorrentRow">
+          <label for="charmTorrent">operation-charm.torrent</label>
+          <div class="row"><input id="charmTorrent" type="text" style="flex:1" placeholder="C:\Users\&hellip;\Downloads\operation-charm.torrent">
+            <button class="ghost" type="button" id="charmTorrentSet">Use this file</button></div>
+          <p class="muted" style="font-size:13px; margin:4px 0 10px">From charm.li's About page, &ldquo;Download our data!&rdquo;.</p>
+        </div>
+        <div class="row" style="gap:8px">
+          <input id="charmMake" type="text" placeholder="Make, e.g. Mercedes Benz" style="flex:1" aria-label="Make">
+          <input id="charmYear" type="text" inputmode="numeric" maxlength="4" placeholder="Year" style="width:6em" aria-label="Year">
+        </div>
+        <input id="charmCar" type="text" placeholder="Car, e.g. 190E 2.3-16 (201.034) L4-2.3L (102.983)" style="width:100%; margin-top:8px" aria-label="Car">
+        <div class="row" style="margin-top:8px; gap:8px; align-items:center">
+          <button class="ghost" type="button" id="charmPlan">Check size</button>
+          <span class="muted" id="charmNote" aria-live="polite"></span>
+        </div>
+        <div id="charmPlanBox" aria-live="polite" hidden></div>
       </div>
     </details>
     <details class="lemcard" name="lemoncards" id="impLemFolderBox">
@@ -5905,7 +5934,8 @@ const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'r
   ? 'removing Mercedes WIS' : s.mode === 'remove_epc' ? 'removing Mercedes EPC'
   : s.mode === 'vm' ? 'Mercedes VM extract' : s.mode === 'vm_epc' ? 'Mercedes EPC extract'
   : s.mode === 'vm_both' ? 'Mercedes WIS + EPC extract' : s.mode === 'vm_check' ? 'VM test'
-  : s.mode === 'vm_rollback' ? 'VM rollback' : 'import';
+  : s.mode === 'vm_rollback' ? 'VM rollback' : s.mode === 'charm_plan' ? 'CHARM size check'
+  : s.mode === 'charm_car' ? 'CHARM download' : 'import';
 function impShow(s) {
   const log = $('#impLog');
   $('#jobIdle').hidden = s.state !== 'idle';
@@ -5934,6 +5964,7 @@ function impShow(s) {
       : s.state === 'done' ? `Finished in ${t}.` : s.state === 'cancelled' ? `Cancelled after ${t}.`
       : `Failed (exit ${s.returncode}) after ${t} — see the log.`;
   }
+  if (/^charm_/.test(s.mode || '')) charmShow(s);
   // a VM test's results go in the VM's checklist
   if (s.mode === 'vm_check' && s.state !== 'running' && s.checks?.length) {
     $('#impVmChecks').hidden = false;
@@ -6289,6 +6320,88 @@ function impProg(s) {
   $('#vpParts').innerHTML = n < 2 ? '' : parts.map(x =>
     `<li>${esc(name(x.label))} — <span class="st ${x.state.replace(' ', '-')}">${VP_STATE[x.state] || esc(x.state)}</span></li>`).join('');
 }
+// ---- One car from Operation CHARM (charm_download.py; jobs charm_plan, then charm_car)
+const gbs = b => b >= 2**30 ? `${(b / 2**30).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 2**20))} MB`;
+async function charmLoad() {
+  try {
+    const c = await api('/api/import/charm');
+    if (!$('#charmTorrent').value) $('#charmTorrent').value = c.torrent || '';
+    $('#charmTorrentRow').hidden = c.local;
+    $('#charmSum').textContent = c.local ? 'sample data' : !c.libtorrent ? 'libtorrent missing'
+      : c.ok ? '' : 'torrent not set';
+    $('#charmPlan').disabled = !c.ok;
+  } catch (e) { $('#charmNote').textContent = e.message; }
+}
+$('#charmTorrentSet').onclick = async () => {
+  try {
+    await api('/api/import/charm/torrent', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: $('#charmTorrent').value})});
+    $('#charmNote').textContent = 'Torrent set.';
+    charmLoad();
+  } catch (e) { $('#charmNote').textContent = e.message; }
+};
+// window.charmFill(make, year, car): for an "Add this car" button -- fills this card and checks the size
+window.charmFill = (make, year, car) => {
+  $('#charmMake').value = make || ''; $('#charmYear').value = year || ''; $('#charmCar').value = car || '';
+  $('#impCharmBox').open = true;
+  charmStart('charm_plan', [make, String(year), car]);
+};
+async function charmStart(mode, car, textOnly = false) {
+  $('#charmNote').textContent = '';
+  $('#charmPlanBox').hidden = true;
+  try {
+    impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: '', mode, car, text_only: textOnly})}));
+    impWatch();
+  } catch (e) { $('#charmNote').textContent = e.message; }
+}
+$('#charmPlan').onclick = () => charmStart('charm_plan',
+  [$('#charmMake').value.trim(), $('#charmYear').value.trim(), $('#charmCar').value.trim()]);
+function charmShow(s) {
+  const box = $('#charmPlanBox');
+  if (s.state === 'running') {
+    $('#charmNote').textContent = s.mode === 'charm_plan'
+      ? "Checking the size: fetching the car's text and the image index first…" : 'Downloading…';
+    return;
+  }
+  $('#charmNote').textContent = '';
+  const nf = s.not_found;
+  if (nf) {
+    box.hidden = false;
+    box.innerHTML = nf.candidates?.length
+      ? `<p class="muted">CHARM has no ${esc(nf.year)} ${esc(nf.make)} named “${esc(nf.asked)}”. Closest:</p>`
+        + nf.candidates.map((c, i) => `<div class="row" style="align-items:center; gap:8px; margin:4px 0">`
+          + `<span style="flex:1">${esc(c)}</span><button class="ghost" type="button" data-i="${i}">Use</button></div>`).join('')
+      : `<p class="muted">CHARM has no ${esc(nf.year)} ${esc(nf.make)} cars${nf.cars_that_year ? ' by that name' : ''}.</p>`;
+    box.querySelectorAll('button[data-i]').forEach(b => b.onclick = () => {
+      $('#charmCar').value = nf.candidates[+b.dataset.i];
+      charmStart('charm_plan', [nf.make, nf.year, nf.candidates[+b.dataset.i]]);
+    });
+    return;
+  }
+  const p = s.plan;
+  if (!p || s.state !== 'done') return;
+  box.hidden = false;
+  if (s.mode === 'charm_car') {
+    box.innerHTML = `<p>Imported: <b>${esc(p.year)} ${esc(p.make)} ${esc(p.car)}</b>`
+      + `${p.text_only ? ' (text only)' : ''}. The torrent data is deleted.</p>`;
+    return;
+  }
+  const more = p.download_bytes + p.stays_bytes, ok = p.free_bytes >= more;
+  box.innerHTML = `<table class="kv"><tr><th>Car</th><td>${esc(p.year)} ${esc(p.make)} ${esc(p.car)}</td></tr>`
+    + `<tr><th>Manual</th><td>${p.pages.toLocaleString()} pages, ${p.images.toLocaleString()} images</td></tr>`
+    + `<tr><th>Fetched so far</th><td>${gbs(p.fetched_bytes)} (the text and the image index)</td></tr>`
+    + `<tr><th>Still to download</th><td>${gbs(p.download_bytes)} (the images)</td></tr>`
+    + `<tr><th>Disk needed</th><td>${gbs(p.disk_needed_bytes)} at most, while it runs</td></tr>`
+    + `<tr><th>Stays afterwards</th><td>about ${gbs(p.stays_bytes)}: the car's pages and images</td></tr>`
+    + `<tr><th>Free</th><td>${gbs(p.free_bytes)}</td></tr></table>`
+    + (ok ? '' : `<p class="bad">Not enough free space for the images: ${gbs(more)} needed.</p>`)
+    + `<div class="row" style="gap:8px; margin-top:8px">`
+    + `<button type="button" id="charmGo"${ok ? '' : ' disabled'}>Download and import</button>`
+    + `<button type="button" class="ghost" id="charmText">Text only</button></div>`;
+  $('#charmGo').onclick = () => charmStart('charm_car', [p.make, p.year, p.car]);
+  $('#charmText').onclick = () => charmStart('charm_car', [p.make, p.year, p.car], true);
+}
 function impShowSource() {
   const tab = impTab(), src = impSource();
   // the folder browser lives in the Folder tab, or inside the LEMON tab's folder section
@@ -6306,6 +6419,7 @@ function impShowSource() {
   else {
     // the LEMON tab shows its folder import and the catalogue together
     if (tab === 'lemon' && !catRoot) impCatalogueOpen();
+    if (tab === 'lemon') charmLoad();
     if (src !== 'catalogue') impBrowse($('#impPath').value);
   }
 }

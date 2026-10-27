@@ -149,6 +149,11 @@ def main() -> int:
         env["AUTORUNDOWN_VMS_DIR"] = str(fake_vbox_files(DEV / "VirtualBox VMs"))
     elif conf.get("extractor_dir", "").endswith("fake_extractor"):
         conf["extractor_dir"] = ""        # a --fake-vm run before this one set it
+    # Operation CHARM from a sample copy (invented text), never the swarm:
+    # the LEMON tab's "One car from Operation CHARM" works for free
+    if not (DEV / "charm" / "layout.json").exists():
+        run([sys.executable, "tools/make_sample_charm.py", "--out", str(DEV / "charm")], env)
+    env["AUTORUNDOWN_CHARM_SOURCE"] = str(DEV / "charm")
     cfg.write_text(json.dumps(conf, indent=2), encoding="utf-8")
 
     host = "0.0.0.0" if args.lan else "127.0.0.1"

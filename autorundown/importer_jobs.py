@@ -451,6 +451,46 @@ def extract_dirs(kind: str, corpus_dirs, index_path: Path) -> list[Path]:
     return out
 
 
+def charm_source() -> dict:
+    """Where CHARM's pieces come from: the torrent set in Shop setup, or a
+    complete local copy (AUTORUNDOWN_CHARM_SOURCE: dev.py's sample data and
+    the tests -- no swarm, nothing to pay or wait for)."""
+    from . import config
+    local = os.environ.get("AUTORUNDOWN_CHARM_SOURCE", "")
+    if local:
+        return {"local": local, "ok": (Path(local) / "layout.json").is_file(), "torrent": ""}
+    t = config.load().charm_torrent
+    return {"local": "", "torrent": t, "ok": bool(t) and Path(t).is_file()}
+
+
+def charm_work() -> Path:
+    from . import config
+    return config.APP_DIR / "charm_download"
+
+
+def charm_doc_id(make: str, year: str, car: str) -> str:
+    from .importers.lemon import _slug
+    return _slug(f"{year}-{make}-{car}")
+
+
+def charm_plan(make: str, year: str, car: str) -> dict | None:
+    """The size a `charm_plan` job worked out for this car (CHARM's own
+    name), if one has run; `charm_car` is refused without it."""
+    f = charm_work() / f"plan-{charm_doc_id(make, year, car)}.json"
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def charm_args(car: list[str]) -> list[str]:
+    """[make, year, car] (CHARM's own name) or [make, year, model, engine]
+    (a catalogue path) as charm_download.py arguments."""
+    if len(car) == 3:
+        return ["--make", car[0], "--year", car[1], "--car", car[2]]
+    return ["--make", car[0], "--year", car[1], "--model", car[2], "--engine", car[3]]
+
+
 _STAMP = re.compile(r"^\[\d\d:\d\d:\d\d\]\s*")
 _SCRIPT = re.compile(r"([\w.-]+\.(?:py|js))$")
 # what the build step's scripts are doing, in the order vm_pipeline.py runs them
@@ -607,6 +647,15 @@ class Progress:
             self._set(m.group(1), m.group(2), "images")
         elif line.startswith(("corpus ready:", "EPC corpus ready:")):
             self.detail = "corpus ready"
+        # -- charm_download.py
+        elif line.startswith("== CHARM: "):
+            self.reset("CHARM: " + line[len("== CHARM: "):])
+        elif m := re.match(r"pieces (\d+)/(\d+)(?:\s+(\d+) KB/s\s+(\d+) peers)?", line):
+            self._set(m.group(1), m.group(2), "pieces")
+            if m.group(3) is not None:
+                self.activity = f"{m.group(3)} KB/s from {m.group(4)} peers"
+        elif m := re.match(r"images (\d+)/(\d+)$", line):
+            self._set(m.group(1), m.group(2), "images")
         # -- ingest.py / rebuild_wis.py
         elif m := re.match(r"found (\d+) vehicle\(s\)", line):
             self._set(0, m.group(1), "vehicles")
@@ -710,7 +759,8 @@ class ImportJobs:
         return cmds
 
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
-              steps: str = "", only: list[str] | None = None) -> dict:
+              steps: str = "", only: list[str] | None = None,
+              car: list[str] | None = None, text_only: bool = False) -> dict:
         """`parts` are run one after the other, each a list of commands (or a
         function giving them, called when that part starts); the first
         failing command stops the job, and later parts are never started."""
@@ -759,6 +809,25 @@ class ImportJobs:
                 for o in only or []:
                     cmd += ["--only", o]
                 cmds = [cmd]
+            elif mode in ("charm_plan", "charm_car"):
+                # one car from Operation CHARM's torrent (charm_download.py):
+                # charm_plan sizes it (fetches its text and the image index,
+                # changes nothing else); charm_car downloads it, writes
+                # <app dir>/manuals/<doc_id>/ and imports that folder as LEMON
+                src = charm_source()
+                cmd = [*py, str(ROOT / "charm_download.py"), *charm_args(car or []),
+                       "--index", str(index_path), "--work", str(charm_work())]
+                cmd += ["--local-source", src["local"]] if src["local"] else ["--torrent", src["torrent"]]
+                if mode == "charm_plan":
+                    cmd.append("--plan")
+                if text_only:
+                    cmd.append("--text-only")
+                cmds = [cmd]
+                if mode == "charm_car":
+                    from . import config
+                    folder = config.APP_DIR / "manuals" / charm_doc_id(*car[:3])
+                    cmds.append([*py, str(ROOT / "ingest.py"), "--archive", str(folder),
+                                 "--index", str(index_path), "--importer", "lemon"])
             elif mode in ("remove", "remove_wis", "remove_epc"):
                 # remove_manuals.py: LEMON / folder manuals by doc_id, WIS and EPC
                 # whole. A Remove button removes completely (the user,
@@ -773,6 +842,14 @@ class ImportJobs:
                         cmd += ["--recycle", f]
                 for o in only or []:
                     cmd += ["--doc-id", o]
+                if mode == "remove":
+                    # a car AutoRundown downloaded (CHARM) goes with its folder,
+                    # as agreed; a manual folder of the user's own stays
+                    from . import recycle
+                    have = manuals(index_path)
+                    for r in have["lemon"] + have["folder"]:
+                        if r["doc_id"] in (only or []) and r["file_path"]                                 and recycle.downloaded_car(Path(r["file_path"])):
+                            cmd += ["--recycle", r["file_path"]]
                 cmds = [cmd]
             elif mode == "rebuild_wis":
                 # removes WIS in place, re-ingests; every other manual and the
@@ -789,6 +866,7 @@ class ImportJobs:
             except OSError:
                 pass
             self._job = {"state": "running", "path": str(path), "mode": mode, "vm": vm,
+                         "car": list(car or []),
                          "started": time.time(), "finished": None, "returncode": None,
                          # what the UI's progress bar names: "Step 1 of 2: WIS"
                          "parts": [{"key": k, "label": lb, "state": "pending"} for k, lb, _ in parts],
@@ -820,6 +898,15 @@ class ImportJobs:
             with self._lock:
                 if self._job:
                     self._job["screen_path"] = m.group(1).strip()
+        for tag, field in (("PLAN ", "plan"), ("NOT_FOUND ", "not_found"), ("CHARM_DONE ", "charm_done")):
+            if line.startswith(tag):
+                try:
+                    val = json.loads(line[len(tag):])
+                except ValueError:
+                    break
+                with self._lock:
+                    if self._job:
+                        self._job[field] = val
         m = re.search(r"\] SNAPSHOT (\S+)", line)
         if m:
             with self._lock:

@@ -638,6 +638,17 @@ Three importers ship:
 All three can be run from Shop setup → *Manuals*, which detects which one a
 folder needs.
 
+**One car from Operation CHARM.** CHARM (charm.li, 1982-2013) shares its whole
+archive as one 758 GB torrent. Shop setup → *Manuals* → *LEMON* → *One car from
+Operation CHARM* downloads a single car from it: point it at
+`operation-charm.torrent` (charm.li's About page, "Download our data!"), name
+the car, and *Check size* fetches the car's text (~200 MB) and shows what the
+rest needs before anything big starts. A car's images can be several GB, as
+one car's pictures are spread through the image file; *Text only* skips them.
+It only uses the swarm, never seeds, and deletes the torrent data afterwards;
+the car is imported like a LEMON manual. Needs `pip install libtorrent`
+(bundled in the Windows installer).
+
 ---
 
 ## Design notes
@@ -713,6 +724,7 @@ autorundown/             the app (everything the installer ships)
   tls.py                 local certificate authority for --https
   importer_jobs.py       imports started from Shop setup
   lemon_catalogue.py     the LEMON catalogue tree
+  charm.py, charm_fetch.py   one car from Operation CHARM's torrent (reader, swarm)
   wis_links.py           WIS cross-references, wiring-diagram hotspots, codes, labour
   wis_original.py        WIS "Original layout" view
   html_original.py       LEMON / folder HTML pages' "Original layout" (cleaned)
@@ -724,6 +736,7 @@ ingest.py                build / update the index
 ask.py                   command-line questions, keyword search, spend
 rebuild_wis.py           replace the Mercedes WIS part of the index in place (keeps other manuals and the spend log)
 remove_manuals.py        remove a manual (or all Mercedes WIS) from the index
+charm_download.py        one car from Operation CHARM's torrent (--plan sizes it first)
 dev.py                   throwaway local instance with sample data (port 8757)
 eval.py, eval_wis.py     retrieval checks against a real index (free)
 

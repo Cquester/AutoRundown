@@ -7,9 +7,11 @@ context: what is already decided, what is already tried, and what will break.
 
 **Status: working end to end.** Importers (LEMON HTML, Mercedes WIS via
 `records`, plain folders), index, retrieval, AI query layer (four providers), web UI with
-Shop setup, shop-network access, Windows MSI (built on the PC), CI. Not built:
-macOS/Linux packages (they run from source, by the user's decision), code
-signing, the LEMON torrent download.
+Shop setup, shop-network access, Windows MSI (built on the PC), CI, one car
+at a time from Operation CHARM's torrent (images not yet tried on the real
+swarm). Not built: macOS/Linux packages (they run from source, by the user's
+decision), code signing, the LEMON torrent download (LEMON is down; CHARM is
+the backup).
 
 **This file is the short version.** The history and measurements behind each
 area live in `docs/notes/` (moved there verbatim on 2026-10-12). **Before
@@ -21,7 +23,7 @@ broke:
 | the WIS extractor, `importers/records.py`, WIS page rendering, images, "Original layout", `wis_links.py` (cross-refs, diagrams, oil, labour) | [`docs/notes/wis-source.md`](docs/notes/wis-source.md) |
 | the car box, Browse, Variant menu, VIN (check digit, Scan VIN, `web/vendor/`), years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
 | `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
-| Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import | [`docs/notes/importing.md`](docs/notes/importing.md) |
+| Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import, the CHARM download (`charm.py`, `charm_fetch.py`, `charm_download.py`) | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
 | `providers.py`, the AI provider selector, prices, `tools/fake_anthropic.py`'s provider fakes | [`docs/notes/ai-providers.md`](docs/notes/ai-providers.md) |
@@ -33,9 +35,10 @@ broke:
 
 ```
 autorundown/        the app; everything the MSI ships (see Architecture)
-serve.py ingest.py ask.py rebuild_wis.py remove_manuals.py
+serve.py ingest.py ask.py rebuild_wis.py remove_manuals.py charm_download.py
                     command-line entry points; the app runs ingest / rebuild_wis /
-                    remove_manuals as child processes by path, so they stay at the root
+                    remove_manuals / charm_download as child processes by path, so
+                    they stay at the root
 dev.py              throwaway instance with sample data (.dev/, port 8757)
 eval.py eval_wis.py retrieval checks against the real index (free)
 tests/              free test suites, `python tests/test_<name>.py`
@@ -134,6 +137,8 @@ python ask.py --usage                             # spend, by source and user
 python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual (--compact: shrink the index)
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
 python rebuild_wis.py                             # replace the WIS part in place (keeps other manuals + spend log)
+python charm_download.py --make "Mercedes Benz" --year 1987 --car "<CHARM name>" --torrent <operation-charm.torrent> --plan
+                                                  # one car from CHARM's swarm: --plan sizes it; without it downloads (never seeds)
 python dev.py                                     # FREE, throwaway instance, :8757
 python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py (all 4 providers)
 python dev.py --fake-vm                           # FREE, Mercedes VM tab runs tools/fake_extractor
@@ -169,12 +174,14 @@ python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends
 python tests/test_answer_tabs.py [--index <db>]   # one question fills the right box's tabs (~15 s, Playwright)
 python tests/test_drawing_ui.py                   # Manual contents, drawing picks (red, several), divider (~30 s, Playwright)
 python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
+python tests/test_charm.py                        # one CHARM car: reader, plan, download, import, refusals (~10 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
 # sample data and tools
 python tools/make_sample_corpus.py                # stand-in WIS corpus -> sample_corpus/
 python tools/make_sample_lemon.py                 # stand-in LEMON archive -> sample_lemon/
 python tools/make_sample_epc.py                   # stand-in EPC parts + drawings -> sample_epc/ (dev.py ingests it)
+python tools/make_sample_charm.py                 # stand-in CHARM torrent data -> sample_charm/ (dev.py's CHARM card uses it)
 python tools/readme_gifs.py --url <box admin url>  # README GIFs -> docs/images/ (free; --answer is PAID)
 python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogue snapshot
 python extractor/parse_links.py                   # rebuild wis_links.sqlite (offline, ~1 min)
@@ -272,6 +279,8 @@ autorundown/
   config.py        ~/.autorundown/config.json (AUTORUNDOWN_HOME)
   importer_jobs.py import / remove / VM jobs started from Shop setup
   lemon_catalogue.py  LEMON torrent catalogue tree and picks
+  charm.py         Operation CHARM's data (SquashFS + LMDB) read a piece at a time; LEMON-style export
+  charm_fetch.py   CHARM torrent pieces from the swarm (libtorrent, never seeds) or a local copy
   wis_links.py     WIS cross-refs, diagram hotspots, oil, labour
   wis_original.py  WIS "Original layout" renderer
   html_original.py LEMON / folder pages' "Original layout": the page's own HTML, allow-listed
@@ -591,6 +600,10 @@ in `docs/notes/`. The ones most likely to be undone by accident:
 - **WIS is never removed per model.** (`importing.md`)
 - **Never fetch from lemon-manuals.la over HTTP**; the LEMON download, when
   built, must follow what the user agreed (2026-10-09). (`importing.md`)
+- **CHARM: one car from the swarm only, plan first, never seeds**; the
+  `.torrent` is the one file from charm.li. A car's text is ~200 MB, its
+  images ~9 GB (spread through their group). Data from the swarm is
+  untrusted: every offset is checked (`charm.BadData`). (`importing.md`)
 - **Embeddable Python, not a frozen exe; not a Windows service.**
   (`windows-installer.md`)
 
