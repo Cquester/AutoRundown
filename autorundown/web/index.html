@@ -6340,10 +6340,14 @@ $('#charmTorrentSet').onclick = async () => {
     charmLoad();
   } catch (e) { $('#charmNote').textContent = e.message; }
 };
-// window.charmFill(make, year, car): for an "Add this car" button -- fills this card and checks the size
-window.charmFill = (make, year, car) => {
+// window.charmFill(make, year, car): for an "Add this car" button -- opens Shop setup's
+// LEMON tab on this card, fills it and checks the size
+window.charmFill = async (make, year, car) => {
+  await showSetup('manuals');
+  if (impTab() !== 'lemon') impSelectTab('lemon');
   $('#charmMake').value = make || ''; $('#charmYear').value = year || ''; $('#charmCar').value = car || '';
   $('#impCharmBox').open = true;
+  $('#impCharmBox').scrollIntoView({block: 'start'});
   charmStart('charm_plan', [make, String(year), car]);
 };
 async function charmStart(mode, car, textOnly = false) {

@@ -253,7 +253,7 @@ How it is built (`autorundown/charm.py`, `charm_fetch.py`, `charm_download.py`):
   and without the space, then runs `ingest.py --importer lemon` on the
   folder. `GET /api/import/charm`, `POST /api/import/charm/torrent {path}`
   (must be a .torrent holding CHARM's two files). The UI's
-  `window.charmFill(make, year, car)` fills the card and sizes the car --
+  `window.charmFill(make, year, car)` opens Shop setup on the card, fills it and sizes the car --
   for the "Add this car" button on `feature/parts-ux-and-lemon-autofill`.
 - `recycle.downloaded_car`: a marked folder directly in
   `APP_DIR/manuals` is the one other thing Remove may recycle.
