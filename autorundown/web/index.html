@@ -588,6 +588,8 @@
   .pfx:hover, .pfx:focus-visible{background:var(--line); color:var(--text)}
   .pcap{text-align:center; margin:-4px 0 10px; font-size:12px}
   .tabhit::after{content:""; display:block; clear:both}
+  .pcats{font-size:13px; color:var(--muted); margin:2px 0 6px}
+  .pcats .pagelink{margin:2px 4px 0 0}
   .pbmore{margin-top:12px}
   .pbmore > summary, .pbsec > summary, .pbgrp > summary{cursor:pointer; padding:6px 0}
   .pbsec{border-top:1px solid var(--line)}
@@ -4508,12 +4510,16 @@ async function partsBrowse(target) {
       + ` <span class="muted">(${s.groups.length} groups)</span></summary>`
       + s.groups.map(g => `<details class="pbgrp"><summary><span class="gno">${esc(g.group)}</span> ${esc(g.name || '')}</summary>`
         + g.subs.map(sub => {
-            const p = sub.pages[0];
-            return `<details class="pbdrop" data-pno="${esc(p.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub">`
-              + `<span class="gno">${esc(sub.sub)}</span> ${esc(sub.name || '(no name)')}`
+            const drop = (p, label) => `<details class="pbdrop" data-pno="${esc(p.page_no)}" data-doc="${esc(doc)}">`
+              + `<summary class="pbsub">${label}`
               + (p.drawings ? '' : ' <span class="muted">(no drawing)</span>')
-              + (sub.pages.length > 1 ? ` <span class="muted">· ${sub.pages.length} catalogs</span>` : '')
               + `</summary><div class="pbbody"></div></details>`;
+            const name = `<span class="gno">${esc(sub.sub)}</span> ${esc(sub.name || '(no name)')}`;
+            if (sub.pages.length === 1) return drop(sub.pages[0], name);
+            // one subgroup, several catalogues (market x period): each its own
+            return `<details class="pbgrp"><summary class="pbsub">${name}`
+              + ` <span class="muted">· ${sub.pages.length} catalogs</span></summary>`
+              + sub.pages.map(p => drop(p, esc(catalogName(p)))).join('') + `</details>`;
           }).join('') + `</details>`).join('')
       + `</details>`).join(''));
 }
@@ -4592,6 +4598,17 @@ function showPartsBrowse() {
 // One tab of the right box for the current question: q is what was typed,
 // also the AI's search terms (after an Ask). The server merges them
 // round-robin, as the answer's own retrieval does.
+// A series has one parts catalogue per market and period, the same subgroup
+// in each: say which one a row is, and offer the others (their numbers can
+// differ -- a US W210 E 320's tail lamp is only in 45R, USA)
+const catalogName = c => `catalog ${c.catalog}` + (c.market ? ` · ${c.market}` : '');
+function catalogsHtml(r) {
+  if (!r.catalog) return '';
+  return `<div class="pcats">From ${esc(catalogName(r))}`
+    + (r.alt_catalogs?.length ? '. Also in: ' + r.alt_catalogs.map(c =>
+        `<button type="button" class="pagelink" ${pageAttrs(c.page_no)}>${esc(catalogName(c))}</button>`).join(' ') : '')
+    + `</div>`;
+}
 async function tabSearch(tab, q, also, seq) {
   const pane = $(PANE[tab]), doc = docId(), label = carBoxLabel;
   pane.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
@@ -4610,6 +4627,7 @@ async function tabSearch(tab, q, also, seq) {
           `<div class="tabhit">`
           + `<button type="button" class="hit" style="padding:0" ${pageAttrs(r.page_no)}>
              <div class="t">${esc(r.title)}</div><div class="s">${esc(r.section_path)}</div></button>`
+          + catalogsHtml(r)
           + (r.lines?.length ? partLinesHtml(r.lines) : '')
           // the page's drawing and whole list, opened in place
           + `<details class="pbdrop" data-pno="${esc(r.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub pshow">`

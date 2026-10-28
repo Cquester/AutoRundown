@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from .search import _filters, as_ids, parts_codes_clause
+from .search import _filters, as_ids, catalog_info, parts_codes_clause
 
 _TITLE = re.compile(
     r"^Parts: (?P<kind>model|engine) (?P<code>\S+) \(EPC catalog (?P<cat>[^)]+)\), "
@@ -85,6 +85,19 @@ def diagrams(conn: sqlite3.Connection, parts_scope) -> list[dict]:
         sub = grp["subs"].setdefault((t["sub"], t["sname"]), [])
         sub.append({"page_no": page_no, "doc_id": doc_id, "catalog": t["catalog"],
                     "drawings": len([i for i in (images or "").split("\n") if i])})
+    # a subgroup in several catalogues (market x period): each one named by
+    # its market too, so the browse list can offer them all, not the first
+    market: dict = {}
+    for sec in sections.values():
+        for grp in sec.values():
+            for pages in grp["subs"].values():
+                for p in pages if len(pages) > 1 else ():
+                    k = (p["doc_id"], p["catalog"])
+                    if k not in market:
+                        market[k] = catalog_info(conn, {
+                            "page_uid": f"{p['doc_id']}:{p['page_no']}",
+                            "title": f"(EPC catalog {p['catalog']})"}, codes)["market"]
+                    p["market"] = market[k]
     out = []
     for name in sorted(sections, key=_section_key):
         groups = []

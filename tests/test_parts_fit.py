@@ -15,7 +15,7 @@ from __future__ import annotations
 from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
 import sqlite3
 
-from autorundown.search import line_fits, parts_codes_clause
+from autorundown.search import catalog_info, line_fits, parts_codes_clause
 
 fails = 0
 
@@ -62,6 +62,17 @@ check(not line_fits(line.format("qty 1: 112.946"), car), "only another engine of
 check(line_fits(line.format("qty 1: 722.605"), car), "a code it can't judge (a gearbox): kept")
 check(line_fits(line.format("qty 1: 210.020"), ((), ())), "no car chosen: every line")
 check(line_fits("Callout | Part number | Name | Fits | Notes", car), "not a part line: kept")
+
+print("which catalogue a page is from")
+con.execute("ALTER TABLE pages ADD COLUMN page_uid TEXT")
+con.execute("UPDATE pages SET page_uid='epc:'||page_no")
+con.execute("UPDATE pages SET text=? WHERE page_no='P2'",
+            ("Models in this catalog: 210.020 E 300 DIESEL USA, 210.055 E 320 USA\n",))
+info = catalog_info(con, {"page_uid": "epc:P2", "title": "Parts: model 210 (EPC catalog 45R), group 82"},
+                    (("210.055",), ()))
+check(info == {"catalog": "45R", "market": "USA"}, f"catalogue code and market: {info}")
+info = catalog_info(con, {"page_uid": "epc:P1", "title": "Parts: model 210 (EPC catalog 66G), group 82"})
+check(info == {"catalog": "66G", "market": ""}, f"no market named: none guessed: {info}")
 
 print("all passed" if not fails else f"{fails} FAILED")
 raise SystemExit(1 if fails else 0)

@@ -584,6 +584,28 @@ def line_fits(line: str, codes: tuple = ((), ()), families=()) -> bool:
     return False
 
 
+# market words in a catalogue's model names ("210.055 E 320 USA")
+_MARKETS = {"USA": "USA", "JAPAN": "Japan", "AUSTRALIA": "Australia", "KANADA": "Canada",
+            "CANADA": "Canada", "MEXICO": "Mexico", "ITALIEN": "Italy"}
+_CATALOG_CODE_RE = re.compile(r"\(EPC catalog ([^)]*)\)")
+
+
+def catalog_info(conn: sqlite3.Connection, row: dict, codes: tuple = ((), ())) -> dict:
+    """{"catalog": "45R", "market": "USA"} for a parts page: a series has one
+    catalogue per market and period, and the same subgroup in each. The
+    market is read from the car's own entries in the page's "Models in this
+    catalog:" line (every entry when no car is chosen); "" when none names
+    one."""
+    m = _CATALOG_CODE_RE.search(row.get("title") or "")
+    text = conn.execute("SELECT text FROM pages WHERE page_uid=?", (row["page_uid"],)).fetchone()
+    line = next((l for l in ((text[0] if text else "") or "").split("\n")
+                 if l.startswith("Models in this catalog:")), "")
+    entries = line.partition(":")[2].split(", ")
+    mine = [e for e in entries if e.split()[:1] and e.split()[0] in set(codes[0] or ())] or entries
+    markets = sorted({_MARKETS[w] for e in mine for w in e.split() if w in _MARKETS})
+    return {"catalog": m.group(1) if m else "", "market": ", ".join(markets)}
+
+
 def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str,
                    codes: tuple = ((), ()), families=()) -> str:
     """A parts page as an answer should see it: the header, then every line
@@ -825,7 +847,7 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
         # parts pages, 582 distinct titles), so the same subgroup comes back
         # several times; one per title, over-fetched to fill the slots.
         k = parts_slots(limit) if manual else limit   # a parts car on its own: all of it
-        tail, titles = [], set()
+        tail, titles = [], {}
         # Best score first across the parts buckets, not round-robin: they
         # answer the same query in one FTS table, so scores compare, and a
         # whole-series scope has ~10 engine buckets -- one slot each per round
@@ -835,19 +857,30 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
                             conn, parts, query, k * 12, include_other_variants,
                             "", "", engines, codes, fts="parts_fts") for r in rows),
                         key=lambda r: r["score"])
+        # The other catalogues of a subgroup kept are not dropped unseen: they
+        # are listed on its row, each named by catalogue and market, so a US
+        # 1997 E 320 can reach 45R (USA)'s tail lamp (agent review, 2026-10-28:
+        # one catalogue was shown, chosen by score, and nothing said which).
         for r in ranked:
             key = _CATALOG_RE.sub("", r.get("title") or "")
             if key in titles:
+                first = titles[key]
+                if first is not None and r["page_no"] != first["page_no"] and \
+                        r["page_no"] not in {a["page_no"] for a in first["alt_catalogs"]}:
+                    first["alt_catalogs"].append(
+                        {"page_no": r["page_no"], "doc_id": r["doc_id"], **catalog_info(conn, r, codes)})
                 continue
-            titles.add(key)
+            if len(tail) == k:
+                titles[key] = None
+                continue
+            titles[key] = r
             r["parts"] = True
             r["body"] = _parts_snippet(conn, r, query, codes, engines)
+            r.update(catalog_info(conn, r, codes), alt_catalogs=[])
             # the body is now the page's lines, not chunk `ord`: one passage per
             # page (several Ask queries found the same page under three chunks)
             r["ord"] = 0
             tail.append(r)
-            if len(tail) == k:
-                break
         return head + tail
     if len(ids) == 1:
         return _search_one(conn, ids[0], query, limit, include_other_variants,
