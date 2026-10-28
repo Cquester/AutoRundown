@@ -200,6 +200,21 @@ def main() -> int:
           vr("1982-85 190E 5.5 Liters 5.8 Quarts", "capacity")["value"] == "5.5 Liters / 5.8 Quarts")
     check("turns right after the torque stay with it",
           vr("Cylinder head bolt 55 Nm 90° 90°", "torque")["value"] == "55 Nm 90° 90°")
+    check("a LEMON link keeps only its label",
+          vr("Coolant [[ref:18519::Cabin Heater Coolant Pump]] 15.6 qt", "capacity")["name"]
+          == "Coolant Cabin Heater Coolant Pump")
+
+    print("-- an engine's size or a test's beaker is not a capacity (F-150, 2026-10-28) --")
+    mem.execute("INSERT INTO pages VALUES ('f', 'Cabin Heater Coolant Pump', ?)", (
+        "The coolant pump is available on 2.7L EcoBoost vehicles only\n"
+        "Engine coolant 15.6 qt / 14.75L\n"
+        "Requires 3.5L engines with auto start-stop\n",))
+    mem.execute("INSERT INTO pages VALUES ('t', 'Test Procedure', ?)", (
+        "Fill the beaker with 200 ml of clean water\n",))
+    caps = search.value_lines(mem, "f", "capacity", "coolant pump")
+    check("only the coolant line, no displacement", caps == ["Engine coolant 15.6 qt / 14.75L"], caps)
+    check("a diagnostic test's volumes are left out",
+          search.value_lines(mem, "t", "capacity", "water") == [])
 
     print("-- the endpoints --")
     idx = TMP / "index.db"

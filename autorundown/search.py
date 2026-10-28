@@ -30,6 +30,7 @@ STOPWORDS = {
 # (title, section_path, body) -- SQLite BM25: lower score = better match
 WEIGHTS = (6.0, 3.0, 1.0)
 CODE_BOOST = 1.35  # see _run: pages naming the chosen car's exact engine codes
+CODE_PENALTY = 0.7  # see _filters: pages naming only other engine codes of its families
 TITLE_BOOST = 0.05  # see _title_rank: a title that is the query, up to x1.05
 TITLE_WORDS = 3    # fewer words: no title boost (see _title_rank)
 
@@ -174,9 +175,22 @@ def _filters(include_other_variants: bool, engines: tuple[str, ...] = (),
     mine = tuple(codes[1])
     boost_sql, boost_args = "", []
     if mine and CODE_BOOST != 1.0:
+        # "Engine 102 (except 102.983/99)" is about the car's engine too. A
+        # page naming only other codes of the car's engine families ranks
+        # lower: a 190 E 2.3 (102.985) was answered from the 2.3-16's
+        # (102.983) cylinder-head page, whose M8 bolts are 21 Nm, not 25
+        # (agent review, 2026-10-28). Ranking only: a page that names an
+        # engine code in passing must not be lost.
+        fams = list(dict.fromkeys(c[:3] for c in mine if re.fullmatch(r"\d{3}\.\d{3}", c)))
         boost_sql = (" * (CASE WHEN " + " OR ".join("instr(p.text, ?) > 0" for _ in mine)
-                     + f" THEN {CODE_BOOST} ELSE 1 END)")
-        boost_args = list(mine)
+                     + "".join(" OR instr(p.codes_except, ?) > 0" for _ in fams)
+                     + f" THEN {CODE_BOOST}"
+                     # "ENGINE 112 (except 112.916/953/975)" is for the rest of the family
+                     + (" WHEN instr(lower(p.text), 'except') = 0 AND ("
+                        + " OR ".join("p.text GLOB ?" for _ in fams) + f") THEN {CODE_PENALTY}"
+                        if fams else "")
+                     + " ELSE 1 END)")
+        boost_args = [*mine, *(f",{f}." for f in fams), *(f"*{f}.[0-9][0-9][0-9]*" for f in fams)]
     return variant_clause + type_clause, type_args, boost_sql, boost_args
 
 
@@ -509,6 +523,20 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
         # filter 5.0"
         return kind == "capacity" and bool(_CAP_ROW_RE.search(line)) and bool(_DECIMAL_RE.search(line))
 
+    def is_capacity(line: str) -> bool:
+        # an engine's size is not a capacity ("2.7L EcoBoost", "3.5L engines"
+        # filled the F-150's tab, agent review 2026-10-28), and a capacity
+        # line names what is filled: a sentence that only mentions a litre
+        # figure is not one
+        bare = _DISPLACEMENT_RE.sub(" ", line)
+        return is_value(bare) and bool(_FLUID_RE.search(line))
+
+    keep = is_capacity if kind == "capacity" else is_value
+    # a diagnostic test's beaker and cylinder volumes are not the car's
+    # capacities (the F-150's ethanol test: "Fill the beaker with 200 ml")
+    if kind == "capacity" and _TEST_PAGE_RE.search(row[0] or ""):
+        return []
+
     lines, carry = [], ""
     for raw in (row[1] or "").split("\n"):
         line = " ".join(raw.split())
@@ -525,7 +553,7 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
             line, carry = f"{carry} {lead.group(1)}".strip(), lead.group(2)
         else:
             carry = "" if is_value(line) else line
-        if is_value(line) and line not in lines and not (other_engine and other_engine(line)):
+        if keep(line) and line not in lines and not (other_engine and other_engine(line)):
             lines.append(line)
     # only the lines about what was asked: "glow plug" also found the
     # transmission oil-change page through its "torque converter" lines. A
@@ -538,6 +566,14 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
 
 _LEAD_VALUES_RE = re.compile(r"^((?:Nm|Liters?|Litres?)(?:\s+(?:\d+(?:[.,]\d+)?|[-–]))+)"
                              r"\s+([A-Za-z].*)$")
+# "2.7L EcoBoost", "3.5L engine", "5.7 L V8": a displacement, never a volume
+_DISPLACEMENT_RE = re.compile(r"(?<![\d.,])\d[.,]\d[\s\xa0]?L(?=[\s-]+(?:(?i:engines?|eng|V\d|I\d|gtdi|tivct|"
+                              r"ecoboost|duratec|hemi|turbo|diesel|petrol|gas)\b|[A-Z]{2,}\b))")
+_TEST_PAGE_RE = re.compile(r"test procedure|pinpoint test|\bDTC\b|diagnos", re.I)
+# what a capacity line fills
+_FLUID_RE = re.compile(r"oil|fluid|coolant|antifreeze|refrigerant|fuel|tank|capa(?:c|ct)|fill|"
+                       r"water|lubricant|grease|brake|atf|gear|differential|axle|transfer|washer|"
+                       r"ö[lL]|kühl|füll|inhalt|kraftstoff", re.I)
 _CAP_ROW_RE = re.compile(r"capa(?:c|ct)i?t?i?y|capacit|filling|fill(?:ing)? quantit", re.I)
 # a volume, not a model or engine code ("201.024", "102.983"): at most two
 # digits before the point
@@ -588,6 +624,7 @@ def value_row(line: str, kind: str, title: str = "") -> dict:
     if angles:
         rest = _ANGLE_RE.sub(" ", rest)
     rest = re.sub(r"\(\s*[/,;]?\s*\)", " ", rest)      # "(80 Nm)" taken out of its brackets
+    rest = re.sub(r"\[\[ref:[^\]]*?::([^\]]*)\]\]", r"\1", rest)   # a LEMON link: its label
     cells = [" ".join(c.split()).strip(" :;,-–=") for c in rest.split("|")]
     name = " · ".join(c for c in cells if c and not re.fullmatch(r"[\W_]*", c))
     # a sentence the value was taken out of: "Tighten the bolts to ."

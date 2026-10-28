@@ -147,6 +147,16 @@ def named_codes(text: str) -> tuple[set[str], set[str]]:
 # the right page for that car.
 # ---------------------------------------------------------------------------
 CASES: list[dict] = [
+    # --- W201 190 E 2.3 (8-valve, engine M102.985) --------------------------
+    dict(id="w201-23-cyl-head-bolts", series="201", variant=7,
+         variant_name="190 E 2.3", query="cylinder head bolt tightening torque",
+         # 49014339 "0415 - Removal and installation of the cylinder head,
+         #   Engine 102 (except 102.983/99), single-belt drive" and 49013229
+         #   (multi-belt drive): the 8-valve procedures, M8 bolts 25 Nm. Both
+         #   paid answers in the agent review (2026-10-28) cited the 2.3-16's
+         #   49013392 instead (M8 21 Nm), with neither 8-valve page in the
+         #   top 10.
+         expect=["49014339", "49013229"], expect_engine=True),
     # --- W201 190 E 2.3-16 (201.034, engine M102.983) -----------------------
     dict(id="w201-2316-cyl-head-bolts", series="201", variant=8,
          variant_name="190 E 2.3 16", query="cylinder head bolts",
@@ -385,9 +395,11 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     # BR 600", "Cylinder head cover, BR 400" -- other vehicles too, but named in
     # a form the guards don't read) now go to the next general documents, the
     # same untied pages that already offend elsewhere. Same gap, now counted.
-    ("epc-w210-e320-oil-filter", "wrong"): (3, "general-untied"),
-    ("epc-w210-e320-oil-filter", "foreign"): (2, "general-untied"),
+    ("epc-w210-e320-oil-filter", "wrong"): (2, "general-untied"),
+    ("epc-w210-e320-oil-filter", "foreign"): (1, "general-untied"),
     ("w201-2316-valve-cover", "foreign"): (2, "general-untied"),
+    ("w201-23-cyl-head-bolts", "wrong"): (3, "general-untied"),
+    ("w201-23-cyl-head-bolts", "foreign"): (3, "general-untied"),
     ("epc-w201-2316-thermostat", "wrong"): (2, "general-untied"),
     ("epc-w201-2316-thermostat", "foreign"): (2, "general-untied"),
     ("epc-w204-c220cdi-glow-plugs", "foreign"): (1, "general-untied"),
