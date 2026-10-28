@@ -159,6 +159,21 @@ for name in ("x.png%00.db", "x%00.png", "%00"):
     check(r.status_code == 404 and r.headers.get("x-content-type-options") == "nosniff",
           f"image name {name!r}: 404 with the security headers (a NUL was an unhandled 500)")
 check(phone.get("/api/image/v2/..%2f..%2findex.db").status_code == 404, "  ... and no way out of images/")
+# a network path as the name: joined onto images/ it replaced the folder on
+# Windows, and resolve() connected out over SMB (offering the PC's login)
+# before the "inside images/" check ran -- refused as text, no file call
+touched = []
+_resolve = Path.resolve
+Path.resolve = lambda self, *a, **k: (touched.append(str(self)), _resolve(self, *a, **k))[1]
+try:
+    for url in ("/api/image/v2/%5c%5c192.0.2.31%5cs%5cx.png", "/api/image/v2///192.0.2.31/s/x.png",
+                "/api/image/v2/C:%5cWindows%5cwin.ini", "/api/callouts/v2/%5c%5c192.0.2.31%5cs%5cx.png",
+                "/vendor/%5c%5c192.0.2.24%5cs%5cx.js", "/vendor///192.0.2.24/s/x.js"):
+        check(phone.get(url).status_code == 404, f"{url}: 404")
+finally:
+    Path.resolve = _resolve
+check(not [t for t in touched if "192.0.2" in t or "win.ini" in t],
+      f"  ... and no path built from them was resolved (no SMB connection): {touched[:3]}")
 
 print("Scan VIN's libraries (/vendor/)")
 r = phone.get("/vendor/zxing-wasm-3.1.4/zxing_reader.wasm")

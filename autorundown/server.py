@@ -281,6 +281,17 @@ def _local_path_error(raw: str) -> str | None:
     return None
 
 
+def _relative_name(name: str) -> bool:
+    """A file name from a URL is only ever a plain path *inside* its folder,
+    checked as text before any file call: `(root / name).resolve()` with
+    `\\\\host\\share\\x.png` (or `//host/…`) replaced the root on Windows and
+    resolve() connected out over SMB, offering this PC's login, before the
+    containment check ran (agent review, 2026-10-28)."""
+    if not name or "\x00" in name or "\\" in name or ":" in name or name.startswith("/"):
+        return False
+    return not any(part in ("", ".", "..") for part in name.split("/"))
+
+
 def _cross_site(request: Request) -> bool:
     """A browser says where a request came from (Sec-Fetch-Site). For the
     admin routes only this page itself (same-origin) or a typed URL (none) will
@@ -614,6 +625,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # read on the phone itself.
     @app.get("/vendor/{name:path}")
     def vendor(name: str) -> Response:
+        if not _relative_name(name):
+            raise HTTPException(404, "Not found.")
         root = (WEB_DIR / "vendor").resolve()
         target = (root / name).resolve()
         kind = VENDOR_TYPES.get(target.suffix.lower())
@@ -1155,7 +1168,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         parts catalogue's -- never outside them; 404 otherwise."""
         # a NUL (x.png%00.db) made Path.resolve() raise: an unhandled 500,
         # without the security headers. No picture is named that way.
-        if "\x00" in name or "\x00" in doc_id:
+        if "\x00" in doc_id or not _relative_name(name):
             raise HTTPException(404, "image not found")
         conn = db()
         try:
