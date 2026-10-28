@@ -375,8 +375,24 @@ card under it, `offerCatalogueCar(r, '#lemAddBox')`).
   only with the space; part 2 is `ingest.py --importer lemon` on it.
   Removing the car recycles that folder; the zip stays in Downloads.
 - Checked in a test box (2026-10-27): the search, the LEMON link, waiting,
-  and a stand-in zip dropped in Downloads imported and selected. Not yet
-  done with a real LEMON zip through the app.
+  and a stand-in zip dropped in Downloads imported and selected.
+- **A real LEMON zip through the API** (2026-10-27, the user's own
+  `LEMON 2015 Ford F-150 Lariat, 4D Pickup Extra Cab, 3.5L Eng VIN G,
+  4WD.zip` from Downloads, 634 MB; a throwaway home and index, TestClient,
+  no server): `lemon-add` found it and started `lemon_zip`; 41,837 files
+  (864 MB) unpacked in ~37 s, then 191 s of `ingest`: 32,674 pages ->
+  10,410 unique, 15,319 chunks, 529 connectors, 2,747 other-engine pages,
+  155 MB; doc_id the catalogue's, in `/api/vehicles`, no longer offered;
+  all 8,689 images its pages name are on disk. The 190E 2.3-16 zip
+  (18,013 files, 226 MB) passes `check` too, but its old-style name is
+  not in the catalogue, so "Add a car" never names it.
+- **Windows' 260-character path limit**: that first run, in a deep temp
+  folder, failed halfway with a traceback (280 characters). `unpack` now
+  refuses up front ("its files need paths of N characters ... Windows
+  allows 259"), removes a folder it couldn't mark, and `unzip_lemon.py`
+  turns any other disk error into a STOP line. In the installed app
+  (`C:\Users\<name>\.autorundown\manuals\<doc_id>\...`) the F-150's
+  longest path is ~140 characters.
 Tests: `tests/test_lemon_zip.py`.
 
 **From a Mercedes virtual machine** (third source in the same dialog):

@@ -789,9 +789,10 @@ Still open, in rough order of value:
 6. **The extractor has not been re-run end to end from the repo copy** (the
    paths resolve and the evals pass; the next VM run is the real check).
 7. The car box reads a bare two-digit word as a year ("190 e 2.3 16" → 2016).
-8. **"Add a car" has not imported a real LEMON zip through the app yet**
-   (a stand-in zip in a test box only). Next: add one small car on the PC
-   from a real LEMON zip, and check `unique_pages` and its images.
+8. **"Add a car" has not run in the installed app yet.** A real LEMON zip
+   (the F-150 Lariat) went through the API into a throwaway index on
+   2026-10-27; the browser's site check and Open on LEMON were seen in a
+   test box only.
 9. **Gemini, xAI and DeepSeek have never answered a real question**
    (`ai-providers.md`, "Not verified"): one cheap scoped paid question on
    each, with the user's OK and their key, is the real test of the request
