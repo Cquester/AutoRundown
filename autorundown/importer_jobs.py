@@ -397,9 +397,26 @@ def lemon_on_disk(doc: str, index_path: str | Path) -> tuple[Path, str] | None:
                     roots.append(r)
     for root in roots:
         for v in lemon_vehicles(root, index_path)["vehicles"]:
-            if v["doc_id"] == doc and v["state"] != "imported":
+            if v["doc_id"] == doc and v["state"] != "imported" \
+                    and not unfinished_download(root / v["folder"]):
                 return root, v["folder"]
     return None
+
+
+def unfinished_download(folder: Path) -> bool:
+    """A folder AutoRundown was unpacking or downloading into that never
+    finished (its download mark says `complete: false`): never imported as
+    it stands -- a damaged zip or a killed unzip left 2,738 of 8,001 pages,
+    and the next "Add this car" imported them as a complete car (agent
+    review, 2026-10-28). The zip unpacks it again, or the user downloads."""
+    import json
+    from .recycle import DOWNLOAD_MARK
+    try:
+        return json.loads((folder / DOWNLOAD_MARK).read_text(encoding="utf-8")).get("complete") is not True
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError, AttributeError):
+        return True
 
 
 def manuals(index_path: str | Path) -> dict:
@@ -421,6 +438,21 @@ def manuals(index_path: str | Path) -> dict:
             con.close()
     except sqlite3.Error:
         return out
+    # indexed_pages is written when an import ends: a killed one showed
+    # "partly imported · 0 pages" with 1,500 there -- count those live
+    partial = [r[0] for r in rows if not r[7]]
+    if partial:
+        try:
+            con = sqlite3.connect(f"file:{p.as_posix()}?mode=ro", uri=True)
+            try:
+                live = dict(con.execute(
+                    f"SELECT doc_id, COUNT(*) FROM pages WHERE doc_id IN "
+                    f"({','.join('?' * len(partial))}) GROUP BY doc_id", partial).fetchall())
+            finally:
+                con.close()
+            rows = [(*r[:6], live.get(r[0], r[6]), r[7]) if not r[7] else r for r in rows]
+        except sqlite3.Error:
+            pass
     wis_sources = set()
     corpus = {"wis": set(), "epc": set()}
     for d, src, year, make, model, fp, n, complete in rows:

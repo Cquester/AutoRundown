@@ -372,7 +372,10 @@ def search(q: str, index_path: str | Path, limit: int = 6) -> dict:
                     if not all(t in words if len(t) == 1 else t in hay for t in terms):
                         continue
                     d = doc_id(make, y, model, e)
-                    if d in have:
+                    # a car whose import was cut short stays offered, so
+                    # Add this car finishes it (it resumes); only a
+                    # complete one is left out
+                    if have.get(d):
                         continue
                     # words found in the make/model before those only in the engine
                     in_head = sum(t in w_head if len(t) == 1 else t in hay_head for t in terms)
@@ -380,6 +383,7 @@ def search(q: str, index_path: str | Path, limit: int = 6) -> dict:
     hits.sort()
     out["total"] = len(hits)
     out["rows"] = [{"make": m, "year": y, "model": mo, "engine": e, "doc_id": d,
-                    "label": f"{y} {m} {vehicle_name(mo, e)}", "path": [m, y, mo, e]}
+                    "label": f"{y} {m} {vehicle_name(mo, e)}", "path": [m, y, mo, e],
+                    "partial": d in have}
                    for _, _, _, mo, e, m, y, d in hits[:limit]]
     return out

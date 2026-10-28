@@ -2030,7 +2030,9 @@ function buildCarIndex() {
   for (const v of vehicles) {
     const make = v.make || '';
     if (!v._variants.length) {
-      carIndex.push({label: `${v.year_range || ''} ${make} ${v.model}`.trim(), sub: '',
+      // an import cut short: searchable, but say so (Add this car finishes it)
+      carIndex.push({label: `${v.year_range || ''} ${make} ${v.model}`.trim(),
+                     sub: v.complete === 0 ? 'Partly imported — some pages are missing' : '',
                      doc: v.doc_id, variant: null, engine: null, year: null,
                      years: v._years, hay: compact(`${make} ${v.model} ${v.doc_id}`),
                      words: wordsOf(`${make} ${v.model}`)});
@@ -2095,8 +2097,9 @@ function showCarList(items, cat = null) {
   list._items = all; list._hist = false;
   const opt = (e, k) => `<div class="opt${k === 0 ? ' on' : ''}${e.cat ? ' catopt' : ''}" data-k="${k}">`
     + `<div>${esc(e.label)}</div>`
-    + (e.cat ? `<div class="sub"><span class="nodl">Not downloaded</span>`
-               + (me.admin ? 'Pick it to add this car' : 'The shop PC can add it') + `</div>` : '')
+    + (e.cat ? `<div class="sub"><span class="nodl">${e.cat.partial ? 'Partly imported' : 'Not downloaded'}</span>`
+               + (me.admin ? (e.cat.partial ? 'Pick it to finish adding' : 'Pick it to add this car')
+                           : 'The shop PC can add it') + `</div>` : '')
     + (e.sub ? `<div class="sub">${esc(e.sub)}</div>` : '')
     + (e.warn ? `<div class="sub vinwarn">${esc(e.warn)}</div>` : '') + `</div>`;
   list.innerHTML = (items.length ? items.map(opt).join('')
@@ -2445,8 +2448,10 @@ function renderAddCar(state = null) {
     body = `<div class="actext">${name} wasn't added.<div class="acsub errnote">${esc(state.msg)}</div></div>`
       + `<button type="button" class="ghost" data-add-close>Close</button>`;
   } else {
-    body = `<div class="actext">${name}<div class="acsub"><span class="nodl">Not downloaded</span>`
-      + (me.admin ? 'Not on this PC yet. If its LEMON folder or zip is here, it is imported in the background '
+    body = `<div class="actext">${name}<div class="acsub"><span class="nodl">${r.partial ? 'Partly imported' : 'Not downloaded'}</span>`
+      + (me.admin && r.partial ? 'Its import stopped before the end, so some pages are missing. Add this car '
+                    + 'finishes it from its folder or zip; if neither is here, you download its zip from LEMON again.'
+         : me.admin ? 'Not on this PC yet. If its LEMON folder or zip is here, it is imported in the background '
                     + 'while you keep working; if not, you download its zip from LEMON in your browser.'
                   : 'Only the shop PC can add a car.') + `</div></div>`
       + (me.admin ? `<button type="button" data-add-car>Add this car</button>` : '')
