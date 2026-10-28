@@ -679,6 +679,63 @@ def _verify_citations(answer: AnswerModel, passages: list[dict]) -> list[str]:
     return dropped
 
 
+# A Mercedes part number as an answer writes it: "A 001 420 01 20",
+# "A0014200120", "N 000000 001234" (numbers.py's printed forms)
+_PROSE_PART_RE = _re.compile(r"(?<![\w.-])(?:A\s?\d{3}\s?\d{3}\s?\d{2}\s?\d{2}|N\s?\d{6}\s?\d{6})(?![\w.-])", _re.I)
+
+
+def _check_part_numbers(answer: AnswerModel, passages: list[dict]) -> list[str]:
+    """A part number the answer gives must be printed on a page it cites.
+
+    `_verify_citations` checks which pages are cited, not what is said: Haiku
+    called A 001 420 01 20 a superseded front pad -- it is the REAR pad kit,
+    on a parts page in the passages that the answer did not cite (agent
+    review, 2026-10-28). A mechanic orders from that sentence. Numbers in
+    the answer and caveats must be on one of the answer's cited pages, and
+    a spec's on its own cited pages; any other is taken out and said so.
+    """
+    text: dict[str, str] = {}
+    for p in passages:
+        page = str(p["page_no"])
+        text[page] = text.get(page, "") + _re.sub(r"\s+", "", p.get("body") or "").upper()
+
+    def on(number: str, pages) -> bool:
+        compact = _re.sub(r"\s+", "", number).upper()
+        return any(compact in text.get(str(pg), "") or compact[1:] in text.get(str(pg), "")
+                   for pg in pages)
+
+    dropped: list[str] = []
+    kept = []
+    for spec in answer.specs:
+        bad = [n for n in _PROSE_PART_RE.findall(spec.value or "") if not on(n, spec.source_pages)]
+        if bad:
+            dropped.append(f"spec '{spec.name}' gave {', '.join(bad)}, not on its cited page")
+        else:
+            kept.append(spec)
+    answer.specs = kept
+
+    cited = {str(p) for p in answer.source_pages} | {str(answer.document_page)}
+    for spec in answer.specs:
+        cited.update(str(x) for x in spec.source_pages)
+    removed: list[str] = []
+
+    def scrub(s: str) -> str:
+        def one(m):
+            if on(m.group(0), cited):
+                return m.group(0)
+            removed.append(m.group(0))
+            return "[part number removed: not on a cited page]"
+        return _PROSE_PART_RE.sub(one, s or "")
+
+    answer.answer = scrub(answer.answer)
+    answer.caveats = scrub(answer.caveats)
+    if removed:
+        dropped += [f"part number {n} in the text, not on a cited page" for n in dict.fromkeys(removed)]
+        answer.caveats = (f"{answer.caveats} A part number the AI wrote is not on the pages it "
+                          "cites and was removed; check the parts page.").strip()
+    return dropped
+
+
 # Engine and model codes in a spec's applicability text. "M112", "OM 613",
 # "engine(s) 112, 113", and dotted codes "112.941" / "210.082" -- a dotted
 # code is an engine when its family is a known engine and not this car's
@@ -984,8 +1041,9 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
 
     answer = reply.parsed or AnswerModel(
         found=False, answer="", caveats="The model returned no parsable answer.")
-    dropped = _verify_citations(answer, passages)
-    other = _drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
+    dropped = _check_part_numbers(answer, passages)     # first: an answer left with no
+    dropped += _verify_citations(answer, passages)      # citation is then withheld
+    other =_drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
     added = _add_omitted_parts(answer, passages, scope) if answer.found else []
     linked = _add_linked_torques(answer, passages) if answer.found else []
 

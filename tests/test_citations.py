@@ -195,5 +195,33 @@ check("only an engine chosen: its variants' parts count (66 01 and 99 01)",
 a = pencil_answer(found=False, answer="", specs=[], source_pages=[], document_page="")
 check("a not-found answer gets nothing added", _add_omitted_parts(a, PARTS, C220) == [])
 
+# 11. a part number in the text must be on a page the answer cites
+# (query._check_part_numbers). Haiku called the rear pad kit, on a parts page
+# in the passages it did not cite, a superseded front pad (2026-10-28).
+from autorundown.query import _check_part_numbers  # noqa: E402
+
+a = pencil_answer(answer="It is A 001 159 80 01; the older A 642 159 01 01 was superseded.",
+                  caveats="Some cars take A0011596601.")
+dropped = _check_part_numbers(a, PARTS)
+check("a number only on an uncited page is taken out of the text",
+      "642 159 01 01" not in a.answer and "[part number removed" in a.answer, a.answer)
+check("... and said in caveats and in dropped",
+      "not on the pages it cites" in a.caveats and any("A 642 159 01 01" in d for d in dropped), f"{dropped}")
+check("numbers on the cited page stay, spaced or compact",
+      "A 001 159 80 01" in a.answer and "A0011596601" in a.caveats, f"{a.answer} / {a.caveats}")
+a = pencil_answer(specs=[{"name": "Glow plug", "value": "A 642 159 01 01", "applicability": "",
+                          "source_pages": ["P48608"]}])
+dropped = _check_part_numbers(a, PARTS)
+check("a spec whose number is not on its own cited page is dropped",
+      a.specs == [] and any("Glow plug" in d for d in dropped), f"{dropped}")
+a = pencil_answer(source_pages=[], document_page="",
+                  specs=[{"name": "Glow plug", "value": "A 642 159 01 01", "applicability": "",
+                          "source_pages": ["P48608"]}])
+_check_part_numbers(a, PARTS)
+_verify_citations(a, PARTS)
+check("... and an answer left with no citation is withheld", not a.found, a.caveats)
+a = pencil_answer()
+check("a right answer is untouched", _check_part_numbers(a, PARTS) == [] and len(a.specs) == 1)
+
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

@@ -323,7 +323,10 @@ Steps carry no citation of their own, so they never count as one: an
 answer of steps whose cited pages were all invented is withheld, steps and
 all (the user's rule, 2026-10-11: "only answers that have sources behind
 it"; before, a steps-only answer survived with no citation). Tests:
-`tests/test_citations.py`. Not yet seen on a paid answer -- if the model often
+`tests/test_citations.py`. A part number in the answer's text or a spec must
+be printed on a page it cites (`_check_part_numbers`, 2026-10-28: Haiku named
+the rear pad kit, from an uncited page, as a superseded front pad); one that
+isn't is taken out and said so. Not yet seen on a paid answer -- if the model often
 leaves `source_pages` empty on procedures, they will now show as withheld.
 
 **Retrieval merges round-robin, not by global score.** Global ranking let one
