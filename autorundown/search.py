@@ -152,6 +152,18 @@ def _filters(include_other_variants: bool, engines: tuple[str, ...] = (),
         type_clause += (" AND (COALESCE(p.codes_only, '') = '' OR "
                         + " OR ".join("instr(p.codes_only, ?) > 0" for _ in mine) + ")")
         type_args += [f",{c}," for c in mine]
+        # A WIS page whose section line lists model codes of the car's series
+        # ("MODEL 202, 210 > 202.028, 210.055, 210.072") and none of the
+        # car's is another variant's: a 2001 E 320 (210.065) got an AMG-
+        # package-only rear caliper page (210.055/.072/.074/.274) as hit #1
+        # and its torques in the Torque tab (agent review, 2026-10-28). A list
+        # cut at 10 codes (" ...") can't say, so it stays.
+        for series in dict.fromkeys(c[:3] for c in vcodes):
+            type_clause += (" AND (p.section_path NOT LIKE 'MODEL %' OR instr(p.section_path, ?) = 0"
+                            " OR p.section_path GLOB '* ...' OR "
+                            + " OR ".join("instr(p.section_path, ?) > 0" for c in vcodes if c[:3] == series)
+                            + ")")
+            type_args += [f"{series}.", *(c for c in vcodes if c[:3] == series)]
     # A page that names the chosen car's exact codes ("engine 102.983") is
     # about that car, and ranks ahead of pages that merely pass the filters:
     # for the 190E 2.3-16 the 16-valve head cover page (cap nuts 10 Nm) sat
@@ -207,6 +219,52 @@ _CATALOG_MODELS = (f"CASE WHEN {_CM_AT} > 0 THEN substr(p.text, {_CM_AT}, "
                    f"instr(substr(p.text, {_CM_AT}) || char(10), char(10))) ELSE '' END")
 
 
+_ENGINE_NAME_RE = re.compile(r"\b(\d\.\dL[ -][A-Za-z][A-Za-z-]+)")
+_NOT_ENGINE_NAMES = {"ENGINE", "ENGINES", "AND", "OR", "TWIN", "FLEX", "WITH"}
+_engine_names_cache: dict = {}
+
+
+def manual_engine_names(conn: sqlite3.Connection, doc_id: str) -> tuple[list[str], list[str]]:
+    """(other engines' names, the car's own) in a LEMON manual's section
+    paths ("3.5L DURATEC", "3.5L ECOBOOST"), learned from the manual itself:
+    LEMON files sibling engines' pages under the car and stamps most of them
+    "different variant/trim" (applicability other_variant) but not all -- the
+    2015 F-150 3.5L EcoBoost had 462 unstamped "3.5L DURATEC" pages, and
+    "water pump" led with the Duratec's (agent review, 2026-10-28). A name
+    that is a quarter or more stamped is another engine's; one under 5%
+    stamped is the car's. Cached per manual."""
+    n = conn.execute("SELECT COUNT(*) FROM pages WHERE doc_id=?", (doc_id,)).fetchone()[0]
+    key = (doc_id, n)
+    if key not in _engine_names_cache:
+        src = conn.execute("SELECT source_name FROM vehicles WHERE doc_id=?", (doc_id,)).fetchone()
+        tally: dict = {}
+        if src and src[0] == "lemon":
+            for sp, app in conn.execute("SELECT section_path, applicability FROM pages WHERE doc_id=?",
+                                        (doc_id,)):
+                for name in {m.upper() for m in _ENGINE_NAME_RE.findall(sp or "")}:
+                    if name.split()[-1].split("-")[0] in _NOT_ENGINE_NAMES:
+                        continue
+                    t = tally.setdefault(name, [0, 0])
+                    t[0] += 1
+                    t[1] += app == "other_variant"
+        other = sorted(k for k, (tot, o) in tally.items() if o >= 10 and o / tot >= 0.25)
+        mine = sorted(k for k, (tot, o) in tally.items() if tot >= 20 and o / tot < 0.05)
+        _engine_names_cache[key] = (other, mine)
+    return _engine_names_cache[key]
+
+
+def _other_engines_clause(conn: sqlite3.Connection, doc_id: str) -> tuple[str, list]:
+    """SQL leaving out a LEMON page whose section path names another engine
+    of the manual and none of the car's (manual_engine_names)."""
+    other, mine = manual_engine_names(conn, doc_id)
+    if not other:
+        return "", []
+    sql = (" AND NOT ((" + " OR ".join("instr(upper(p.section_path), ?) > 0" for _ in other) + ")"
+           + (" AND NOT (" + " OR ".join("instr(upper(p.section_path), ?) > 0" for _ in mine) + ")"
+              if mine else "") + ")")
+    return sql, [*other, *mine]
+
+
 def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
          include_other_variants: bool, types: str = "",
          engines: tuple[str, ...] = (), codes: tuple = ((), ()),
@@ -215,6 +273,9 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
         return []
     assert fts in FTS_TABLES
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
+    if not include_other_variants:
+        eclause, eargs = _other_engines_clause(conn, doc_id)
+        where, args = where + eclause, [*args, *eargs]
     tclause, targs = _types_clause(types)
     if tclause:
         where += " AND " + tclause          # appended last, so its args go last

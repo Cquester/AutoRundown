@@ -7,6 +7,8 @@
 - A line whose Fits field names only other models of the series or other
   engines of the family is left out (`line_fits`): 27% of the Parts tab's
   lines for a chosen car fitted other models only.
+- A LEMON manual's page filed under another engine ("3.5L DURATEC" in a
+  3.5L EcoBoost F-150) but not stamped other_variant is left out of search.
 
 python tests/test_parts_fit.py   (<1 s, no index needed)
 """
@@ -73,6 +75,29 @@ info = catalog_info(con, {"page_uid": "epc:P2", "title": "Parts: model 210 (EPC 
 check(info == {"catalog": "45R", "market": "USA"}, f"catalogue code and market: {info}")
 info = catalog_info(con, {"page_uid": "epc:P1", "title": "Parts: model 210 (EPC catalog 66G), group 82"})
 check(info == {"catalog": "66G", "market": ""}, f"no market named: none guessed: {info}")
+
+print("another engine's pages in a LEMON manual")
+from autorundown.search import _other_engines_clause, manual_engine_names  # noqa: E402
+lm = sqlite3.connect(":memory:")
+lm.execute("CREATE TABLE vehicles(doc_id TEXT, source_name TEXT)")
+lm.execute("CREATE TABLE pages(doc_id TEXT, section_path TEXT, applicability TEXT)")
+lm.execute("INSERT INTO vehicles VALUES ('f150','lemon')")
+rows = ([("f150", "Engine - 3.5L Duratec > Water Pump", "other_variant")] * 30
+        + [("f150", "Engine - 3.5L Duratec > Coolant Pump", "")] * 40      # unstamped, the bug
+        + [("f150", "Engine - 3.5L EcoBoost > Coolant Pump", "")] * 40
+        + [("f150", "Cooling - 3.5L EcoBoost and 3.5L Duratec > Notes", "")] * 5
+        + [("f150", "Body > Doors", "")] * 10)
+lm.executemany("INSERT INTO pages VALUES (?,?,?)", rows)
+other, mine = manual_engine_names(lm, "f150")
+check(other == ["3.5L DURATEC"] and mine == ["3.5L ECOBOOST"], f"engines learned: {other} / {mine}")
+clause, args = _other_engines_clause(lm, "f150")
+kept = lm.execute("SELECT section_path, COUNT(*) FROM pages p WHERE 1" + clause + " GROUP BY 1", args).fetchall()
+check({k for k, _ in kept} == {"Engine - 3.5L EcoBoost > Coolant Pump", "Body > Doors",
+                               "Cooling - 3.5L EcoBoost and 3.5L Duratec > Notes"},
+      "another engine's pages left out, shared and plain pages kept")
+lm.execute("UPDATE vehicles SET source_name='folder'")
+lm.execute("INSERT INTO pages VALUES ('f150','x','')")           # new count: not the cached answer
+check(_other_engines_clause(lm, "f150") == ("", []), "not a LEMON manual: nothing left out")
 
 print("all passed" if not fails else f"{fails} FAILED")
 raise SystemExit(1 if fails else 0)

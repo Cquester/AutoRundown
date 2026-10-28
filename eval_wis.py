@@ -378,8 +378,6 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     # WIS pages (brake-light switch, ME-SFI) via the whole-series engine
     # buckets E111/E112/E113 -- not EPC results (measured 2026-10-14)
     ("epc-w203-brake-pads", "foreign"): (3, "engine-bucket"),
-    # the part number's digits match an OM605 end-cover page loosely
-    ("epc-w124-part-number", "foreign"): (1, "engine-bucket"),
     # WIS general-pool W207 pages (oil filter cover, transmission oil change),
     # not EPC results (measured 2026-10-15, WIS + all 443 EPC catalogs)
     # Raised 2026-10-24 when the damage-code menus (99xxxxxx, search.
