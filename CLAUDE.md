@@ -178,6 +178,7 @@ python tests/test_drawing_ui.py                   # Manual contents, drawing pic
 python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tests/test_charm.py                        # one CHARM car: reader, plan, download, import, refusals (~10 s)
 python tests/test_lemon_zip.py                    # "Add a car": LEMON zip found, unsafe zips refused, unpack + import (~10 s)
+python tests/test_parts_fit.py                    # parts pages/lines that fit the car: cut code lists, other models' lines (<1 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
 # sample data and tools

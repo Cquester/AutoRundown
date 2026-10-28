@@ -184,12 +184,27 @@ def parts_codes_clause(codes: tuple = ((), ())) -> tuple[str, list]:
     showed every W201 catalogue's bumpers, Evolution ones included, a plain
     190 E's first (2026-10-26). A page listing codes must list one of the
     car's; engine pages ("ENGINE 117") list none and pass. No codes (the
-    whole series): no clause."""
+    whole series): no clause.
+
+    The section line keeps only the first 10 codes ("… 210.063 ...",
+    importers/records.py), so a page whose list was cut is checked against
+    its "Models in this catalog:" line, which names them all: 13,106 of
+    52,520 EPC pages were cut and 135 variants (every W211 4MATIC, the
+    W212 E 350 4MATIC…) saw none of their chassis pages (agent review,
+    2026-10-28)."""
     mine = (*codes[0], *codes[1])
     if not mine:
         return "", []
     return (f" AND (p.section_path NOT GLOB '{_CODE_GLOB}' OR "
-            + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine) + ")"), list(mine)
+            + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine)
+            + f" OR (p.section_path GLOB '* ...' AND ("
+            + " OR ".join(f"instr({_CATALOG_MODELS}, ?) > 0" for _ in mine) + ")))"), [*mine, *mine]
+
+
+# the page's "Models in this catalog: 210.006 E 220 CDI, …" line, as SQL
+_CM_AT = "instr(p.text, 'Models in this catalog:')"
+_CATALOG_MODELS = (f"CASE WHEN {_CM_AT} > 0 THEN substr(p.text, {_CM_AT}, "
+                   f"instr(substr(p.text, {_CM_AT}) || char(10), char(10))) ELSE '' END")
 
 
 def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
@@ -536,7 +551,41 @@ def part_lines(snippet: str) -> list[str]:
     return out
 
 
-def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str) -> str:
+_FIT_CODE_RE = re.compile(r"\b\d{3}\.\d{3}\b")
+
+
+def line_fits(line: str, codes: tuple = ((), ()), families=()) -> bool:
+    """Whether a parts line ("callout | number | name | fits | notes") may
+    fit the chosen car. Its Fits field is "all models" (of the catalogue,
+    which the page filter has already matched) or names model / engine
+    codes; a line naming codes, every one of them another model of the
+    car's series or another engine of its family, does not fit. A code it
+    can't judge (a gearbox, an engine whose exact code isn't known) keeps
+    the line. 27% of the Parts tab's lines for a chosen car fitted only
+    other models (agent review, 2026-10-28: an E 320 210.065 was shown the
+    window regulator for 210.020/.055/.072)."""
+    model, eng = set(codes[0] or ()), set(codes[1] or ())
+    if not (model or eng):
+        return True
+    f = line.split(" | ")
+    fits = f[3] if len(f) >= 5 else ""
+    if "all models" in fits.lower():
+        return True
+    found = set(_FIT_CODE_RE.findall(fits))
+    if not found or found & (model | eng):
+        return True
+    series = {c[:3] for c in model}
+    fams = {c[:3] for c in eng} | {str(x)[:3] for x in families or ()}
+    for c in found:
+        other_model = c[:3] in series
+        other_engine = c[:3] in fams and bool(eng)
+        if not (other_model or other_engine):
+            return True               # not ours to judge
+    return False
+
+
+def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str,
+                   codes: tuple = ((), ()), families=()) -> str:
     """A parts page as an answer should see it: the header, then every line
     of the page that names what was asked, with its footnotes.
 
@@ -572,10 +621,18 @@ def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str) -> str:
           [table[i] for i, l in enumerate(low) if any(t in l for t in terms)]
     if not hit:
         return row["body"]
+    fit = [l for l in hit if line_fits(l, codes, families)]
+    other = len(hit) - len(fit)
+    hit = fit
+    if not hit:
+        return "\n".join(head + [f"({other} matching lines on this page are for other models or "
+                                 f"engines, not this car)"])
     # long footnotes listed at the end of the page, for the lines kept
     cited = {m for l in hit for m in re.findall(r"fn (\d{3})", l)}
     notes = [n for n in notes if re.match(r"fn (\d{3}):", n) and n[3:6] in cited]
     out, size = head + [f"(lines of this page matching: {', '.join(terms)})"], 0
+    if other:
+        out.append(f"({other} matching lines for other models or engines left out)")
     for l in hit + (["Footnotes:"] + notes if notes else []):
         size += len(l) + 1
         if size > SNIPPET_MAX:
@@ -784,7 +841,7 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
                 continue
             titles.add(key)
             r["parts"] = True
-            r["body"] = _parts_snippet(conn, r, query)
+            r["body"] = _parts_snippet(conn, r, query, codes, engines)
             # the body is now the page's lines, not chunk `ord`: one passage per
             # page (several Ask queries found the same page under three chunks)
             r["ord"] = 0
