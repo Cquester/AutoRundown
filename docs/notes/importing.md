@@ -177,7 +177,11 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   anything else comes from the swarm.
 - LEMON's server went down on 2026-10-26 (the user: hit in an attack on
   Ukraine); its download is on hold and **Operation CHARM is the backup**,
-  below. The LEMON torrent's `.torrent` was never found on this PC.
+  below. The LEMON `.torrent` is at `C:\Users\cques\lemon-manuals.torrent`
+  (328 KB, 2026-08-19); a torrent does not need LEMON's website, but its
+  layout (above) makes one car a large part of 31.5 GB, where CHARM's is
+  ~200 MB -- so one car comes from CHARM. The LEMON torrent also carries
+  a `charm/` copy (`.mtbl`, not CHARM's own LMDB layout).
 
 **One car from Operation CHARM** (the LEMON tab's "One car from Operation
 CHARM" card, 2026-10-27; the user chose one car at a time, text and images
