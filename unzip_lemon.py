@@ -27,6 +27,9 @@ def main() -> int:
     except lemon_zip.BadZip as e:
         print(f"STOP: {e}", flush=True)
         return 2
+    except OSError as e:                # the disk, not the zip: said plainly, no traceback
+        print(f"STOP: couldn't write {dest}: {e}", flush=True)
+        return 1
     print(f"unpacked {n:,} files to {dest}", flush=True)
     return 0
 

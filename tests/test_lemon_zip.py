@@ -138,6 +138,15 @@ try:
 except lemon_zip.BadZip:
     check((users / "notes.txt").read_text() == "mine", "a folder AutoRundown didn't write is left alone")
 
+if os.name == "nt":                     # Windows' 260-character paths: refused up front
+    deep = TMP / ("d" * 120) / ("e" * 100)
+    try:
+        lemon_zip.unpack(good, deep)
+        check(False, "a folder too deep for Windows' path limit is refused")
+    except lemon_zip.BadZip as e:
+        check("Windows allows" in str(e) and not deep.exists(),
+              f"a folder too deep for Windows' path limit is refused before writing: {str(e)[:60]}…")
+
 print("through the API")
 APP = server.create_app(str(db))
 pc = TestClient(APP, base_url="http://localhost:8756", client=("127.0.0.1", 50000))

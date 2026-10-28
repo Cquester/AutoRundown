@@ -26,6 +26,7 @@ MAX_ENTRIES = 1_000_000
 MAX_BYTES = 40 << 30            # the F-150's zip unpacks to ~700 MB; 40 GB is no car
 MAX_RATIO = 1000                # one entry may not inflate more than this
 CHUNK = 1 << 20
+MAX_PATH = 259                  # Windows, without long-path support turned on
 
 
 class BadZip(Exception):
@@ -122,10 +123,22 @@ def unpack(zip_path: Path, dest: Path, progress=None) -> int:
     free = shutil.disk_usage(dest.parent if dest.parent.exists() else Path(dest.anchor)).free
     if total > free - (1 << 30):
         raise BadZip(f"needs {total / 1e9:.1f} GB, {free / 1e9:.1f} GB free")
+    # Windows' 260-character path limit (the importer reads these files with
+    # plain paths too): say so before writing, not halfway through
+    if os.name == "nt":
+        base = len(str(dest.absolute())) + 1
+        longest = max([len(DOWNLOAD_MARK)] + [len("/".join(_parts(i.filename)[1:])) for i in files])
+        if base + longest > MAX_PATH:
+            raise BadZip(f"its files need paths of {base + longest} characters in {dest}; "
+                         f"Windows allows {MAX_PATH}")
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
-    mark(dest, zip_path, complete=False)
+    try:
+        mark(dest, zip_path, complete=False)
+    except OSError:
+        dest.rmdir()                    # empty: else it would be a folder we never marked
+        raise
     root = dest.resolve()
     with zipfile.ZipFile(zip_path) as z:
         for n, i in enumerate(files, 1):
