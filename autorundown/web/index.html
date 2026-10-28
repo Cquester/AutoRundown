@@ -154,6 +154,14 @@
   .addcar .actext{flex:1 1 260px; min-width:0}
   .addcar .acsub{color:var(--muted); font-size:13px; margin-top:2px}
   .addcar button{min-height:44px}
+  /* Shop setup -> LEMON -> Add a car: the matches, then "Add this car" */
+  .lemaddlist{margin:8px 0 0; border:1px solid var(--line); border-radius:10px; overflow:hidden}
+  .lemaddlist .opt{display:block; width:100%; text-align:left; padding:9px 12px; min-height:44px; border:0;
+    border-bottom:1px solid var(--line); border-radius:0; background:var(--panel); color:var(--text); font:inherit}
+  .lemaddlist .opt:last-child{border-bottom:0}
+  .lemaddlist .opt:hover, .lemaddlist .opt:focus-visible{background:var(--hover)}
+  .lemaddlist .sub{color:var(--muted); font-size:13px; padding:8px 12px}
+  #lemAddBox{margin-top:10px}
   .acbar{height:6px; margin-top:8px; border-radius:3px; background:var(--line); overflow:hidden; max-width:420px}
   .acbar > i{display:block; height:100%; background:var(--accent); transition:width .4s ease}
   .acbar.indet > i{animation:acslide 1.4s ease-in-out infinite}
@@ -1177,7 +1185,31 @@
     </div>
   </div>
   <div id="impCatPanel" role="tabpanel" aria-labelledby="tabLemon" hidden>
-    <details class="lemcard" name="lemoncards" id="impLemCat" open>
+    <details class="lemcard" name="lemoncards" id="impLemAdd" open>
+      <summary><span class="lc-title">Add a car</span><span class="badge">1960&ndash;2025</span><span class="lc-sub" id="lemAddSum"></span></summary>
+      <div class="lc-body">
+        <input id="lemAddInput" type="search" placeholder="Search LEMON's cars, e.g. 2023 Corolla Cross" style="width:100%"
+          autocomplete="off" aria-label="Search LEMON's cars" aria-controls="lemAddList">
+        <div class="lemaddlist" id="lemAddList" role="listbox" aria-label="LEMON cars" hidden></div>
+        <div class="addcar" id="lemAddBox" role="status" aria-live="polite" hidden></div>
+        <details class="lemhow">
+          <summary>How adding a car works</summary>
+          <ul>
+            <li><b>Pick the car, press Add.</b> If its LEMON folder or zip is already on this PC, it is imported
+              straight away.</li>
+            <li><b>Otherwise LEMON's own page opens</b> in your browser. Click <i>Download .zip for offline use</i>
+              and save it in Downloads; AutoRundown sees it arrive and imports it by itself.</li>
+            <li><b>If LEMON's site isn't answering,</b> Operation CHARM's page is offered instead for 1982&ndash;2013
+              cars, to read online until LEMON is back.</li>
+            <li><b>AutoRundown never downloads from either site itself</b>; it only opens the page. Before that,
+              it asks each site once whether it is answering.</li>
+            <li><b>The zip stays where you saved it.</b> Its contents go into AutoRundown's own folder; removing
+              the car deletes them.</li>
+          </ul>
+        </details>
+      </div>
+    </details>
+    <details class="lemcard" name="lemoncards" id="impLemCat">
       <summary><span class="lc-title">LEMON catalogue</span><span class="badge">Preview</span><span class="lc-sub" id="lemCatSum"></span></summary>
       <div class="lc-body">
         <p class="muted" style="margin:0 0 8px">Picking only &mdash; downloading the picked cars isn't built yet.
@@ -1188,7 +1220,9 @@
         <div class="row" style="margin-top:8px; align-items:center">
           <span class="muted" id="impCatCount" style="margin-right:auto"></span>
           <button class="ghost" type="button" id="impCatClear">Clear picks</button></div>
-    <details class="lemhow">
+    <!-- the LEMON torrent download (not built; one car needs most of 31.5 GB):
+         kept for when it is, hidden since "Add a car" opens LEMON's page (2026-10-27) -->
+    <details class="lemhow" hidden>
       <summary>How LEMON downloads will work</summary>
       <ul>
         <li><b>What the torrent holds.</b> LEMON's torrent is not one folder per car. All the text of every
@@ -1213,7 +1247,9 @@
     </details>
       </div>
     </details>
-    <details class="lemcard" name="lemoncards" id="impCharmBox">
+    <!-- one car from CHARM's torrent (charm_plan / charm_car): built and tested, hidden
+         (the user, 2026-10-27: hours per car on its swarm; LEMON's zip instead) -->
+    <details class="lemcard" name="lemoncards" id="impCharmBox" hidden>
       <summary><span class="lc-title">One car from Operation CHARM</span><span class="badge">1982&ndash;2013</span><span class="lc-sub" id="charmSum"></span></summary>
       <div class="lc-body">
         <p class="muted" style="margin:0 0 8px">CHARM (charm.li) shares its whole archive as one torrent; this
@@ -2077,7 +2113,7 @@ function showCarList(items, cat = null) {
 function applyCar(e, typedYear) {
   if (!e) return;
   if (e.cat) return offerCatalogueCar(e.cat);
-  $('#addCar').hidden = !addJob;  // a running "Add this car" keeps its progress in view
+  if (addBoxSel === '#addCar') $('#addCar').hidden = !addJob && !addWait;  // a running "Add this car" (or its wait for the zip) stays in view
   $('#picker').hidden = true;     // the header shrinks back once a car is chosen
   $('#year').value = ''; $('#make').value = '';
   refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
@@ -2294,6 +2330,8 @@ $('#carInput').addEventListener('input', () => {
 // the box: the same LEMON import job Shop setup runs when the car's folder is
 // on this PC, else the car goes on Shop setup's download list.
 let sugTimer = 0, sugSeq = 0, catPending = null, addJob = null;
+// where "Add this car" draws: under the car box, or Shop setup's LEMON tab
+let addBoxSel = '#addCar', addWait = null;
 function catalogueSuggest(q, hits) {
   clearTimeout(sugTimer);
   const seq = ++sugSeq;
@@ -2309,15 +2347,54 @@ function catalogueSuggest(q, hits) {
     if (k > 0) { carSel = k; $('#carList').querySelectorAll('.opt[data-k]').forEach((o, i) => o.classList.toggle('on', i === k)); }
   }, 280);
 }
-function offerCatalogueCar(r) {
+function offerCatalogueCar(r, boxSel = '#addCar') {
+  stopAddWait();
+  if (boxSel !== addBoxSel) $(addBoxSel).hidden = true;
+  addBoxSel = boxSel;
   catPending = r;
-  $('#carList').hidden = true;
-  setCarBox(carBoxLabel);           // the box keeps saying the car selected now
+  if (boxSel === '#addCar') {
+    $('#carList').hidden = true;
+    setCarBox(carBoxLabel);         // the box keeps saying the car selected now
+  }
   renderAddCar();
-  $('#addCar').querySelector('button[data-add-car]')?.focus();
+  $(addBoxSel).querySelector('button[data-add-car]')?.focus();
+}
+// Is a manual site answering? Asked from this browser -- the one that will
+// open the page -- not from the server: a no-cors request for the site's
+// icon, dropped as soon as headers arrive, 6 s at most. It says only that
+// the server answers, nothing about the page (an opaque reply has no status).
+async function siteUp(origin) {
+  const ac = new AbortController(), t = setTimeout(() => ac.abort(), 6000);
+  try {
+    await fetch(`${origin}/favicon.ico?t=${Date.now()}`, {mode: 'no-cors', cache: 'no-store',
+      credentials: 'omit', referrerPolicy: 'no-referrer', signal: ac.signal});
+    return true;
+  } catch { return false; }
+  finally { clearTimeout(t); ac.abort(); }
+}
+function stopAddWait() { if (addWait) { clearTimeout(addWait.timer); addWait = null; } }
+// after "Open on LEMON": ask every 4 s for the zip in Downloads, 45 min at most
+async function waitForZip() {
+  const r = catPending;
+  if (!addWait || !r) return;
+  if (Date.now() - addWait.since > 45 * 60e3) {
+    stopAddWait();
+    return renderAddCar({kind: 'error', msg: `${addWait.zip} didn't arrive in ${addWait.downloads}. `
+      + 'Save it there and press Add this car again.'});
+  }
+  let res;
+  try {
+    res = await api('/api/import/lemon-zip', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                               body: JSON.stringify({path: r.path})});
+  } catch (e) { stopAddWait(); return renderAddCar({kind: 'error', msg: e.message}); }
+  if (!addWait) return;
+  if (res.action === 'waiting') { addWait.timer = setTimeout(waitForZip, 4000); return; }
+  stopAddWait();
+  addJob = {doc: r.doc_id, started: res.job?.started};
+  watchAddJob();
 }
 function renderAddCar(state = null) {
-  const box = $('#addCar'), r = catPending;
+  const box = $(addBoxSel), r = catPending;
   if (!r && !state) { box.hidden = true; return; }
   const name = `<b>${esc(r ? r.label : '')}</b>`;
   let body;
@@ -2331,6 +2408,34 @@ function renderAddCar(state = null) {
   } else if (state?.kind === 'done') {
     body = `<div class="actext">${name} is added.<div class="acsub">Its manual is selected.</div></div>`
       + `<button type="button" class="ghost" data-add-close>OK</button>`;
+  } else if (state?.kind === 'checking') {
+    body = `<div class="actext">${name} isn't on this PC.<div class="acsub">Checking whether LEMON's site is answering…</div></div>`;
+  } else if (state?.kind === 'download') {
+    const d = state.res, zip = `<b>${esc(d.zip_name)}</b>`, dl = esc(d.downloads);
+    const link = (href, label, cls = '') =>
+      `<a class="btnlink${cls ? ' ' + cls : ''}" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-add-open>${label}</a>`;
+    let how, btns;
+    if (state.lemon) {
+      how = `Open its page on LEMON, click <i>Download .zip for offline use</i> and save it in ${dl}. `
+          + `It is imported as soon as it is there.`;
+      btns = link(d.links.lemon, 'Open on LEMON');
+    } else if (d.links.charm && state.charm) {
+      how = `LEMON's site isn't answering. Operation CHARM, its backup for 1982–2013, is: its page for `
+          + `${esc(r.year)} lists this car to read online. To add it here, LEMON's zip is needed once LEMON is back.`;
+      btns = link(d.links.charm, 'Open on CHARM') + link(d.links.lemon, 'Try LEMON anyway', 'ghostlink');
+    } else {
+      how = d.links.charm ? `Neither LEMON nor CHARM is answering right now.`
+                          : `LEMON's site isn't answering right now (CHARM, its backup, only has 1982–2013).`;
+      btns = `<button type="button" data-add-car>Check again</button>` + link(d.links.lemon, 'Try LEMON anyway', 'ghostlink');
+    }
+    body = `<div class="actext">${name} isn't on this PC.<div class="acsub">${how}`
+      + (state.lemon ? ` The file: ${zip}` : '') + `</div></div>`
+      + btns + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
+  } else if (state?.kind === 'waiting') {
+    body = `<div class="actext">Waiting for ${name}<div class="acsub">Save <b>${esc(addWait?.zip || '')}</b> `
+      + `in ${esc(addWait?.downloads || 'Downloads')}; the import starts by itself.</div>`
+      + `<div class="acbar indet" role="progressbar" aria-label="Waiting for the download"><i style="width:30%"></i></div></div>`
+      + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
   } else if (state?.kind === 'queued') {
     body = `<div class="actext">${name} is on the LEMON download list.`
       + `<div class="acsub">Its folder isn't on this PC, and LEMON downloads aren't built yet: `
@@ -2341,8 +2446,8 @@ function renderAddCar(state = null) {
       + `<button type="button" class="ghost" data-add-close>Close</button>`;
   } else {
     body = `<div class="actext">${name}<div class="acsub"><span class="nodl">Not downloaded</span>`
-      + (me.admin ? 'Not on this PC yet. If its LEMON folder is here, it is imported in the background '
-                    + 'while you keep working; if not, it goes on the LEMON download list.'
+      + (me.admin ? 'Not on this PC yet. If its LEMON folder or zip is here, it is imported in the background '
+                    + 'while you keep working; if not, you download its zip from LEMON in your browser.'
                   : 'Only the shop PC can add a car.') + `</div></div>`
       + (me.admin ? `<button type="button" data-add-car>Add this car</button>` : '')
       + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
@@ -2360,9 +2465,45 @@ async function addCatalogueCar() {
                                               body: JSON.stringify({path: r.path})});
   } catch (e) { return renderAddCar({kind: 'error', msg: e.message}); }
   if (res.action === 'queued') return renderAddCar({kind: 'queued'});
+  if (res.action === 'download') {
+    renderAddCar({kind: 'checking'});
+    const [lemon, charm] = await Promise.all([siteUp(new URL(res.links.lemon).origin),
+                                              res.links.charm ? siteUp(new URL(res.links.charm).origin) : false]);
+    if (catPending !== r) return;
+    addPendingDownload = res;
+    return renderAddCar({kind: 'download', res, lemon, charm});
+  }
   addJob = {doc: r.doc_id, started: res.job?.started};
   watchAddJob();
 }
+let addPendingDownload = null;
+// Shop setup -> LEMON -> Add a car: the car box's catalogue search, with
+// "Add this car" drawn in the tab (the same flow: import, zip, or LEMON's page)
+let lemAddTimer = 0, lemAddSeq = 0;
+$('#lemAddInput').addEventListener('input', () => {
+  clearTimeout(lemAddTimer);
+  const q = $('#lemAddInput').value.trim(), seq = ++lemAddSeq, list = $('#lemAddList');
+  if (!q) { list.hidden = true; return; }
+  lemAddTimer = setTimeout(async () => {
+    let cat;
+    try { cat = await api(`/api/catalogue/suggest?q=${encodeURIComponent(q)}&limit=12`); } catch { return; }
+    if (seq !== lemAddSeq) return;
+    list._rows = cat.rows;
+    list.innerHTML = cat.rows.length
+      ? cat.rows.map((r, i) => `<button type="button" class="opt" role="option" data-lem-add="${i}">${esc(r.label)}</button>`).join('')
+        + (cat.total > cat.rows.length ? `<div class="sub">${(cat.total - cat.rows.length).toLocaleString()} more: type more of the name or a year</div>` : '')
+      : `<div class="sub">${/[a-z]{2}|\d[a-z]|[a-z]\d/i.test(q) ? 'No car in LEMON’s list that isn’t already here matches that.' : 'Type a make or model too, e.g. 2023 Corolla Cross.'}</div>`;
+    list.hidden = false;
+  }, 280);
+});
+$('#lemAddList').addEventListener('click', e => {
+  const b = e.target.closest('[data-lem-add]');
+  if (!b) return;
+  const r = $('#lemAddList')._rows[+b.dataset.lemAdd];
+  $('#lemAddList').hidden = true;
+  $('#lemAddInput').value = r.label;
+  offerCatalogueCar(r, '#lemAddBox');
+});
 async function watchAddJob() {
   if (!addJob) return;
   let j;
@@ -2383,10 +2524,21 @@ async function watchAddJob() {
   applyCar({doc: v.doc_id, variant: null, engine: null, year: null,
             label: `${v.year_range || ''} ${v.make || ''} ${v.model}`.replace(/\s+/g, ' ').trim(), sub: ''});
   renderAddCar({kind: 'done'});
+  if (addBoxSel === '#lemAddBox') manLoad();      // Shop setup's "Imported LEMON manuals" count
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-add-car]')) { addCatalogueCar(); return; }
-  if (e.target.closest('[data-add-close]')) { catPending = null; $('#addCar').hidden = true; }
+  // the site opens in a new tab (the link itself); here: wait for its zip
+  if (e.target.closest('[data-add-open]') && addPendingDownload && !addWait) {
+    const d = addPendingDownload;
+    addWait = {since: Date.now(), zip: d.zip_name, downloads: d.downloads, timer: 0};
+    renderAddCar({kind: 'waiting'});
+    addWait.timer = setTimeout(waitForZip, 4000);
+    return;
+  }
+  if (e.target.closest('[data-add-close]')) {
+    stopAddWait(); addPendingDownload = null; catPending = null; $(addBoxSel).hidden = true;
+  }
 });
 $('#carInput').addEventListener('keydown', ev => {
   const list = $('#carList'), items = list._items || [];
@@ -6243,7 +6395,7 @@ $('#impUp').onclick = () => $('#impUp').dataset.parent && impBrowse($('#impUp').
 const impTab = () => document.querySelector('.srctabs [aria-selected="true"]').dataset.src;
 const impSource = () => impTab() !== 'lemon' ? impTab() : $('#impLemFolderBox').open ? 'lemon' : 'catalogue';
 // one LEMON card open at a time (the name= attribute does it too, where supported)
-const LEMCARDS = ['#impLemFolderBox', '#impLemImported', '#impLemCat'];
+const LEMCARDS = ['#impLemAdd', '#impLemFolderBox', '#impLemImported', '#impLemCat'];
 LEMCARDS.forEach(id => $(id).addEventListener('toggle', e => {
   if (e.target.open) LEMCARDS.forEach(o => { if (o !== id) $(o).open = false; });
   if (id === '#impLemFolderBox' || e.target.open) impShowSource();

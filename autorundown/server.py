@@ -36,7 +36,7 @@ from pydantic import BaseModel, Field
 
 from . import search as search_mod
 from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
-from . import (autostart, html_original, importer_jobs, lemon_catalogue, manual_browse, part_procedures,
+from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_zip, manual_browse, part_procedures,
                parts_browse, synonyms, tab_values, wis_links, wis_original)
 from .search import (as_ids, get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
@@ -1392,15 +1392,18 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # sees them -- the list is the torrent's public index -- but only this PC
     # adds one (/api/import/lemon-add, admin).
     @app.get("/api/catalogue/suggest")
-    def api_catalogue_suggest(q: str = Query("", max_length=200)) -> dict:
-        return lemon_catalogue.search(q, app.state.index_path)
+    def api_catalogue_suggest(q: str = Query("", max_length=200),
+                              limit: int = Query(6, ge=1, le=20)) -> dict:
+        return lemon_catalogue.search(q, app.state.index_path, limit=limit)
 
     @app.post("/api/import/lemon-add")
     def api_lemon_add(body: LemonPickBody) -> dict:
         """"Add this car" from the car box: the same import job as Shop setup's
         LEMON folder import when the car's folder is on this PC beside the LEMON
-        manuals already imported; otherwise the car goes on Shop setup's LEMON
-        download list (the download itself is not built yet)."""
+        manuals already imported; otherwise its zip, when it is already in
+        Downloads; otherwise "download": the car's page on LEMON's site (and
+        CHARM's year page as the backup), for the user to save its zip in
+        their own browser -- the app never fetches from either site."""
         if len(body.path) != 4:
             raise HTTPException(400, "path must name one car: make, year, model, variant")
         cat = lemon_catalogue.load()
@@ -1415,8 +1418,37 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
             return {"action": "import", "doc_id": doc, "folder": str(root / folder), "job": job}
-        lemon_catalogue.set_pick(tuple(body.path), True)
-        return {"action": "queued", "doc_id": doc}
+        z = lemon_zip.find(lemon_catalogue.zip_name(*body.path))
+        if z:
+            return _start_lemon_zip(doc, z)
+        return {"action": "download", "doc_id": doc, "links": lemon_catalogue.site_links(*body.path),
+                "zip_name": lemon_catalogue.zip_name(*body.path),
+                "downloads": str(lemon_zip.downloads_dir())}
+
+    def _start_lemon_zip(doc: str, z: Path) -> dict:
+        try:
+            lemon_zip.check(z)
+        except lemon_zip.BadZip as e:
+            raise HTTPException(400, f"{z.name} can't be imported: {e}")
+        try:
+            job = jobs.start(z, app.state.index_path, "lemon_zip", only=[doc])
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc))
+        return {"action": "import", "doc_id": doc, "zip": str(z), "job": job}
+
+    @app.post("/api/import/lemon-zip")
+    def api_lemon_zip(body: LemonPickBody) -> dict:
+        """After "download": import the car's zip once it is in Downloads
+        ({"action": "waiting"} until then -- the page asks every few seconds)."""
+        if len(body.path) != 4:
+            raise HTTPException(400, "path must name one car: make, year, model, variant")
+        if lemon_catalogue._node(lemon_catalogue.load(), tuple(body.path)) is None:
+            raise HTTPException(404, "Not in the LEMON catalogue: " + " / ".join(body.path))
+        doc = lemon_catalogue.doc_id(*body.path)
+        z = lemon_zip.find(lemon_catalogue.zip_name(*body.path))
+        if not z:
+            return {"action": "waiting", "doc_id": doc}
+        return _start_lemon_zip(doc, z)
 
     @app.get("/api/import/manuals")
     def api_import_manuals() -> dict:

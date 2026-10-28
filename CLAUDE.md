@@ -7,11 +7,12 @@ context: what is already decided, what is already tried, and what will break.
 
 **Status: working end to end.** Importers (LEMON HTML, Mercedes WIS via
 `records`, plain folders), index, retrieval, AI query layer (four providers), web UI with
-Shop setup, shop-network access, Windows MSI (built on the PC), CI, one car
-at a time from Operation CHARM's torrent (images not yet tried on the real
-swarm). Not built: macOS/Linux packages (they run from source, by the user's
-decision), code signing, the LEMON torrent download (LEMON is down; CHARM is
-the backup).
+Shop setup, shop-network access, Windows MSI (built on the PC), CI, "Add a
+car" from LEMON's zip (the app opens LEMON's page, the user saves the zip,
+the app imports it), one car from Operation CHARM's torrent (built, hidden:
+hours per car). Not built: macOS/Linux packages (they run from source, by the
+user's decision), code signing, the LEMON torrent download (not practical per
+car; `importing.md`).
 
 **This file is the short version.** The history and measurements behind each
 area live in `docs/notes/` (moved there verbatim on 2026-10-12). **Before
@@ -35,10 +36,10 @@ broke:
 
 ```
 autorundown/        the app; everything the MSI ships (see Architecture)
-serve.py ingest.py ask.py rebuild_wis.py remove_manuals.py charm_download.py
+serve.py ingest.py ask.py rebuild_wis.py remove_manuals.py charm_download.py unzip_lemon.py
                     command-line entry points; the app runs ingest / rebuild_wis /
-                    remove_manuals / charm_download as child processes by path, so
-                    they stay at the root
+                    remove_manuals / charm_download / unzip_lemon as child processes
+                    by path, so they stay at the root
 dev.py              throwaway instance with sample data (.dev/, port 8757)
 eval.py eval_wis.py retrieval checks against the real index (free)
 tests/              free test suites, `python tests/test_<name>.py`
@@ -176,6 +177,7 @@ python tests/test_answer_tabs.py [--index <db>]   # one question fills the right
 python tests/test_drawing_ui.py                   # Manual contents, drawing picks (red, several), divider (~30 s, Playwright)
 python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tests/test_charm.py                        # one CHARM car: reader, plan, download, import, refusals (~10 s)
+python tests/test_lemon_zip.py                    # "Add a car": LEMON zip found, unsafe zips refused, unpack + import (~10 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
 # sample data and tools
@@ -279,7 +281,8 @@ autorundown/
   tls.py           local CA for --https
   config.py        ~/.autorundown/config.json (AUTORUNDOWN_HOME)
   importer_jobs.py import / remove / VM jobs started from Shop setup
-  lemon_catalogue.py  LEMON torrent catalogue tree and picks
+  lemon_catalogue.py  LEMON torrent catalogue tree and picks; LEMON / CHARM page links, zip names
+  lemon_zip.py     a LEMON car's zip from Downloads: found, checked (untrusted), unpacked
   charm.py         Operation CHARM's data (SquashFS + LMDB) read a piece at a time; LEMON-style export
   charm_fetch.py   CHARM torrent pieces from the swarm (libtorrent, never seeds) or a local copy
   wis_links.py     WIS cross-refs, diagram hotspots, oil, labour
@@ -601,7 +604,15 @@ in `docs/notes/`. The ones most likely to be undone by accident:
 - **WIS is never removed per model.** (`importing.md`)
 - **Never fetch from lemon-manuals.la over HTTP**; the LEMON download, when
   built, must follow what the user agreed (2026-10-09). (`importing.md`)
-- **CHARM: one car from the swarm only, plan first, never seeds**; the
+- **"Add a car" opens LEMON's page; the user downloads** (2026-10-27).
+  Which site is up is asked by the browser (`siteUp`, a favicon), never
+  the server; CHARM's page is the backup when LEMON doesn't answer. The
+  saved zip is untrusted (`lemon_zip.check`) and unpacked into
+  `APP_DIR/manuals/<doc_id>/` with the download mark; the zip stays.
+  Tests read `AUTORUNDOWN_DOWNLOADS`, never the PC's Downloads.
+  (`importing.md`)
+- **CHARM: one car from the swarm only, plan first, never seeds** (its
+  card is hidden since 2026-10-27; keep the code); the
   `.torrent` is the one file from charm.li. A car's text is ~200 MB, its
   images ~9 GB (spread through their group). Data from the swarm is
   untrusted: every offset is checked (`charm.BadData`). (`importing.md`)
@@ -778,8 +789,9 @@ Still open, in rough order of value:
 6. **The extractor has not been re-run end to end from the repo copy** (the
    paths resolve and the evals pass; the next VM run is the real check).
 7. The car box reads a bare two-digit word as a year ("190 e 2.3 16" → 2016).
-8. The LEMON download is not built (catalogue picking only); sizing it needs
-   piece 16308, which the user has not yet OK'd fetching.
+8. **"Add a car" has not imported a real LEMON zip through the app yet**
+   (a stand-in zip in a test box only). Next: add one small car on the PC
+   from a real LEMON zip, and check `unique_pages` and its images.
 9. **Gemini, xAI and DeepSeek have never answered a real question**
    (`ai-providers.md`, "Not verified"): one cheap scoped paid question on
    each, with the user's OK and their key, is the real test of the request

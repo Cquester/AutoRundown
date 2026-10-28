@@ -675,6 +675,10 @@ class Progress:
                 self.activity = f"{m.group(3)} KB/s from {m.group(4)} peers"
         elif m := re.match(r"images (\d+)/(\d+)$", line):
             self._set(m.group(1), m.group(2), "images")
+        elif line.startswith("== Unpacking "):
+            self.reset("Unpacking the zip")
+        elif m := re.match(r"unzipped (\d+)/(\d+) files", line):
+            self._set(m.group(1), m.group(2), "files")
         elif m := re.match(r"checking the pieces on disk: (\d+)%", line):
             # libtorrent's first check of the 758 GB layout: ~8 min
             self.detail = f"checking the pieces already on disk: {m.group(1)}% (the first time takes ~8 min)"
@@ -831,6 +835,15 @@ class ImportJobs:
                 for o in only or []:
                     cmd += ["--only", o]
                 cmds = [cmd]
+            elif mode == "lemon_zip":
+                # "Add this car": the zip the user saved from LEMON's site
+                # (`path`), unpacked into <app dir>/manuals/<doc_id>/ (only[0])
+                # and imported from there as LEMON
+                from . import config
+                folder = config.APP_DIR / "manuals" / (only or [""])[0]
+                cmds = [[*py, str(ROOT / "unzip_lemon.py"), "--zip", str(path), "--dest", str(folder)],
+                        [*py, str(ROOT / "ingest.py"), "--archive", str(folder),
+                         "--index", str(index_path), "--importer", "lemon"]]
             elif mode in ("charm_plan", "charm_car"):
                 # one car from Operation CHARM's torrent (charm_download.py):
                 # charm_plan sizes it (fetches its text and the image index,
