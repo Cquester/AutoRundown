@@ -30,6 +30,7 @@ screenshots/
 .dev/
 sample_lemon/
 sample_epc/
+sample_charm/
 
 # Windows Sandbox exchange folder (tools/sandbox/start.ps1)
 .sandbox/

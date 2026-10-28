@@ -158,7 +158,7 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   (`G000161176`, `GFD41139`, `VA467679`) are the file names in a LEMON zip.
   A car's image list is only known from its pages, so text comes first.
 - **The download (not built) must follow what the user agreed, 2026-10-09**,
-  and the LEMON tab's "How LEMON downloads will work" already tells users so
+  and the LEMON tab's "How LEMON downloads will work" (hidden since 2026-10-27) tells users so
   -- keep the two in step: one download for all picks; size, free space
   needed and what stays afterwards shown before starting, refused without
   the space; afterwards the torrent files (pages.mtbl, partial images.mtbl,
@@ -174,7 +174,146 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   index); the user has not yet OK'd that fetch.
 - **Never fetch from lemon-manuals.la over HTTP** -- the user's rule (the
   site asks not to be scraped). The `.torrent` itself is its download link;
-  anything else comes from the swarm.
+  anything else comes from the swarm. Since 2026-10-27 the app only opens
+  a car's page in the user's own browser ("Add a car", below); the user
+  downloads. Plain HTTP clients (curl, Python) get a bot trap from the
+  site: every path answers `Content-Length: 21474836480` (20 GB of
+  nothing) -- a real browser gets the real page.
+- LEMON's server went down on 2026-10-26 (the user: hit in an attack on
+  Ukraine); its download is on hold and **Operation CHARM is the backup**,
+  below. The LEMON `.torrent` is at `C:\Users\cques\lemon-manuals.torrent`
+  (328 KB, 2026-08-19); a torrent does not need LEMON's website, but its
+  layout (above) makes one car a large part of 31.5 GB, where CHARM's is
+  ~200 MB -- so one car comes from CHARM. The LEMON torrent also carries
+  a `charm/` copy (`.mtbl`, not CHARM's own LMDB layout). LEMON came back
+  on a temporary server on 2026-09-30 (its banner; seen working 2026-10-27).
+- **The LEMON torrent, read 2026-10-27** (pieces 16308-16309 and index.json
+  only, with the user's OK): 16,310 pieces of 64 MB, 1,094.5 GB.
+  `lemon/pages.mtbl` is 31.52 GB (pieces 15840-16309), an mtbl file: the
+  last 512 bytes are nine little-endian u64 fields and `LBTM`; 128 KB
+  zstd blocks, 52.6 M entries in 1.56 M blocks, a 60 MB block index. Its
+  keys sort by kind, so each kind is one run of pieces: bulletins
+  15840-15903, `html_act` 15903-16043, `html_aht`..root 16043-16067,
+  `html_s` 16067-16243 (11 GB), `link_table` 16243-16261, `uri_table`
+  16261-16308. Pages are stored once by content and shared between cars,
+  so one car's text is spread over most of the file: **per-car text from
+  this torrent is not practical** (a whole-file download is ~4.5 days on
+  its swarm). This is why "Add a car" uses LEMON's own zip.
+
+**One car from Operation CHARM** -- **built, tested, hidden** (2026-10-27,
+the user: hours per car on its swarm, "waiting an entire day isn't worth
+it"; `#impCharmBox` has `hidden`, the code and `tests/test_charm.py` stay).
+The real image run, a 2013 Toyota Corolla, stopped at the user's 1-hour
+limit: 41 of its 70 image pieces had arrived, enough for 84% of its
+images. (The LEMON tab's "One car from Operation
+CHARM" card, 2026-10-27; the user chose one car at a time, text and images
+together, with a "Text only" choice when the images are large). CHARM
+(charm.li, 1982-2013) is where LEMON's data came from: the LEMON zip of the
+1987 190E 2.3-16 is a static export of CHARM's pages for that car (the same
+image ids, breadcrumbs and page HTML). The rules agreed for LEMON hold:
+only the swarm (the `.torrent` from charm.li's About page, "Download our
+data!", is the one file from the site -- fetched with the user's OK); never
+seeds (upload capped at 4 KB/s, no UPnP/NAT-PMP, any free port, session
+closed when done); size, free space and what stays shown first, refused
+without the space; afterwards the torrent data is deleted and only
+`APP_DIR/manuals/<doc_id>/` stays; removing the car recycles that folder.
+
+What the torrent is (read 2026-10-26, `operation-charm.torrent`, 884 KB):
+757.9 GB, 45,175 pieces of 16 MB, v1, six public trackers plus the peer
+`charm.li:17471` the site names. **Not** the mtbl format of the `charm/`
+folder inside the LEMON torrent:
+- `operation-charm/lmdb-images/data.mdb`, 698 GB, pieces 0-41600: a plain
+  LMDB (4 KB pages), 20.25 M images keyed `/<group>/<sub>/<id>/`
+  (`/IMP49Q313/euro210/151068321/`), B-tree depth 5.
+- `operation-charm/lmdb-pages.sqsh`, 60 GB, starting exactly at piece
+  41600: SquashFS 4.0, gzip, 128 KB blocks, holding one sparse `data.mdb`
+  (2 TB mapsize, 477 GB used, 8:1 compressed): 443 M entries, depth 9,
+  written in 79,200 transactions and never compacted. Its inode table (the
+  block list) is in the last 9.4 MB, piece 45174.
+- `server.js` (the site) shows the keys: a page path
+  `/Make/Year/Car/<section>/.../` (URL-encoded, `%20`, `%28`, `%2F`) maps
+  to an article key `N,M` whose value is the page's HTML; `N` is one number
+  per car (the 190E: 46795). A listing page's article key is
+  `SPECIAL_<its path>` (a year page lists its cars). Images are
+  `<img src='/images/<key>'>` in the HTML.
+
+Measured on the 1987 190E 2.3-16 (201.034) (416 MB fetched, 2026-10-26/27):
+12,954 paths (the LEMON zip: 12,904 pages), 5,724 articles, 8.7 MB HTML,
+5,161 images (zip: 5,091). Its path leaves are all in **one** piece
+(42906), its articles in 6 (42906, 42907, 42946, 42947, 44369-44371), the
+tree above them in 3-4 more: **the text of one car is ~12 pieces, ~200 MB**.
+CHARM wrote a car in one go, so a car's pages sit together; neighbouring
+cars are in the neighbouring pieces. Images are not: an image's key and
+its data sit in the same piece, but a car's image ids are spread through
+its whole group (`euro210`, sorted as strings), estimated **~570 pieces,
+~9 GB** for the 190E (fitted from 4 lookups over 5 pieces -- an estimate,
+like LEMON's 9.6 GB for the F-150). Cars in the same group share those
+pieces. The swarm gave ~100 KB/s per piece (9-14 seeds), 3-11 min a piece.
+
+How it is built (`autorundown/charm.py`, `charm_fetch.py`, `charm_download.py`):
+- `charm.py` reads both databases a piece at a time, pure Python (zlib,
+  struct): `Squash` (one file inside the image, block by block), `Lmdb`
+  (meta, `get`, `scan`, `children_pieces` = what a range costs from the
+  branch pages alone). A read of a piece not on disk raises `Missing` with
+  every piece one pass needs, so a swarm fetches them together. Every page
+  number, offset, length and depth is checked (`BadData`); image keys
+  become file names only if every part is `[A-Za-z0-9_.-]`.
+- `charm_fetch.TorrentSwarm` (libtorrent; resume data in the work folder,
+  so a plan's pieces are not fetched again) and `LocalSwarm` (a complete
+  copy + `layout.json`, for tests and `dev.py`; `AUTORUNDOWN_CHARM_SOURCE`).
+- `charm_download.py --plan` finds the car (exact key; else the year's
+  `SPECIAL_` listing and `match_car`: an exact "model engine" is taken, an
+  inexact name is only offered -- `NOT_FOUND {candidates}`, exit 2), fetches
+  its text and the image index and prints `PLAN {json}` (saved as
+  `charm_download/plan-<doc_id>.json`). Without `--plan` it downloads the
+  rest (images in batches of 32 pieces), writes the LEMON layout
+  (`index.html`, `pages/<n>.html` with LEMON's breadcrumbs, `images/<group>/
+  <sub>/<id>.<ext>`, links and images rewritten to the folder's own files,
+  an unknown one to `../404.html`) and a `.autorundown-download` mark (from
+  the start: a later try only replaces a marked folder), then deletes the
+  torrent data. Exit 3 cancelled, 4 no space, 5 already in the index.
+- Job modes (`importer_jobs`): **`charm_plan`** and **`charm_car`**,
+  `POST /api/import {mode, car, text_only}`; `car` is `[make, year, model,
+  engine]` (a catalogue path) or `[make, year, car]` (CHARM's name, what
+  `charm_car` takes, from the plan). `charm_car` is refused without a plan
+  and without the space, then runs `ingest.py --importer lemon` on the
+  folder. `GET /api/import/charm`, `POST /api/import/charm/torrent {path}`
+  (must be a .torrent holding CHARM's two files). The UI's
+  `window.charmFill(make, year, car)` opens Shop setup on the card, fills it and sizes the car --
+  for the "Add this car" button on `feature/parts-ux-and-lemon-autofill`.
+- `recycle.downloaded_car`: a marked folder directly in
+  `APP_DIR/manuals` is the one other thing Remove may recycle.
+
+**The real text-only run** (2026-10-27, the 190E into a throwaway home):
+26 real pieces in all (416 MB on disk; the last one 16 MB in ~2.5 min at
+~200 KB/s from 5-15 peers, upload held at the 4 KB/s cap), 12,954 pages
+written in 7 s, `ingest.py --importer lemon` 6 s. Against the LEMON zip
+of the same car, each in its own throwaway index: the same doc_id, make,
+model and engine; 12,886 vs 12,833 pages, 5,483 vs 5,624 unique; every
+LEMON title is in CHARM (CHARM has 15 more, e.g. "Replacing Fuel Filter");
+and with link numbers, image references and dead-link markers set aside,
+4,533 of LEMON's 4,534 page texts are in CHARM (the one left is LEMON's
+own index page). LEMON shows a link to a page missing from its own zip
+as `[[name]]`; CHARM's export sends it to 404 and the name is plain text.
+The real 1987 year listing gave 14 cars through `listing_names`;
+"190E 2.3-16" + "L4-2.3L" offers the right car first, never takes it.
+Two things that broke on the real swarm and are fixed: a torrent added
+unpaused wanted every piece and a peer added during the file check was
+dropped (0 peers for 38 min), and one added paused never checked its
+files at all -- now the zero priorities go in the add itself, unpaused,
+peers after the check. libtorrent's first check of the 758 GB sparse
+layout takes **~8 min** (logged as "checking the pieces on disk: N%");
+the resume data saved at the end skips it next time. 385 of the
+torrent's pieces are all zeros and "on disk" with nothing fetched; the
+plan's `fetched_pieces` leaves them out.
+
+Not verified yet: the image download on the real swarm (only one real
+image was read); libtorrent inside the MSI's embeddable Python (a cp312
+win_amd64 wheel exists); a peak-disk cap (pieces stay on disk until the
+end: sparse files, ~9 GB for a car).
+CHARM names cars the old LEMON-zip way ("190E 2.3-16 (201.034) L4-2.3L
+(102.983)"), so a LEMON catalogue path usually needs the plan's candidates.
+Test: `tests/test_charm.py` (sample data, `tools/make_sample_charm.py`).
 
 **LEMON cars in the car box** (2026-10-26, the user: typing "2016 Ford
 F-150" should offer it, "Not downloaded", with "Add this car" right there).
@@ -193,13 +332,68 @@ F-150" should offer it, "Not downloaded", with "Add this car" right there).
   imported (each one's `file_path` parent and grandparent, `importer_jobs.
   lemon_on_disk`, depth 3 as the importer scans) -- the same `lemon` import
   job as the folder import, its progress in the card (`/api/import`), and
-  the car is selected when done. Otherwise the car goes on the download list
-  (`set_pick`, the tree's ticks) and the card says downloads aren't built.
-  The one-car torrent download was started on its own branch and put on
-  hold by the user the same day; when it exists, it plugs in here.
+  the car is selected when done. Otherwise its zip if it is in Downloads,
+  else LEMON's page (next section).
 - The sample Camry (`tools/make_sample_lemon.py`) is named as the catalogue
   names it ("Camry LE, 2.4 E, Automatic") so a box exercises the import.
 Tests: `tests/test_catalogue_suggest.py`.
+
+**Add a car: LEMON's zip, saved by the user** (2026-10-27, the user: "it'll
+just redirect them to the site", with a check of which site is up). Both
+places offer it: the car box's "Add this car" and Shop setup → Manuals →
+LEMON → **Add a car** (a search over the same catalogue, 12 rows, the same
+card under it, `offerCatalogueCar(r, '#lemAddBox')`).
+- `POST /api/import/lemon-add` (admin): the car's folder on this PC → the
+  `lemon` job; else its zip already in Downloads → the `lemon_zip` job;
+  else `{"action": "download", links, zip_name, downloads}`.
+  `lemon_catalogue.site_links`: LEMON's page
+  `https://lemon-manuals.la/<make>/<year>/<model engine>/` (each part
+  URL-encoded; the catalogue's names are the site's, checked on the 2023
+  Corolla Cross's nine variants) and, for 1982-2013, CHARM's year page
+  `https://charm.li/<make>/<year>/`.
+- **Which site is up is asked by the browser, not the server**
+  (`siteUp`): a no-cors fetch of each site's `/favicon.ico`, 6 s at most,
+  dropped once headers arrive -- it says only that the server answers. The
+  server stays off both sites. LEMON up → "Open on LEMON"; LEMON down and
+  CHARM up → "Open on CHARM" (to read online; adding still needs LEMON's
+  zip) plus "Try LEMON anyway"; both down → "Check again".
+- The link opens in a new tab; the card then asks `POST
+  /api/import/lemon-zip` every 4 s ("waiting") for 45 min at most.
+  `lemon_zip.find`: LEMON's name `LEMON <year> <make> <model engine>.zip`
+  (`zip_name`), also "name (1).zip" and with a character Windows can't
+  hold replaced; never a `.crdownload`/`.part` or a zip whose central
+  directory isn't written yet. `AUTORUNDOWN_DOWNLOADS` overrides
+  `~/Downloads` (tests set it, so they never read the PC's own).
+- The zip is untrusted (`lemon_zip.check`): one folder at the top
+  (`<year> <make> <car>/`, as LEMON makes it) holding `index.html`; plain
+  relative paths only (no `..`, absolute, drive, backslash or control /
+  reserved characters), no links, at most 1 M entries and 40 GB, no entry
+  over 1 MB inflating more than 1000x, writes capped at the size the zip
+  states. `unzip_lemon.py` (job part 1, "== Unpacking", "unzipped d/t
+  files") unpacks into `APP_DIR/manuals/<doc_id>/` with `DOWNLOAD_MARK`
+  (written incomplete first), never over a folder it didn't mark, and
+  only with the space; part 2 is `ingest.py --importer lemon` on it.
+  Removing the car recycles that folder; the zip stays in Downloads.
+- Checked in a test box (2026-10-27): the search, the LEMON link, waiting,
+  and a stand-in zip dropped in Downloads imported and selected.
+- **A real LEMON zip through the API** (2026-10-27, the user's own
+  `LEMON 2015 Ford F-150 Lariat, 4D Pickup Extra Cab, 3.5L Eng VIN G,
+  4WD.zip` from Downloads, 634 MB; a throwaway home and index, TestClient,
+  no server): `lemon-add` found it and started `lemon_zip`; 41,837 files
+  (864 MB) unpacked in ~37 s, then 191 s of `ingest`: 32,674 pages ->
+  10,410 unique, 15,319 chunks, 529 connectors, 2,747 other-engine pages,
+  155 MB; doc_id the catalogue's, in `/api/vehicles`, no longer offered;
+  all 8,689 images its pages name are on disk. The 190E 2.3-16 zip
+  (18,013 files, 226 MB) passes `check` too, but its old-style name is
+  not in the catalogue, so "Add a car" never names it.
+- **Windows' 260-character path limit**: that first run, in a deep temp
+  folder, failed halfway with a traceback (280 characters). `unpack` now
+  refuses up front ("its files need paths of N characters ... Windows
+  allows 259"), removes a folder it couldn't mark, and `unzip_lemon.py`
+  turns any other disk error into a STOP line. In the installed app
+  (`C:\Users\<name>\.autorundown\manuals\<doc_id>\...`) the F-150's
+  longest path is ~140 characters.
+Tests: `tests/test_lemon_zip.py`.
 
 **From a Mercedes virtual machine** (third source in the same dialog):
 **The VM is chosen as a file** (2026-10-23, the user: "it should be a file

@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import secrets
 import socket
 import sqlite3
@@ -35,7 +36,7 @@ from pydantic import BaseModel, Field
 
 from . import search as search_mod
 from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
-from . import (autostart, html_original, importer_jobs, lemon_catalogue, manual_browse, part_procedures,
+from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_zip, manual_browse, part_procedures,
                parts_browse, synonyms, tab_values, wis_links, wis_original)
 from .search import (as_ids, get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
@@ -155,6 +156,15 @@ class ImportBody(BaseModel):
     # mode "lemon": the vehicle folders to import, relative to path
     # mode "remove": the doc_ids to remove (LEMON / folder manuals only)
     vehicles: list[str] = []
+    # modes "charm_plan" / "charm_car": one car from Operation CHARM's torrent,
+    # [make, year, model, engine] (a catalogue path) or [make, year, car]
+    # (CHARM's own name, as a plan prints it; charm_car takes only this)
+    car: list[str] = Field([], max_length=4)
+    text_only: bool = False
+
+
+class CharmTorrentBody(BaseModel):
+    path: str = Field(..., max_length=1000)
 
 
 def _vehicle_or_404(conn, doc_id: str) -> dict:
@@ -1382,15 +1392,18 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # sees them -- the list is the torrent's public index -- but only this PC
     # adds one (/api/import/lemon-add, admin).
     @app.get("/api/catalogue/suggest")
-    def api_catalogue_suggest(q: str = Query("", max_length=200)) -> dict:
-        return lemon_catalogue.search(q, app.state.index_path)
+    def api_catalogue_suggest(q: str = Query("", max_length=200),
+                              limit: int = Query(6, ge=1, le=20)) -> dict:
+        return lemon_catalogue.search(q, app.state.index_path, limit=limit)
 
     @app.post("/api/import/lemon-add")
     def api_lemon_add(body: LemonPickBody) -> dict:
         """"Add this car" from the car box: the same import job as Shop setup's
         LEMON folder import when the car's folder is on this PC beside the LEMON
-        manuals already imported; otherwise the car goes on Shop setup's LEMON
-        download list (the download itself is not built yet)."""
+        manuals already imported; otherwise its zip, when it is already in
+        Downloads; otherwise "download": the car's page on LEMON's site (and
+        CHARM's year page as the backup), for the user to save its zip in
+        their own browser -- the app never fetches from either site."""
         if len(body.path) != 4:
             raise HTTPException(400, "path must name one car: make, year, model, variant")
         cat = lemon_catalogue.load()
@@ -1405,8 +1418,37 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
             return {"action": "import", "doc_id": doc, "folder": str(root / folder), "job": job}
-        lemon_catalogue.set_pick(tuple(body.path), True)
-        return {"action": "queued", "doc_id": doc}
+        z = lemon_zip.find(lemon_catalogue.zip_name(*body.path))
+        if z:
+            return _start_lemon_zip(doc, z)
+        return {"action": "download", "doc_id": doc, "links": lemon_catalogue.site_links(*body.path),
+                "zip_name": lemon_catalogue.zip_name(*body.path),
+                "downloads": str(lemon_zip.downloads_dir())}
+
+    def _start_lemon_zip(doc: str, z: Path) -> dict:
+        try:
+            lemon_zip.check(z)
+        except lemon_zip.BadZip as e:
+            raise HTTPException(400, f"{z.name} can't be imported: {e}")
+        try:
+            job = jobs.start(z, app.state.index_path, "lemon_zip", only=[doc])
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc))
+        return {"action": "import", "doc_id": doc, "zip": str(z), "job": job}
+
+    @app.post("/api/import/lemon-zip")
+    def api_lemon_zip(body: LemonPickBody) -> dict:
+        """After "download": import the car's zip once it is in Downloads
+        ({"action": "waiting"} until then -- the page asks every few seconds)."""
+        if len(body.path) != 4:
+            raise HTTPException(400, "path must name one car: make, year, model, variant")
+        if lemon_catalogue._node(lemon_catalogue.load(), tuple(body.path)) is None:
+            raise HTTPException(404, "Not in the LEMON catalogue: " + " / ".join(body.path))
+        doc = lemon_catalogue.doc_id(*body.path)
+        z = lemon_zip.find(lemon_catalogue.zip_name(*body.path))
+        if not z:
+            return {"action": "waiting", "doc_id": doc}
+        return _start_lemon_zip(doc, z)
 
     @app.get("/api/import/manuals")
     def api_import_manuals() -> dict:
@@ -1473,6 +1515,72 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if not p:
             raise HTTPException(404, "No picture of the VM's screen.")
         return FileResponse(p, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+    def _start_charm(body: ImportBody) -> dict:
+        """Operation CHARM, one car: a plan first (its size, shown before
+        anything big starts), then the download, refused without the space."""
+        car = [c.strip() for c in body.car]
+        if len(car) not in (3, 4) or not all(car[:3]) or any(len(c) > 200 for c in car):
+            raise HTTPException(400, "car must be [make, year, model, engine] or [make, year, car]")
+        if not re.fullmatch(r"(19|20)\d\d", car[1]):
+            raise HTTPException(400, f"not a year: {car[1]!r}")
+        src = importer_jobs.charm_source()
+        if not src["ok"]:
+            raise HTTPException(400, "Set where operation-charm.torrent is first (LEMON tab, "
+                                     "Operation CHARM).")
+        if body.mode == "charm_car":
+            if len(car) != 3:
+                raise HTTPException(400, "charm_car takes [make, year, car] with CHARM's own name "
+                                         "(the plan's \"car\")")
+            plan = importer_jobs.charm_plan(*car)
+            if not plan:
+                raise HTTPException(400, "Check the size first (charm_plan): the download, the free "
+                                         "space it needs and what stays are shown before it starts.")
+            more = plan["download_bytes"] + plan["stays_bytes"]
+            free = shutil.disk_usage(importer_jobs.charm_work()).free
+            if not body.text_only and free < more:
+                raise HTTPException(400, f"Not enough free space: {more / 2**30:.1f} GB needed, "
+                                         f"{free / 2**30:.1f} GB free.")
+        try:
+            return jobs.start(Path("."), app.state.index_path, body.mode, car=car,
+                              text_only=body.text_only)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc))
+
+    @app.get("/api/import/charm")
+    def api_charm() -> dict:
+        """Where CHARM downloads come from, and whether libtorrent is here."""
+        src = importer_jobs.charm_source()
+        try:
+            import libtorrent  # noqa: F401
+            lt = True
+        except ImportError:
+            lt = False
+        return {"torrent": src["torrent"], "local": bool(src["local"]), "ok": src["ok"],
+                "libtorrent": lt or bool(src["local"])}
+
+    @app.post("/api/import/charm/torrent")
+    def api_charm_torrent(body: CharmTorrentBody) -> dict:
+        if _local_path_error(body.path):
+            raise HTTPException(400, _local_path_error(body.path))
+        p = Path(body.path.strip().strip('"')).expanduser()
+        if p.suffix.lower() != ".torrent" or not p.is_file() or p.stat().st_size > 20 * 2**20:
+            raise HTTPException(400, f"Not a .torrent file: {p}")
+        try:
+            from autorundown.charm_fetch import layout_of_torrent
+            from autorundown.charm import PAGES_FILE, IMAGES_FILE
+            lay = layout_of_torrent(p)
+        except ImportError:
+            raise HTTPException(400, "libtorrent is not installed; CHARM downloads need it.")
+        except Exception:
+            raise HTTPException(400, f"{p.name} could not be read as a torrent.")
+        if PAGES_FILE not in lay.files or IMAGES_FILE not in lay.files:
+            raise HTTPException(400, f"{p.name} is not Operation CHARM's torrent "
+                                     "(operation-charm.torrent from charm.li).")
+        cfg = config.load()
+        cfg.charm_torrent = str(p)
+        cfg.save()
+        return api_charm()
 
     @app.post("/api/import")
     def api_import_start(body: ImportBody) -> dict:
@@ -1562,6 +1670,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                                   only=body.vehicles if body.mode == "remove" else None)
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
+        if body.mode in ("charm_plan", "charm_car"):
+            return _start_charm(body)
         if _local_path_error(body.path):
             raise HTTPException(400, _local_path_error(body.path))
         p = Path(body.path).expanduser()

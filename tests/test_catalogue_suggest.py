@@ -8,9 +8,10 @@ The car box also suggests LEMON catalogue cars the index does not hold
 a year alone asks nothing; a car in the index is never offered; a phone sees
 the list but can't add; a car whose LEMON folder sits beside the manuals
 already imported is imported by the same `lemon` job Shop setup runs, and
-then drops out of the list; one that isn't on this PC goes on Shop setup's
-download list; a car not in the catalogue is refused. Uses a throwaway
-AUTORUNDOWN_HOME and index, so nothing real is touched.
+then drops out of the list; one that isn't on this PC gets its page on
+LEMON's site (tests/test_lemon_zip.py: the zip the user saves from it); a
+car not in the catalogue is refused. Uses a throwaway AUTORUNDOWN_HOME,
+Downloads and index, so nothing real is touched.
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from pathlib import Path
 
 TMP = Path(tempfile.mkdtemp(prefix="ar_catsug_"))
 os.environ["AUTORUNDOWN_HOME"] = str(TMP / "home")  # before importing autorundown
+os.environ["AUTORUNDOWN_DOWNLOADS"] = str(TMP / "downloads")   # never the PC's own Downloads
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -99,10 +101,11 @@ with sqlite3.connect(db) as con:
 check(lemon_catalogue.doc_id(*CAMRY) in have, "the Camry is in the index under the catalogue's doc_id")
 check(suggest("2008 camry le 2.4 automatic")["total"] == 0, "and is no longer offered as not downloaded")
 
-res = pc.post("/api/import/lemon-add", json={"path": narrow["rows"][0]["path"]}, headers=same)
-check(res.status_code == 200 and res.json().get("action") == "queued",
-      f"a car that isn't on this PC goes on the download list: {res.json()}")
-check(tuple(narrow["rows"][0]["path"]) in lemon_catalogue.picks(), "the same list Shop setup's tree ticks")
+res = pc.post("/api/import/lemon-add", json={"path": narrow["rows"][0]["path"]}, headers=same).json()
+check(res.get("action") == "download" and res["links"]["lemon"].startswith("https://lemon-manuals.la/Ford/2016/F-150%20"),
+      f"a car that isn't on this PC: its page on LEMON's site, for the user to open: {res}")
+check("charm" not in res["links"], "CHARM's backup page only for 1982-2013 cars")
+check(not lemon_catalogue.picks(), "and it is not ticked on Shop setup's download list")
 
 print("FAILED" if fails else "all passed")
 sys.exit(1 if fails else 0)

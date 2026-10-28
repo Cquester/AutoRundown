@@ -81,6 +81,32 @@ def doc_id(make: str, year: str, model: str, engine: str) -> str:
     return _slug(f"{year}-{make}-{vehicle_name(model, engine)}")
 
 
+# "Add this car" for a car not on this PC: the user downloads its zip from
+# LEMON's site in their own browser (the app only opens the page; it never
+# fetches from the site -- LEMON asks not to be scraped). A car's page is
+# /<make>/<year>/<model engine>/, the catalogue's own names (checked
+# 2026-10-27 on the 1987 190E and the 2023 Corolla Cross's nine variants);
+# its "Download .zip" saves "LEMON <year> <make> <model engine>.zip".
+LEMON_SITE = "https://lemon-manuals.la"
+# Operation CHARM, the backup while LEMON is down: 1982-2013 only, and its
+# cars carry other names, so it gets the year's page
+CHARM_SITE = "https://charm.li"
+CHARM_YEARS = (1982, 2013)
+
+
+def site_links(make: str, year: str, model: str, engine: str) -> dict:
+    from urllib.parse import quote
+    q = lambda s: quote(str(s), safe="")       # noqa: E731
+    out = {"lemon": f"{LEMON_SITE}/{q(make)}/{q(year)}/{q(vehicle_name(model, engine))}/"}
+    if str(year).isdigit() and CHARM_YEARS[0] <= int(year) <= CHARM_YEARS[1]:
+        out["charm"] = f"{CHARM_SITE}/{q(make)}/{q(year)}/"
+    return out
+
+
+def zip_name(make: str, year: str, model: str, engine: str) -> str:
+    return f"LEMON {year} {make} {vehicle_name(model, engine)}.zip"
+
+
 # how often load() looks at the source file again: the car box asks the
 # catalogue as people type, and a stat of the torrent folder per keystroke
 # buys nothing -- index.json changes only when the torrent is re-fetched
