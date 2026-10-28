@@ -31,6 +31,8 @@ import json
 import re
 import sqlite3
 import threading
+import time
+from functools import lru_cache
 from pathlib import Path
 
 from . import config
@@ -79,12 +81,25 @@ def doc_id(make: str, year: str, model: str, engine: str) -> str:
     return _slug(f"{year}-{make}-{vehicle_name(model, engine)}")
 
 
+# how often load() looks at the source file again: the car box asks the
+# catalogue as people type, and a stat of the torrent folder per keystroke
+# buys nothing -- index.json changes only when the torrent is re-fetched
+RECHECK_S = 300.0
+
+
 def load() -> dict:
-    """The catalogue, cached until its source file changes."""
+    """The catalogue, cached until its source file changes (looked at again
+    at most every RECHECK_S seconds)."""
+    now, where = time.monotonic(), config.load().lemon_torrent_dir
+    with _lock:
+        if ("cat" in _cache and _cache.get("dir") == where
+                and now - _cache.get("checked", 0) < RECHECK_S):
+            return _cache["cat"]
     live = torrent_index()
     src = live or SNAPSHOT
     key = (str(src), src.stat().st_mtime if src.is_file() else 0)
     with _lock:
+        _cache.update(checked=now, dir=where)
         if _cache.get("key") != key:
             if live:
                 cat = _from_index_json(live)
@@ -271,4 +286,74 @@ def picked_vehicles() -> list[dict]:
     for q in sorted(picks()):
         if _node(cat, q) is not None:
             walk(q)
+    return out
+
+
+# -- the car box: vehicles in the catalogue that are not downloaded -----------
+# The car box suggests the manuals in the index and, after them, cars of the
+# LEMON catalogue that are not (the user, 2026-10-26: typing "2016 Ford F-150"
+# should offer it, marked "Not downloaded", with "Add this car"). The same
+# matching as the box's own (index.html carMatches): every typed word must
+# appear, a year narrows to that year, a one-letter word matches a whole word.
+
+@lru_cache(maxsize=65536)
+def _compact(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+@lru_cache(maxsize=65536)
+def _words(s: str) -> frozenset:
+    return frozenset(w for w in re.split(r"[^a-z0-9]+", s.lower()) if w)
+
+
+def _year_of(w: str) -> int | None:
+    if re.fullmatch(r"(19|20)\d\d", w):
+        return int(w)
+    if re.fullmatch(r"'?\d\d", w):
+        n = int(w.lstrip("'"))
+        return 2000 + n if n <= 30 else 1900 + n
+    return None
+
+
+def search(q: str, index_path: str | Path, limit: int = 6) -> dict:
+    """Catalogue cars matching the typed words that the index does not hold,
+    best first: {"rows": [{make, year, model, engine, label, doc_id, path}],
+    "total": every match, "source": where the list comes from}. Needs a word
+    besides the year (a year alone is ~10,000 cars)."""
+    year, terms = None, []
+    for w in q.lower().split():
+        y = _year_of(w)
+        if y is not None:
+            year = y
+        elif _compact(w):
+            terms.append(_compact(w))
+    cat = load()
+    out = {"rows": [], "total": 0, "source": cat["source"]}
+    if not terms or sum(len(t) for t in terms) < 2:
+        return out
+    have = _indexed(index_path)
+    hits = []
+    for make, years in cat["makes"].items():
+        for y, models in years.items():
+            if year is not None and y != str(year):
+                continue
+            for model, engines in models.items():
+                head = f"{make} {model}"
+                hay_head, w_head = _compact(head), _words(head)
+                for e in dict.fromkeys(engines):
+                    hay = hay_head + _compact(e)
+                    words = w_head | _words(e)
+                    if not all(t in words if len(t) == 1 else t in hay for t in terms):
+                        continue
+                    d = doc_id(make, y, model, e)
+                    if d in have:
+                        continue
+                    # words found in the make/model before those only in the engine
+                    in_head = sum(t in w_head if len(t) == 1 else t in hay_head for t in terms)
+                    hits.append((-in_head, -int(y), len(model), model, e, make, y, d))
+    hits.sort()
+    out["total"] = len(hits)
+    out["rows"] = [{"make": m, "year": y, "model": mo, "engine": e, "doc_id": d,
+                    "label": f"{y} {m} {vehicle_name(mo, e)}", "path": [m, y, mo, e]}
+                   for _, _, _, mo, e, m, y, d in hits[:limit]]
     return out

@@ -293,6 +293,31 @@ CHARM names cars the old LEMON-zip way ("190E 2.3-16 (201.034) L4-2.3L
 (102.983)"), so a LEMON catalogue path usually needs the plan's candidates.
 Test: `tests/test_charm.py` (sample data, `tools/make_sample_charm.py`).
 
+**LEMON cars in the car box** (2026-10-26, the user: typing "2016 Ford
+F-150" should offer it, "Not downloaded", with "Add this car" right there).
+- The list is the LEMON tab's own (`lemon_catalogue.load`: the torrent's
+  `index.json` when on this PC, else the committed snapshot) -- no scraper,
+  never the LEMON site. Cached in the server and now looked at again at most
+  every `RECHECK_S` (5 min) or when `lemon_torrent_dir` changes.
+- `lemon_catalogue.search` (`GET /api/catalogue/suggest?q=`, any device that
+  can search): the car box's own matching (every word, a year narrows, one
+  letter = a whole word), cars whose doc_id is in the index left out, words
+  in make/model before engine-only matches, newest first; 6 rows and the
+  total. A year alone asks nothing. ~0.2 s with a year, ~0.7 s without on
+  the 279,988-car snapshot. The page asks once typing pauses (280 ms).
+- **Add this car** (`POST /api/import/lemon-add {path}`, admin): if the car's
+  folder is on this PC -- looked for only beside the LEMON manuals already
+  imported (each one's `file_path` parent and grandparent, `importer_jobs.
+  lemon_on_disk`, depth 3 as the importer scans) -- the same `lemon` import
+  job as the folder import, its progress in the card (`/api/import`), and
+  the car is selected when done. Otherwise the car goes on the download list
+  (`set_pick`, the tree's ticks) and the card says downloads aren't built.
+  The one-car torrent download was started on its own branch and put on
+  hold by the user the same day; when it exists, it plugs in here.
+- The sample Camry (`tools/make_sample_lemon.py`) is named as the catalogue
+  names it ("Camry LE, 2.4 E, Automatic") so a box exercises the import.
+Tests: `tests/test_catalogue_suggest.py`.
+
 **From a Mercedes virtual machine** (third source in the same dialog):
 **The VM is chosen as a file** (2026-10-23, the user: "it should be a file
 explorer option, where i choose what vm to use", after the tab had listed

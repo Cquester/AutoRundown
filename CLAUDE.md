@@ -152,6 +152,7 @@ python tests/test_records.py                      # `records` importer
 python tests/test_access.py                       # admin/sign-in QRs/limits/keys/HTTPS (~4 s)
 python tests/test_lemon_import.py                 # LEMON import source (~3 s)
 python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (~3 s)
+python tests/test_catalogue_suggest.py            # car box: LEMON cars not downloaded, Add this car (~5 s)
 python tests/test_remove_manuals.py               # removing manuals (~20 s)
 python tests/test_wis_links.py                    # WIS cross-refs/diagrams/codes/oil (~5 s)
 python tests/test_wis_tables.py                   # Torque/Capacities tabs: job values, car's column, fluids (~5 s)

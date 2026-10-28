@@ -23,7 +23,9 @@ ROOT = Path(__file__).resolve().parents[1]
 VEHICLES = [
     ("2015-ford-f-150", "Ford", "2015", "F-150 2WD V6-3.5L Turbo"),
     ("1987-mercedes-190e", "Mercedes Benz", "1987", "190E L4-2.3L (102.985)"),
-    ("2008-toyota-camry", "Toyota", "2008", "Camry L4-2.4L (2AZ-FE)"),
+    # named as the LEMON catalogue names a car ("model engine"), so the car
+    # box offers it as "Not downloaded" and "Add this car" finds its folder
+    ("2008-toyota-camry", "Toyota", "2008", "Camry LE, 2.4 E, Automatic"),
 ]
 
 # (section path, title, body html) -- invented sample text
