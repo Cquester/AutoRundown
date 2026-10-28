@@ -498,9 +498,29 @@ def recent_usage(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
            FROM usage_log ORDER BY id DESC LIMIT ?""", (limit,))]
 
 
+_vehicles_cache: dict = {}
+
+
 def vehicles(conn: sqlite3.Connection) -> list[dict]:
-    return link_sources([dict(r) for r in conn.execute(
-        "SELECT * FROM vehicles ORDER BY year_range, make, model")])
+    """Every vehicle, joined (link_sources). Kept per index file until the
+    table changes -- an import, a removal, a repath, a finished import: the
+    server read all of it (331 rows of variants JSON + the join, ~7 ms) 2-4
+    times per request, twice per picture (agent review, 2026-10-28). Each
+    call gets its own dicts."""
+    file = next((r[2] for r in conn.execute("PRAGMA database_list") if r[1] == "main"), "")
+    # ~0.5 ms; a removed and re-imported car can reuse its rowid, so the
+    # variants' size and the paths themselves are part of it
+    stamp = tuple(conn.execute(
+        "SELECT count(*), total(rowid), total(complete), total(indexed_pages), "
+        "group_concat(file_path, char(10)), total(length(CAST(variants AS BLOB))) "
+        "FROM vehicles").fetchone())
+    hit = _vehicles_cache.get(file) if file else None
+    if hit is None or hit[0] != stamp:
+        hit = (stamp, link_sources([dict(r) for r in conn.execute(
+            "SELECT * FROM vehicles ORDER BY year_range, make, model")]))
+        if file:
+            _vehicles_cache[file] = hit
+    return [dict(v) for v in hit[1]]
 
 
 def _maker(v: dict) -> str:

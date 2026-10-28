@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 from itertools import zip_longest
 from pathlib import Path
 
+import anyio
+import anyio.to_thread
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, RedirectResponse,
@@ -431,6 +433,10 @@ def _with_vin9_bm(rows: list[dict]) -> list[dict]:
     return out
 
 
+ASK_THREADS = 8     # answers being worked on at once (see api_ask)
+ASK_QUEUE = 24      # more in flight (answering + waiting) than this: "busy, try again"
+
+
 def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # no /docs, /redoc or /openapi.json: every device on the LAN could read
     # the whole API map, and /docs pulled Swagger's script from a CDN onto
@@ -791,8 +797,27 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
+    # Ask waits on the AI for 10-60 s. Run in the shared pool (40 threads),
+    # ~40 slow answers in flight froze every route for everyone, /api/status
+    # included (agent review, 2026-10-28). Ask gets its own few threads, and
+    # past a short queue a plain "busy" instead of a minute's wait.
+    ask_slots: dict = {}
+
     @app.post("/api/ask")
-    def api_ask(request: Request, body: AskBody) -> dict:
+    async def api_ask(request: Request, body: AskBody) -> dict:
+        if "limiter" not in ask_slots:          # made inside the event loop
+            ask_slots["limiter"], ask_slots["waiting"] = anyio.CapacityLimiter(ASK_THREADS), 0
+        limiter = ask_slots["limiter"]
+        if limiter.available_tokens == 0 and ask_slots["waiting"] >= ASK_QUEUE:
+            raise HTTPException(503, "Too many questions at once; try again in a minute. "
+                                     "Keyword search still works.")
+        ask_slots["waiting"] += 1
+        try:
+            return await anyio.to_thread.run_sync(_ask, request, body, limiter=limiter)
+        finally:
+            ask_slots["waiting"] -= 1
+
+    def _ask(request: Request, body: AskBody) -> dict:
         who: auth.Who = request.state.who
         conn = db()
         try:
