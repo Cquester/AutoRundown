@@ -2,7 +2,7 @@
 
     python tools/github_setup.py                    # report: what is set, what is missing
     python tools/github_setup.py --apply            # set it (needs `gh` signed in as an admin)
-    python tools/github_setup.py --apply --approvals 1   # a second maintainer: one approval to merge
+    python tools/github_setup.py --apply --approvals 2   # two approvals for everyone but the owner
 
 Run it once when the repository goes public (branch rulesets, secret
 scanning and fork-PR approval are not available on a private repository on
@@ -14,9 +14,12 @@ is for.
 What it sets:
   - a ruleset on main: changes arrive by pull request, the Linux test and
     browser checks must pass, conversations resolved, no force-push, no
-    deletion. Reviews from anyone without write access never count toward the
-    approvals (GitHub's rule). The owner (admin role) can bypass through a
-    pull request if CI itself is down;
+    deletion. Nobody bypasses it;
+  - a ruleset "main reviews": a pull request needs one approval from a code
+    owner (.github/CODEOWNERS). Reviews from anyone without write access
+    never count (GitHub's rule). Only the admin role (the owner) may bypass
+    it, and only through a pull request: the owner merges their own PR
+    without a review, everyone else needs one;
   - a ruleset on v* tags: no deleting or moving a released version;
   - Actions: only GitHub's own actions, a read-only token, fork pull requests
     wait for approval before a workflow runs, no workflow approves PRs;
@@ -35,11 +38,12 @@ import sys
 CHECKS = ["Tests (ubuntu-latest)", "Browser checks (ubuntu-latest)"]
 TOPICS = ["repair-manual", "service-manual", "sqlite", "fts5", "fastapi", "automotive", "offline-first"]
 DESCRIPTION = "Local repair-manual search over your own service-manual archive: SQLite full-text search, cited AI answers, phone-friendly."
-RULESETS = ("main", "release tags")
+RULESETS = ("main", "main reviews", "release tags")
+NOREPLY = "14364346+Cquester@users.noreply.github.com"
 
 
 def gh(*args: str, body: dict | None = None, check: bool = True) -> tuple[int, str]:
-    r = subprocess.run(["gh", *args], input=json.dumps(body) if body is not None else None,
+    r = subprocess.run(["gh", *args], check=False, input=json.dumps(body) if body is not None else None,
                        capture_output=True, text=True)
     if check and r.returncode:
         print(f"  gh {' '.join(args[:3])} ... failed: {(r.stderr or r.stdout).strip()[:300]}")
@@ -57,18 +61,30 @@ def api(method: str, path: str, body: dict | None = None, check: bool = True):
 
 def rulesets(approvals: int) -> list[dict]:
     return [
+        # Two rulesets, because a bypass lifts a whole ruleset: the owner may
+        # skip the review but never the checks.
         {"name": "main", "target": "branch", "enforcement": "active",
          "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
-         "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}],
+         "bypass_actors": [],
          "rules": [
              {"type": "deletion"}, {"type": "non_fast_forward"},
              {"type": "pull_request", "parameters": {
-                 "required_approving_review_count": approvals, "dismiss_stale_reviews_on_push": True,
-                 "require_code_owner_review": approvals > 0, "require_last_push_approval": False,
+                 "required_approving_review_count": 0, "dismiss_stale_reviews_on_push": True,
+                 "require_code_owner_review": False, "require_last_push_approval": False,
                  "required_review_thread_resolution": True}},
              {"type": "required_status_checks", "parameters": {
                  "strict_required_status_checks_policy": False,
                  "required_status_checks": [{"context": c} for c in CHECKS]}},
+         ]},
+        {"name": "main reviews", "target": "branch", "enforcement": "active",
+         "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+         # actor 5 = the admin role; "pull_request" = only when merging a PR
+         "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}],
+         "rules": [
+             {"type": "pull_request", "parameters": {
+                 "required_approving_review_count": approvals, "dismiss_stale_reviews_on_push": True,
+                 "require_code_owner_review": True, "require_last_push_approval": True,
+                 "required_review_thread_resolution": True}},
          ]},
         {"name": "release tags", "target": "tag", "enforcement": "active",
          "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
@@ -110,6 +126,10 @@ def report(repo: str) -> int:
         line(w["state"] == "active", f"workflow '{w['name']}' is on ({w['state']})")
     rc, _ = api("GET", f"repos/{repo}/vulnerability-alerts", check=False)
     line(rc == 0, "Dependabot alerts")
+    mail = subprocess.run(["git", "config", "user.email"], check=False, capture_output=True, text=True).stdout.strip()
+    line(mail.endswith("@users.noreply.github.com"),
+         f"this checkout commits with GitHub's no-reply address ({mail or 'not set'}; "
+         f"git config --global user.email {NOREPLY})")
     return miss
 
 
@@ -153,8 +173,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--repo", default="Cquester/AutoRundown")
     ap.add_argument("--apply", action="store_true", help="set everything (default: only report)")
-    ap.add_argument("--approvals", type=int, default=0,
-                    help="approvals a PR needs (0 for one maintainer; with 1 the code owner must approve)")
+    ap.add_argument("--approvals", type=int, default=1,
+                    help="code-owner approvals a PR needs from anyone but the owner (default 1)")
     args = ap.parse_args()
     if args.apply:
         apply(args.repo, args.approvals)

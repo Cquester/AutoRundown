@@ -811,11 +811,15 @@ what we are going to release". Before making it public:
    has no release yet, publishes `v<version>` (untested until Actions runs:
    watch the first run).
 
-**Commit e-mails are public with the repo**: 215 commits carry
-`(personal e-mail, removed)`, 2 carry `(personal e-mail, removed)`; the rest are
-GitHub's no-reply address. Rewriting history (git filter-repo + a force
-push) is possible before anyone has cloned; the user has not decided.
-Future commits: set `git config user.email` to the no-reply address.
+**Commit e-mails**: 214 commits carried `(personal e-mail, removed)`, 2
+`(personal e-mail, removed)`. The user chose to rewrite them to the no-reply
+address before going public (`docs/notes/github-repo.md`: a force push
+leaves them on old PRs' `refs/pull/*`). Commits now use
+`14364346+Cquester@users.noreply.github.com` (global git config).
+
+**Merging once the rulesets are on**: only the owner merges without a
+review (`main reviews` ruleset, admin bypass); the checks still must pass.
+With `gh`: `gh pr merge N --merge --admin`.
 
 **Reminders the user asked for**: try shop access + HTTPS on an iPhone and an
 Android phone in the morning (2026-10-30); run "Add a car" in the installed

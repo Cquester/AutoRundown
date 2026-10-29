@@ -25,8 +25,8 @@ Read with `python tools/github_setup.py` (it only reads unless `--apply`):
 
 | Setting | Why |
 |---|---|
-| Ruleset **main**: changes by pull request; checks "Tests (ubuntu-latest)" and "Browser checks (ubuntu-latest)" must pass; conversations resolved; no force-push; no deletion | `main` is what releases are cut from. The owner (admin role) can bypass **through a pull request** if CI itself is down; nobody can force-push or delete. |
-| Approvals: **0** now (`--approvals 1` later) | One maintainer cannot approve their own PR, so a count of 1 would lock them out. With a second maintainer, set 1: then a **code owner** must approve (`.github/CODEOWNERS`). |
+| Ruleset **main**: changes by pull request; checks "Tests (ubuntu-latest)" and "Browser checks (ubuntu-latest)" must pass; conversations resolved; no force-push; no deletion | `main` is what releases are cut from. **Nobody bypasses it**, the owner included: the checks always run. If CI itself is down, the owner switches the ruleset off for that merge. |
+| Ruleset **main reviews**: one approval from a **code owner** (`.github/CODEOWNERS`), re-approved after a new push; only the admin role may bypass, and only through a pull request | The user, 2026-10-29: "only i can merge to main on a pr without reviews. Everyone else needs one." A bypass lifts a whole ruleset, so the review is its own ruleset: the owner skips the review, never the checks. On the website the owner ticks "Merge without waiting for requirements"; with `gh`, `gh pr merge N --merge --admin`. `--approvals N` raises the count. |
 | "Only people with write access can approve" | GitHub's own rule: a review from someone without write access never counts toward required approvals. Nothing to set; CODEOWNERS makes it explicit (and only write-access users can be owners). |
 | Ruleset **release tags** (`v*`): no deleting, moving or re-pointing | A published version must stay what was published. Remove the ruleset for a moment to retract a bad one. |
 | Actions: **only GitHub's own actions** | The workflows use only `actions/*`, pinned to a commit. Nothing else may run. Dependabot moves the pins. |
@@ -77,7 +77,14 @@ flag: it prints what is still missing.
 - Mercedes software and WIS/EPC data are not in the repo (`.gitignore`,
   `extractor/wis_paths.py`); the README GIFs are from the invented sample
   data.
-- **Commit e-mails**: two personal addresses are in 217 commits; they become
-  public. GitHub's no-reply address is already on 45. Rewriting history is a
-  separate decision (a force push; safe only before anyone clones).
+- **Commit e-mails**: two personal addresses were in 216 commits. The user
+  chose (2026-10-29) to rewrite them to the no-reply address
+  `14364346+Cquester@users.noreply.github.com` before going public. To keep
+  them out: `git config --global user.email` is the no-reply address on this
+  PC (`github_setup.py` reports it), and on github.com -> Settings -> Emails
+  "Keep my email addresses private" and "Block command line pushes that
+  expose my email" (account settings: the user's to set). **A force push
+  alone does not remove old commits**: GitHub keeps every PR's commits under
+  `refs/pull/*`, read-only, so the old e-mails stay visible on the closed
+  PRs until the repository is recreated or GitHub Support purges them.
 - `LICENSE` is MIT; `SECURITY.md`, `CODEOWNERS` and `dependabot.yml` exist.
