@@ -90,7 +90,7 @@ d = ask("labour time to replace the brake pads fake:notfound")
 check("a labour question not found points to the Labour times tab",
       not d["found"] and "Labour times tab" in d["caveats"], d["caveats"])
 check("refusal is not an answer", not ask("brake torque fake:refusal")["found"])
-for word, text in (("fake:error", "529"), ("fake:nocredit", "Out of API credit")):
+for word, text in (("fake:error", "is busy right now"), ("fake:nocredit", "Out of API credit")):
     try:
         ask(f"brake torque {word}")
         check(f"{word} raises", False, "no error")

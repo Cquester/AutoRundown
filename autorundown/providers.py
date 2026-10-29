@@ -338,6 +338,16 @@ def no_key_message(provider: str) -> str:
 
 # -- Anthropic: the official SDK, the request shape of before ----------------
 
+# the provider is overloaded or down for a moment (Anthropic's 529): retried
+# already (_RETRY_STATUS); said as that, not as an error code
+BUSY_STATUS = {503, 529}
+
+
+def busy_text(label: str) -> str:
+    return (f"The {label} API is busy right now (overloaded). Wait a minute and ask "
+            "again; keyword search still works.")
+
+
 def _friendly_anthropic_error(exc: Exception) -> ApiUnavailable:
     """Turn SDK exceptions into something readable above a fender.
 
@@ -365,7 +375,13 @@ def _friendly_anthropic_error(exc: Exception) -> ApiUnavailable:
         return ApiUnavailable(
             "Could not reach the Anthropic API. Check the network connection.")
     if isinstance(exc, anthropic.APIStatusError):
-        return ApiUnavailable(f"API error {exc.status_code}: {exc}")
+        # the error's own message, not the SDK's "Error code: 529 - {'type': ...}"
+        # (agent review, 2026-10-28: a 529 showed as that raw dict)
+        body = exc.body if isinstance(getattr(exc, "body", None), dict) else {}
+        err = body.get("error") if isinstance(body.get("error"), dict) else {}
+        if exc.status_code in BUSY_STATUS or err.get("type") == "overloaded_error":
+            return ApiUnavailable(busy_text("Anthropic"))
+        return ApiUnavailable(f"API error {exc.status_code}: {err.get('message') or exc}")
     return ApiUnavailable(f"Unexpected API failure: {exc}")
 
 
@@ -522,6 +538,8 @@ def _friendly_http_error(provider: str, status: int, text: str) -> ApiUnavailabl
                 "requests a minute and a day; a key on a project with billing turned "
                 f"on has higher limits. ({msg})")
         return ApiUnavailable(f"Rate limited by the {label} API. Wait a moment and retry.")
+    if status in BUSY_STATUS:
+        return ApiUnavailable(busy_text(label))
     if status == 402 or any(w in low for w in ("insufficient balance", "credit")):
         return ApiUnavailable(
             f"Out of API credit on the {label} account: the key is valid, but there "

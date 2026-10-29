@@ -40,7 +40,7 @@ from . import search as search_mod
 from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
 from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_tables, lemon_zip, manual_browse,
                part_procedures, parts_browse, synonyms, tab_values, wis_links, wis_original)
-from .search import (as_ids, get_page, part_lines, scope_ids, search, split_scope, value_lines,
+from .search import (as_ids, get_page, merge_wordings, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
 
 jobs = importer_jobs.ImportJobs()
@@ -466,6 +466,15 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def adb():
         return auth.connect(app.state.auth_path)
 
+    def _port(request: Request) -> int | None:
+        # the port this server listens on (the socket's, not the Host header)
+        server = request.scope.get("server")
+        return server[1] if server else None
+
+    def _token(request: Request) -> str | None:
+        return next((request.cookies[n] for n in auth.cookie_names(_port(request))
+                     if request.cookies.get(n)), None)
+
     short = socket.gethostname().split(".")[0].lower()
     host_names = {short, f"{short}.local", socket.gethostname().lower(), "autorundown.local"}
 
@@ -485,7 +494,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if who is None:
             conn = adb()
             try:
-                who = auth.user_for_token(conn, request.cookies.get(auth.COOKIE))
+                who = auth.user_for_token(conn, _token(request))
             finally:
                 conn.close()
         request.state.who = who or auth.Who()
@@ -536,16 +545,19 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def _set_token_cookie(request: Request, response: Response, token: str) -> None:
         # a phone that was signed in as someone else is now this mechanic;
         # its old token is ended, not left behind
-        old = request.cookies.get(auth.COOKIE)
+        old = _token(request)
         if old:
             conn = adb()
             try:
                 auth.revoke_token(conn, old)
             finally:
                 conn.close()
-        response.set_cookie(auth.COOKIE, token, max_age=auth.TOKEN_DAYS * 86400,
+        response.set_cookie(auth.cookie_name(_port(request)), token,
+                            max_age=auth.COOKIE_DAYS * 86400,
                             httponly=True, samesite="lax",
                             secure=request.url.scheme == "https")
+        if auth.COOKIE in request.cookies:
+            response.delete_cookie(auth.COOKIE)
 
     @app.post("/api/auth/signin")
     def api_signin(request: Request, body: SigninBody, response: Response) -> dict:
@@ -599,10 +611,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def api_signout(request: Request, response: Response) -> dict:
         conn = adb()
         try:
-            auth.revoke_token(conn, request.cookies.get(auth.COOKIE))
+            auth.revoke_token(conn, _token(request))
         finally:
             conn.close()
-        response.delete_cookie(auth.COOKIE)
+        for name in auth.cookie_names(_port(request)):
+            response.delete_cookie(name)
         return {"ok": True}
 
     @app.get("/ca.crt")
@@ -757,9 +770,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     r["query"] = query_text
                 per.append(hits)
             # with the AI's terms: round-robin across the queries; without,
-            # the manual's wording then the user's, as before
+            # titles holding the whole phrase first (search.merge_wordings)
             rows = ([r for group in zip_longest(*per) for r in group if r is not None]
-                    if also else [r for hits in per for r in hits])
+                    if also else merge_wordings(q, texts, per))
             # one row per page: a page whose two chunks both match is still
             # one result, and the keyword list showed it twice. A page counts
             # as seen only once a row for it is kept: its lines are picked by
@@ -1374,8 +1387,13 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if not ids:
             return providers.model_list(config.active_provider(cfg))
         rows = {m["id"]: m for pid in providers.PROVIDERS for m in providers.model_list(pid)}
-        return [{**rows[m], "provider_short": providers.PROVIDERS[rows[m]["provider"]]["short"]}
-                for m in ids]
+        out = [{**rows[m], "provider_short": providers.PROVIDERS[rows[m]["provider"]]["short"]}
+               for m in ids]
+        # the chosen provider has no key for them: the menu says so
+        active = config.active_provider(cfg)
+        if out and not any(r["provider"] == active for r in out):
+            out[0]["instead_of"] = providers.PROVIDERS[active]["short"]
+        return out
 
     # -- import ------------------------------------------------------------
     # Browsing folders and starting an import reach into this PC's files and

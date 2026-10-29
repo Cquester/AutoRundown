@@ -268,6 +268,7 @@
     font-weight:700; cursor:pointer; margin:4px 6px 0 0; min-height:36px;
   }
   .warnbox{border-left:4px solid var(--warn); background:var(--warn-bg); padding:12px; border-radius:10px; margin:10px 0}
+  .warnnote{margin:6px 0; color:var(--text); border-left:3px solid var(--warn); padding:4px 8px; font-size:13px}
   .errbox{border-left:4px solid var(--bad); background:var(--bad-bg); padding:12px; border-radius:10px}
   .notfound{border-left:4px solid var(--muted); background:var(--panel-2); padding:14px; border-radius:10px}
   /* WIS pages: reading view vs the document redrawn from its SIDS layout */
@@ -276,6 +277,12 @@
     min-height:36px; padding:0 14px; font-size:14px}
   .viewtoggle button.on{background:var(--accent); color:var(--on-accent)}
   .fulllink{color:var(--accent); font-weight:600; white-space:nowrap}
+  /* a phone: a real button, not 14 px of muted link (agent review) */
+  @media (max-width:700px){
+    .fulllink{display:flex; align-items:center; justify-content:center; min-height:48px; margin-top:8px;
+      border:1px solid var(--line); border-radius:10px; background:var(--panel-2); font-size:16px;
+      text-decoration:none}
+  }
   .origframe{display:block; width:100%; height:70vh; border:0; border-radius:8px; background:var(--frame-bg)}
   .src{font-size:15px; line-height:1.6}
   .src p{margin:10px 0}
@@ -638,7 +645,14 @@
   .spectab td.val{white-space:nowrap; text-align:right; width:1%}
   .spectab th:last-child{text-align:right}
   .spectab .hit{padding:0; text-align:left; font:inherit; color:inherit}
-  @media (max-width:700px){ .spectab td.val{white-space:normal; width:auto; max-width:45%} }
+  .spectab .src{font-size:12px; margin-top:2px}
+  /* a phone: the value read at arm's length, and which page it is from shown,
+     not only on hover (agent review, 2026-10-28) */
+  @media (max-width:700px){
+    .spectab td.val{white-space:normal; width:auto; max-width:45%}
+    .spectab .torque{font-size:20px}
+    .spectab .src{font-size:13px}
+  }
   .spectab .cond{font-size:12px; margin-top:2px; white-space:normal; text-align:left}
   .spectab td.val .cond{text-align:right}
   .fluids{margin-bottom:14px}
@@ -949,6 +963,9 @@
       border:0; background:var(--pane)}
     body:not(.docview) #right{display:none}
     body.docview #out, body.docview #outKw{display:none}
+    /* the Answer side's own rows: in Document view the page gets their room
+       (agent review, 2026-10-28: four fixed rows took the top 205 px) */
+    body.docview #modeTabs, body.docview #left .qtools{display:none}
     .panelbar{display:none}
     .docgo{display:block; color:var(--accent); font-weight:700; font-size:14px; margin-top:4px}
 
@@ -1063,6 +1080,7 @@
         <span class="costline" id="cost">$0.0000 this session</span>
       </div>
     </details>
+    <div class="warnnote" id="modelNote" hidden></div>
     <!-- History: every Ask (its whole answer, free to open again) and Search;
          Clear: back to browsing, every tab as before the question -->
     <div class="qtools">
@@ -1868,6 +1886,12 @@ function refreshPicker(preferId) {
   const ids = [...$('#vehicle').options].map(o => o.value);
   const hit = [wantId, prev].find(x => x && ids.includes(x));
   if (hit) $('#vehicle').value = hit;
+  else if (shown.length) {
+    // nothing remembered: no car, not the list's first (a new phone opened on
+    // the R107 and could ask about it unnoticed -- agent review, 2026-10-28)
+    $('#vehicle').insertAdjacentHTML('afterbegin', `<option value="">Choose your car</option>`);
+    $('#vehicle').value = '';
+  }
   refreshVariants(hit === wantId ? wantN : undefined);
 }
 
@@ -1993,6 +2017,9 @@ function carChanged() {
 const EXAMPLES = ['oil capacity', 'front brake pads torque', 'spark plug gap'];
 function emptyState(m = mode) {
   const label = carBoxLabel || currentCarLabel();
+  if (!docId() && vehicles.length)
+    return `<div class="empty"><b>Choose your car first</b> — type it in the car box (e.g. 2009 E550 4MATIC), `
+      + `paste a VIN, or use Browse. Every answer and search is for that car only.</div>`;
   if (!docId() || !label) return '';
   return `<div class="empty">` + (m === 'kw'
       ? `Search the manual's own words for <b>${esc(label)}</b> (free).`
@@ -2848,8 +2875,16 @@ async function loadModels(pending) {
     const kept = JSON.parse(localStorage.getItem(MODEL_KEY) || 'null');
     if (kept && kept.d === me.default_model) current = kept.m;
   } catch (_) {}
+  // the chosen provider has no key here: its default isn't in the menu, and
+  // the first entry (another provider's default) answers -- said, not silent
+  const instead = menuList[0]?.instead_of;
+  const lead = instead ? menuList[0].id : me.default_model;
   const opt = m => `<option value="${esc(m.id)}">${esc(m.label.split(' — ')[0])}`
-    + `${m.id === me.default_model ? ' (default)' : ''}</option>`;
+    + `${m.id === lead ? (instead ? ' (used now)' : ' (default)') : ''}</option>`;
+  $('#modelNote').hidden = !instead;
+  $('#modelNote').textContent = instead ? `${instead} has no API key, so questions go to `
+    + `${menuList[0].provider_short || 'another provider'} (${menuList[0].label.split(' — ')[0]}). `
+    + `Add the key in Shop setup → AI answers.` : '';
   const groups = [...new Set(menuList.map(m => m.provider))];
   $('#model').innerHTML = groups.length < 2 ? menuList.map(opt).join('')
     : groups.map(g => `<optgroup label="${esc(menuList.find(m => m.provider === g).provider_short || g)}">`
@@ -3263,6 +3298,7 @@ function drawAnswer(d, label, replay = false, before = '', after = '') {
   // _verify_citations withholds an answer left with no real citation and
   // says so in caveats; that is not "the manual doesn't have it"
   const WITHHELD = /\s*Answer withheld:[^]*$/i;
+  const NO_REPLY = /no parsable answer|declined by the model/i;
   if (!d.found && WITHHELD.test(d.caveats || '')) {
     const rest = (d.caveats || '').replace(WITHHELD, '').trim();
     h += `<div class="card"><div class="withheld" role="status">
@@ -3270,6 +3306,14 @@ function drawAnswer(d, label, replay = false, before = '', after = '') {
       <div style="margin-top:6px">The AI's answer didn't cite a manual page that was actually searched,
         so it isn't shown. The keyword search lists the manual's own pages for the same question.</div>
       ${rest ? `<div class="muted" style="margin-top:6px">${esc(rest)}</div>` : ''}
+      <button type="button" class="ghost" data-searchinstead>Search the manual instead</button>
+    </div></div>`;
+  } else if (!d.found && NO_REPLY.test(d.caveats || '')) {
+    // the AI's reply couldn't be read, or it declined: says nothing about
+    // the manual (agent review, 2026-10-28: this was "Not found in this archive")
+    h += `<div class="card"><div class="withheld" role="status">
+      <strong>No answer — the AI's reply couldn't be used</strong>
+      <div style="margin-top:6px">${esc(d.caveats)} Ask again, or search the manual's own pages.</div>
       <button type="button" class="ghost" data-searchinstead>Search the manual instead</button>
     </div></div>`;
   } else if (!d.found) {
@@ -3365,6 +3409,7 @@ function turnHtml(t) {
   const d = t.d;
   const text = d.found ? (d.answer || 'See the values and page below.')
     : /Answer withheld:/i.test(d.caveats || '') ? 'No checked answer (its sources could not be verified).'
+    : /no parsable answer|declined by the model/i.test(d.caveats || '') ? 'No answer (the AI’s reply couldn’t be used).'
     : 'Not found in the manual.';
   const page = d.found && d.document_page
     ? `<button class="pagelink" ${pageAttrs(d.document_page)}>page ${esc(d.document_page)}</button>` : '';
@@ -3701,8 +3746,14 @@ async function keywordSearch() {
 // have reading view looks good. Lets default to original document"). v3:
 // under v2 any click on the page saved "reading" (the click handler matched
 // <body data-view>), so that saved value is not the viewer's choice.
+// On a phone with no saved choice, Reading view: the original fitted to a
+// phone is ~5 px text, readable only by pinching (agent review, 2026-10-28).
 const ORIGINAL_KEY = 'autorundown.pageView.v3';
-function wantOriginal() { try { return localStorage.getItem(ORIGINAL_KEY) !== 'reading'; } catch (_) { return true; } }
+function wantOriginal() {
+  let saved = null;
+  try { saved = localStorage.getItem(ORIGINAL_KEY); } catch (_) {}
+  return saved ? saved !== 'reading' : !phone();
+}
 function viewToggle(doc, pageNo) {
   const on = wantOriginal();
   return `<div class="viewtoggle" role="group" aria-label="Page view">
@@ -3717,7 +3768,7 @@ function originalFrame(doc, pageNo) {
   // offer it on its own, where pinch-zoom and turning the phone work best
   return `<div id="origWrap"><div class="muted" style="margin-bottom:6px">${origWis
       ? 'Redrawn from the WIS page layout; approximate.' : 'The manual&rsquo;s own page.'}
-      &nbsp;<a class="fulllink" href="${url}" target="_blank" rel="noopener">Open full screen &#8599;</a></div>
+      &nbsp;<a class="fulllink" href="${url}" target="_blank" rel="noopener">Open page full screen &#8599;</a></div>
     <iframe class="origframe" id="origFrame" title="Original layout" data-doc="${esc(doc)}" src="${url}"></iframe></div>`;
 }
 // the server marks a page it can't draw; show that here, not in a grey frame
@@ -4743,6 +4794,7 @@ async function jobValues(tab, pages, seq) {
 function valueRowHtml(x) {
   return `<tr><td><button type="button" class="hit" ${pageAttrs(x.page_no)}
       title="${esc(x.title || x.system || '')}">${esc(x.name)}</button>`
+    + (x.title || x.system ? `<div class="muted src">${esc(x.title || x.system)}</div>` : '')
     + (x.condition ? `<div class="muted cond">Only for: ${esc(x.condition)}</div>` : '')
     + `</td><td class="val"><span class="torque">${esc(x.value)}</span>`
     + (x.spec ? `<div class="muted cond">Oil: ${esc(x.spec)}</div>` : '') + `</td></tr>`;

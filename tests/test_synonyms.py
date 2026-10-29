@@ -40,6 +40,30 @@ check("... plural, and other spellings", translations("rocker panel moldings"), 
 check("drain plug: WIS's drain screw", translations("oil drain plug torque"), ["oil drain screw torque"])
 check("... sump plug and a bare drain plug", (translate("sump plug"), translate("drain plug")),
       ("oil drain screw", "drain screw"))
+check("taillight: WIS's tail lamp and taillamp, the F-150's rear lamp", translations("taillight"),
+      ["tail lamp", "taillamp", "rear lamp"])
+
+# merge_wordings: titles holding the whole phrase first (agent review, 2026-10-28)
+from autorundown.search import merge_wordings  # noqa: E402
+
+
+def rows(*titles):
+    return [{"page_no": t, "title": t} for t in titles]
+
+
+got = merge_wordings("oil pan", ["oil sump", "oil pan"],
+                     [rows("Sump volume modified", "EGR valve"), rows("Notes", "Remove/install oil pan")])
+check("oil pan: the typed words' own title before the synonym's loose hits",
+      [r["title"] for r in got][:2], ["Remove/install oil pan", "Sump volume modified"])
+got = merge_wordings("taillight", ["tail lamp", "rear lamp", "taillight"],
+                     [rows("Care of tail pipe finishers", "Removing and installing tail lamp on tailgate"),
+                      rows("Rear dome lamp", "Rear Lamp Assembly: Removal"), rows()])
+check("taillight: each wording's titled hits first, taking turns",
+      [r["title"] for r in got][:3],
+      ["Removing and installing tail lamp on tailgate", "Rear dome lamp", "Rear Lamp Assembly: Removal"])
+check("one wording only: as before", [r["title"] for r in merge_wordings("x", ["x"], [rows("a", "b")])],
+      ["a", "b"])
+
 check("nothing to translate", translations("oil filter"), [])
 check("nothing: translate() is None", translate("oil filter"), None)
 

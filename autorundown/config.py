@@ -61,7 +61,10 @@ class Config:
     vm_file: str = ""
     # other devices must sign in with a mechanic account (auth.py); off =
     # anyone on the network can search and ask. The PC itself never signs in.
-    require_signin: bool = False
+    # On unless the shop turns it off (agent review, 2026-10-28: off let any
+    # device on the shop's Wi-Fi spend the company key); a config.json that
+    # already says false keeps it.
+    require_signin: bool = True
     # WIS damage-code picture menus (search.show_damage_codes): for warranty
     # fault codes, not repairs; off = left out of search, Ask and the Manual
     # contents (the user, 2026-10-24: off by default, a setting to show them)
@@ -161,7 +164,12 @@ def menu_models(cfg: Config, user_id: int | None, admin: bool) -> list[str]:
             continue
         out += [m for m in p["models"] if m not in (cfg.hidden_models or [])]
     default = active_model(cfg)
-    if default in out:          # absent when the default provider has no key for them
+    if default not in out:
+        # the default provider has no key for them: the first keyed
+        # provider's own default leads, not its first model -- that was Opus
+        # 5, the dearest, used silently (agent review, 2026-10-28)
+        default = next((p["default_model"] for p in PROVIDERS.values() if p["default_model"] in out), None)
+    if default in out:
         out.remove(default)
         out.insert(0, default)
     return out

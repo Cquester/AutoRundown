@@ -335,7 +335,10 @@ choice remembered per viewer in `localStorage`); the original is an iframe on
 (self-contained; `tools/sids_render.py <dok_id>` is a CLI over it). Free, no
 API calls. **The original is the default** (2026-10-24, the user: "I dont
 think the way we have reading view looks good. Lets default to original
-document"): stored as `autorundown.pageView.v3` = "reading" only when the
+document") -- **on a phone (700 px and less) Reading view is the default**
+(2026-10-29, the agent review the user asked to fix: the original fitted to
+a phone is ~5 px text; "Open page full screen" is a 48 px button there).
+Either way the viewer's own pick is kept: stored as `autorundown.pageView.v3` = "reading" only when the
 viewer picks Reading view (v2's click handler matched `<body data-view>`,
 so any click on the page saved "reading" and pages kept opening as text --
 fixed 2026-10-25, and the key renamed so that stray value doesn't stick); a page with no original falls back to its text by

@@ -4,9 +4,10 @@ Rules (the user's decisions, 2026-10-09):
 - The PC running AutoRundown is the admin. A request from loopback, with a
   loopback Host header, is admin with no sign-in. Nothing admin -- settings,
   the API key, imports, mechanics' accounts -- answers to any other device.
-- Mechanic accounts are optional (`Config.require_signin`). Off: anyone on
-  the network can search and ask, as before. On: every other device must sign
-  in with a one-time code the admin issues, and gets a long-lived token.
+- Mechanic accounts can be turned off (`Config.require_signin`, on by
+  default since 2026-10-29). Off: anyone on the network can search and ask.
+  On: every other device must sign in with a one-time code the admin issues,
+  and gets a token that lasts while it is used (TOKEN_DAYS unused ends it).
 - No passwords. The admin opens a sign-in QR for a mechanic (2026-10-16): a
   "grant" holding a link token (in the QR) and a typed fallback code (8
   characters, under the QR). Either one works once, for 15 minutes, and
@@ -33,8 +34,13 @@ from pathlib import Path
 from . import config
 
 AUTH_PATH = config.APP_DIR / "auth.db"
-COOKIE = "ar_token"
-TOKEN_DAYS = 365
+COOKIE = "ar_token"            # before 2026-10-29; still read (cookie_names)
+# a sign-in lasts while it is used: it ends after this many days unused, and
+# each use renews it (365 days fixed until 2026-10-29: a token copied off a
+# phone over plain HTTP was good for a year)
+TOKEN_DAYS = 30
+# the browser keeps the cookie this long; the server's TOKEN_DAYS decides
+COOKIE_DAYS = 365
 CODE_MINUTES = 15
 # no 0/O, 1/I/L: read off a screen and typed on a phone
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -333,17 +339,35 @@ def redeem_link(conn: sqlite3.Connection, link_token: str, device: str = "") -> 
     return _redeem(conn, "link_hash", link_token, device)
 
 
+def cookie_name(port: int | None) -> str:
+    """The sign-in cookie, one per port: a browser sends a host's cookies to
+    every port on it, so a second AutoRundown on the same PC (a test copy,
+    dev.py) replaced this one's sign-in."""
+    return f"{COOKIE}_{port}" if port else COOKIE
+
+
+def cookie_names(port: int | None) -> tuple[str, ...]:
+    """The names a token may be under: this port's, then the old shared one
+    (phones signed in before 2026-10-29 stay signed in)."""
+    return (cookie_name(port), COOKIE) if port else (COOKIE,)
+
+
 def user_for_token(conn: sqlite3.Connection, token: str | None) -> Who | None:
     if not token:
         return None
+    now = time.time()
+    # unused for TOKEN_DAYS = ended, whatever its stored expiry (tokens made
+    # before 2026-10-29 were given a year)
     row = conn.execute(
         """SELECT u.id, u.name, t.last_used FROM tokens t JOIN users u ON u.id=t.user_id
-           WHERE t.hash=? AND t.expires>? AND u.disabled=0""",
-        (_h(token), time.time())).fetchone()
+           WHERE t.hash=? AND t.expires>? AND COALESCE(t.last_used, t.created)>?
+             AND u.disabled=0""",
+        (_h(token), now, now - TOKEN_DAYS * 86400)).fetchone()
     if row is None:
         return None
-    if (row["last_used"] or 0) < time.time() - 3600:  # an hour's resolution is plenty
-        conn.execute("UPDATE tokens SET last_used=? WHERE hash=?", (time.time(), _h(token)))
+    if (row["last_used"] or 0) < now - 3600:  # an hour's resolution is plenty
+        conn.execute("UPDATE tokens SET last_used=?, expires=? WHERE hash=?",
+                     (now, now + TOKEN_DAYS * 86400, _h(token)))
         conn.commit()
     return Who(admin=False, user_id=row["id"], name=row["name"])
 

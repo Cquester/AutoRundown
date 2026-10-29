@@ -141,6 +141,9 @@ def main() -> int:
     cfg = home / "config.json"
     conf = json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else {}
     conf.update(archive_dir=str(DEV / "lemon"), index_path=str(index))
+    # a test box's phone side starts open, as its README and the QA runbook
+    # say (turn sign-in on in its Shop setup); a real install starts with it on
+    conf.setdefault("require_signin", False)
     if args.fake_vm:
         conf["extractor_dir"] = str(ROOT / "tools" / "fake_extractor")
         env["AR_FAKE_VM_OUT"] = str(DEV / "fake_vm_out")

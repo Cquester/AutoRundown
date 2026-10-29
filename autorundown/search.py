@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from itertools import zip_longest
 from typing import Iterable, Sequence
 
 from . import numbers
@@ -61,6 +62,31 @@ def title_fit(query: str, title: str) -> float:
     if not named:
         return 1.0
     return sum(1 for w in named if any(_same_word(t, w) for t in tokens)) / len(named)
+
+
+def merge_wordings(typed: str, texts: list[str], per: list[list[dict]]) -> list[dict]:
+    """One keyword search's rows from the typed words and the manuals'
+    wordings of them (synonyms.translations): `per[i]` is the hits for
+    `texts[i]`, and one of `texts` is `typed`.
+
+    Hits whose title holds every word of their own query come first -- the
+    typed words' before the wordings', the wordings taking turns -- then the
+    wordings' other hits in turns, then the typed words' others. Before
+    (2026-10-28, agent review), every hit of the manual's wording came first:
+    a W210's "oil pan" was 12 "oil sump" hits without "Remove/install oil
+    pan", and "taillight" ("tail lamp", "rear lamp") gave tail pipes and
+    "Rear dome lamp" before any lamp removal page. Duplicates are left for
+    the caller's one-row-per-page pass.
+    """
+    def turns(groups):
+        return [r for group in zip_longest(*groups) for r in group if r is not None]
+    if typed not in texts or len(texts) == 1:
+        return [r for hits in per for r in hits]
+    mine = per[texts.index(typed)]
+    theirs = [(t, hits) for t, hits in zip(texts, per) if t != typed]
+    titled = lambda t, hits: [r for r in hits if title_fit(t, r.get("title") or "") > 0]  # noqa: E731
+    return (turns([titled(typed, mine)] + [titled(t, h) for t, h in theirs])
+            + turns([h for _, h in theirs]) + mine)
 
 
 def _title_rank(rows: list[dict], query: str, limit: int) -> list[dict]:

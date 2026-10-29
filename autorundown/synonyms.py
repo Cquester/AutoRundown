@@ -45,8 +45,12 @@ PHRASES: dict[str, str | tuple[str, ...]] = {
     "motor mount": "engine mount",
     "o2 sensor": "oxygen sensor",
     "headlight": "headlamp",
-    "tail light": "tail lamp",
-    "taillight": "tail lamp",
+    # WIS writes "taillamp" ("Removing and installing taillamp in fender")
+    # and the F-150 "Rear Lamp Assembly" (agent review, 2026-10-28)
+    "tail lights": ("tail lamps", "taillamps", "rear lamps"),
+    "taillights": ("tail lamps", "taillamps", "rear lamps"),
+    "tail light": ("tail lamp", "taillamp", "rear lamp"),
+    "taillight": ("tail lamp", "taillamp", "rear lamp"),
     "muffler": "silencer",
     "gas tank": "fuel tank",
     "gas cap": "fuel filler cap",

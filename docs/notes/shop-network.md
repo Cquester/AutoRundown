@@ -18,11 +18,19 @@ uvicorn runs with `proxy_headers=False` so `X-Forwarded-For` can never make a
 request look local -- **do not put a reverse proxy on the same PC** in front
 of it; every request would then come from loopback.
 
-**Mechanic accounts are optional** (`Config.require_signin`, default off =
-open LAN as before). No passwords: the admin issues an 8-character code
+**Mechanic accounts can be turned off** (`Config.require_signin`; on by
+default since 2026-10-29 -- off let any device on the shop's Wi-Fi spend the
+company key; a `config.json` that says `false` keeps it, and `dev.py` keeps
+a test box's phone side open). No passwords: the admin issues an 8-character code
 (15 min, single use, no 0/O/1/I/L; since 2026-10-16 the fallback under a
 sign-in QR, see below), a phone swaps it for a 32-byte token in
-an HttpOnly cookie (365 days). Only SHA-256 hashes of codes and tokens are
+an HttpOnly cookie. **A token ends after 30 days unused** (`TOKEN_DAYS`;
+each use renews it; until 2026-10-29 it was 365 days fixed, which tokens
+made then still carry -- the 30-day idle rule ends them too). **The cookie
+is named per port** (`ar_token_<port>`, `auth.cookie_name`): browsers send
+a host's cookies to every port, so a second copy of the app on the PC (a test
+copy, `dev.py`) replaced this one's sign-in; the old shared `ar_token` is
+still read, and replaced at the next sign-in. Only SHA-256 hashes of codes and tokens are
 stored. Disabling a user deletes their tokens at once. 10 wrong codes from
 one address = 429 for 15 min. Cross-site POSTs are refused by `Origin` check
 (`_origin_ok`), for the admin too. Accounts are in `~/.autorundown/auth.db`,
