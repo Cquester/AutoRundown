@@ -367,7 +367,13 @@ card under it, `offerCatalogueCar(r, '#lemAddBox')`).
   CHARM up → "Open on CHARM" (to read online; adding still needs LEMON's
   zip) plus "Try LEMON anyway"; both down → "Check again".
 - The link opens in a new tab; the card then asks `POST
-  /api/import/lemon-zip` every 4 s ("waiting") for 45 min at most.
+  /api/import/lemon-zip` every 4 s ("waiting") for 45 min at most, and
+  says so. LEMON's *Download .zip for offline use* is an HTML page, not the
+  file: "To prevent automated downloads, please type "human"", a text box
+  and *Download manual* (seen 2026-10-28 on the 2003 Civic). The user does
+  that step; the card names it (agent review 04: it didn't, so a user
+  following it waited for a download that never started). The app never
+  fills that form.
   `lemon_zip.find`: LEMON's name `LEMON <year> <make> <model engine>.zip`
   (`zip_name`), also "name (1).zip" and with a character Windows can't
   hold replaced; never a `.crdownload`/`.part` or a zip whose central

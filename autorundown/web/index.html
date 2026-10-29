@@ -2421,8 +2421,8 @@ function renderAddCar(state = null) {
       `<a class="btnlink${cls ? ' ' + cls : ''}" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-add-open>${label}</a>`;
     let how, btns;
     if (state.lemon) {
-      how = `Open its page on LEMON, click <i>Download .zip for offline use</i> and save it in ${dl}. `
-          + `It is imported as soon as it is there.`;
+      how = `Open its page on LEMON, click <i>Download .zip for offline use</i>, type <i>human</i> where LEMON `
+          + `asks, press <i>Download manual</i> and save the zip in ${dl}. It is imported as soon as it is there.`;
       btns = link(d.links.lemon, 'Open on LEMON');
     } else if (d.links.charm && state.charm) {
       how = `LEMON's site isn't answering. Operation CHARM, its backup for 1982–2013, is: its page for `
@@ -2437,8 +2437,9 @@ function renderAddCar(state = null) {
       + (state.lemon ? ` The file: ${zip}` : '') + `</div></div>`
       + btns + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
   } else if (state?.kind === 'waiting') {
-    body = `<div class="actext">Waiting for ${name}<div class="acsub">Save <b>${esc(addWait?.zip || '')}</b> `
-      + `in ${esc(addWait?.downloads || 'Downloads')}; the import starts by itself.</div>`
+    body = `<div class="actext">Waiting for ${name}<div class="acsub">On LEMON's page: type <i>human</i> where it asks, `
+      + `press <i>Download manual</i> and save <b>${esc(addWait?.zip || '')}</b> `
+      + `in ${esc(addWait?.downloads || 'Downloads')}; the import starts by itself. This card waits up to 45 minutes.</div>`
       + `<div class="acbar indet" role="progressbar" aria-label="Waiting for the download"><i style="width:30%"></i></div></div>`
       + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
   } else if (state?.kind === 'queued') {
