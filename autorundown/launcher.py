@@ -23,6 +23,7 @@ import threading
 import time
 import urllib.request
 import webbrowser
+from pathlib import Path
 
 from . import __version__, config
 
@@ -82,6 +83,12 @@ def _message(text: str) -> None:
 
 def _tray_image():
     from PIL import Image, ImageDraw
+    try:        # the app's icon (tools/make_icons.py), the same as the shortcuts'
+        ico = Image.open(Path(__file__).parent / "web" / "icons" / "favicon.ico")
+        ico.size = (64, 64)
+        return ico.convert("RGBA")
+    except (OSError, ValueError):
+        pass
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.rounded_rectangle((2, 2, 62, 62), radius=14, fill=(245, 166, 35, 255))

@@ -248,6 +248,18 @@ check(post(phone, "/api/ask", {"doc_id": "v1", "question": "x"}).status_code == 
 check(phone.get("/").status_code == 200, "  ... but gets the page (to show the sign-in box)")
 check(phone.get("/vendor/zxing-wasm-3.1.4/zxing-reader.js").status_code == 401,
       "  ... and not Scan VIN's libraries (sign-in rules as everywhere)")
+r = phone.get("/favicon.ico")
+check(r.status_code == 200 and r.headers["content-type"] == "image/x-icon" and r.content[:4] == b"\x00\x00\x01\x00",
+      "  ... the tab icon is served to it (the sign-in screen has one)")
+r = phone.get("/icons/icon-192.png")
+check(r.status_code == 200 and r.content[:4] == b"\x89PNG", "  ... and the home-screen icon")
+icons = {i["src"] for i in phone.get("/manifest.webmanifest").json()["icons"]}
+check(icons == {"/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png"}
+      and all(phone.get(i).status_code == 200 for i in icons), "  ... and the manifest lists icons that exist")
+for bad in ("..%2fserver.py", "%5c%5chost%5cshare%5cx.png", "nothing.png", "icon.svg.bak"):
+    check(phone.get(f"/icons/{bad}").status_code == 404, f"  ... /icons/{bad}: 404")
+check(phone.get("/icons/../server.py").status_code in (401, 404),   # the client folds it to /server.py
+      "  ... nothing outside the icons folder")
 check(pc.get("/api/vehicles").status_code == 200, "this PC never signs in")
 
 print("sign-in QR")

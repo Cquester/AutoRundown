@@ -20,6 +20,9 @@
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/Cquester/AutoRundown" />
+    <!-- the app's icon (tools/make_icons.py): the shortcuts, and Apps & features -->
+    <Icon Id="AutoRundown.ico" SourceFile="$(StageDir)\app\autorundown\web\icons\favicon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AutoRundown.ico" />
     <Property Id="ARPNOMODIFY" Value="1" />
 
     <StandardDirectory Id="LocalAppDataFolder">
@@ -36,12 +39,12 @@
          (autorundown/launcher.py, background mode). -->
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="Shortcuts">
-        <Shortcut Id="StartMenuShortcut" Name="AutoRundown"
+        <Shortcut Id="StartMenuShortcut" Name="AutoRundown" Icon="AutoRundown.ico"
                   Description="Search your repair manuals"
                   Target="[INSTALLFOLDER]python\pythonw.exe"
                   Arguments="-m autorundown.launcher --background"
                   WorkingDirectory="INSTALLFOLDER" />
-        <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="AutoRundown"
+        <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="AutoRundown" Icon="AutoRundown.ico"
                   Description="Search your repair manuals"
                   Target="[INSTALLFOLDER]python\pythonw.exe"
                   Arguments="-m autorundown.launcher --background"
@@ -66,7 +69,7 @@
          (autostart.py), so either can turn it off. -->
     <StandardDirectory Id="StartupFolder">
       <Component Id="Autostart" Condition="AUTOSTART = 1">
-        <Shortcut Id="StartupShortcut" Name="AutoRundown"
+        <Shortcut Id="StartupShortcut" Name="AutoRundown" Icon="AutoRundown.ico"
                   Description="AutoRundown (background)"
                   Target="[INSTALLFOLDER]python\pythonw.exe"
                   Arguments="-m autorundown.launcher --background --no-browser"

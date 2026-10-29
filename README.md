@@ -63,8 +63,8 @@ that runs the same question as a (free) keyword search.
 
 Download `AutoRundown-<version>.msi` from the repo's
 [Releases](https://github.com/Cquester/AutoRundown/releases) (with a
-`.sha256` beside it; the newest there is 0.1.6, as releases are not
-published while the repo's GitHub Actions are off), or build the current one yourself with
+`.sha256` beside it; every version a merge to main bumps is published
+there), or build the current one yourself with
 `packaging\windows\build.ps1` (it lands in `dist\`), and double-click it. It needs no admin rights and no Python. It installs for your
 user only, in `%LOCALAPPDATA%\Programs\AutoRundown`, and adds AutoRundown to
 the Start menu and desktop. The installer asks whether to **start AutoRundown
@@ -181,8 +181,12 @@ python.org. On Linux, use your distribution's `python3` and `python3-venv`.)
 Build the index from your archive directory:
 
 ```bash
-python ingest.py --archive /path/to/your/manuals --index index.db
+python ingest.py --archive /path/to/your/manuals
 ```
+
+The index goes where the app looks for it -- `~/.autorundown/index.db`, or
+the path chosen in Shop setup -- so `ingest.py` and `serve.py` always agree
+(add `--index <file>` to both to use another one).
 
 Indexing is resumable — interrupt it and re-run, and it picks up where it
 stopped. `--force` rebuilds from scratch.
@@ -192,6 +196,9 @@ Start the server:
 ```bash
 python serve.py
 ```
+
+If the installed Windows app is already running, port 8756 is taken and
+`serve.py` says so; start this copy beside it with `python serve.py --port 8757`.
 
 It prints a `localhost` URL and a LAN URL. The LAN one works from a phone on the
 same wifi — same responsive UI, no app to install, no native build. Add it to

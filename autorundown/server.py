@@ -205,7 +205,10 @@ def _wis_page(conn, vehicle: dict, page_no: str) -> tuple[dict | None, bool]:
 # the sign-in screen, and the CA a phone must install before trusting HTTPS
 # and /signin, where a sign-in QR's link lands
 PUBLIC_PATHS = {"/", "/manifest.webmanifest", "/ca.crt", "/api/me",
-                "/api/auth/signin", "/api/auth/signout", "/signin"}
+                "/api/auth/signin", "/api/auth/signout", "/signin", "/favicon.ico"}
+# the app's own icons: the sign-in screen has a tab icon too
+PUBLIC_PREFIXES = ("/icons/",)
+ICON_TYPES = {".png": "image/png", ".ico": "image/x-icon", ".svg": "image/svg+xml"}
 # answer to the PC running the server only -- they read and change this PC's
 # files, settings and API key, and manage accounts
 ADMIN_PREFIXES = ("/api/settings", "/api/browse", "/api/vms", "/api/import",
@@ -503,7 +506,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 {"detail": "Only available on the PC running AutoRundown."}, 403)
         if _is_admin_path(path) and _cross_site(request):
             return JSONResponse({"detail": "Cross-site request refused."}, 403)
-        if (path not in PUBLIC_PATHS and who is None
+        if (path not in PUBLIC_PATHS and not path.startswith(PUBLIC_PREFIXES) and who is None
                 and config.load().require_signin):
             return JSONResponse({"detail": "Sign in to use AutoRundown.",
                                  "signin": True}, 401)
@@ -655,6 +658,25 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # the version is in the path: a new version is a new URL
             "Cache-Control": "private, max-age=31536000, immutable"})
 
+    def _icon(name: str) -> Response:
+        if not _relative_name(name):
+            raise HTTPException(404, "Not found.")
+        root = (WEB_DIR / "icons").resolve()
+        target = (root / name).resolve()
+        kind = ICON_TYPES.get(target.suffix.lower())
+        if kind is None or not target.is_relative_to(root) or not target.is_file():
+            raise HTTPException(404, "Not found.")
+        # a day: the files are not versioned in their names
+        return FileResponse(target, media_type=kind, headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.get("/favicon.ico")
+    def favicon() -> Response:
+        return _icon("favicon.ico")
+
+    @app.get("/icons/{name:path}")
+    def icons(name: str) -> Response:
+        return _icon(name)
+
     @app.get("/manifest.webmanifest")
     def manifest() -> JSONResponse:
         return JSONResponse({
@@ -664,7 +686,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "display": "standalone",
             "background_color": "#12141a",
             "theme_color": "#12141a",
-            "icons": [],
+            "icons": [
+                {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+                {"src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png",
+                 "purpose": "maskable"},
+            ],
         })
 
     @app.get("/api/stats")
@@ -2171,6 +2198,12 @@ def serve(srv) -> int:
     return 0
 
 
+def _port_taken(port: int) -> bool:
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
 def main(argv: list[str] | None = None) -> int:
     cfg = config.load()
     ap = argparse.ArgumentParser(description="Serve the repair assistant UI.")
@@ -2181,4 +2214,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="serve HTTPS with a certificate from a local CA (tls.py); "
                          "phones install /ca.crt once to trust it")
     args = ap.parse_args(argv)
+    # a source run beside the installed app: say so, not a bind traceback
+    if _port_taken(args.port):
+        print(f"Port {args.port} is already in use -- AutoRundown may already be running "
+              f"(the installed app?): http://localhost:{args.port}")
+        print(f"To start this copy beside it: python serve.py --port {args.port + 1}")
+        return 1
     return serve(make_server(args.index, args.host, args.port, https=args.https))

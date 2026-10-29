@@ -217,6 +217,39 @@ a = pencil_answer()
 got = [x["value"] for x in _add_omitted_parts(a, PARTS, C220, "glow plug part number")]
 check("the glow plug case still adds the standard plug", got == ["A 001 159 66 01 (A0011596601)"], f"{got}")
 
+# the planner's own words ("disc brake linings", "assembly") must not put the
+# disc, its screw and the wear sensor back: seen on a paid Haiku answer for
+# a 190 E 2.3 (2026-10-29, page P5570); the user's words come first
+PLANNER = "disc brake linings specification front axle brake assembly brake lining replacement component"
+BRAKE2 = [{"page_no": "P5570", "doc_type": "parts", "images": "", "body": "\n".join([
+    "Callout | Part number | Name | Fits | Notes",
+    "010 | A 001 420 81 20 (A0014208120, 0014208120) | BRAKE PAD, PARTS KIT | qty 1, 201.028 | ",
+    "020 | A 001 420 96 20 (A0014209620, 0014209620) | TS BRAKE PAD, PARTS KIT | qty 1, all models | ",
+    "030 | A 201 540 03 17 (A2015400317, 2015400317) | BRAKE WEAR SENSOR, BRAKE LINING WEAR INDICATOR | qty 2, all models | ",
+    "040 | A 201 421 15 12 (A2014211512, 2014211512) | BRAKE DISC | qty 2, 201.028 | ",
+    "050 | A 201 421 01 71 (A2014210171, 2014210171) | HEXAGON SOCKET SCREW, BRAKE DISC TO WHEEL HUB | qty 2, all models | "])}]
+a = AnswerModel.model_validate({
+    "found": True, "answer": "Front pads: A 001 420 81 20.", "document_page": "P5570",
+    "source_pages": ["P5570"], "specs": [{"name": "Front brake pad", "value": "A 001 420 81 20",
+                                          "applicability": "", "source_pages": ["P5570"]}]})
+got = [x["value"] for x in _add_omitted_parts(a, BRAKE2, W201, "front brake pads part number", PLANNER)]
+check("the planner's 'disc' and 'lining' do not add the disc, screw or sensor",
+      got == ["A 001 420 96 20 (A0014209620)"], f"{got}")
+
+
+def fresh():
+    return AnswerModel.model_validate({
+        "found": True, "answer": "Fitted.", "document_page": "P5570", "source_pages": ["P5570"],
+        "specs": [{"name": "x", "value": "A 000 000 00 00", "applicability": "", "source_pages": ["P5570"]}]})
+
+
+got = [x["value"] for x in _add_omitted_parts(fresh(), BRAKE2, W201, "wear sensor", PLANNER + " disc")]
+check("the question's own words decide, whatever the planner adds",
+      got == ["A 201 540 03 17 (A2015400317)"], f"{got}")
+got = [x["value"] for x in _add_omitted_parts(fresh(), BRAKE2, W201, "squeaky stopper bits", "brake lining wear indicator")]
+check("words that match nothing fall back to the planner's",
+      got == ["A 201 540 03 17 (A2015400317)"], f"{got}")
+
 # 11. a part number in the text must be on a page the answer cites
 # (query._check_part_numbers). Haiku called the rear pad kit, on a parts page
 # in the passages it did not cite, a superseded front pad (2026-10-28).

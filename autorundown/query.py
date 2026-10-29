@@ -864,7 +864,7 @@ def _words(text: str) -> set[str]:
 
 
 def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope,
-                       asked: str = "") -> list[dict]:
+                       asked: str = "", also: str = "") -> list[dict]:
     """Add current part numbers that fit this car and that the answer left out.
 
     Two paid answers (2026-10-15) gave only the pencil-type glow plug for a
@@ -903,11 +903,14 @@ def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope,
     # only parts of what was asked: "front brake pads" added the calipers,
     # anchor, disc and its screw from the same page, 7 rows burying the pad
     # numbers (agent review, 2026-10-28). The question's (and the planner's)
-    # own words, less the ones every brake or engine part shares; none left:
-    # every line, as before.
-    wanted = _words(asked)
-
-    added: list[dict] = []
+    # own words, less the ones every brake or engine part shares. The user's
+    # question counts first: the planner's queries add "disc brake", "lining",
+    # "assembly" and the like, which put the disc, its screw and the wear
+    # sensor back (seen on a paid answer, 2026-10-29). The planner's words are
+    # used only when the question's match no line (a shop word for a part
+    # the manual names otherwise). None left: every line, as before.
+    candidates: list[tuple[str, dict, str]] = []
+    seen: set[str] = set()
     for p in passages:
         page = str(p["page_no"])
         if p.get("doc_type") != "parts" or page not in cited:
@@ -916,18 +919,25 @@ def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope,
             m = _PART_LINE_RE.match(line.strip())
             if not m or "replaced by" in m["notes"].lower() or not fits_car(m["fits"]):
                 continue
-            if wanted and not wanted & _words(m["name"]):
-                continue
             compact, digits = m["compact"].upper(), m["compact"][1:]
-            if compact in said or digits in said or any(a["compact"] == compact for a in added):
+            if compact in said or digits in said or compact in seen:
                 continue
-            added.append({"compact": compact, "page": page, "spec": SpecItem(
-                name=f"{m['name'].strip()} (also listed for this car)",
-                value=f"{m['spaced'].strip()} ({compact})",
-                applicability=" ".join(x for x in (m["fits"].strip(), m["notes"].strip().strip("; ")) if x),
-                source_pages=[page])})
-            if len(added) >= MAX_ADDED_PARTS:
-                break
+            seen.add(compact)
+            candidates.append((page, m, compact))
+    own = _words(asked)
+    wanted = own if own and any(own & _words(m["name"]) for _, m, _ in candidates) else own | _words(also)
+
+    added: list[dict] = []
+    for page, m, compact in candidates:
+        if wanted and not wanted & _words(m["name"]):
+            continue
+        added.append({"compact": compact, "page": page, "spec": SpecItem(
+            name=f"{m['name'].strip()} (also listed for this car)",
+            value=f"{m['spaced'].strip()} ({compact})",
+            applicability=" ".join(x for x in (m["fits"].strip(), m["notes"].strip().strip("; ")) if x),
+            source_pages=[page])})
+        if len(added) >= MAX_ADDED_PARTS:
+            break
     if added:
         answer.specs.extend(a["spec"] for a in added)
         listed = "; ".join(f"{a['spec'].value} {a['spec'].name.replace(' (also listed for this car)', '')}"
@@ -1077,7 +1087,7 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     dropped = _check_part_numbers(answer, passages)     # first: an answer left with no
     dropped += _verify_citations(answer, passages)      # citation is then withheld
     other = _drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
-    added = (_add_omitted_parts(answer, passages, scope, " ".join([question, *queries]))
+    added = (_add_omitted_parts(answer, passages, scope, question, " ".join(queries))
              if answer.found else [])
     linked = _add_linked_torques(answer, passages) if answer.found else []
     if not answer.found and LABOUR_RE.search(question):

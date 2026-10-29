@@ -36,6 +36,12 @@ one address = 429 for 15 min. Cross-site POSTs are refused by `Origin` check
 (`_origin_ok`), for the admin too. Accounts are in `~/.autorundown/auth.db`,
 **not in the index**, so a rebuild cannot lose them.
 
+**Public paths** (no sign-in): `/`, `/manifest.webmanifest`, `/ca.crt`,
+`/api/me`, the sign-in routes, and (2026-10-29) `/favicon.ico` and
+`/icons/<file>` -- the app's own icons, a fixed folder, `png`/`ico`/`svg`
+only, with the same plain-name check as `/vendor/`; the sign-in screen has
+a tab icon. Everything else answers 401 to a device not signed in.
+
 **Sign-in QRs replace typed codes (2026-10-16).** The admin's "Sign-in QR"
 button (and adding a mechanic) opens a dialog: `POST
 /api/admin/users/{id}/qr` makes a *grant* (`auth.db` table `grants`) with a

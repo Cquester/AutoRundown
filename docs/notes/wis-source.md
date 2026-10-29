@@ -387,8 +387,12 @@ pictures and styles all dropped). What it knows about SIDS, each measured on a c
   on the 99xxxxxx picture menus of WIS's warranty damage-code catalogue
   (Schadensschlüssel), `code` a damage-code component (`SSTeilID` ->
   `SSTeilBenennung`). Boxes line up exactly when drawn. Not used yet; they
-  also leak into those 17,995 records' body_text as `.53|0.46;5441R;`
-  junk (a `parse_sids.py` fix, not done). The 103 XML bodies have no
+  also leaked into those 17,995 records' body_text as `.53|0.46;5441R;`
+  junk (`RTF_GFX_RE` read a hotspot's first four fields as a graphic,
+  also making a bogus image reference): fixed 2026-10-29 in
+  `parse_sids.parse_rtf_body` (`RTF_HOTSPOT_RE`, `tests/test_parse_sids.py`,
+  checked on 99016739 / 99016741 / 99016743); **not in the corpus until the
+  next reparse**. The 103 XML bodies have no
   layout (404).
 - **Most WIS pages are landscape** (~15,600 units, ~1,330 px drawn). The
   sheet is zoomed to fit the frame like a PDF (a minimum zoom with sideways
@@ -460,7 +464,13 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   `xMinYMid meet` -- fractions are of what is drawn, not of the viewBox).
   UI: a tap target per printed code over the `<img>`, plus "Components on
   this diagram" (name, keyword search, linked document via `AW_SVGReferenz`).
-  The full-size view has no tap targets.
+  **The full-size view** (2026-10-29): tapping the diagram opens a viewer
+  in this page (`#diaDlg`, zoom + / - / Fit, scrolls), not the browser's
+  own tab (a document of this origin may run no script, so it could
+  not have tap targets). Each code is a tap target of at least 44 px;
+  a tapped code says what it is, with Search and Open document. Back
+  closes the viewer. `tests/test_phone_ui.py` (made-up codes: the sample
+  corpus has no wiring diagrams).
 - **Option codes: removed 2026-10-16** (the user: nobody knows their car's
   option codes). It was a dialog beside VIN (`/api/wis/sa`, `sa_codes`): a
   code means different things per vehicle type (494 = "US version" on a

@@ -159,9 +159,17 @@ def decompress_body(blob):
 RTF_GFX_RE = re.compile(r'&[A-Za-z]&\s*([^\s|]+)\|([\d.]+)\|([\d.]+)\|(\w+)')
 
 
+# a hotspot line: "&H& 0|1.07|0.86|1.53|0.46;54001;" (a box in cm on the
+# graphic, then a damage-code component). Not a graphic: RTF_GFX_RE read its
+# first four fields as one and left ".53|0.46;54001" in the body (17,995
+# records) and a bogus image reference "0 (1 1.07x0.86)". Dropped first.
+RTF_HOTSPOT_RE = re.compile(r'&H&\s*[\d.]+(?:\|[\d.]+){4};[^;\s]*;?')
+
+
 def parse_rtf_body(text):
     """Tiny RTF stubs are figure-only docs pointing at a DXF/TIFF/PNG graphic.
     Returns (None, body, xrefs, applic, image_refs)."""
+    text = RTF_HOTSPOT_RE.sub(' ', text)
     image_refs = []
     for m in RTF_GFX_RE.finditer(text):
         gid, w, h, fmt = m.groups()
@@ -171,6 +179,8 @@ def parse_rtf_body(text):
     t = t.replace('{', ' ').replace('}', ' ')
     t = RTF_GFX_RE.sub(' ', t)
     t = re.sub(r'&[A-Za-z]&', ' ', t)
+    t = re.sub(r'\bargt\d*\b', ' ', t)          # the stub's header word
+    t = re.sub(r';[;\s]*;', ' ', t)             # what was between the removed parts
     t = re.sub(r'\s+', ' ', t).strip(' ;')
     body = t if len(t) > 3 else ''
     return None, body, [], [], image_refs
