@@ -292,17 +292,19 @@ CASES: list[dict] = [
          #   218, 221; ENGINE 651 ("Shown on engine 651.911"). The C 220 CDI
          #   (204.002) is an OM651.
          expect=["7115453"], expect_engine=True),
-    dict(id="w205-c220d-timing-chain", series="205", variant=20,
-         variant_name="C 220 d", query="timing chain",
+    dict(id="w205-c220d-timing-chain", series="205", variant=23,
+         variant_name="C 220 CDI / d", query="timing chain",
          # OM651, the engine whose number collides with a truck series.
+         # The C 220 d sedan, Baumuster 205.002 (engine 651.921); was variant
+         # 20 "C 220 d" until the variants list was renamed (2026-10-28).
          # 9005055 "Timing chain check values", "Engine 651 in model 117, 156,
          #   166, 172, 176, 204, 205, ...". 10009101 "Timing chain drive,
          #   toothed belt drive", ENGINE 651 torques.
          expect=["9005055", "10009101"], expect_engine=True),
     # guards only: no capacity page names both 205 and OM651; the OM651
     # bucket's capacity pages are for 117/156/176/246 and Sprinter/Vito
-    dict(id="w205-c220d-oil-capacity", series="205", variant=20,
-         variant_name="C 220 d", query="engine oil capacity",
+    dict(id="w205-c220d-oil-capacity", series="205", variant=23,
+         variant_name="C 220 CDI / d", query="engine oil capacity",
          expect_engine=True),
 
     # --- W211 E-Class: the slash-list bug ------------------------------------
