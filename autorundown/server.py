@@ -137,6 +137,10 @@ class VmPickBody(BaseModel):
     file: str = Field(max_length=1000)    # the VM's .vbox file
 
 
+class VmFixBody(BaseModel):
+    vm: str = Field(max_length=200)       # a VirtualBox VM name (checked against VBoxManage's list)
+
+
 class LemonPickBody(BaseModel):
     # a folder of the catalogue tree: [make], [make, year], ... or a variant
     path: list[str]
@@ -1586,6 +1590,16 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                      steps: str = Query("", max_length=200)) -> dict:
         """Will a run on this VM work? Checked without booting it."""
         return importer_jobs.check_vm(vm, vm_steps(what, steps))
+
+    @app.post("/api/vms/fix-network")
+    def api_vm_fix_network(body: VmFixBody) -> dict:
+        """The check's "Fix it": the VM's Adapter 1 onto the host-only network."""
+        if jobs.status().get("state") == "running":
+            raise HTTPException(409, "An import is running: change the VM's network after it ends.")
+        try:
+            return importer_jobs.fix_network(body.vm)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(400, str(exc))
 
     @app.get("/api/vms/snapshots")
     def api_vm_snapshots(vm: str = Query(max_length=200)) -> dict:

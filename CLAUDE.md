@@ -867,20 +867,20 @@ Still open, in rough order of value:
 Done since 2026-10-12: the sedan/wagon split is in the real index (99 wagon
 variants), and so is EPC (2026-10-23).
 
-**The installed app's live index is this repo folder's `index.db`**
-(`~/.autorundown/config.json` `index_path`, set in Shop setup), and the
-spend log lives inside it. Moving or recloning the repo means moving
-`index.db` and pointing `index_path` at the new place, or the app opens an
-empty index. The manuals and images it points to live outside the repo
+**The installed app's live index is `~/.autorundown/index.db`** (the
+default, since the fresh start on 2026-10-29; `config.json` `index_path`
+names it), and the spend log lives inside it. The repo folder holds no
+index the app uses, so recloning or moving the repo changes nothing for the
+installed app. The manuals and images it points to live outside the repo
 (`Downloads`, `Desktop\Mercedes Documents`). `Mercedes
 Documents\autorundown_extractor` is the extractor the VM tab runs (the
 default when `extractor_dir` is blank), not a leftover.
 
-Leftovers removed on 2026-10-29: `index.v11.db`, `index.before-wis.db`, the
-old extractor copy and (by the user) `autorundown_out\_previous_2026-10-07`.
-Kept on purpose: `index.before-epc.db` (3.3 GB, the only other copy of the
-index; it predates EPC, later manuals and spend, so never restore it over
-`index.db`). Delete it once a moved `index.db` is confirmed working.
+On 2026-10-29 the user started fresh: the old working copy
+(`Desktop\AI Mechanic`, with its 3.5 GB index and `index.before-epc.db`) is
+deleted, the app was reinstalled empty and the VM reverted to its
+`AutoRundown-base` snapshot, to go through setup as a new user would.
+The live index is rebuilt from that run.
 
 ---
 

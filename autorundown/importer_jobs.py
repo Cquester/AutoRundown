@@ -263,6 +263,34 @@ def _check_vm(vm: str, steps: str) -> dict:
             "out_root": info.get("out_root", "")}
 
 
+def fix_network(vm: str) -> dict:
+    """Shop setup's "Fix it" on the network check: the extractor puts the
+    VM's Adapter 1 on the host-only network (vm_pipeline.py --fix-network).
+    Only on a click; the check runs again afterwards."""
+    with VBOX_LOCK:
+        info = _list_vms()
+        if info.get("error"):
+            raise ValueError(str(info["error"]))
+        if vm not in {v["name"] for v in info["vms"]}:
+            raise ValueError(f"There is no VirtualBox VM named {vm!r}.")
+        try:
+            r = subprocess.run([sys.executable, str(Path(info["extractor"]) / "vm_pipeline.py"), "--vm", vm,
+                                "--fix-network"], capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=60, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                               creationflags=NO_WINDOW)
+        except subprocess.TimeoutExpired:
+            raise ValueError("VirtualBox took over 60 s to answer; is a VirtualBox window holding the VM?")
+    if "unrecognized arguments" in r.stderr:
+        raise ValueError(f"The Mercedes extractor at {info['extractor']} is too old to set the network "
+                         f"itself. Copy a current extractor folder over it, or set it in VirtualBox: "
+                         f"Settings -> Network -> Adapter 1 -> Host-only Adapter.")
+    stop = next((l.split("STOP: ", 1)[1] for l in r.stdout.splitlines() if "STOP: " in l), "")
+    if r.returncode != 0 or stop:
+        raise ValueError(stop or (r.stderr.strip().splitlines() or ["VirtualBox refused the change."])[-1])
+    done = next((l.split("NETWORK ", 1)[1] for l in r.stdout.splitlines() if "NETWORK " in l), "")
+    return {"ok": True, "message": done or f"{vm}: Adapter 1 is on the host-only network."}
+
+
 def list_snapshots(vm: str) -> dict:
     with VBOX_LOCK:
         return _list_snapshots(vm)

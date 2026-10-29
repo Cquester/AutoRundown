@@ -117,6 +117,12 @@ files. "Start when I sign in" runs it as you, in the background.
   back after a page reload.
   **Choose the VM** first: the tab then checks what the run needs (network,
   Java, the extractor's scripts, disk space) and lists anything missing.
+  A VM whose network adapter isn't on VirtualBox's host-only network gets a
+  **Fix it** button that sets Adapter 1 to *Host-only Adapter* for you.
+  If Windows in the VM blocks the database, the run types a Windows
+  Firewall rule into the VM for you (connections from this PC's host-only
+  network only); it needs a Windows account that is signed in by
+  itself and is an administrator, as the Mercedes VM's is.
   It checks again only when you pick another VM or change what to extract
   (or click *Check now*), not each time you open the tab; Import checks it
   anyway before it starts.

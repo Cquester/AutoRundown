@@ -443,7 +443,9 @@ drop, 6 tries) → applic (`pull_applic.js`, `pull_applic2.js`) → vehicles
 only starts/stops the VM headless and reads the DB; it never snapshots,
 changes the NIC or the guest firewall (the old `extract.ps1` did) — if the DB
 isn't reachable it says what to set up by hand. A saved VM state is
-discarded for a cold boot (a 7.1 save state may not resume under 7.2). Finds
+discarded for a cold boot (a 7.1 save state may not resume under 7.2).
+(Since superseded: snapshots, resuming a saved state and the network
+check's Fix it are under "Choose the VM, check it" below.) Finds
 VBoxManage, the EWA `sun_jre` Java and `tbjdbc.jar` itself; the extractor
 folder is `config.extractor_dir` or this repo's `extractor/`, and the output
 root comes from that extractor's `wis_paths.py` (`importer_jobs.
@@ -536,7 +538,40 @@ closed and the extractor kept running on its own).
   /api/vms/check?vm=&what=&steps=`): one `CHECK <key> <ok|warn|fail> <msg>`
   line each -- the VM exists; its state (running / saved / aborted are
   warnings, said in words); a host-only adapter (fail without) on the
-  `--subnet`; Guest Additions (without them "Windows didn't start" can't be
+  `--subnet` -- with **Fix it** beside that ✗ (2026-10-29, the user's
+  new-user run on the reverted `AutoRundown-base`: Adapter 1 was NAT):
+  `POST /api/vms/fix-network` runs `vm_pipeline.py --fix-network`, which
+  puts Adapter 1 on the PC's host-only network (`modifyvm` when off,
+  `controlvm` when running; a saved VM is left alone and told to shut down,
+  since discarding its state is a power-off), then the page checks again.
+  No admin rights needed. A PC with no host-only network at all is its own
+  ✗ (`hostonly`, no button): making one installs a driver, so a person does
+  it in VirtualBox's Network Manager. **The guest firewall** is opened by
+  the run itself (`open_guest_firewall`, same day): when Windows is up
+  (Guest Additions run level 3), someone is signed in, and the database
+  hasn't answered 90 s after the start, it types into the VM's keyboard
+  (`controlvm keyboardputscancode` / `keyboardputstring`, which need no
+  Windows logon, unlike guestcontrol and the blank password): Win key,
+  `cmd`, Ctrl+Shift+Enter (Win+R can't elevate on Windows 7), Alt+Y at
+  UAC (EMO is an administrator), then `netsh advfirewall firewall add rule
+  name=AutoRundownDB dir=in action=allow protocol=TCP localport=any
+  remoteip=<subnet>.0/24` (deleted first, so re-runs don't pile up) and
+  `exit`. A rule, not the firewall off: TCP from the host-only network,
+  which reaches only this PC. **Any port, not 2054/2034**: Transbase's
+  multiplexer on 2054 / 2034 hands each login on to a kernel on another
+  port. A rule for 2054,2034 (then 2020-2060) let Test the VM pass --
+  it only checks the port answers -- and every real login fail with
+  "Transbase Client Error <30209> IO exception on socket", one VM
+  power-cycle after another. Once per run; the rule stays in the VM.
+  Checked from `AutoRundown-base` through the installed app: typed at
+  +98 s, the database answered 22 s later and the real pulls logged in
+  (model links: 33,085 Baumuster rows). The databases start with Windows
+  on that VM -- opening "Mercedes WSM EPC" is not needed (tried both). Found on the way: a Windows blue
+  screen (IRQL_NOT_LESS_OR_EQUAL) during an earlier VM test, a few
+  minutes after a port probe of the VM from the PC (ping, 135, 445, 3389);
+  the cause is not known (also seen 2026-10-23), kept as the snapshot
+  `AutoRundown-crashed-20261029`. A crashed Windows ignores the power
+  button, which is what "did not shut down when asked" meant then; Guest Additions (without them "Windows didn't start" can't be
   told from "the database isn't answering"); Java; `tbjdbc.jar`; every
   script the chosen steps run (an older extractor copy lacks the EPC ones);
   free disk (images ~30 GB). An extractor too old to know `--check` prints

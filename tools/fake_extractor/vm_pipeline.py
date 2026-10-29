@@ -17,7 +17,8 @@ a tiny invented corpus where the real one would go, so the job's next step
     Fails in EPC (fake)            WIS works, the EPC pull stops (exit 1)
     Windows won't start (fake)     boot check / run: Windows never comes up ->
                                    a picture of the screen (VM_SCREEN), state saved
-    No network (fake)              --check fails: no host-only adapter
+    No network (fake)              --check fails: no host-only adapter, until
+                                   --fix-network (Shop setup's "Fix it")
 
 `--check` / `--check --boot` print CHECK lines like the real one. A cancel
 (AR_CANCEL_FILE appears) stops it with exit 3 and "shutting ... down", as
@@ -126,6 +127,13 @@ def take_snap(out: Path, vm: str, name: str) -> None:
     save_snaps(out, vm, snaps)
 
 
+def network_fixed(out: Path) -> bool:
+    try:
+        return (out / "fake_network_fixed").read_text(encoding="utf-8") == VM
+    except OSError:
+        return False
+
+
 def auto_snapshot(out: Path) -> None:
     ours = [s["name"] for s in snaps_for(out, VM) if s["name"].startswith("AutoRundown-auto-")]
     if ours and time.time() - os.path.getmtime(_snap_file(out)) < 6 * 3600:
@@ -187,6 +195,7 @@ def main(argv=None) -> int:
     ap.add_argument("--boot", action="store_true")
     ap.add_argument("--list-snapshots", action="store_true")
     ap.add_argument("--restore", default="")
+    ap.add_argument("--fix-network", action="store_true")
     args, _ = ap.parse_known_args(argv)
     global VM
     if args.list_vms:
@@ -216,6 +225,13 @@ def main(argv=None) -> int:
         save_snaps(snap_out, VM, snaps)
         log(f"rolled {VM} back to {args.restore}")
         return 0
+    if args.fix_network:
+        # remembered beside the pretend snapshots, so the next --check sees it
+        snap_out.mkdir(parents=True, exist_ok=True)
+        (snap_out / "fake_network_fixed").write_text(VM, encoding="utf-8")
+        log(f"NETWORK {VM}: Adapter 1 is now on the host-only network "
+            "'VirtualBox Host-Only Ethernet Adapter'")
+        return 0
     steps = [s for s in args.steps.split(",") if s]
     bad = [s for s in steps if s not in ALL_STEPS]
     if bad:
@@ -228,8 +244,10 @@ def main(argv=None) -> int:
             levels.append(check("snapshot", "ok", "A snapshot of the VM is taken before it starts, "
                                                   "to roll back to if Windows breaks."))
             levels.append(check("network", "fail", f"{VM} has no host-only network adapter: this PC "
-                                                   "cannot reach its database.")
-                          if "No network" in VM else check("network", "ok", "Host-only network adapter."))
+                                                   "cannot reach its database. Fix it sets Adapter 1 to "
+                                                   "Host-only Adapter.")
+                          if "No network" in VM and not network_fixed(out)
+                          else check("network", "ok", "Host-only network adapter."))
             levels += [check("java", "ok", "Java: fake-java"), check("jdbc", "ok", "Transbase JDBC driver found.")]
         levels += [check("scripts", "ok", "The extractor has every script these steps need."),
                    check("disk", "ok", f"500 GB free for {out}.")]
