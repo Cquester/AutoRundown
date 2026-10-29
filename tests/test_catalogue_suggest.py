@@ -31,7 +31,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import ingest  # noqa: E402
 import make_sample_lemon  # noqa: E402
-from autorundown import lemon_catalogue, server  # noqa: E402
+from autorundown import config, lemon_catalogue, server  # noqa: E402
 
 fails = 0
 
@@ -51,6 +51,9 @@ rc = ingest.main(["--archive", str(archive), "--index", str(db), "--importer", "
 check(rc == 0, "the sample F-150 is imported (the Camry is left on disk)")
 
 APP = server.create_app(str(db))
+c0 = config.load()   # a phone not signed in is part of these checks: an open
+c0.require_signin = False   # network (sign-in is on by default since 2026-10-29)
+c0.save()
 pc = TestClient(APP, base_url="http://localhost:8756", client=("127.0.0.1", 50000))
 phone = TestClient(APP, base_url="http://192.168.1.10:8756", client=("192.168.1.50", 50000))
 same = {"Origin": "http://localhost:8756"}
