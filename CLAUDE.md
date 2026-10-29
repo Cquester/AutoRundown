@@ -782,7 +782,9 @@ PR 41 fixed its 14 criticals:
 It also fixed eight annoying items: drain plug, labour questions, added
 parts, LEMON Labour/Parts tabs, LEMON labels, type "human", Wider, and the
 W205 eval cases. Released as 0.1.7 and installed on this PC. The review
-report and screenshots are kept outside the repo (not committed).
+report (every finding, with its fix status) and its screenshots are kept
+outside the repo, in `Desktop\AutoRundown agent review 2026-10-28\` (not
+committed: screenshots of the user's data).
 
 Still open, in rough order of value:
 
@@ -834,6 +836,23 @@ Still open, in rough order of value:
 
 Done since 2026-10-12: the sedan/wagon split is in the real index (99 wagon
 variants), and so is EPC (2026-10-23).
+
+**The installed app's live index is this repo folder's `index.db`**
+(`~/.autorundown/config.json` `index_path`, set in Shop setup), and the
+spend log lives inside it. Moving or recloning the repo means moving
+`index.db` and pointing `index_path` at the new place, or the app opens an
+empty index. The manuals and images it points to live outside the repo
+(`Downloads`, `Desktop\Mercedes Documents`). `Mercedes
+Documents\autorundown_extractor` is the extractor the VM tab runs (the
+default when `extractor_dir` is blank), not a leftover.
+
+Leftovers removed on 2026-10-29: `index.v11.db`, `index.before-wis.db` and
+the old extractor copy. Still to delete, by the user:
+`autorundown_out\_previous_2026-10-07` (19 GB, the corpus from before the
+2026-10-07 re-extraction). Kept on purpose: `index.before-epc.db` (3.3 GB,
+the only other copy of the index; it predates EPC, later manuals and spend,
+so never restore it over `index.db`). Delete it once a moved `index.db` is
+confirmed working.
 
 ---
 
