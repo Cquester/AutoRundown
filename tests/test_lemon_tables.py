@@ -43,6 +43,14 @@ con.executemany("INSERT INTO pages VALUES ('c', ?, ?, ?, ?, ?)", [
     ("1002", "Parts Information", SP.format("Ignition Ballast Resistor", "Parts Information"), "this_vehicle",
      PARTS + "| Ballast Resistor, .4 Ohm | MGB | 0001581945 | 61.00 | Bosch blue bracket |\n"),
     ("1257", "Parts Information", SP.format("Water Pump", "Parts Information"), "this_vehicle", PARTS),
+    ("1300", "Parts Information", SP.format("Fluid Pump", "Parts Information"), "this_vehicle",
+     PARTS + "| Primary Front Pump | MB | 1232700097 | 300.00 | |\n"),
+    ("1014", "Parts Information", SP.format("Brake Pad Wear Sensor", "Parts Information"), "this_vehicle",
+     PARTS + "| Brake Pad Wear Sensor | MB | 2015400317 | 20.00 | |\n"),
+    ("1038", "Parts Information", SP.format("Brake Pad Wear Sensor", "Parts Information"), "this_vehicle",
+     PARTS + "| Brake Pad Wear Sensor | MB | 2015400317 | 20.00 | |\n"),
+    ("414", "Parts Information", SP.format("Brake Pad", "Parts Information"), "this_vehicle",
+     PARTS + "| Brake Pad Set, Front | MB | 0024205920 | 80.00 | |\n"),
 ])
 
 print("labour")
@@ -62,7 +70,13 @@ check("the component's page first, its rows as printed",
       rows and rows[0]["page_no"] == "1000"
       and rows[0]["lemon_parts"] == [{"part": "Ignition Lock Tumbler", "maker": "MGB", "number": "2014600104",
                                       "price": "105.00", "notes": ""}], rows)
-check("a page with a header and no parts is not offered", not lemon_tables.parts(con, "c", ["water pump"]))
+check("a page with a header and no parts is not offered, nor another pump's page",
+      not lemon_tables.parts(con, "c", ["water pump"]), lemon_tables.parts(con, "c", ["water pump"]))
+check("one word asked, one word is enough",
+      [r["page_no"] for r in lemon_tables.parts(con, "c", ["pump"])] == ["1300"])
+check("a tie goes to the component itself, and a page filed twice shows once",
+      [r["page_no"] for r in lemon_tables.parts(con, "c", ["brake pads"])] == ["414", "1014"],
+      [r["page_no"] for r in lemon_tables.parts(con, "c", ["brake pads"])])
 check("a part named in a row finds its page",
       [r["page_no"] for r in lemon_tables.parts(con, "c", ["ballast resistor"])] == ["1002"])
 

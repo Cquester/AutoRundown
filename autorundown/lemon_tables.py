@@ -144,7 +144,7 @@ def parts(conn: sqlite3.Connection, doc_id: str, queries: list[str], limit: int 
     scored = []
     for page in parts_pages(conn, doc_id):
         comp = {_stem(w) for w in re.findall(r"\w+", page["component"].lower())}
-        best = (0, [])
+        best = (0, [], set())
         for q in queries:
             words = {_stem(w) for w in re.findall(r"[a-z0-9]{3,}", (q or "").lower())} - _DROP
             if not words:
@@ -154,14 +154,30 @@ def parts(conn: sqlite3.Connection, doc_id: str, queries: list[str], limit: int 
             hit = len(words & comp)
             score = max(hit, max((len(words & {_stem(w) for w in re.findall(r"\w+", r["part"].lower())})
                                   for r in rows), default=0))
+            # two words asked, two matched: "water pump" is not the 190E's
+            # transmission "Fluid Pump" page (its water pump page lists none)
+            if score < min(2, len(words)):
+                continue
             if score > best[0]:
-                best = (score, page["rows"] if hit else rows)
+                best = (score, page["rows"] if hit else rows, words)
         if best[0]:
-            scored.append((-best[0], page["page_no"], page, best[1]))
-    scored.sort(key=lambda s: (s[0], s[1]))
-    return [{"page_no": p["page_no"], "doc_id": doc_id, "title": f"{p['component']}: Parts Information",
-             "section_path": p["section_path"], "applicability": "this_vehicle",
-             "lemon_parts": rows} for _, _, p, rows in scored[:limit]]
+            # a tie goes to the component with fewer other words: "brake pads"
+            # is the "Brake Pad" page before "Brake Pad Wear Sensor"
+            scored.append((-best[0], len(comp - best[2]), int(page["page_no"]) if page["page_no"].isdigit() else 0,
+                           page, best[1]))
+    scored.sort(key=lambda s: s[:3])
+    out, seen = [], set()
+    for *_, p, rows in scored:
+        # the 190E files one wear sensor's page under five folders: shown once
+        key = (p["component"], tuple(tuple(r.values()) for r in rows))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"page_no": p["page_no"], "doc_id": doc_id, "title": f"{p['component']}: Parts Information",
+                    "section_path": p["section_path"], "applicability": "this_vehicle", "lemon_parts": rows})
+        if len(out) >= limit:
+            break
+    return out
 
 
 _DROP = {"part", "number", "the", "for", "and", "what", "replace", "price", "oem", "how", "much"}
