@@ -229,7 +229,7 @@ def parts_codes_clause(codes: tuple = ((), ())) -> tuple[str, list]:
         return "", []
     return (f" AND (p.section_path NOT GLOB '{_CODE_GLOB}' OR "
             + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine)
-            + f" OR (p.section_path GLOB '* ...' AND ("
+            + " OR (p.section_path GLOB '* ...' AND ("
             + " OR ".join(f"instr({_CATALOG_MODELS}, ?) > 0" for _ in mine) + ")))"), [*mine, *mine]
 
 
