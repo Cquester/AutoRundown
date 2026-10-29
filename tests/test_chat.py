@@ -132,6 +132,9 @@ for doc in ("w211", "w210"):
 c2.commit()
 c2.close()
 APP = server.create_app(str(idx), TMP / "auth.db")
+c0 = config.load()   # a phone not signed in is part of these checks: an open
+c0.require_signin = False   # network (sign-in is on by default since 2026-10-29)
+c0.save()
 calls: list[dict] = []
 
 

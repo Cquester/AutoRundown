@@ -62,8 +62,15 @@ APP = server.create_app(str(idx), TMP / "auth.db")
 pc = client("127.0.0.1")
 phone = client("192.168.1.50", "192.168.1.20:8756")
 rebind = client("127.0.0.1", "evil.example:8756")
+CK = auth.cookie_name(8756)   # the sign-in cookie of the app on port 8756
 
-print("sign-in off (the default)")
+print("sign-in on by default (agent review, 2026-10-28)")
+check(config.load().require_signin is True, "a new install requires sign-in")
+check(phone.get("/api/vehicles").status_code == 401, "  ... a phone with no token is refused")
+check(pc.get("/api/vehicles").status_code == 200, "  ... this PC never signs in")
+check(post(pc, "/api/settings", {"require_signin": False}).status_code == 200, "this PC turns it off")
+
+print("sign-in off")
 check(pc.get("/api/me").json()["admin"] is True, "this PC is admin with no sign-in")
 check(phone.get("/api/me").json()["admin"] is False, "a phone is not admin")
 check(phone.get("/api/vehicles").status_code == 200, "a phone can list vehicles")
@@ -260,10 +267,10 @@ check(pc.get(f"/api/admin/users/{sam_id}/qr/{g['grant_id']}").json()["state"] ==
 check(phone.get(f"/api/admin/users/{sam_id}/qr/{g['grant_id']}").status_code == 403,
       "a phone cannot read a QR's state")
 r = scan(phone, g, **{"Sec-Fetch-Site": "cross-site"})
-check(r.status_code == 303 and "refused" in r.headers["location"] and auth.COOKIE not in phone.cookies,
+check(r.status_code == 303 and "refused" in r.headers["location"] and CK not in phone.cookies,
       "a link followed from another site does not sign the phone in")
 r = scan(phone, g, **{"Sec-Fetch-Site": "none"})
-check(r.status_code == 303 and r.headers["location"] == "/" and auth.COOKIE in r.cookies,
+check(r.status_code == 303 and r.headers["location"] == "/" and CK in r.cookies,
       "scanning it signs the phone in and sends it to / (the token gone from the address)")
 check(r.headers.get("cache-control") == "no-store", "  ... and the redirect is not cached")
 cookie_attrs = r.headers.get("set-cookie", "").lower()
@@ -278,7 +285,7 @@ check(pc.get(f"/api/admin/users/{sam_id}/qr/{g['grant_id']}").json()["state"] ==
       "the dialog sees it used")
 other = client("192.168.1.51", "192.168.1.20:8756")
 r = scan(other, g)
-check(r.status_code == 303 and "expired" in r.headers["location"] and auth.COOKIE not in other.cookies,
+check(r.status_code == 303 and "expired" in r.headers["location"] and CK not in other.cookies,
       "the same QR a second time is refused")
 check(post(other, "/api/auth/signin", {"code": g["code"]}).status_code == 400,
       "  ... and so is its typed code: one use covers both")
@@ -287,7 +294,7 @@ print("typed code (camera can't scan)")
 check(post(other, "/api/auth/signin", {"code": "WRONG123"}).status_code == 400, "a wrong code fails")
 g = mint(sam_id)
 r = post(other, "/api/auth/signin", {"code": g["code"][:4].lower() + " " + g["code"][4:]})
-check(r.status_code == 200 and auth.COOKIE in other.cookies, "the code (any case, spaces) signs in")
+check(r.status_code == 200 and CK in other.cookies, "the code (any case, spaces) signs in")
 check(scan(client("192.168.1.53", "192.168.1.20:8756"), g).headers["location"] != "/",
       "  ... and that QR's link is dead now")
 check(post(client("192.168.1.53", "192.168.1.20:8756"), "/api/auth/signin",
@@ -298,7 +305,7 @@ g = mint(sam_id)
 a.execute("UPDATE grants SET expires=? WHERE id=?", (time.time() - 1, g["grant_id"]))
 a.commit()
 p3 = client("192.168.1.54", "192.168.1.20:8756")
-check(scan(p3, g).headers["location"] != "/" and auth.COOKIE not in p3.cookies,
+check(scan(p3, g).headers["location"] != "/" and CK not in p3.cookies,
       "a QR past its 15 minutes is refused (checked on the server)")
 check(post(p3, "/api/auth/signin", {"code": g["code"]}).status_code == 400, "  ... its code too")
 check(pc.get(f"/api/admin/users/{sam_id}/qr/{g['grant_id']}").json()["state"] == "expired",
@@ -308,7 +315,7 @@ check(post(phone, f"/api/admin/users/{sam_id}/qr/{g['grant_id']}/void").status_c
       "a phone cannot void a QR")
 check(post(pc, f"/api/admin/users/{sam_id}/qr/{g['grant_id']}/void").status_code == 200,
       "closing the dialog voids the QR")
-check(scan(p3, g).headers["location"] != "/" and auth.COOKIE not in p3.cookies, "  ... it no longer signs in")
+check(scan(p3, g).headers["location"] != "/" and CK not in p3.cookies, "  ... it no longer signs in")
 check(post(p3, "/api/auth/signin", {"code": g["code"]}).status_code == 400, "  ... nor does its code")
 g1, g2 = mint(sam_id), mint(sam_id)
 check(scan(p3, g1).headers["location"] != "/", "opening a new QR voids the older one")
@@ -323,11 +330,37 @@ check(pc.get(f"/api/admin/users/{dax_id}/qr/{gd['grant_id']}").json()["state"] =
       "  ... and is still good")
 check(scan(p3, gd).headers["location"] == "/" and p3.get("/api/me").json()["name"] == "Daxton",
       "Daxton's QR signs that phone in as Daxton, not Sam")
-old = p3.cookies.get(auth.COOKIE)
+old = p3.cookies.get(CK)
 check(scan(p3, g2).headers["location"] == "/" and p3.get("/api/me").json()["name"] == "Sam",
       "the same phone scanning Sam's QR becomes Sam")
 check(auth.user_for_token(auth.connect(TMP / "auth.db"), old) is None,
       "  ... and its Daxton token is ended, not left behind")
+
+print("a sign-in's cookie and life (agent review, 2026-10-28)")
+k = p3.cookies.get(CK)
+check(bool(k) and auth.COOKIE not in p3.cookies,
+      "the cookie is named for this port: another AutoRundown on the PC keeps its own")
+lp = client("192.168.1.56", "192.168.1.20:8756")
+lp.cookies.set(auth.COOKIE, k)
+check(lp.get("/api/me").json().get("name") == "Sam",
+      "a phone signed in under the old shared name stays signed in")
+op = client("192.168.1.57", "192.168.1.20:8759")
+op.cookies.set(CK, k)
+check(not op.get("/api/me").json().get("signed_in"), "the app on another port doesn't read it")
+now = time.time()
+a.execute("UPDATE tokens SET last_used=?, expires=? WHERE hash=?", (now - 7200, now + 86400, auth._h(k)))
+a.commit()
+ac = auth.connect(TMP / "auth.db")
+check(auth.user_for_token(ac, k) is not None
+      and a.execute("SELECT expires FROM tokens WHERE hash=?", (auth._h(k),)).fetchone()[0]
+      > now + (auth.TOKEN_DAYS - 1) * 86400,
+      f"using it renews it: {auth.TOKEN_DAYS} days from now")
+a.execute("UPDATE tokens SET last_used=?, expires=? WHERE hash=?",
+          (now - (auth.TOKEN_DAYS + 1) * 86400, now + 300 * 86400, auth._h(k)))
+a.commit()
+check(auth.user_for_token(ac, k) is None,
+      f"unused for {auth.TOKEN_DAYS} days it has ended, whatever expiry it was given (old tokens: a year)")
+ac.close()
 check(post(pc, "/api/admin/users/9999/qr").status_code == 404, "no QR for a mechanic who doesn't exist")
 
 print("old typed codes: migrated")

@@ -792,19 +792,10 @@ Still open, in rough order of value:
    drain plug (W210 E 320), the 190 E 2.3 cylinder head (must cite 49014339
    or 49013229, not the 2.3-16's 49013392) and the 190 E 2.3 front pads
    (no rear-pad number in the text) -- with the user's OK.
-2. **Review findings not fixed yet**:
-   - **Phone readability.** "Original layout" is the default and draws text
-     at ~5 px. Torque values are at 15 px. Four fixed rows take the top
-     205 px.
-   - **A fresh browser starts with the R107 selected**, not "Choose your
-     car".
-   - **"oil pan" never finds "Remove/install oil pan"** (a synonym crowds
-     out the user's words), and "taillight" misses "rear lamp".
-   - **AI fallbacks.** With no key for the default provider, Ask falls to
-     the dearest model. A malformed reply is headed "Not found". A 529 shows
-     as a raw dict.
-   - **Security defaults.** Sign-in is off by default, the session cookie
-     lasts 365 days over plain HTTP, and it is sent to every port on the PC.
+2. **Review findings not fixed yet** (fixed 2026-10-29: phone readability,
+   no car on a fresh browser, "oil pan" / "taillight" search, the AI
+   fallbacks, sign-in on by default with 30-day idle tokens and a cookie per
+   port):
    - **Install.** The README quick start builds `./index.db`, but
      `serve.py` opens `~/.autorundown/index.db`. A source run collides with
      the installed copy on port 8756.

@@ -61,7 +61,10 @@ class Config:
     vm_file: str = ""
     # other devices must sign in with a mechanic account (auth.py); off =
     # anyone on the network can search and ask. The PC itself never signs in.
-    require_signin: bool = False
+    # On unless the shop turns it off (agent review, 2026-10-28: off let any
+    # device on the shop's Wi-Fi spend the company key); a config.json that
+    # already says false keeps it.
+    require_signin: bool = True
     # WIS damage-code picture menus (search.show_damage_codes): for warranty
     # fault codes, not repairs; off = left out of search, Ask and the Manual
     # contents (the user, 2026-10-24: off by default, a setting to show them)

@@ -229,14 +229,14 @@ browser *on that PC* (`http://localhost:8756`). Phones and other computers
 can search and ask, nothing else -- they never see Shop setup, and the server
 refuses those requests from them.
 
-**Mechanic accounts are optional.** Shop setup → *Phones & mechanics* →
-*Require each mechanic to sign in*. Then:
+**Mechanics sign in** (on unless you turn it off: Shop setup → *Phones &
+mechanics* → *Require each mechanic to sign in*):
 
 - On the same page, add a mechanic's name (and, if you like, a monthly
   dollar limit). Their **sign-in QR** opens on the PC's screen.
 - The mechanic scans it with their phone's camera: the phone opens
-  AutoRundown already signed in, and stays signed in (a year, or until you
-  sign it out). The QR works once, for 15 minutes, and stops working when
+  AutoRundown already signed in, and stays signed in while it is used (30
+  days unused ends it, or you sign it out). The QR works once, for 15 minutes, and stops working when
   you close it. A phone whose camera can't scan it types the 8-character
   code shown under the QR instead (same rules). A new phone later: the
   mechanic's **Sign-in QR** button.

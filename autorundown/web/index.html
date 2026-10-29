@@ -3298,6 +3298,7 @@ function drawAnswer(d, label, replay = false, before = '', after = '') {
   // _verify_citations withholds an answer left with no real citation and
   // says so in caveats; that is not "the manual doesn't have it"
   const WITHHELD = /\s*Answer withheld:[^]*$/i;
+  const NO_REPLY = /no parsable answer|declined by the model/i;
   if (!d.found && WITHHELD.test(d.caveats || '')) {
     const rest = (d.caveats || '').replace(WITHHELD, '').trim();
     h += `<div class="card"><div class="withheld" role="status">
@@ -3305,6 +3306,14 @@ function drawAnswer(d, label, replay = false, before = '', after = '') {
       <div style="margin-top:6px">The AI's answer didn't cite a manual page that was actually searched,
         so it isn't shown. The keyword search lists the manual's own pages for the same question.</div>
       ${rest ? `<div class="muted" style="margin-top:6px">${esc(rest)}</div>` : ''}
+      <button type="button" class="ghost" data-searchinstead>Search the manual instead</button>
+    </div></div>`;
+  } else if (!d.found && NO_REPLY.test(d.caveats || '')) {
+    // the AI's reply couldn't be read, or it declined: says nothing about
+    // the manual (agent review, 2026-10-28: this was "Not found in this archive")
+    h += `<div class="card"><div class="withheld" role="status">
+      <strong>No answer — the AI's reply couldn't be used</strong>
+      <div style="margin-top:6px">${esc(d.caveats)} Ask again, or search the manual's own pages.</div>
       <button type="button" class="ghost" data-searchinstead>Search the manual instead</button>
     </div></div>`;
   } else if (!d.found) {
@@ -3400,6 +3409,7 @@ function turnHtml(t) {
   const d = t.d;
   const text = d.found ? (d.answer || 'See the values and page below.')
     : /Answer withheld:/i.test(d.caveats || '') ? 'No checked answer (its sources could not be verified).'
+    : /no parsable answer|declined by the model/i.test(d.caveats || '') ? 'No answer (the AI’s reply couldn’t be used).'
     : 'Not found in the manual.';
   const page = d.found && d.document_page
     ? `<button class="pagelink" ${pageAttrs(d.document_page)}>page ${esc(d.document_page)}</button>` : '';

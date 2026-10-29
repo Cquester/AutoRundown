@@ -63,11 +63,12 @@ vehicle = index.vehicles(conn)[0]
 CHEAP = {"anthropic": "claude-haiku-4-5", "gemini": "gemini-3.5-flash-lite",
          "xai": "grok-4.3", "deepseek": "deepseek-flash"}
 check("every provider has a model here", set(CHEAP) == set(providers.PROVIDERS))
-ERRORS = {   # what the person asking reads, per provider
-    "anthropic": ("529", "Out of API credit"),
-    "gemini": ("503", "quota"),
-    "xai": ("503", "Out of API credit"),
-    "deepseek": ("503", "Out of API credit"),
+ERRORS = {   # what the person asking reads, per provider: an overloaded API
+    # (529 / 503) is said as busy, never as a code and a raw dict (2026-10-29)
+    "anthropic": ("is busy right now", "Out of API credit"),
+    "gemini": ("is busy right now", "quota"),
+    "xai": ("is busy right now", "Out of API credit"),
+    "deepseek": ("is busy right now", "Out of API credit"),
 }
 
 for pid, model in CHEAP.items():
@@ -231,6 +232,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 from autorundown import server as app_server  # noqa: E402
 
 app = app_server.create_app(str(db), TMP / "auth.db")
+c0 = config.load()   # a phone not signed in is part of these checks: an open
+c0.require_signin = False   # network (sign-in is on by default since 2026-10-29)
+c0.save()
 pc = TestClient(app, base_url="http://localhost:8756", client=("127.0.0.1", 50000))
 phone = TestClient(app, base_url="http://192.168.1.20:8756", client=("192.168.1.50", 50000))
 GKEY = "AIza-test-not-real-GGGG"

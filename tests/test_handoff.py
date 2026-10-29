@@ -22,7 +22,7 @@ os.environ["AUTORUNDOWN_HOME"] = str(TMP)  # before importing autorundown
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from autorundown import handoff, index, server  # noqa: E402
+from autorundown import auth, config, handoff, index, server  # noqa: E402
 
 fails = 0
 
@@ -64,6 +64,9 @@ conn.execute("INSERT INTO vehicles(doc_id, make, model, year_range) "
 conn.commit()
 conn.close()
 APP = server.create_app(str(idx), TMP / "auth.db")
+c0 = config.load()   # a phone not signed in is part of these checks: an open
+c0.require_signin = False   # network (sign-in is on by default since 2026-10-29)
+c0.save()
 
 pc = client("127.0.0.1")
 anon = client("192.168.1.40", "192.168.1.20:8756")
@@ -75,7 +78,7 @@ def sign_in(addr: str, uid: int) -> TestClient:
     c = client(addr, "192.168.1.20:8756")
     g = post(pc, f"/api/admin/users/{uid}/qr").json()
     r = c.get("/signin?" + g["url"].split("?", 1)[1], follow_redirects=False)
-    assert r.status_code == 303 and c.cookies.get("ar_token"), r.text
+    assert r.status_code == 303 and c.cookies.get(auth.cookie_name(8756)), r.text
     return c
 
 
