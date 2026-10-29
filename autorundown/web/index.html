@@ -473,6 +473,7 @@
   .vmchecks .ck.ok .i{color:var(--good)} .vmchecks .ck.warn .i{color:var(--warn)}
   .vmchecks .ck.fail .i{color:var(--bad)} .vmchecks .ck.fail{font-weight:600}
   .vmchecks .ckhead{font-weight:700; padding:6px 0 2px}
+  .vmchecks button.vmfix{margin-top:6px}
   /* the VM is chosen as its .vbox file, browsed like an import folder */
   .vmpick{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
   .vmpick #impVmChosen{flex:1 1 220px; min-width:0; overflow-wrap:anywhere}
@@ -1370,7 +1371,7 @@
       with its exploded drawings, then replaces the parts catalogue in the index. Part numbers then show
       under each car alongside its manual. A first full run takes several hours; a re-run resumes where it
       stopped and reuses drawings already pulled. Starts the VM headless, reads the EPC database (read only)
-      and shuts it down; it takes a snapshot first, to roll back to, and never changes the VM's settings.</p>
+      and shuts it down; it takes a snapshot first, to roll back to, and never changes the VM's settings by itself.</p>
     </div>
     <div id="impWisOpts">
     <label>Steps (each one resumes where it stopped)</label>
@@ -1383,7 +1384,7 @@
     </div>
     <p class="muted" style="margin:10px 0 0">Starts the VM headless, reads the Mercedes database (read only),
       then shuts it down and rebuilds the Mercedes part of the index. It takes a snapshot of the VM first,
-      to roll back to, and never changes the VM's settings. A first full run takes several hours (images are pulled in batches with the VM
+      to roll back to, and never changes the VM's settings by itself. A first full run takes several hours (images are pulled in batches with the VM
       off in between); a re-run skips what is already pulled.</p>
     </div>
     </div>
@@ -6721,7 +6722,27 @@ const vmCheckKey = () => [$('#impVm').value, impVmWhat(), impVmSteps()].join('|'
 const VM_CK_ICON = {ok: '✓', warn: '!', fail: '✗'};
 const vmChecksHtml = (checks, head) => (head ? `<div class="ckhead">${esc(head)}</div>` : '')
   + checks.map(c => `<div class="ck ${c.level}"><span class="i" aria-label="${c.level}">${VM_CK_ICON[c.level]}</span>`
-    + `<span>${esc(c.message)}</span></div>`).join('');
+    + `<span>${esc(c.message)}`
+    // the one check the app can put right itself: Adapter 1 onto host-only (no admin rights)
+    + (c.key === 'network' && c.level === 'fail'
+      ? `<br><button type="button" class="vmfix" data-vm-fix="network">Fix it</button>` : '')
+    + `</span></div>`).join('');
+$('#impVmChecks').addEventListener('click', async e => {
+  const b = e.target.closest('[data-vm-fix]');
+  if (!b) return;
+  const vm = $('#impVm').value;
+  b.disabled = true;
+  b.textContent = 'Setting…';
+  try {
+    await api('/api/vms/fix-network', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({vm})});
+    impVmCheck();                       // check again: the ✗ should now be a ✓
+  } catch (err) {
+    b.disabled = false;
+    b.textContent = 'Fix it';
+    b.closest('.ck').insertAdjacentHTML('afterend', `<div class="errbox">${esc(err.message)}</div>`);
+  }
+});
 const impVmSteps = () => [...document.querySelectorAll('#impSteps input:checked')].map(c => c.value).join(',');
 async function impVmCheck() {
   const vm = $('#impVm').value, seq = ++vmCheckSeq, box = $('#impVmChecks');

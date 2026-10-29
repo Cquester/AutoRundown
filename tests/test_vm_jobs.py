@@ -121,6 +121,56 @@ def pipeline_checks() -> None:
               sorted(done) == ["A", "B"] and not vmp.STARTED, done)
     except RuntimeError as exc:
         check("every VM it started is shut down, even when one is saved (no crash)", False, exc)
+    # --fix-network: which VBoxManage call for which VM state (VBoxManage stubbed)
+    calls, state, ifs = [], ["poweroff"], ["Name:            VirtualBox Host-Only Ethernet Adapter\n"
+                                          "IPAddress:       192.168.56.1\n"]
+
+    def fake_vbox(*a, check=True):
+        if a[:2] == ("list", "hostonlyifs"):
+            return ifs[0]
+        if a[0] == "showvminfo":
+            return f'VMState="{state[0]}"\n'
+        calls.append(a)
+        return ""
+    real_vbox, vmp.vbox = vmp.vbox, fake_vbox
+
+    def fix(st):
+        state[0] = st
+        calls.clear()
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as o:
+                vmp.fix_network("VM", "192.168.56")
+            return "ok", o.getvalue()
+        except SystemExit:
+            return "stop", o.getvalue()
+    check("an off VM: modifyvm puts Adapter 1 on the host-only network",
+          fix("poweroff")[0] == "ok" and calls == [("modifyvm", "VM", "--nic1", "hostonly", "--hostonlyadapter1",
+                                                    "VirtualBox Host-Only Ethernet Adapter")], calls)
+    check("a running VM: switched live (controlvm)", fix("running")[0] == "ok"
+          and calls == [("controlvm", "VM", "nic1", "hostonly", "VirtualBox Host-Only Ethernet Adapter")], calls)
+    r = fix("saved")
+    check("a saved VM: nothing changed, and says what to do (never discards the state)",
+          r[0] == "stop" and not calls and "shut" in r[1], r)
+    ifs[0] = ""
+    r = fix("poweroff")
+    check("no host-only network on the PC: nothing changed, says how to make one",
+          r[0] == "stop" and not calls and "Network Manager" in r[1], r)
+    # the firewall rule typed into the VM: once, only to a signed-in desktop
+    calls.clear()
+    vmp.sleep = lambda s: None
+    with contextlib.redirect_stdout(io.StringIO()):
+        vmp.open_guest_firewall("VM", "192.168.56")
+    typed = [c for c in calls if c[2] == "keyboardputstring"]
+    check("the firewall rule: Start menu, cmd as administrator, UAC Yes, then the netsh rule",
+          [c[3:] for c in calls[:1]] == [vmp.WIN_KEY] and typed[0][3] == "cmd"
+          and "localport=any" in typed[-1][3] and "remoteip=192.168.56.0/24" in typed[-1][3]
+          and "state off" not in typed[-1][3] and "VM" in vmp.GUEST_SETUP, calls)
+    users = ["Value: 0"]
+    vmp.vbox = lambda *a, check=True: users[0] if a[0] == "guestproperty" else ""
+    check("nobody signed in: not a desktop, so nothing is typed", not vmp.logged_in("VM"))
+    users[0] = "Value: 1"
+    check("signed in: a desktop to type into", vmp.logged_in("VM"))
+    vmp.vbox = real_vbox
     import re
     src = (ROOT / "extractor" / "vm_pipeline.py").read_text(encoding="utf-8")
     code = "\n".join(l.split("#")[0] for l in src.splitlines() if not l.lstrip().startswith("#"))
@@ -310,6 +360,18 @@ def main() -> int:
               r.status_code == 400 and "host-only" in r.text, r.text)
         check("an unknown VM is refused by the check",
               not pc.get("/api/vms/check", params={"vm": "nope", "what": "wis"}).json()["ready"])
+
+        print("\n-- Fix it: the app sets the VM's network itself --")
+        r = pc.post("/api/vms/fix-network", json={"vm": "nope"})
+        check("an unknown VM is refused", r.status_code == 400 and "no VirtualBox VM" in r.text, r.text)
+        r = pc.post("/api/vms/fix-network", json={"vm": "No network (fake)"})
+        check("Fix it sets Adapter 1 to host-only", r.status_code == 200 and "host-only" in r.json()["message"],
+              r.text)
+        ck = pc.get("/api/vms/check", params={"vm": "No network (fake)", "what": "wis"}).json()
+        check("... and the check passes afterwards",
+              any(c["key"] == "network" and c["level"] == "ok" for c in ck["checks"]), ck)
+        check("a phone can't change the VM", phone.post("/api/vms/fix-network",
+                                                         json={"vm": "No network (fake)"}).status_code == 403)
 
         print("\n-- Test the VM: Windows won't start -> a picture of its screen --")
         r = pc.post("/api/import", json={"path": "", "mode": "vm_check", "vm": "Windows won't start (fake)",

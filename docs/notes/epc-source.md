@@ -85,8 +85,10 @@ The site runs the extraction; end users should do as little as possible.
 - **IP** (the 169.254 APIPA seen after a host reboot): enable the host-only
   **DHCP server** host-side (`VBoxManage dhcpserver`); guests then auto-get a
   192.168.56.x address. No guest static-IP setup.
-- **Firewall**: the one guest-side thing, and it cannot be scripted host-side
-  here — `guestcontrol` needs a guest Windows logon, and this VM's account
+- **Firewall** (**typed by the pipeline since 2026-10-29**, see
+  `importing.md` "The guest firewall"; what follows is why guestcontrol
+  can't): the one guest-side thing, and it cannot be scripted host-side
+  with `guestcontrol` — it needs a guest Windows logon, and this VM's account
   (`EMO`) has a **blank password**, which Windows refuses for the logon type
   `guestcontrol` uses (tested: "user was not able to logon"). So the old
   `extract.ps1 -GuestUser/-GuestPassword` firewall step can't run unattended.
@@ -434,7 +436,9 @@ so in `caveats` rather than guessing.
    VM's `biossystemtimeoffset` at 0 (2026-10-14) -- the 2008 clock matters to
    the EPC *program's* licence, not to reading its database -- and the
    pipeline's standing rule is to start/stop the VM and read, never change its
-   settings or the host network. Unreachable database -> the existing
+   settings or the host network (one exception since 2026-10-29: the
+   network check's Fix it, on a click, puts Adapter 1 on host-only --
+   `importing.md`). Unreachable database -> the existing
    one-time message (start "Mercedes WSM EPC", host-only network, firewall
    off), the same bar as WIS.
 6. Callout hotspots from the FV4 annotation overlay: **built 2026-10-23**,

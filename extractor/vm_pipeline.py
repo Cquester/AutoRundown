@@ -4,6 +4,7 @@
     python vm_pipeline.py --list-vms
     python vm_pipeline.py --vm X --steps ... --check          # will it work? (no boot)
     python vm_pipeline.py --vm X --steps ... --check --boot   # ... and boot it to see
+    python vm_pipeline.py --vm X --fix-network                # Adapter 1 -> host-only
 
 Runs the same pieces the manual procedure does (CLAUDE.md in AutoRundown),
 in order, each resumable -- a re-run skips what is already pulled:
@@ -34,9 +35,13 @@ it) and never restores one by itself: `--restore NAME` does, asked for
 from Shop setup, after taking "AutoRundown-before-rollback-<...>" of the
 current state so the rollback can be undone. `--list-snapshots` lists them.
 Otherwise it only starts the VM headless, stops it, and reads the database
-(SELECT only); it never changes network adapters or touches the guest's
-firewall. If the database isn't reachable it says what to set up, once, by
-hand (see README.md "Bring-up").
+(SELECT only). It changes a network adapter only when asked: `--fix-network`
+(Shop setup's "Fix it" on the network check, 2026-10-29) puts Adapter 1 on
+the host-only network. Inside the guest it does one thing: when Windows is
+up and signed in but the database doesn't answer, it types a Windows
+Firewall rule letting ports 2020-2060 in from the host-only network
+(`open_guest_firewall`, once per run). If the database still isn't
+reachable it says what to set up, once, by hand.
 
 It never pulls the plug on Windows (2026-10-16: a forced power-off after the
 database didn't answer left the guest in Startup Repair). A shutdown that
@@ -218,6 +223,39 @@ def port_open(ip: str, port: int, timeout: float = 0.4) -> bool:
         return False
 
 
+def hostonly_ifs() -> list[tuple[str, str]]:
+    """[(name, IPv4 address)] of this PC's VirtualBox host-only networks."""
+    out, name = [], ""
+    for line in vbox("list", "hostonlyifs", check=False).splitlines():
+        if line.startswith("Name:"):
+            name = line.split(":", 1)[1].strip()
+        elif line.startswith("IPAddress:") and name:
+            out.append((name, line.split(":", 1)[1].strip()))
+    return out
+
+
+def fix_network(vm: str, subnet: str) -> None:
+    """Put the VM's Adapter 1 on the host-only network -- only when a person
+    asks (Shop setup's "Fix it" on the network check), the one VM setting
+    this changes. No administrator rights needed: the host-only network
+    itself already exists (VirtualBox makes one when it is installed)."""
+    ifs = hostonly_ifs()
+    if not ifs:
+        die("this PC has no VirtualBox host-only network. In VirtualBox: File -> Tools -> Network "
+            "Manager -> Host-only Networks -> Create (Windows asks for administrator rights).")
+    name = next((n for n, ip in ifs if ip.startswith(subnet + ".")), ifs[0][0])
+    state = vm_state(vm)
+    if state == "running":
+        vbox("controlvm", vm, "nic1", "hostonly", name)
+    elif state in ("poweroff", "aborted"):
+        vbox("modifyvm", vm, "--nic1", "hostonly", "--hostonlyadapter1", name)
+    else:
+        # a saved VM's adapters can't be changed, and discarding the state is a power-off
+        die(f"{vm} is {state}: its network can't be changed now. Start it in VirtualBox, shut "
+            f"Windows down from the Start menu, then try again.")
+    log(f"NETWORK {vm}: Adapter 1 is now on the host-only network {name!r}")
+
+
 def find_db(vm: str, port: int, subnet: str) -> str | None:
     for n in range(4):   # Guest Additions report the guest's addresses
         out = vbox("guestproperty", "get", vm, f"/VirtualBox/GuestInfo/Net/{n}/V4/IP", check=False)
@@ -303,6 +341,86 @@ def restore_snapshot(vm: str, name: str) -> None:
     log(f"rolled {vm} back to {name}")
 
 
+def logged_in(vm: str) -> bool:
+    """Someone is signed in to Windows (Guest Additions say so): only then
+    do typed keys reach a desktop, not the sign-in screen's password box."""
+    out = vbox("guestproperty", "get", vm, "/VirtualBox/GuestInfo/OS/LoggedInUsers", check=False)
+    return out.replace("Value:", "").strip() not in ("", "0", "No value set!")
+
+
+# typed into the VM's keyboard (scancode set 1): VirtualBox needs no Windows
+# logon for this, unlike guestcontrol, which refuses the VM's blank password
+WIN_KEY = ("e0", "5b", "e0", "db")
+CTRL_SHIFT_ENTER = ("1d", "2a", "1c", "9c", "aa", "9d")   # Start menu: run as administrator
+ALT_Y = ("38", "15", "95", "b8")                           # UAC: Yes
+ENTER = ("1c", "9c")
+FW_RULE = "AutoRundownDB"
+# Any port, from the host-only network only: WIS 2054 and EPC 2034 hand each
+# connection on to a Transbase kernel on another port, so a rule for 2054,2034
+# (and then 2020-2060) let the port answer and every login fail with "IO
+# exception on socket" (2026-10-29). The host-only network reaches only this PC.
+DB_PORTS = "any"
+GUEST_SETUP: set[str] = set()                              # VMs this run typed the rule into
+
+
+def open_guest_firewall(vm: str, subnet: str) -> None:
+    """Let the two databases (and the servers they hand connections to)
+    through Windows Firewall in the VM, from the
+    host-only network only -- typed, once per run, when Windows is up and
+    signed in but the database doesn't answer (2026-10-29: the VM reverted
+    to its original snapshot had the firewall on, the one step every new
+    user had to do inside the VM by hand). A rule, not the firewall off.
+    Start menu -> cmd -> Ctrl+Shift+Enter -> Alt+Y (EMO is an administrator,
+    so UAC asks only for Yes); tested on Mercedes_Ultimate_207. Where it
+    doesn't fit (UAC asks for a password, another layout) nothing worse than
+    a stray command window happens, and the message after it says what to do
+    by hand. The run's own snapshot is taken before this."""
+    GUEST_SETUP.add(vm)
+    log(f"database not answering; typing a Windows Firewall rule into {vm}: TCP in from "
+        f"{subnet}.x (this PC's host-only network) only, rule {FW_RULE!r}")
+
+    def keys(codes):
+        vbox("controlvm", vm, "keyboardputscancode", *codes, check=False)
+    keys(WIN_KEY)
+    sleep(2)
+    vbox("controlvm", vm, "keyboardputstring", "cmd", check=False)
+    sleep(2)
+    keys(CTRL_SHIFT_ENTER)
+    sleep(5)
+    keys(ALT_Y)
+    sleep(4)
+    # delete first so a re-run doesn't pile up copies; '&' runs each in turn
+    vbox("controlvm", vm, "keyboardputstring",
+         f"netsh advfirewall firewall delete rule name={FW_RULE} & netsh advfirewall firewall add "
+         f"rule name={FW_RULE} dir=in action=allow protocol=TCP localport={DB_PORTS} "
+         f"remoteip={subnet}.0/24 & exit", check=False)
+    keys(ENTER)
+
+
+DB_NAMES: dict[int, str] = {2054: "wisnet", 2034: "SPECIALFILES"}   # port -> database (set from the arguments)
+
+
+def db_login(ip: str, port: int) -> bool | str:
+    """True if this PC can log in to the database on `port` (db_login.js,
+    over JDBC, read-only: it connects and closes), else the driver's error.
+    True when Java isn't set up in this run: then nothing logs in anyway."""
+    if not JAVA or not (STAGE / "db_login.js").is_file():
+        return True
+    try:
+        r = subprocess.run([JAVA, "-cp", "tbjdbc.jar", "jdk.nashorn.tools.Shell", "db_login.js"],
+                           cwd=STAGE, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=90, creationflags=NO_WINDOW, check=False,
+                           env={**os.environ, "AR_HOST": ip, "AR_PORT": str(port),
+                                "AR_DB": DB_NAMES.get(port, "wisnet"),
+                                # the users the pulls log in as (tbadmin on EPC: error 16004)
+                                "AR_USER": "tbuser" if DB_NAMES.get(port) == "SPECIALFILES" else "tbadmin"})
+    except subprocess.TimeoutExpired:
+        return "no answer within 90 s"
+    out = next((l for l in r.stdout.splitlines() if l.startswith("LOGIN ")), "")
+    return True if out.startswith("LOGIN OK") else (out[len("LOGIN FAIL "):] or
+                                                     (r.stderr.strip().splitlines() or ["no output"])[-1])
+
+
 def windows_up(vm: str) -> bool:
     """Windows in the guest has started its services: Guest Additions report
     run level 2 (userland) or 3 (desktop). 0 while it boots -- or while it
@@ -373,18 +491,28 @@ def _vm_up_once(vm: str, port: int, subnet: str, wait_s: int, final: bool) -> st
             die(f"VirtualBox could not start {vm}: {exc}")
         STARTED.add(vm)
     deadline = time.time() + wait_s
-    told = False
+    told = said_login = False
     while time.time() < deadline:
         stop_if_cancelled()
         ip = find_db(vm, port, subnet)
         if ip:
-            log(f"database answering at {ip}:{port}; letting it settle 30 s")
-            sleep(30)
-            return ip
-        if not told and time.time() > deadline - wait_s + 120:
-            log("database not answering yet. Once, inside the VM: log in to Windows, start "
-                "'Mercedes WSM EPC' (it starts the database), put the network adapter on "
-                "host-only and turn Windows Firewall off. Still checking...")
+            # the port answering is not a login (2026-10-29: a firewall rule
+            # for the port alone passed this and failed every pull)
+            login = db_login(ip, port)
+            if login is True:
+                log(f"database answering at {ip}:{port} and a login works; letting it settle 30 s")
+                sleep(30)
+                return ip
+            if not said_login:
+                log(f"the database's port answers at {ip}:{port} but a login fails: {login}")
+                said_login = True
+        if vm not in GUEST_SETUP and windows_up(vm) and logged_in(vm) \
+                and time.time() > deadline - wait_s + 90:
+            open_guest_firewall(vm, subnet)
+        if not told and time.time() > deadline - wait_s + 240:
+            log("database not answering yet. Once, inside the VM (VirtualBox: select it, Show): "
+                "sign in to Windows, start 'Mercedes WSM EPC' (it starts the database), and let "
+                "ports 2054 and 2034 through Windows Firewall (or turn it off). Still checking...")
             told = True
         time.sleep(5)
     if not windows_up(vm):
@@ -395,8 +523,8 @@ def _vm_up_once(vm: str, port: int, subnet: str, wait_s: int, final: bool) -> st
             f"Repair finish), shut it down from the Start menu, then run this again.")
     if final:
         screenshot(vm)
-        die(f"Windows is up but the database is not reachable on port {port} on two boots "
-            f"-- see the message above.")
+        die(f"Windows is up but this PC can't log in to the database on port {port} -- see "
+            f"the message above.")
     return None
 
 
@@ -466,13 +594,21 @@ def preflight(vm: str, steps: list[str], out: Path, subnet: str, java: str, jar:
                                                 "space -- AutoRundown never deletes them.")
                       if len(ours) > TOO_MANY else check("snapshot", "ok", note))
         hostonly = [k for k, v in info.items() if k.startswith("nic") and v.strip('"') == "hostonly"]
-        if not hostonly:
+        if not hostonly and not hostonly_ifs():
+            # making one installs a network driver: administrator rights, so a person does it
+            levels.append(check("hostonly", "fail", "This PC has no VirtualBox host-only network, so it "
+                                                    "cannot reach the VM's database. In VirtualBox: File "
+                                                    "-> Tools -> Network Manager -> Host-only Networks -> "
+                                                    "Create (Windows asks for administrator rights), then "
+                                                    "check again."))
+        elif not hostonly:
+            # the "network" key with a fail is what Shop setup offers "Fix it" for (--fix-network)
             levels.append(check("network", "fail", f"{vm} has no host-only network adapter: this PC "
-                                                   "cannot reach its database. In VirtualBox: Settings "
-                                                   "-> Network -> Adapter 1 -> Host-only Adapter."))
+                                                   "cannot reach its database. Fix it sets Adapter 1 to "
+                                                   "Host-only Adapter (or in VirtualBox: Settings -> "
+                                                   "Network -> Adapter 1 -> Host-only Adapter)."))
         else:
-            host_ips = [l.split(":", 1)[1].strip() for l in vbox("list", "hostonlyifs", check=False).splitlines()
-                        if l.startswith("IPAddress:")]
+            host_ips = [ip for _, ip in hostonly_ifs()]
             if not any(ip.startswith(subnet + ".") for ip in host_ips):
                 levels.append(check("network", "warn", f"The host-only network is not on {subnet}.x "
                                                        f"(found {', '.join(host_ips) or 'none'}); the "
@@ -493,6 +629,8 @@ def preflight(vm: str, steps: list[str], out: Path, subnet: str, java: str, jar:
         levels.append(check("jdbc", "ok", "Transbase JDBC driver found.") if jr else
                       check("jdbc", "fail", "tbjdbc.jar (the Transbase JDBC driver) was not found."))
     missing = [f for s in steps for f in STEP_SCRIPTS.get(s, []) if not (HERE / f).is_file()]
+    if online and not (HERE / "db_login.js").is_file():
+        missing.append("db_login.js")      # the login check every online run makes
     levels.append(check("scripts", "fail", f"This extractor copy ({HERE}) is missing {', '.join(missing)}: "
                                            "copy a current extractor folder over it.") if missing else
                   check("scripts", "ok", "The extractor has every script these steps need."))
@@ -523,8 +661,8 @@ def boot_check(vm: str, steps: list[str], subnet: str, wait_s: int, wis_port: in
         try:
             ip = _vm_up_once(vm, port, subnet, wait_s if first else 120, final=True)
             first = False
-            levels.append(check(f"db_{name.lower()}", "ok", f"Windows started and the {name} database "
-                                                           f"answers at {ip}:{port}."))
+            levels.append(check(f"db_{name.lower()}", "ok", f"Windows started and this PC can log in "
+                                                           f"to the {name} database at {ip}:{port}."))
         except SystemExit:
             if cancelled():
                 raise
@@ -672,6 +810,8 @@ def main(argv=None) -> int:
                     help="the VM's snapshots: name, ours (auto/rollback) or not, current, description")
     ap.add_argument("--restore", default="",
                     help="roll the VM back to this snapshot (the current state is snapshotted first)")
+    ap.add_argument("--fix-network", action="store_true",
+                    help="put the VM's Adapter 1 on the host-only network (asked for from Shop setup)")
     args = ap.parse_args(argv)
     global SHOT_DIR
 
@@ -694,16 +834,23 @@ def main(argv=None) -> int:
     if args.restore:
         restore_snapshot(args.vm, args.restore)
         return 0
-    steps = [s for s in args.steps.split(",") if s]
+    if args.fix_network:
+        fix_network(args.vm, args.subnet)
+        return 0
+    steps =[s for s in args.steps.split(",") if s]
     bad = [s for s in steps if s not in ALL_STEPS]
     if bad:
         ap.error(f"unknown step(s) {bad}")
 
     out = Path(args.out_root)
+    DB_NAMES.clear()
+    DB_NAMES.update({args.port: args.db, args.epc_port: "SPECIALFILES"})
     if args.check:
         levels = preflight(args.vm, steps, out, args.subnet, args.java, args.jar)
         if args.boot and "fail" not in levels:
             SHOT_DIR = out
+            # Java for the real login (db_login.js); the preflight found both
+            JAVA, STAGE = find_java(args.java), stage_scripts(find_jar(args.jar))
             auto_snapshot(args.vm, "a VM test")
             levels += boot_check(args.vm, steps, args.subnet, args.wait, args.port, args.epc_port)
         log("check: " + ("ready" if "fail" not in levels else "NOT ready -- see the CHECK lines"))
