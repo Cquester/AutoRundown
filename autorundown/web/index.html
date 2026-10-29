@@ -519,7 +519,11 @@
      window (wide screens; remembered on this device) */
   @media (max-width:900px){ #resTabs .widebtn{display:none} }
   @media (min-width:901px){
-    .widebtn{display:inline-flex; align-items:center; margin-left:auto; color:var(--accent) !important}
+    /* held at the strip's right edge when the tabs overflow it (agent review:
+       at 1440 px it sat off-screen, reachable only by scrolling the strip) */
+    .widebtn{display:inline-flex; align-items:center; margin-left:auto; color:var(--accent) !important;
+      position:sticky; right:0; z-index:1; background:var(--pane) !important;
+      box-shadow:-14px 0 10px -4px var(--pane)}
     body.split main{grid-template-columns:minmax(0, var(--lf)) minmax(0, var(--rf))}
     body.collapsed main{grid-template-columns:1fr}
     body.collapsed #left{display:none}
