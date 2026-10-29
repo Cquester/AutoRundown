@@ -216,6 +216,23 @@ def main() -> int:
     check("a diagnostic test's volumes are left out",
           search.value_lines(mem, "t", "capacity", "water") == [])
 
+    print("-- a table row printed over two lines keeps its label and tail (Honda, 2026-10-28) --")
+    mem.execute("INSERT INTO pages VALUES ('h', 'Engine Lubrication System', ?)", (
+        "| Item | Measurement | Qualification | Standard or New | Service Limit |\n"
+        "|---|---|---|---|---|\n"
+        "| D17A2, D17A6 engines | Oil change, | 3.5 l (3.7 US qt) | | |\n"
+        "| | including filter | | | |\n"
+        "| | Oil change, | 3.3 l (3.5 US qt) | | |\n"
+        "| | without filter | | | |\n"
+        "| D17A1 engine | Oil change, | 3.2 l (3.4 US qt) | | |\n"
+        "| | including filter | | | |\n",))
+    rows = [vr(l, "capacity") for l in search.value_lines(mem, "h", "capacity", "engine oil")]
+    check("each row names its engine and its filter, both units in the value",
+          [(r["name"], r["value"]) for r in rows] == [
+              ("D17A2, D17A6 engines · Oil change · including filter", "3.5 l / 3.7 US qt"),
+              ("D17A2, D17A6 engines · Oil change · without filter", "3.3 l / 3.5 US qt"),
+              ("D17A1 engine · Oil change · including filter", "3.2 l / 3.4 US qt")], rows)
+
     print("-- the endpoints --")
     idx = TMP / "index.db"
     with open(os.devnull, "w") as quiet:

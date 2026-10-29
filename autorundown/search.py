@@ -491,7 +491,8 @@ VALUE_RES = {
     # tables: "Engine oil Capacity (oil and filter change) Liter 6,5 7,0".
     # [\s\xa0\xc2]: some pages still carry "5\xc2\xa0l" from a double decode
     "capacity": re.compile(r"\b\d+[.,]\d+[\s\xa0\xc2]*[lL]\b"
-                           r"|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:ltr|litres?|liters?|qts?|quarts?|pints?|ml|cm3|gal)\b"
+                           r"|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:(?:US|Imp)\.?[\s\xa0]+)?"
+                           r"(?:ltr|litres?|liters?|qts?|quarts?|pints?|ml|cm3|gal)\b"
                            r"|\b(?:liters?|litres?|ltr|qts?|quarts?)[\s\xa0\xc2]+\d+(?:[.,]\d+)?\b"
                            r"|(?-i:\b\d+[\s\xa0\xc2]*l\b)", re.I),   # "5 l": lowercase only
 }
@@ -538,12 +539,32 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
         return []
 
     lines, carry = [], ""
+    group, kept_row = "", None     # a pipe table's row label, and the value row just kept
     for raw in (row[1] or "").split("\n"):
         line = " ".join(raw.split())
         if not line or line.startswith(("Applies to:", "Noted in the manual:", "Validity:",
                                         "Diagram labels:", "Figures:", "Refer to:",
                                         "Job no.:")):
             continue
+        # A table row printed over two lines keeps its label and its tail: the
+        # Honda's "| D17A2, D17A6 engines | Oil change, | 3.5 l |" goes on
+        # "| | including filter |", and "| | Oil change, | 3.3 l |" is still
+        # the D17A2's. The tab showed "Oil change 3.3 l" with neither the
+        # engine nor "without filter" (agent review, 2026-10-28).
+        if line.startswith("|"):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if all(re.fullmatch(r"[-: ]*", c) for c in cells):
+                continue                                   # the |---| rule
+            if cells[0]:
+                group = cells[0]
+            elif not is_value(line):
+                if kept_row is not None:                   # the tail of the row above
+                    lines[kept_row] += " | " + " ".join(c for c in cells if c)
+                kept_row = None
+                continue
+            elif group:
+                line = f"| {group} | " + " | ".join(cells[1:]) + " |"
+        kept_row = None
         # a flattened WIS table row: "Nm 20 – Oil level sensor on oil pan top
         # part" -- the 20 Nm is the previous line's part (the screw plug), the
         # name after it is the next line's. Never let a value take the next
@@ -555,6 +576,7 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
             carry = "" if is_value(line) else line
         if keep(line) and line not in lines and not (other_engine and other_engine(line)):
             lines.append(line)
+            kept_row = len(lines) - 1 if line.startswith("|") else None
     # only the lines about what was asked: "glow plug" also found the
     # transmission oil-change page through its "torque converter" lines. A
     # page whose title names it keeps all its lines ("coolant" -> "Draining,
