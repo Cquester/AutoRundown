@@ -322,6 +322,14 @@ CASES: list[dict] = [
          #   MODEL 906; ENGINE 642 -- a Sprinter page, reachable only through
          #   the OM642 engine bucket.
          expect=["18088069"], forbid=["18090614"]),
+    dict(id="w210-e320-drain-plug", series="210", variant=30, variant_name="E 320",
+         engine="112", query="oil drain screw torque",   # "drain plug" after synonyms.py
+         # 10009326 "Oil pan", ENGINE 112, 113 -- "Oil drain screw to oil pan
+         #   M14 Nm 30"; it names the M112 only in a slash list ("112.910/
+         #   911/.../941/"). Haiku answered "not found" (agent review,
+         #   2026-10-28): WIS says "drain screw" (synonyms.py), and the
+         #   same-family code penalty first missed the slash list.
+         expect=["10009326", "7114342"], expect_engine=True),
     # --- EPC parts joined into the WIS car (skipped without EPC in the index).
     # Text, not page numbers: EPC page numbers follow the pull's dok_id order.
     dict(id="epc-w124-part-number", series="124", query="A 000 420 99 20",
@@ -399,6 +407,8 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     ("epc-w210-e320-oil-filter", "foreign"): (1, "general-untied"),
     ("w201-2316-valve-cover", "foreign"): (2, "general-untied"),
     ("w201-23-cyl-head-bolts", "wrong"): (3, "general-untied"),
+    ("w210-e320-drain-plug", "wrong"): (1, "general-untied"),
+    ("w210-e320-drain-plug", "foreign"): (1, "general-untied"),
     ("w201-23-cyl-head-bolts", "foreign"): (3, "general-untied"),
     ("epc-w201-2316-thermostat", "wrong"): (2, "general-untied"),
     ("epc-w201-2316-thermostat", "foreign"): (2, "general-untied"),

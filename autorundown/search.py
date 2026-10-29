@@ -182,15 +182,21 @@ def _filters(include_other_variants: bool, engines: tuple[str, ...] = (),
         # (agent review, 2026-10-28). Ranking only: a page that names an
         # engine code in passing must not be lost.
         fams = list(dict.fromkeys(c[:3] for c in mine if re.fullmatch(r"\d{3}\.\d{3}", c)))
+        slashed = list(dict.fromkeys(c[4:] for c in mine if re.fullmatch(r"\d{3}\.\d{3}", c)))
         boost_sql = (" * (CASE WHEN " + " OR ".join("instr(p.text, ?) > 0" for _ in mine)
                      + "".join(" OR instr(p.codes_except, ?) > 0" for _ in fams)
                      + f" THEN {CODE_BOOST}"
-                     # "ENGINE 112 (except 112.916/953/975)" is for the rest of the family
-                     + (" WHEN instr(lower(p.text), 'except') = 0 AND ("
-                        + " OR ".join("p.text GLOB ?" for _ in fams) + f") THEN {CODE_PENALTY}"
-                        if fams else "")
+                     # "ENGINE 112 (except 112.916/953/975)" is for the rest of the family,
+                     # and "Engine 112.910/ 911/.../941/" names the car in a slash list
+                     # (the W210 E 320's oil pan table, drain screw 30 Nm, fell out)
+                     + (" WHEN instr(lower(p.text), 'except') = 0 AND NOT ("
+                        + " OR ".join("instr(p.text, ?) > 0 OR instr(p.text, ?) > 0" for _ in slashed)
+                        + " OR 0) AND (" + " OR ".join("p.text GLOB ?" for _ in fams)
+                        + f") THEN {CODE_PENALTY}" if fams else "")
                      + " ELSE 1 END)")
-        boost_args = [*mine, *(f",{f}." for f in fams), *(f"*{f}.[0-9][0-9][0-9]*" for f in fams)]
+        boost_args = [*mine, *(f",{f}." for f in fams),
+                      *(x for s in slashed for x in (f"/{s}", f"/ {s}")),
+                      *(f"*{f}.[0-9][0-9][0-9]*" for f in fams)]
     return variant_clause + type_clause, type_args, boost_sql, boost_args
 
 
