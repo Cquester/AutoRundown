@@ -30,6 +30,7 @@ STOPWORDS = {
 # (title, section_path, body) -- SQLite BM25: lower score = better match
 WEIGHTS = (6.0, 3.0, 1.0)
 CODE_BOOST = 1.35  # see _run: pages naming the chosen car's exact engine codes
+CODE_PENALTY = 0.7  # see _filters: pages naming only other engine codes of its families
 TITLE_BOOST = 0.05  # see _title_rank: a title that is the query, up to x1.05
 TITLE_WORDS = 3    # fewer words: no title boost (see _title_rank)
 
@@ -152,6 +153,18 @@ def _filters(include_other_variants: bool, engines: tuple[str, ...] = (),
         type_clause += (" AND (COALESCE(p.codes_only, '') = '' OR "
                         + " OR ".join("instr(p.codes_only, ?) > 0" for _ in mine) + ")")
         type_args += [f",{c}," for c in mine]
+        # A WIS page whose section line lists model codes of the car's series
+        # ("MODEL 202, 210 > 202.028, 210.055, 210.072") and none of the
+        # car's is another variant's: a 2001 E 320 (210.065) got an AMG-
+        # package-only rear caliper page (210.055/.072/.074/.274) as hit #1
+        # and its torques in the Torque tab (agent review, 2026-10-28). A list
+        # cut at 10 codes (" ...") can't say, so it stays.
+        for series in dict.fromkeys(c[:3] for c in vcodes):
+            type_clause += (" AND (p.section_path NOT LIKE 'MODEL %' OR instr(p.section_path, ?) = 0"
+                            " OR p.section_path GLOB '* ...' OR "
+                            + " OR ".join("instr(p.section_path, ?) > 0" for c in vcodes if c[:3] == series)
+                            + ")")
+            type_args += [f"{series}.", *(c for c in vcodes if c[:3] == series)]
     # A page that names the chosen car's exact codes ("engine 102.983") is
     # about that car, and ranks ahead of pages that merely pass the filters:
     # for the 190E 2.3-16 the 16-valve head cover page (cap nuts 10 Nm) sat
@@ -162,9 +175,28 @@ def _filters(include_other_variants: bool, engines: tuple[str, ...] = (),
     mine = tuple(codes[1])
     boost_sql, boost_args = "", []
     if mine and CODE_BOOST != 1.0:
+        # "Engine 102 (except 102.983/99)" is about the car's engine too. A
+        # page naming only other codes of the car's engine families ranks
+        # lower: a 190 E 2.3 (102.985) was answered from the 2.3-16's
+        # (102.983) cylinder-head page, whose M8 bolts are 21 Nm, not 25
+        # (agent review, 2026-10-28). Ranking only: a page that names an
+        # engine code in passing must not be lost.
+        fams = list(dict.fromkeys(c[:3] for c in mine if re.fullmatch(r"\d{3}\.\d{3}", c)))
+        slashed = list(dict.fromkeys(c[4:] for c in mine if re.fullmatch(r"\d{3}\.\d{3}", c)))
         boost_sql = (" * (CASE WHEN " + " OR ".join("instr(p.text, ?) > 0" for _ in mine)
-                     + f" THEN {CODE_BOOST} ELSE 1 END)")
-        boost_args = list(mine)
+                     + "".join(" OR instr(p.codes_except, ?) > 0" for _ in fams)
+                     + f" THEN {CODE_BOOST}"
+                     # "ENGINE 112 (except 112.916/953/975)" is for the rest of the family,
+                     # and "Engine 112.910/ 911/.../941/" names the car in a slash list
+                     # (the W210 E 320's oil pan table, drain screw 30 Nm, fell out)
+                     + (" WHEN instr(lower(p.text), 'except') = 0 AND NOT ("
+                        + " OR ".join("instr(p.text, ?) > 0 OR instr(p.text, ?) > 0" for _ in slashed)
+                        + " OR 0) AND (" + " OR ".join("p.text GLOB ?" for _ in fams)
+                        + f") THEN {CODE_PENALTY}" if fams else "")
+                     + " ELSE 1 END)")
+        boost_args = [*mine, *(f",{f}." for f in fams),
+                      *(x for s in slashed for x in (f"/{s}", f"/ {s}")),
+                      *(f"*{f}.[0-9][0-9][0-9]*" for f in fams)]
     return variant_clause + type_clause, type_args, boost_sql, boost_args
 
 
@@ -184,12 +216,73 @@ def parts_codes_clause(codes: tuple = ((), ())) -> tuple[str, list]:
     showed every W201 catalogue's bumpers, Evolution ones included, a plain
     190 E's first (2026-10-26). A page listing codes must list one of the
     car's; engine pages ("ENGINE 117") list none and pass. No codes (the
-    whole series): no clause."""
+    whole series): no clause.
+
+    The section line keeps only the first 10 codes ("… 210.063 ...",
+    importers/records.py), so a page whose list was cut is checked against
+    its "Models in this catalog:" line, which names them all: 13,106 of
+    52,520 EPC pages were cut and 135 variants (every W211 4MATIC, the
+    W212 E 350 4MATIC…) saw none of their chassis pages (agent review,
+    2026-10-28)."""
     mine = (*codes[0], *codes[1])
     if not mine:
         return "", []
     return (f" AND (p.section_path NOT GLOB '{_CODE_GLOB}' OR "
-            + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine) + ")"), list(mine)
+            + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine)
+            + " OR (p.section_path GLOB '* ...' AND ("
+            + " OR ".join(f"instr({_CATALOG_MODELS}, ?) > 0" for _ in mine) + ")))"), [*mine, *mine]
+
+
+# the page's "Models in this catalog: 210.006 E 220 CDI, …" line, as SQL
+_CM_AT = "instr(p.text, 'Models in this catalog:')"
+_CATALOG_MODELS = (f"CASE WHEN {_CM_AT} > 0 THEN substr(p.text, {_CM_AT}, "
+                   f"instr(substr(p.text, {_CM_AT}) || char(10), char(10))) ELSE '' END")
+
+
+_ENGINE_NAME_RE = re.compile(r"\b(\d\.\dL[ -][A-Za-z][A-Za-z-]+)")
+_NOT_ENGINE_NAMES = {"ENGINE", "ENGINES", "AND", "OR", "TWIN", "FLEX", "WITH"}
+_engine_names_cache: dict = {}
+
+
+def manual_engine_names(conn: sqlite3.Connection, doc_id: str) -> tuple[list[str], list[str]]:
+    """(other engines' names, the car's own) in a LEMON manual's section
+    paths ("3.5L DURATEC", "3.5L ECOBOOST"), learned from the manual itself:
+    LEMON files sibling engines' pages under the car and stamps most of them
+    "different variant/trim" (applicability other_variant) but not all -- the
+    2015 F-150 3.5L EcoBoost had 462 unstamped "3.5L DURATEC" pages, and
+    "water pump" led with the Duratec's (agent review, 2026-10-28). A name
+    that is a quarter or more stamped is another engine's; one under 5%
+    stamped is the car's. Cached per manual."""
+    n = conn.execute("SELECT COUNT(*) FROM pages WHERE doc_id=?", (doc_id,)).fetchone()[0]
+    key = (doc_id, n)
+    if key not in _engine_names_cache:
+        src = conn.execute("SELECT source_name FROM vehicles WHERE doc_id=?", (doc_id,)).fetchone()
+        tally: dict = {}
+        if src and src[0] == "lemon":
+            for sp, app in conn.execute("SELECT section_path, applicability FROM pages WHERE doc_id=?",
+                                        (doc_id,)):
+                for name in {m.upper() for m in _ENGINE_NAME_RE.findall(sp or "")}:
+                    if name.split()[-1].split("-")[0] in _NOT_ENGINE_NAMES:
+                        continue
+                    t = tally.setdefault(name, [0, 0])
+                    t[0] += 1
+                    t[1] += app == "other_variant"
+        other = sorted(k for k, (tot, o) in tally.items() if o >= 10 and o / tot >= 0.25)
+        mine = sorted(k for k, (tot, o) in tally.items() if tot >= 20 and o / tot < 0.05)
+        _engine_names_cache[key] = (other, mine)
+    return _engine_names_cache[key]
+
+
+def _other_engines_clause(conn: sqlite3.Connection, doc_id: str) -> tuple[str, list]:
+    """SQL leaving out a LEMON page whose section path names another engine
+    of the manual and none of the car's (manual_engine_names)."""
+    other, mine = manual_engine_names(conn, doc_id)
+    if not other:
+        return "", []
+    sql = (" AND NOT ((" + " OR ".join("instr(upper(p.section_path), ?) > 0" for _ in other) + ")"
+           + (" AND NOT (" + " OR ".join("instr(upper(p.section_path), ?) > 0" for _ in mine) + ")"
+              if mine else "") + ")")
+    return sql, [*other, *mine]
 
 
 def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
@@ -200,6 +293,9 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
         return []
     assert fts in FTS_TABLES
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
+    if not include_other_variants:
+        eclause, eargs = _other_engines_clause(conn, doc_id)
+        where, args = where + eclause, [*args, *eargs]
     tclause, targs = _types_clause(types)
     if tclause:
         where += " AND " + tclause          # appended last, so its args go last
@@ -401,7 +497,8 @@ VALUE_RES = {
     # tables: "Engine oil Capacity (oil and filter change) Liter 6,5 7,0".
     # [\s\xa0\xc2]: some pages still carry "5\xc2\xa0l" from a double decode
     "capacity": re.compile(r"\b\d+[.,]\d+[\s\xa0\xc2]*[lL]\b"
-                           r"|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:ltr|litres?|liters?|qts?|quarts?|pints?|ml|cm3|gal)\b"
+                           r"|\b\d+(?:[.,]\d+)?[\s\xa0\xc2]*(?:(?:US|Imp)\.?[\s\xa0]+)?"
+                           r"(?:ltr|litres?|liters?|qts?|quarts?|pints?|ml|cm3|gal)\b"
                            r"|\b(?:liters?|litres?|ltr|qts?|quarts?)[\s\xa0\xc2]+\d+(?:[.,]\d+)?\b"
                            r"|(?-i:\b\d+[\s\xa0\xc2]*l\b)", re.I),   # "5 l": lowercase only
 }
@@ -433,13 +530,47 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
         # filter 5.0"
         return kind == "capacity" and bool(_CAP_ROW_RE.search(line)) and bool(_DECIMAL_RE.search(line))
 
+    def is_capacity(line: str) -> bool:
+        # an engine's size is not a capacity ("2.7L EcoBoost", "3.5L engines"
+        # filled the F-150's tab, agent review 2026-10-28), and a capacity
+        # line names what is filled: a sentence that only mentions a litre
+        # figure is not one
+        bare = _DISPLACEMENT_RE.sub(" ", line)
+        return is_value(bare) and bool(_FLUID_RE.search(line))
+
+    keep = is_capacity if kind == "capacity" else is_value
+    # a diagnostic test's beaker and cylinder volumes are not the car's
+    # capacities (the F-150's ethanol test: "Fill the beaker with 200 ml")
+    if kind == "capacity" and _TEST_PAGE_RE.search(row[0] or ""):
+        return []
+
     lines, carry = [], ""
+    group, kept_row = "", None     # a pipe table's row label, and the value row just kept
     for raw in (row[1] or "").split("\n"):
         line = " ".join(raw.split())
         if not line or line.startswith(("Applies to:", "Noted in the manual:", "Validity:",
                                         "Diagram labels:", "Figures:", "Refer to:",
                                         "Job no.:")):
             continue
+        # A table row printed over two lines keeps its label and its tail: the
+        # Honda's "| D17A2, D17A6 engines | Oil change, | 3.5 l |" goes on
+        # "| | including filter |", and "| | Oil change, | 3.3 l |" is still
+        # the D17A2's. The tab showed "Oil change 3.3 l" with neither the
+        # engine nor "without filter" (agent review, 2026-10-28).
+        if line.startswith("|"):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if all(re.fullmatch(r"[-: ]*", c) for c in cells):
+                continue                                   # the |---| rule
+            if cells[0]:
+                group = cells[0]
+            elif not is_value(line):
+                if kept_row is not None:                   # the tail of the row above
+                    lines[kept_row] += " | " + " ".join(c for c in cells if c)
+                kept_row = None
+                continue
+            elif group:
+                line = f"| {group} | " + " | ".join(cells[1:]) + " |"
+        kept_row = None
         # a flattened WIS table row: "Nm 20 – Oil level sensor on oil pan top
         # part" -- the 20 Nm is the previous line's part (the screw plug), the
         # name after it is the next line's. Never let a value take the next
@@ -449,8 +580,9 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
             line, carry = f"{carry} {lead.group(1)}".strip(), lead.group(2)
         else:
             carry = "" if is_value(line) else line
-        if is_value(line) and line not in lines and not (other_engine and other_engine(line)):
+        if keep(line) and line not in lines and not (other_engine and other_engine(line)):
             lines.append(line)
+            kept_row = len(lines) - 1 if line.startswith("|") else None
     # only the lines about what was asked: "glow plug" also found the
     # transmission oil-change page through its "torque converter" lines. A
     # page whose title names it keeps all its lines ("coolant" -> "Draining,
@@ -462,6 +594,14 @@ def value_lines(conn: sqlite3.Connection, page_uid: str, kind: str, query: str,
 
 _LEAD_VALUES_RE = re.compile(r"^((?:Nm|Liters?|Litres?)(?:\s+(?:\d+(?:[.,]\d+)?|[-–]))+)"
                              r"\s+([A-Za-z].*)$")
+# "2.7L EcoBoost", "3.5L engine", "5.7 L V8": a displacement, never a volume
+_DISPLACEMENT_RE = re.compile(r"(?<![\d.,])\d[.,]\d[\s\xa0]?L(?=[\s-]+(?:(?i:engines?|eng|V\d|I\d|gtdi|tivct|"
+                              r"ecoboost|duratec|hemi|turbo|diesel|petrol|gas)\b|[A-Z]{2,}\b))")
+_TEST_PAGE_RE = re.compile(r"test procedure|pinpoint test|\bDTC\b|diagnos", re.I)
+# what a capacity line fills
+_FLUID_RE = re.compile(r"oil|fluid|coolant|antifreeze|refrigerant|fuel|tank|capa(?:c|ct)|fill|"
+                       r"water|lubricant|grease|brake|atf|gear|differential|axle|transfer|washer|"
+                       r"ö[lL]|kühl|füll|inhalt|kraftstoff", re.I)
 _CAP_ROW_RE = re.compile(r"capa(?:c|ct)i?t?i?y|capacit|filling|fill(?:ing)? quantit", re.I)
 # a volume, not a model or engine code ("201.024", "102.983"): at most two
 # digits before the point
@@ -512,6 +652,7 @@ def value_row(line: str, kind: str, title: str = "") -> dict:
     if angles:
         rest = _ANGLE_RE.sub(" ", rest)
     rest = re.sub(r"\(\s*[/,;]?\s*\)", " ", rest)      # "(80 Nm)" taken out of its brackets
+    rest = re.sub(r"\[\[ref:[^\]]*?::([^\]]*)\]\]", r"\1", rest)   # a LEMON link: its label
     cells = [" ".join(c.split()).strip(" :;,-–=") for c in rest.split("|")]
     name = " · ".join(c for c in cells if c and not re.fullmatch(r"[\W_]*", c))
     # a sentence the value was taken out of: "Tighten the bolts to ."
@@ -536,7 +677,63 @@ def part_lines(snippet: str) -> list[str]:
     return out
 
 
-def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str) -> str:
+_FIT_CODE_RE = re.compile(r"\b\d{3}\.\d{3}\b")
+
+
+def line_fits(line: str, codes: tuple = ((), ()), families=()) -> bool:
+    """Whether a parts line ("callout | number | name | fits | notes") may
+    fit the chosen car. Its Fits field is "all models" (of the catalogue,
+    which the page filter has already matched) or names model / engine
+    codes; a line naming codes, every one of them another model of the
+    car's series or another engine of its family, does not fit. A code it
+    can't judge (a gearbox, an engine whose exact code isn't known) keeps
+    the line. 27% of the Parts tab's lines for a chosen car fitted only
+    other models (agent review, 2026-10-28: an E 320 210.065 was shown the
+    window regulator for 210.020/.055/.072)."""
+    model, eng = set(codes[0] or ()), set(codes[1] or ())
+    if not (model or eng):
+        return True
+    f = line.split(" | ")
+    fits = f[3] if len(f) >= 5 else ""
+    if "all models" in fits.lower():
+        return True
+    found = set(_FIT_CODE_RE.findall(fits))
+    if not found or found & (model | eng):
+        return True
+    series = {c[:3] for c in model}
+    fams = {c[:3] for c in eng} | {str(x)[:3] for x in families or ()}
+    for c in found:
+        other_model = c[:3] in series
+        other_engine = c[:3] in fams and bool(eng)
+        if not (other_model or other_engine):
+            return True               # not ours to judge
+    return False
+
+
+# market words in a catalogue's model names ("210.055 E 320 USA")
+_MARKETS = {"USA": "USA", "JAPAN": "Japan", "AUSTRALIA": "Australia", "KANADA": "Canada",
+            "CANADA": "Canada", "MEXICO": "Mexico", "ITALIEN": "Italy"}
+_CATALOG_CODE_RE = re.compile(r"\(EPC catalog ([^)]*)\)")
+
+
+def catalog_info(conn: sqlite3.Connection, row: dict, codes: tuple = ((), ())) -> dict:
+    """{"catalog": "45R", "market": "USA"} for a parts page: a series has one
+    catalogue per market and period, and the same subgroup in each. The
+    market is read from the car's own entries in the page's "Models in this
+    catalog:" line (every entry when no car is chosen); "" when none names
+    one."""
+    m = _CATALOG_CODE_RE.search(row.get("title") or "")
+    text = conn.execute("SELECT text FROM pages WHERE page_uid=?", (row["page_uid"],)).fetchone()
+    line = next((l for l in ((text[0] if text else "") or "").split("\n")
+                 if l.startswith("Models in this catalog:")), "")
+    entries = line.partition(":")[2].split(", ")
+    mine = [e for e in entries if e.split()[:1] and e.split()[0] in set(codes[0] or ())] or entries
+    markets = sorted({_MARKETS[w] for e in mine for w in e.split() if w in _MARKETS})
+    return {"catalog": m.group(1) if m else "", "market": ", ".join(markets)}
+
+
+def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str,
+                   codes: tuple = ((), ()), families=()) -> str:
     """A parts page as an answer should see it: the header, then every line
     of the page that names what was asked, with its footnotes.
 
@@ -572,10 +769,18 @@ def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str) -> str:
           [table[i] for i, l in enumerate(low) if any(t in l for t in terms)]
     if not hit:
         return row["body"]
+    fit = [l for l in hit if line_fits(l, codes, families)]
+    other = len(hit) - len(fit)
+    hit = fit
+    if not hit:
+        return "\n".join(head + [f"({other} matching lines on this page are for other models or "
+                                 f"engines, not this car)"])
     # long footnotes listed at the end of the page, for the lines kept
     cited = {m for l in hit for m in re.findall(r"fn (\d{3})", l)}
     notes = [n for n in notes if re.match(r"fn (\d{3}):", n) and n[3:6] in cited]
     out, size = head + [f"(lines of this page matching: {', '.join(terms)})"], 0
+    if other:
+        out.append(f"({other} matching lines for other models or engines left out)")
     for l in hit + (["Footnotes:"] + notes if notes else []):
         size += len(l) + 1
         if size > SNIPPET_MAX:
@@ -768,7 +973,7 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
         # parts pages, 582 distinct titles), so the same subgroup comes back
         # several times; one per title, over-fetched to fill the slots.
         k = parts_slots(limit) if manual else limit   # a parts car on its own: all of it
-        tail, titles = [], set()
+        tail, titles = [], {}
         # Best score first across the parts buckets, not round-robin: they
         # answer the same query in one FTS table, so scores compare, and a
         # whole-series scope has ~10 engine buckets -- one slot each per round
@@ -778,19 +983,30 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
                             conn, parts, query, k * 12, include_other_variants,
                             "", "", engines, codes, fts="parts_fts") for r in rows),
                         key=lambda r: r["score"])
+        # The other catalogues of a subgroup kept are not dropped unseen: they
+        # are listed on its row, each named by catalogue and market, so a US
+        # 1997 E 320 can reach 45R (USA)'s tail lamp (agent review, 2026-10-28:
+        # one catalogue was shown, chosen by score, and nothing said which).
         for r in ranked:
             key = _CATALOG_RE.sub("", r.get("title") or "")
             if key in titles:
+                first = titles[key]
+                if first is not None and r["page_no"] != first["page_no"] and \
+                        r["page_no"] not in {a["page_no"] for a in first["alt_catalogs"]}:
+                    first["alt_catalogs"].append(
+                        {"page_no": r["page_no"], "doc_id": r["doc_id"], **catalog_info(conn, r, codes)})
                 continue
-            titles.add(key)
+            if len(tail) == k:
+                titles[key] = None
+                continue
+            titles[key] = r
             r["parts"] = True
-            r["body"] = _parts_snippet(conn, r, query)
+            r["body"] = _parts_snippet(conn, r, query, codes, engines)
+            r.update(catalog_info(conn, r, codes), alt_catalogs=[])
             # the body is now the page's lines, not chunk `ord`: one passage per
             # page (several Ask queries found the same page under three chunks)
             r["ord"] = 0
             tail.append(r)
-            if len(tail) == k:
-                break
         return head + tail
     if len(ids) == 1:
         return _search_one(conn, ids[0], query, limit, include_other_variants,

@@ -147,8 +147,17 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   breadcrumb our `lemon` importer reads) is always "model engine", so its
   doc_id is `_slug(year-make-model engine)`; `load()` maps every doc_id to
   its tree path once (~0.7 s) so imported counts reach every folder. Manuals downloaded under older
-  names ("190E 2.3-16 (201.034) L4-2.3L (102.983)") match no row; the 1987
-  catalogue has no 2.3-16 at all, only "190E 2.3, 102.983/102.985".
+  names ("190E 2.3-16 (201.034) L4-2.3L (102.983)") match no row by name.
+  Correction (agent review 06, 2026-10-28): the 1987 catalogue's "190E 2.3,
+  102.983" rows *are* the 2.3-16 (102.983 is only in Baumuster 201.034).
+  `importers/data/lemon_labels.csv` names the 46 variants LEMON gives only
+  by codes where one Baumuster fits ("190 E 2.3-16 (201.034, engine M102.983
+  I4 petrol), automatic"), shown in the car box and the LEMON tab and
+  searched; `on_pc` counts a manual whose doc_id names that Baumuster and
+  engine as that row, so the 2.3-16 is not offered again as Not downloaded
+  (both the automatic and the manual row: the manual covers the car). The
+  other 253 code-only variants (engine family only, ambiguous) keep their
+  codes: `reports/agent-review/06-mercedes-label-map.csv`.
 - The "engine" field also carries trim and body for many makes ("Lariat, 4D
   Pickup Extra Cab, 3.5L Eng VIN G, 4WD"), so the tree calls that level the
   variant; a filter box narrows the open folders' variants (and the makes).
@@ -358,7 +367,13 @@ card under it, `offerCatalogueCar(r, '#lemAddBox')`).
   CHARM up → "Open on CHARM" (to read online; adding still needs LEMON's
   zip) plus "Try LEMON anyway"; both down → "Check again".
 - The link opens in a new tab; the card then asks `POST
-  /api/import/lemon-zip` every 4 s ("waiting") for 45 min at most.
+  /api/import/lemon-zip` every 4 s ("waiting") for 45 min at most, and
+  says so. LEMON's *Download .zip for offline use* is an HTML page, not the
+  file: "To prevent automated downloads, please type "human"", a text box
+  and *Download manual* (seen 2026-10-28 on the 2003 Civic). The user does
+  that step; the card names it (agent review 04: it didn't, so a user
+  following it waited for a download that never started). The app never
+  fills that form.
   `lemon_zip.find`: LEMON's name `LEMON <year> <make> <model engine>.zip`
   (`zip_name`), also "name (1).zip" and with a character Windows can't
   hold replaced; never a `.crdownload`/`.part` or a zip whose central

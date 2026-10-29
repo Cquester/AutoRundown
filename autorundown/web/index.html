@@ -519,7 +519,11 @@
      window (wide screens; remembered on this device) */
   @media (max-width:900px){ #resTabs .widebtn{display:none} }
   @media (min-width:901px){
-    .widebtn{display:inline-flex; align-items:center; margin-left:auto; color:var(--accent) !important}
+    /* held at the strip's right edge when the tabs overflow it (agent review:
+       at 1440 px it sat off-screen, reachable only by scrolling the strip) */
+    .widebtn{display:inline-flex; align-items:center; margin-left:auto; color:var(--accent) !important;
+      position:sticky; right:0; z-index:1; background:var(--pane) !important;
+      box-shadow:-14px 0 10px -4px var(--pane)}
     body.split main{grid-template-columns:minmax(0, var(--lf)) minmax(0, var(--rf))}
     body.collapsed main{grid-template-columns:1fr}
     body.collapsed #left{display:none}
@@ -588,6 +592,8 @@
   .pfx:hover, .pfx:focus-visible{background:var(--line); color:var(--text)}
   .pcap{text-align:center; margin:-4px 0 10px; font-size:12px}
   .tabhit::after{content:""; display:block; clear:both}
+  .pcats{font-size:13px; color:var(--muted); margin:2px 0 6px}
+  .pcats .pagelink{margin:2px 4px 0 0}
   .pbmore{margin-top:12px}
   .pbmore > summary, .pbsec > summary, .pbgrp > summary{cursor:pointer; padding:6px 0}
   .pbsec{border-top:1px solid var(--line)}
@@ -1098,7 +1104,7 @@
     <div id="rpTorque" data-pane="torque" hidden></div>
     <div id="tabLabour" data-pane="labour" hidden>
       <div class="muted" id="labCar"></div>
-      <div class="muted" style="font-size:13px; margin-top:4px">Mercedes flat rates from WIS
+      <div class="muted" style="font-size:13px; margin-top:4px" id="labSrc">Mercedes flat rates from WIS
         (international), in hours. Extra-work items are not included. The lookup is local.</div>
       <label for="labBook" id="labBookLbl" hidden>This model is in more than one labour-time book
         (Mercedes splits them by body style, engine or build date) &mdash; pick yours</label>
@@ -2030,7 +2036,9 @@ function buildCarIndex() {
   for (const v of vehicles) {
     const make = v.make || '';
     if (!v._variants.length) {
-      carIndex.push({label: `${v.year_range || ''} ${make} ${v.model}`.trim(), sub: '',
+      // an import cut short: searchable, but say so (Add this car finishes it)
+      carIndex.push({label: `${v.year_range || ''} ${make} ${v.model}`.trim(),
+                     sub: v.complete === 0 ? 'Partly imported — some pages are missing' : '',
                      doc: v.doc_id, variant: null, engine: null, year: null,
                      years: v._years, hay: compact(`${make} ${v.model} ${v.doc_id}`),
                      words: wordsOf(`${make} ${v.model}`)});
@@ -2095,8 +2103,9 @@ function showCarList(items, cat = null) {
   list._items = all; list._hist = false;
   const opt = (e, k) => `<div class="opt${k === 0 ? ' on' : ''}${e.cat ? ' catopt' : ''}" data-k="${k}">`
     + `<div>${esc(e.label)}</div>`
-    + (e.cat ? `<div class="sub"><span class="nodl">Not downloaded</span>`
-               + (me.admin ? 'Pick it to add this car' : 'The shop PC can add it') + `</div>` : '')
+    + (e.cat ? `<div class="sub"><span class="nodl">${e.cat.partial ? 'Partly imported' : 'Not downloaded'}</span>`
+               + (me.admin ? (e.cat.partial ? 'Pick it to finish adding' : 'Pick it to add this car')
+                           : 'The shop PC can add it') + `</div>` : '')
     + (e.sub ? `<div class="sub">${esc(e.sub)}</div>` : '')
     + (e.warn ? `<div class="sub vinwarn">${esc(e.warn)}</div>` : '') + `</div>`;
   list.innerHTML = (items.length ? items.map(opt).join('')
@@ -2416,8 +2425,8 @@ function renderAddCar(state = null) {
       `<a class="btnlink${cls ? ' ' + cls : ''}" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-add-open>${label}</a>`;
     let how, btns;
     if (state.lemon) {
-      how = `Open its page on LEMON, click <i>Download .zip for offline use</i> and save it in ${dl}. `
-          + `It is imported as soon as it is there.`;
+      how = `Open its page on LEMON, click <i>Download .zip for offline use</i>, type <i>human</i> where LEMON `
+          + `asks, press <i>Download manual</i> and save the zip in ${dl}. It is imported as soon as it is there.`;
       btns = link(d.links.lemon, 'Open on LEMON');
     } else if (d.links.charm && state.charm) {
       how = `LEMON's site isn't answering. Operation CHARM, its backup for 1982–2013, is: its page for `
@@ -2432,8 +2441,9 @@ function renderAddCar(state = null) {
       + (state.lemon ? ` The file: ${zip}` : '') + `</div></div>`
       + btns + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
   } else if (state?.kind === 'waiting') {
-    body = `<div class="actext">Waiting for ${name}<div class="acsub">Save <b>${esc(addWait?.zip || '')}</b> `
-      + `in ${esc(addWait?.downloads || 'Downloads')}; the import starts by itself.</div>`
+    body = `<div class="actext">Waiting for ${name}<div class="acsub">On LEMON's page: type <i>human</i> where it asks, `
+      + `press <i>Download manual</i> and save <b>${esc(addWait?.zip || '')}</b> `
+      + `in ${esc(addWait?.downloads || 'Downloads')}; the import starts by itself. This card waits up to 45 minutes.</div>`
       + `<div class="acbar indet" role="progressbar" aria-label="Waiting for the download"><i style="width:30%"></i></div></div>`
       + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
   } else if (state?.kind === 'queued') {
@@ -2445,8 +2455,10 @@ function renderAddCar(state = null) {
     body = `<div class="actext">${name} wasn't added.<div class="acsub errnote">${esc(state.msg)}</div></div>`
       + `<button type="button" class="ghost" data-add-close>Close</button>`;
   } else {
-    body = `<div class="actext">${name}<div class="acsub"><span class="nodl">Not downloaded</span>`
-      + (me.admin ? 'Not on this PC yet. If its LEMON folder or zip is here, it is imported in the background '
+    body = `<div class="actext">${name}<div class="acsub"><span class="nodl">${r.partial ? 'Partly imported' : 'Not downloaded'}</span>`
+      + (me.admin && r.partial ? 'Its import stopped before the end, so some pages are missing. Add this car '
+                    + 'finishes it from its folder or zip; if neither is here, you download its zip from LEMON again.'
+         : me.admin ? 'Not on this PC yet. If its LEMON folder or zip is here, it is imported in the background '
                     + 'while you keep working; if not, you download its zip from LEMON in your browser.'
                   : 'Only the shop PC can add a car.') + `</div></div>`
       + (me.admin ? `<button type="button" data-add-car>Add this car</button>` : '')
@@ -4144,7 +4156,9 @@ function tabsFor(v) {
   const partsOnly = v?.doc_type === 'parts';
   const hasParts = partsOnly || !!(v?.joined_ids?.length || Object.keys(v?.engine_joins || {}).length);
   const wis = WIS_SOURCE.test(v?.source_name || '');
-  return {workshop: !partsOnly, parts: hasParts, labour: wis, capacity: !partsOnly, torque: !partsOnly};
+  // a LEMON manual's own Labor Times and Parts Information pages (lemon_tables.py)
+  const lemon = v?.source_name === 'lemon';
+  return {workshop: !partsOnly, parts: hasParts || lemon, labour: wis || lemon, capacity: !partsOnly, torque: !partsOnly};
 }
 function syncTabs() {
   const v = vehicles.find(x => x.doc_id === docId());
@@ -4153,10 +4167,12 @@ function syncTabs() {
   $('#resTabs').hidden = !v || Object.values(have).filter(Boolean).length < 2;
   if (v && !have[curTab]) setTab(have.workshop ? 'workshop' : 'parts');
 }
+const lemonCar = () => vehicles.find(x => x.doc_id === docId())?.source_name === 'lemon';
 function tabEmpty(t) {
   const label = carBoxLabel || currentCarLabel();
   if (!docId() || !label) return '';
-  const what = {parts: 'the parts it names from the parts catalogue (part numbers, which models they fit)',
+  const what = {parts: lemonCar() ? 'the parts the manual lists for that job (OEM numbers, prices)'
+                       : 'the parts it names from the parts catalogue (part numbers, which models they fit)',
                 capacity: 'the capacities on that job’s pages',
                 torque: 'the torque values of that job (its page and the procedures it links to)',
                 labour: 'the flat-rate labour times for the job'}[t];
@@ -4503,12 +4519,16 @@ async function partsBrowse(target) {
       + ` <span class="muted">(${s.groups.length} groups)</span></summary>`
       + s.groups.map(g => `<details class="pbgrp"><summary><span class="gno">${esc(g.group)}</span> ${esc(g.name || '')}</summary>`
         + g.subs.map(sub => {
-            const p = sub.pages[0];
-            return `<details class="pbdrop" data-pno="${esc(p.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub">`
-              + `<span class="gno">${esc(sub.sub)}</span> ${esc(sub.name || '(no name)')}`
+            const drop = (p, label) => `<details class="pbdrop" data-pno="${esc(p.page_no)}" data-doc="${esc(doc)}">`
+              + `<summary class="pbsub">${label}`
               + (p.drawings ? '' : ' <span class="muted">(no drawing)</span>')
-              + (sub.pages.length > 1 ? ` <span class="muted">· ${sub.pages.length} catalogs</span>` : '')
               + `</summary><div class="pbbody"></div></details>`;
+            const name = `<span class="gno">${esc(sub.sub)}</span> ${esc(sub.name || '(no name)')}`;
+            if (sub.pages.length === 1) return drop(sub.pages[0], name);
+            // one subgroup, several catalogues (market x period): each its own
+            return `<details class="pbgrp"><summary class="pbsub">${name}`
+              + ` <span class="muted">· ${sub.pages.length} catalogs</span></summary>`
+              + sub.pages.map(p => drop(p, esc(catalogName(p)))).join('') + `</details>`;
           }).join('') + `</details>`).join('')
       + `</details>`).join(''));
 }
@@ -4577,6 +4597,7 @@ document.addEventListener('click', e => {
 function showPartsBrowse() {
   const pane = $(PANE.parts);
   if (!pane || tabQuery) return;
+  if (lemonCar()) { pane.innerHTML = tabEmpty('parts'); return; }   // no diagrams to browse
   // already showing this car's list: keep it, and the groups left open
   const key = `${docId()}|${variantIdx()}|${engineSel()}`;
   if (pane.dataset.browseKey === key && pane.querySelector('.pbsec')) return;
@@ -4587,6 +4608,24 @@ function showPartsBrowse() {
 // One tab of the right box for the current question: q is what was typed,
 // also the AI's search terms (after an Ask). The server merges them
 // round-robin, as the answer's own retrieval does.
+// A series has one parts catalogue per market and period, the same subgroup
+// in each: say which one a row is, and offer the others (their numbers can
+// differ -- a US W210 E 320's tail lamp is only in 45R, USA)
+const catalogName = c => `catalog ${c.catalog}` + (c.market ? ` · ${c.market}` : '');
+function catalogsHtml(r) {
+  if (!r.catalog) return '';
+  return `<div class="pcats">From ${esc(catalogName(r))}`
+    + (r.alt_catalogs?.length ? '. Also in: ' + r.alt_catalogs.map(c =>
+        `<button type="button" class="pagelink" ${pageAttrs(c.page_no)}>${esc(catalogName(c))}</button>`).join(' ') : '')
+    + `</div>`;
+}
+// a LEMON manual's Parts Information rows, as printed (lemon_tables.py)
+function lemonPartsHtml(rows) {
+  return `<table class="plines"><tbody>` + rows.map(p =>
+    `<tr><td>${esc(p.part)}</td><td class="pn">${esc(p.number)}</td><td>${esc(p.maker)}</td>`
+    + `<td style="text-align:right">${esc(p.price)}</td><td class="nt">${esc(p.notes)}</td></tr>`).join('')
+    + `</tbody></table>`;
+}
 async function tabSearch(tab, q, also, seq) {
   const pane = $(PANE[tab]), doc = docId(), label = carBoxLabel;
   pane.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
@@ -4605,14 +4644,16 @@ async function tabSearch(tab, q, also, seq) {
           `<div class="tabhit">`
           + `<button type="button" class="hit" style="padding:0" ${pageAttrs(r.page_no)}>
              <div class="t">${esc(r.title)}</div><div class="s">${esc(r.section_path)}</div></button>`
-          + (r.lines?.length ? partLinesHtml(r.lines) : '')
-          // the page's drawing and whole list, opened in place
-          + `<details class="pbdrop" data-pno="${esc(r.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub pshow">`
-          + (r.drawings?.length ? 'Show drawing and all its parts' : 'Show all parts on this page')
-          + `</summary><div class="pbbody"></div></details>`
+          + catalogsHtml(r)
+          + (r.lemon_parts ? lemonPartsHtml(r.lemon_parts)
+             : (r.lines?.length ? partLinesHtml(r.lines) : '')
+               // the page's drawing and whole list, opened in place
+               + `<details class="pbdrop" data-pno="${esc(r.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub pshow">`
+               + (r.drawings?.length ? 'Show drawing and all its parts' : 'Show all parts on this page')
+               + `</summary><div class="pbbody"></div></details>`)
           + `</div>`).join('') + `</div>`
-        : `<div class="card"><div class="notfound">${none}</div></div>`)
-      + `<details class="pbmore"><summary>Browse all parts diagrams for this car</summary><div></div></details>`);
+        : `<div class="card"><div class="notfound">${lemonCar() ? 'No part in this manual’s parts lists matches this question.' : none}</div></div>`)
+      + (lemonCar() ? '' : `<details class="pbmore"><summary>Browse all parts diagrams for this car</summary><div></div></details>`));
     const more = pane.querySelector('.pbmore');
     if (more) more.addEventListener('toggle', () => {
       if (more.open && !more.dataset.loaded) { more.dataset.loaded = '1'; partsBrowse(more.lastElementChild); }
@@ -4628,8 +4669,12 @@ const LAB_STOP = /\b(torques?|tightening|nm|capacity|capacities|specs?|specifica
 async function labourFor(terms, seq) {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
+  $('#labSrc').textContent = lemonCar()
+    ? 'From this manual’s own labour-time pages: standard and warranty hours, as printed.'
+    : 'Mercedes flat rates from WIS (international), in hours. Extra-work items are not included. '
+      + 'The lookup is local.';
   labFor = docId() + '::' + variantIdx();
-  if (variantIdx() === null) { labQuery = terms.at(-1) || ''; await loadLabour(); setCount('labour', null); return; }
+  if (variantIdx() === null && !lemonCar()) { labQuery = terms.at(-1) || ''; await loadLabour(); setCount('labour', null); return; }
   for (const t of terms) {
     const words = t.replace(LAB_STOP, ' ').replace(/\s+/g, ' ').trim();
     if (!words) continue;
@@ -5837,7 +5882,7 @@ async function loadLabour() {
   const out = $('#labOut');
   // nothing before a question: a model's book has a thousand operations or more
   if (!labQuery) { out.innerHTML = tabEmpty('labour'); return 0; }
-  if (n === null) {
+  if (n === null && !lemonCar()) {
     out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
       + 'Variant): labour times are per model type.</div>';
     return 0;
@@ -5846,7 +5891,8 @@ async function loadLabour() {
   const book = $('#labBook').hidden ? '' : $('#labBook').value;
   let r;
   try {
-    r = await api(`/api/wis/labour/${encodeURIComponent(docId())}?variant=${n}`
+    // a LEMON car has no variant: "variant=null" was a 422, drawn as [object Object]
+    r = await api(`/api/wis/labour/${encodeURIComponent(docId())}?` + (n === null ? '' : `variant=${n}`)
       + (eng ? `&engine=${encodeURIComponent(eng)}` : '')
       + (book ? `&book=${encodeURIComponent(book)}` : '')
       + `&q=${encodeURIComponent(labQuery)}`);
@@ -5862,6 +5908,9 @@ async function loadLabour() {
   }
   if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return 0; }
   if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return 0; }
+  if (r.book === 'lemon' && !r.total && !r.items.length) {
+    out.innerHTML = '<div class="muted">This manual has no labour times that match, for this car.</div>'; return 0;
+  }
   if (!r.items.length) {
     out.innerHTML = '<div class="muted">No labour operation matches this question. To look one up, '
       + 'type its name in the question box and press <b>Keyword</b>, e.g. <i>water pump</i>.</div>';
@@ -5873,7 +5922,9 @@ async function loadLabour() {
   const rowsHtml = items => `<div class="tablewrap"><table><tbody>` + items.map(i =>
     `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
     + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
-    + ` <span class="muted" style="font-size:12px">${i.minutes} min</span></td></tr>`).join('') + `</tbody></table></div>`;
+    + ` <span class="muted" style="font-size:12px">${i.minutes} min</span>`
+    + (i.warranty ? `<div class="muted" style="font-size:12px">warranty ${esc(i.warranty)} h</div>` : '')
+    + `</td></tr>`).join('') + `</tbody></table></div>`;
   const more = r.items.slice(best);
   out.innerHTML = `<div class="muted" style="margin-bottom:6px">For: <b>${esc(labQuery)}</b></div>`
     + rowsHtml(r.items.slice(0, best))
@@ -6056,7 +6107,7 @@ function catRender() {
     const key = catKey(r.path), open = catOpen.has(key), leaf = r.level === 'variant';
     const kids = open ? catOpen.get(key) : null;
     // the filter hides variants (and makes at the top) that don't match; open folders stay
-    if (q && (leaf || depth === 0) && !open && !r.name.toLowerCase().includes(q)) return;
+    if (q && (leaf || depth === 0) && !open && !`${r.name} ${r.label || ''}`.toLowerCase().includes(q)) return;
     const tag = leaf ? (r.state === 'imported' ? 'imported' : r.state === 'partial' ? 'partly imported' : '')
       : r.imported ? `${r.imported.toLocaleString()} imported` : '';
     html.push(`<div class="trow lvl-${r.level}" role="treeitem" aria-level="${depth + 1}"`
@@ -6065,7 +6116,9 @@ function catRender() {
       + `${leaf ? ' tabindex="-1"' : ''}>${open ? '&#9662;' : '&#9656;'}</button>`
       + `<input type="checkbox" aria-label="Pick ${esc(r.name)}"${r.picked === 'all' ? ' checked' : ''}`
       + `${r.picked === 'some' ? ' data-some="1"' : ''}>`
-      + `<span class="nm">${esc(r.name)}</span>`
+      // a variant LEMON names by codes only: the model's own name, the code in small
+      + (r.label ? `<span class="nm">${esc(r.label)} <span class="muted">${esc(r.name)}</span></span>`
+                 : `<span class="nm">${esc(r.name)}</span>`)
       + (tag ? `<span class="tag">${tag}</span>` : '')
       + (leaf ? '' : `<span class="sz">${r.count.toLocaleString()}</span>`) + '</div>');
     if (kids) walk(kids, depth + 1);

@@ -24,6 +24,7 @@ import functools
 import operator
 import re
 import sqlite3
+import threading
 from pathlib import Path
 
 NAME = "wis_links.sqlite"
@@ -62,6 +63,38 @@ def _rows(corpus: Path, sql: str, args=()) -> list[tuple] | None:
         return []
     finally:
         db.close()
+
+
+_static: dict = {}
+_static_lock = threading.Lock()
+STATIC_CACHE = 64        # entries; the biggest is one sparte's labour_op (~30k rows)
+
+
+def _static_rows(corpus: Path, sql: str, args=()) -> list[tuple] | None:
+    """`_rows` for the tables that never change while the server runs (the
+    labour book), kept in memory per sidecar file and its mtime/size, so a
+    re-extraction is still picked up and no handle is held. Labour times
+    read all 30,052 labour_op rows of a sparte per request; with several
+    mechanics at once each row step became a GIL hand-off and one
+    request took 19 s (agent review, 2026-10-28)."""
+    path = _path(corpus)
+    if path is None:
+        return None
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    key = (str(path), st.st_mtime_ns, st.st_size, sql, tuple(args))
+    with _static_lock:
+        if key in _static:
+            return _static[key]
+    rows = _rows(corpus, sql, args)
+    if rows:                 # [] may be a missing table or a busy file: not kept
+        with _static_lock:
+            if len(_static) >= STATIC_CACHE:
+                _static.pop(next(iter(_static)))
+            _static[key] = rows
+    return rows
 
 
 def docnrs(corpus: Path, dok_ids: list[int]) -> dict[int, list[str]]:
@@ -504,22 +537,22 @@ def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
         sp, pl, fam, typ = book.split("-")
     except ValueError:
         return {"total": 0, "best": 0, "items": []}
-    groups = dict(_rows(corpus, "SELECT kg, name FROM labour_group") or [])
+    groups = dict(_static_rows(corpus, "SELECT kg, name FROM labour_group") or [])
     raw = {}
-    for kg, op, ta, value in _rows(
+    for kg, op, ta, value in _static_rows(
             corpus, "SELECT kg, op, typenart, raw FROM labour_time WHERE sparte=? AND pl=? "
                     "AND family=? AND typenart IN (?,?,?)",
             (sp, pl, fam, typ, typ[:1] + "0", "00")) or []:
         raw[(kg, op)] = value        # at most one of the three exists (never overlap)
     if not raw:
         return {"total": 0, "best": 0, "items": []}
-    forms = {(kg, cat): e for kg, cat, e in _rows(
+    forms = {(kg, cat): e for kg, cat, e in _static_rows(
         corpus, "SELECT kg, category, expr FROM labour_formula WHERE region=? AND sparte=? "
                 "AND pl=? AND family=?", (REGION, sp, pl, fam)) or []}
     queries = [ws for ws in (re.findall(r"\w+", (s or "").lower()) for s in (q, alt)) if ws]
     items = []
-    for kg, op, cat, text in _rows(corpus, "SELECT kg, op, category, text FROM labour_op "
-                                           "WHERE sparte=?", (sp,)) or []:
+    for kg, op, cat, text in _static_rows(corpus, "SELECT kg, op, category, text FROM labour_op "
+                                                  "WHERE sparte=?", (sp,)) or []:
         x = raw.get((kg, op))
         if not x or cat == "Z" or (kg, cat) not in forms:
             continue

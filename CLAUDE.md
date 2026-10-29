@@ -178,6 +178,9 @@ python tests/test_drawing_ui.py                   # Manual contents, drawing pic
 python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tests/test_charm.py                        # one CHARM car: reader, plan, download, import, refusals (~10 s)
 python tests/test_lemon_zip.py                    # "Add a car": LEMON zip found, unsafe zips refused, unpack + import (~10 s)
+python tests/test_parts_fit.py                    # parts pages/lines that fit the car: cut code lists, other models' lines (<1 s)
+python tests/test_load.py                         # many mechanics at once: Ask threads + busy, cached vehicles and labour (~10 s)
+python tests/test_lemon_tables.py                 # LEMON cars' Labour times and Parts tabs from their own tables (<1 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
 # sample data and tools
@@ -283,6 +286,7 @@ autorundown/
   importer_jobs.py import / remove / VM jobs started from Shop setup
   lemon_catalogue.py  LEMON torrent catalogue tree and picks; LEMON / CHARM page links, zip names
   lemon_zip.py     a LEMON car's zip from Downloads: found, checked (untrusted), unpacked
+  lemon_tables.py  a LEMON manual's own Labor Times / Parts Information tables, for those tabs
   charm.py         Operation CHARM's data (SquashFS + LMDB) read a piece at a time; LEMON-style export
   charm_fetch.py   CHARM torrent pieces from the swarm (libtorrent, never seeds) or a local copy
   wis_links.py     WIS cross-refs, diagram hotspots, oil, labour
@@ -322,7 +326,10 @@ Steps carry no citation of their own, so they never count as one: an
 answer of steps whose cited pages were all invented is withheld, steps and
 all (the user's rule, 2026-10-11: "only answers that have sources behind
 it"; before, a steps-only answer survived with no citation). Tests:
-`tests/test_citations.py`. Not yet seen on a paid answer -- if the model often
+`tests/test_citations.py`. A part number in the answer's text or a spec must
+be printed on a page it cites (`_check_part_numbers`, 2026-10-28: Haiku named
+the rear pad kit, from an uncited page, as a superseded front pad); one that
+isn't is taken out and said so. Not yet seen on a paid answer -- if the model often
 leaves `source_pages` empty on procedures, they will now show as withheld.
 
 **Retrieval merges round-robin, not by global score.** Global ranking let one
@@ -499,7 +506,9 @@ on parts pages the answer cites, every current line (no "replaced by")
 that fits the chosen car ("all models", or its exact model/engine code)
 and is not named in the answer is added as a spec citing that page, said
 in `caveats`, and listed in `added_parts`. Only when a car or engine is
-chosen. Tests: `tests/test_citations.py`, and end to end through the fake
+chosen, and only lines whose name shares a word with the question or the
+planner's queries (less generic words like "brake", "front": a "front brake
+pads" answer had calipers, disc and screw added, 2026-10-28). Tests: `tests/test_citations.py`, and end to end through the fake
 API (`fake:onepart`) in `tests/test_epc_join.py`.
 
 **The right box's tabs are plain, and labour shows the job** (2026-10-16,

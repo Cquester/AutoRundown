@@ -21,11 +21,13 @@ for any folder is all / some / none without a list of 280,000 doc_ids.
 
 "imported" is exact for vehicles named the LEMON way: the `lemon` importer
 files a car as slug(year-make-variant) and the variant is "model engine".
-Manuals downloaded elsewhere under another name (e.g. "190E 2.3-16 (201.034)
-L4-2.3L (102.983)") don't match a catalogue row and show as new.
+A manual downloaded elsewhere under another name counts when its doc_id
+names the Baumuster and engine of a labelled row (`on_pc`, lemon_labels.csv):
+"190E 2.3-16 (201.034) L4-2.3L (102.983)" is LEMON's "190E 2.3, 102.983".
 """
 from __future__ import annotations
 
+import csv
 import gzip
 import json
 import re
@@ -39,6 +41,7 @@ from . import config
 from .importers.lemon import _slug
 
 SNAPSHOT = Path(__file__).resolve().parent / "importers" / "data" / "lemon_catalogue.json.gz"
+LABELS = SNAPSHOT.with_name("lemon_labels.csv")
 PICKS = config.APP_DIR / "lemon_picks.json"
 LEVELS = ("make", "year", "model", "variant")
 
@@ -74,6 +77,41 @@ def _from_index_json(path: Path) -> dict:
 
 def vehicle_name(model: str, engine: str) -> str:
     return f"{model} {engine}" if engine else model
+
+
+@lru_cache(maxsize=1)
+def _labels() -> dict:
+    """(make, year, model, variant) -> {label, baumuster, engine} for variants
+    LEMON names only by codes ("2.3, 102.983, Automatic" is the 190 E
+    2.3-16, which read as the 8-valve 2.3; agent review 06, 2026-10-28)."""
+    try:
+        with open(LABELS, encoding="utf-8", newline="") as f:
+            rows = csv.DictReader(line for line in f if not line.startswith("#"))
+            return {(r["make"], r["year"], r["model"], r["variant"]): r for r in rows}
+    except OSError:
+        return {}
+
+
+def label(make: str, year: str, model: str, engine: str) -> str:
+    """The car's name for people: the model's own when LEMON gives only codes."""
+    hit = _labels().get((make, str(year), model, engine))
+    return hit["label"] if hit else vehicle_name(model, engine)
+
+
+def on_pc(have: dict, make: str, year: str, model: str, engine: str) -> str | None:
+    """The doc_id this catalogue car is on the PC as: its own LEMON name, or a
+    manual named another way for the same Baumuster and engine -- the user's
+    1987 "190E 2.3-16 (201.034) L4-2.3L (102.983)" (from CHARM) is LEMON's
+    "190E 2.3, 102.983" rows, which were offered again as Not downloaded."""
+    d = doc_id(make, year, model, engine)
+    if d in have:
+        return d
+    hit = _labels().get((make, str(year), model, engine))
+    if not hit:
+        return None
+    head = _slug(f"{year}-{make}-")
+    codes = [c.replace(".", "-") for c in (*hit["baumuster"].split("/"), hit["engine"]) if c]
+    return next((x for x in have if x.startswith(head) and all(c in x for c in codes)), None)
 
 
 def doc_id(make: str, year: str, model: str, engine: str) -> str:
@@ -286,8 +324,11 @@ def browse(index_path: str | Path, path: tuple = ()) -> dict:
         if len(p) == 4:
             m, y, mo, e = p
             d = doc_id(m, y, mo, e)
+            mine = on_pc(have, m, y, mo, e)
+            nice = label(m, y, mo, e)
             row.update(name=e or mo, doc_id=d,
-                       state="imported" if have.get(d) else "partial" if d in have else "new")
+                       label=nice if nice != vehicle_name(mo, e) else "",
+                       state="imported" if have.get(mine) else "partial" if mine else "new")
         rows.append(row)
     if len(path) == 1:
         rows.sort(key=lambda r: r["name"], reverse=True)       # newest year first
@@ -367,12 +408,17 @@ def search(q: str, index_path: str | Path, limit: int = 6) -> dict:
                 head = f"{make} {model}"
                 hay_head, w_head = _compact(head), _words(head)
                 for e in dict.fromkeys(engines):
-                    hay = hay_head + _compact(e)
-                    words = w_head | _words(e)
+                    nice = label(make, y, model, e)       # "190 E 2.3-16 (201.034, ...)" finds it
+                    hay = hay_head + _compact(e) + _compact(nice)
+                    words = w_head | _words(e) | _words(nice)
                     if not all(t in words if len(t) == 1 else t in hay for t in terms):
                         continue
                     d = doc_id(make, y, model, e)
-                    if d in have:
+                    # a car whose import was cut short stays offered, so
+                    # Add this car finishes it (it resumes); only a
+                    # complete one is left out -- under its LEMON name or
+                    # another manual's for the same car (on_pc)
+                    if have.get(on_pc(have, make, y, model, e)):
                         continue
                     # words found in the make/model before those only in the engine
                     in_head = sum(t in w_head if len(t) == 1 else t in hay_head for t in terms)
@@ -380,6 +426,7 @@ def search(q: str, index_path: str | Path, limit: int = 6) -> dict:
     hits.sort()
     out["total"] = len(hits)
     out["rows"] = [{"make": m, "year": y, "model": mo, "engine": e, "doc_id": d,
-                    "label": f"{y} {m} {vehicle_name(mo, e)}", "path": [m, y, mo, e]}
+                    "label": f"{y} {m} {label(m, y, mo, e)}", "path": [m, y, mo, e],
+                    "partial": d in have}
                    for _, _, _, mo, e, m, y, d in hits[:limit]]
     return out

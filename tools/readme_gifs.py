@@ -73,6 +73,9 @@ def start(page, url, rec):
     expect(page.locator("main")).to_be_visible(timeout=30_000)
     page.mouse.move(0, 0)
     rec.snap(600)
+    if not page.is_visible("#carInput"):     # a phone: the car box is in the car sheet
+        page.click("#carPill")
+        rec.snap(500)
     rec.type("#carInput", CAR)
     expect(page.locator("#carList .opt[data-k]").first).to_be_visible(timeout=10_000)
     rec.snap(700)

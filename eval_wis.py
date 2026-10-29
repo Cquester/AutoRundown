@@ -147,6 +147,16 @@ def named_codes(text: str) -> tuple[set[str], set[str]]:
 # the right page for that car.
 # ---------------------------------------------------------------------------
 CASES: list[dict] = [
+    # --- W201 190 E 2.3 (8-valve, engine M102.985) --------------------------
+    dict(id="w201-23-cyl-head-bolts", series="201", variant=7,
+         variant_name="190 E 2.3", query="cylinder head bolt tightening torque",
+         # 49014339 "0415 - Removal and installation of the cylinder head,
+         #   Engine 102 (except 102.983/99), single-belt drive" and 49013229
+         #   (multi-belt drive): the 8-valve procedures, M8 bolts 25 Nm. Both
+         #   paid answers in the agent review (2026-10-28) cited the 2.3-16's
+         #   49013392 instead (M8 21 Nm), with neither 8-valve page in the
+         #   top 10.
+         expect=["49014339", "49013229"], expect_engine=True),
     # --- W201 190 E 2.3-16 (201.034, engine M102.983) -----------------------
     dict(id="w201-2316-cyl-head-bolts", series="201", variant=8,
          variant_name="190 E 2.3 16", query="cylinder head bolts",
@@ -282,17 +292,19 @@ CASES: list[dict] = [
          #   218, 221; ENGINE 651 ("Shown on engine 651.911"). The C 220 CDI
          #   (204.002) is an OM651.
          expect=["7115453"], expect_engine=True),
-    dict(id="w205-c220d-timing-chain", series="205", variant=20,
-         variant_name="C 220 d", query="timing chain",
+    dict(id="w205-c220d-timing-chain", series="205", variant=23,
+         variant_name="C 220 CDI / d", query="timing chain",
          # OM651, the engine whose number collides with a truck series.
+         # The C 220 d sedan, Baumuster 205.002 (engine 651.921); was variant
+         # 20 "C 220 d" until the variants list was renamed (2026-10-28).
          # 9005055 "Timing chain check values", "Engine 651 in model 117, 156,
          #   166, 172, 176, 204, 205, ...". 10009101 "Timing chain drive,
          #   toothed belt drive", ENGINE 651 torques.
          expect=["9005055", "10009101"], expect_engine=True),
     # guards only: no capacity page names both 205 and OM651; the OM651
     # bucket's capacity pages are for 117/156/176/246 and Sprinter/Vito
-    dict(id="w205-c220d-oil-capacity", series="205", variant=20,
-         variant_name="C 220 d", query="engine oil capacity",
+    dict(id="w205-c220d-oil-capacity", series="205", variant=23,
+         variant_name="C 220 CDI / d", query="engine oil capacity",
          expect_engine=True),
 
     # --- W211 E-Class: the slash-list bug ------------------------------------
@@ -312,6 +324,14 @@ CASES: list[dict] = [
          #   MODEL 906; ENGINE 642 -- a Sprinter page, reachable only through
          #   the OM642 engine bucket.
          expect=["18088069"], forbid=["18090614"]),
+    dict(id="w210-e320-drain-plug", series="210", variant=30, variant_name="E 320",
+         engine="112", query="oil drain screw torque",   # "drain plug" after synonyms.py
+         # 10009326 "Oil pan", ENGINE 112, 113 -- "Oil drain screw to oil pan
+         #   M14 Nm 30"; it names the M112 only in a slash list ("112.910/
+         #   911/.../941/"). Haiku answered "not found" (agent review,
+         #   2026-10-28): WIS says "drain screw" (synonyms.py), and the
+         #   same-family code penalty first missed the slash list.
+         expect=["10009326", "7114342"], expect_engine=True),
     # --- EPC parts joined into the WIS car (skipped without EPC in the index).
     # Text, not page numbers: EPC page numbers follow the pull's dok_id order.
     dict(id="epc-w124-part-number", series="124", query="A 000 420 99 20",
@@ -378,8 +398,6 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     # WIS pages (brake-light switch, ME-SFI) via the whole-series engine
     # buckets E111/E112/E113 -- not EPC results (measured 2026-10-14)
     ("epc-w203-brake-pads", "foreign"): (3, "engine-bucket"),
-    # the part number's digits match an OM605 end-cover page loosely
-    ("epc-w124-part-number", "foreign"): (1, "engine-bucket"),
     # WIS general-pool W207 pages (oil filter cover, transmission oil change),
     # not EPC results (measured 2026-10-15, WIS + all 443 EPC catalogs)
     # Raised 2026-10-24 when the damage-code menus (99xxxxxx, search.
@@ -387,9 +405,13 @@ KNOWN_BAD: dict[tuple[str, str], tuple[int, str]] = {
     # BR 600", "Cylinder head cover, BR 400" -- other vehicles too, but named in
     # a form the guards don't read) now go to the next general documents, the
     # same untied pages that already offend elsewhere. Same gap, now counted.
-    ("epc-w210-e320-oil-filter", "wrong"): (3, "general-untied"),
-    ("epc-w210-e320-oil-filter", "foreign"): (2, "general-untied"),
+    ("epc-w210-e320-oil-filter", "wrong"): (2, "general-untied"),
+    ("epc-w210-e320-oil-filter", "foreign"): (1, "general-untied"),
     ("w201-2316-valve-cover", "foreign"): (2, "general-untied"),
+    ("w201-23-cyl-head-bolts", "wrong"): (3, "general-untied"),
+    ("w210-e320-drain-plug", "wrong"): (1, "general-untied"),
+    ("w210-e320-drain-plug", "foreign"): (1, "general-untied"),
+    ("w201-23-cyl-head-bolts", "foreign"): (3, "general-untied"),
     ("epc-w201-2316-thermostat", "wrong"): (2, "general-untied"),
     ("epc-w201-2316-thermostat", "foreign"): (2, "general-untied"),
     ("epc-w204-c220cdi-glow-plugs", "foreign"): (1, "general-untied"),

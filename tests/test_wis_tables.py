@@ -200,6 +200,38 @@ def main() -> int:
           vr("1982-85 190E 5.5 Liters 5.8 Quarts", "capacity")["value"] == "5.5 Liters / 5.8 Quarts")
     check("turns right after the torque stay with it",
           vr("Cylinder head bolt 55 Nm 90° 90°", "torque")["value"] == "55 Nm 90° 90°")
+    check("a LEMON link keeps only its label",
+          vr("Coolant [[ref:18519::Cabin Heater Coolant Pump]] 15.6 qt", "capacity")["name"]
+          == "Coolant Cabin Heater Coolant Pump")
+
+    print("-- an engine's size or a test's beaker is not a capacity (F-150, 2026-10-28) --")
+    mem.execute("INSERT INTO pages VALUES ('f', 'Cabin Heater Coolant Pump', ?)", (
+        "The coolant pump is available on 2.7L EcoBoost vehicles only\n"
+        "Engine coolant 15.6 qt / 14.75L\n"
+        "Requires 3.5L engines with auto start-stop\n",))
+    mem.execute("INSERT INTO pages VALUES ('t', 'Test Procedure', ?)", (
+        "Fill the beaker with 200 ml of clean water\n",))
+    caps = search.value_lines(mem, "f", "capacity", "coolant pump")
+    check("only the coolant line, no displacement", caps == ["Engine coolant 15.6 qt / 14.75L"], caps)
+    check("a diagnostic test's volumes are left out",
+          search.value_lines(mem, "t", "capacity", "water") == [])
+
+    print("-- a table row printed over two lines keeps its label and tail (Honda, 2026-10-28) --")
+    mem.execute("INSERT INTO pages VALUES ('h', 'Engine Lubrication System', ?)", (
+        "| Item | Measurement | Qualification | Standard or New | Service Limit |\n"
+        "|---|---|---|---|---|\n"
+        "| D17A2, D17A6 engines | Oil change, | 3.5 l (3.7 US qt) | | |\n"
+        "| | including filter | | | |\n"
+        "| | Oil change, | 3.3 l (3.5 US qt) | | |\n"
+        "| | without filter | | | |\n"
+        "| D17A1 engine | Oil change, | 3.2 l (3.4 US qt) | | |\n"
+        "| | including filter | | | |\n",))
+    rows = [vr(l, "capacity") for l in search.value_lines(mem, "h", "capacity", "engine oil")]
+    check("each row names its engine and its filter, both units in the value",
+          [(r["name"], r["value"]) for r in rows] == [
+              ("D17A2, D17A6 engines · Oil change · including filter", "3.5 l / 3.7 US qt"),
+              ("D17A2, D17A6 engines · Oil change · without filter", "3.3 l / 3.5 US qt"),
+              ("D17A1 engine · Oil change · including filter", "3.2 l / 3.4 US qt")], rows)
 
     print("-- the endpoints --")
     idx = TMP / "index.db"

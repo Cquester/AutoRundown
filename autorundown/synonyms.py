@@ -31,6 +31,11 @@ PHRASES: dict[str, str | tuple[str, ...]] = {
     # WIS's labour texts and procedures say "coolant pump" / "brake linings"
     # (checked 2026-10-11 on the W211 E 350 labour book)
     "water pump": "coolant pump",
+    # WIS: "Oil drain screw on oil pan M14 Nm 30"; Haiku answered "drain plug
+    # torque" not found for a W210 E 320 (agent review, 2026-10-28)
+    "oil drain plug": "oil drain screw",
+    "sump plug": "oil drain screw",
+    "drain plug": "drain screw",
     "brake pads": "brake linings",
     "brake pad": "brake lining",
     "brake rotors": "brake disks",

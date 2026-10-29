@@ -1,0 +1,51 @@
+# LEMON catalogue variants named only by engine/gearbox codes -> the model's name.
+# Hand-checked against WIS variants and EPC model lists (agent review 06, 2026-10-28):
+# only rows where one Baumuster has that engine for that year. Display only; the
+# variant string stays the catalogue key. lemon_catalogue.label() reads it.
+make,year,model,variant,label,baumuster,engine
+Mercedes Benz,1986,190E,"102.983, Automatic","190 E 2.3-16 (201.034, engine M102.983 I4 petrol), automatic",201.034,102.983
+Mercedes Benz,1986,190E,"102.983, Standard","190 E 2.3-16 (201.034, engine M102.983 I4 petrol), manual",201.034,102.983
+Mercedes Benz,1986,190E,"102.985, Automatic","190 E 2.3 (201.028, engine M102.985 I4 petrol), automatic",201.028,102.985
+Mercedes Benz,1986,190E,"102.985, Standard","190 E 2.3 (201.028, engine M102.985 I4 petrol), manual",201.028,102.985
+Mercedes Benz,1987,190D,"602.911, Automatic","190 D 2.5 (201.126, engine OM602.911 I5 diesel), automatic",201.126,602.911
+Mercedes Benz,1987,190D,"602.911, Standard","190 D 2.5 (201.126, engine OM602.911 I5 diesel), manual",201.126,602.911
+Mercedes Benz,1987,190D,602.961,"190 D 2.5 TURBODIESEL (201.128, engine OM602.961 I5 diesel)",201.128,602.961
+Mercedes Benz,1987,190E,"2.3, 102.983, Automatic","190 E 2.3-16 (201.034, engine M102.983 I4 petrol), automatic",201.034,102.983
+Mercedes Benz,1987,190E,"2.3, 102.983, Standard","190 E 2.3-16 (201.034, engine M102.983 I4 petrol), manual",201.034,102.983
+Mercedes Benz,1987,190E,"2.3, 102.985, Automatic","190 E 2.3 (201.028, engine M102.985 I4 petrol), automatic",201.028,102.985
+Mercedes Benz,1987,190E,"2.3, 102.985, Standard","190 E 2.3 (201.028, engine M102.985 I4 petrol), manual",201.028,102.985
+Mercedes Benz,2005,E320,"Base, 4D Sedan, 112.949","E 320 (211.065/211.265, engine M112.949 V6 petrol), 4D Sedan",211.065/211.265,112.949
+Mercedes Benz,2005,E320,"Base, 4D Sedan, 648.961","E 320 CDI (211.026, engine OM648.961 I6 CDI diesel), 4D Sedan",211.026,648.961
+Mercedes Benz,2006,B200,"266.960, Automatic CVT","B 200 (245.233, engine M266.960 I4 petrol), Automatic CVT",245.233,266.960
+Mercedes Benz,2006,B200,"266.960, Standard","B 200 (245.233, engine M266.960 I4 petrol), manual",245.233,266.960
+Mercedes Benz,2006,B200,"266.980, Automatic CVT","B 200 TURBO (245.234, engine M266.980 I4 petrol), Automatic CVT",245.234,266.980
+Mercedes Benz,2006,B200,"266.980, Standard","B 200 TURBO (245.234, engine M266.980 I4 petrol), manual",245.234,266.980
+Mercedes Benz,2007,B200,"266.960, Automatic CVT","B 200 (245.233, engine M266.960 I4 petrol), Automatic CVT",245.233,266.960
+Mercedes Benz,2007,B200,"266.960, Standard","B 200 (245.233, engine M266.960 I4 petrol), manual",245.233,266.960
+Mercedes Benz,2007,B200,"266.980, Automatic CVT","B 200 TURBO (245.234, engine M266.980 I4 petrol), Automatic CVT",245.234,266.980
+Mercedes Benz,2007,B200,"266.980, Standard","B 200 TURBO (245.234, engine M266.980 I4 petrol), manual",245.234,266.980
+Mercedes Benz,2008,B200,"266.960, Automatic CVT","B 200 (245.233, engine M266.960 I4 petrol), Automatic CVT",245.233,266.960
+Mercedes Benz,2008,B200,"266.960, Standard","B 200 (245.233, engine M266.960 I4 petrol), manual",245.233,266.960
+Mercedes Benz,2008,B200,"266.980, Automatic CVT","B 200 TURBO (245.234, engine M266.980 I4 petrol), Automatic CVT",245.234,266.980
+Mercedes Benz,2008,B200,"266.980, Standard","B 200 TURBO (245.234, engine M266.980 I4 petrol), manual",245.234,266.980
+Mercedes Benz,2009,B200,"266.960, Automatic CVT","B 200 (245.233, engine M266.960 I4 petrol), Automatic CVT",245.233,266.960
+Mercedes Benz,2009,B200,"266.960, Standard","B 200 (245.233, engine M266.960 I4 petrol), manual",245.233,266.960
+Mercedes Benz,2009,B200,"266.980, Automatic CVT","B 200 TURBO (245.234, engine M266.980 I4 petrol), Automatic CVT",245.234,266.980
+Mercedes Benz,2009,B200,"266.980, Standard","B 200 TURBO (245.234, engine M266.980 I4 petrol), manual",245.234,266.980
+Mercedes Benz,2010,B200,"266.960, Automatic CVT","B 200 (245.233, engine M266.960 I4 petrol), Automatic CVT",245.233,266.960
+Mercedes Benz,2010,B200,"266.960, Standard","B 200 (245.233, engine M266.960 I4 petrol), manual",245.233,266.960
+Mercedes Benz,2010,B200,"266.980, Automatic CVT","B 200 TURBO (245.234, engine M266.980 I4 petrol), Automatic CVT",245.234,266.980
+Mercedes Benz,2010,B200,"266.980, Standard","B 200 TURBO (245.234, engine M266.980 I4 petrol), manual",245.234,266.980
+Mercedes Benz,2010,E350,"Base, 2D Coupe, 272.961","E 350 (207.356, engine M272.961 V6 petrol), 2D Coupe",207.356,272.961
+Mercedes Benz,2010,E350,"Base, 2D Coupe, 272.988","E 350 (207.356, engine M272.988 V6 petrol), 2D Coupe",207.356,272.988
+Mercedes Benz,2010,R350,"BlueTEC, 642.870","R 350 BlueTEC 4MATIC (251.125, engine OM642.870 V6 CDI diesel)",251.125,642.870
+Mercedes Benz,2011,B200,"266.960, Automatic CVT","B 200 (245.233, engine M266.960 I4 petrol), Automatic CVT",245.233,266.960
+Mercedes Benz,2011,B200,"266.960, Standard","B 200 (245.233, engine M266.960 I4 petrol), manual",245.233,266.960
+Mercedes Benz,2011,B200,"266.980, Automatic CVT","B 200 TURBO (245.234, engine M266.980 I4 petrol), Automatic CVT",245.234,266.980
+Mercedes Benz,2011,B200,"266.980, Standard","B 200 TURBO (245.234, engine M266.980 I4 petrol), manual",245.234,266.980
+Mercedes Benz,2011,E350,"Base, 2D Convertible, 272.961","E 350 (207.456, engine M272.961 V6 petrol), 2D Convertible",207.456,272.961
+Mercedes Benz,2011,E350,"Base, 2D Convertible, 272.988","E 350 (207.456, engine M272.988 V6 petrol), 2D Convertible",207.456,272.988
+Mercedes Benz,2011,E350,"Base, 2D Coupe, 272.961","E 350 (207.356, engine M272.961 V6 petrol), 2D Coupe",207.356,272.961
+Mercedes Benz,2011,E350,"Base, 2D Coupe, 272.988","E 350 (207.356, engine M272.988 V6 petrol), 2D Coupe",207.356,272.988
+Mercedes Benz,2014,E350,"4Matic, 2D Coupe, Eng CD 276.957","E 350 4MATIC BLUE EFFICIENCY (207.388, engine M276.957 V6 petrol), 2D Coupe",207.388,276.957
+Mercedes Benz,2014,E350,"Base, 2D Coupe, Eng CD 276.957","E 350 BLUE EFFICIENCY (207.359, engine M276.957 V6 petrol), 2D Coupe",207.359,276.957

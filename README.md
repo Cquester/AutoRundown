@@ -437,8 +437,9 @@ the 2016 F-150s; more words narrow it. Picking one shows **Add this car** under
 the box (on this PC only): if the car's LEMON folder is already on the PC,
 beside LEMON manuals imported before, it is imported in the background with a
 progress bar and selected when done. Otherwise it opens the car's page on
-LEMON's site in your browser: click *Download .zip for offline use*, save it
-in Downloads, and AutoRundown imports it as soon as it arrives. If LEMON's site
+LEMON's site in your browser: click *Download .zip for offline use*, type
+*human* where LEMON asks, press *Download manual*, save the zip in Downloads,
+and AutoRundown imports it as soon as it arrives (the card waits 45 minutes). If LEMON's site
 isn't answering, Operation CHARM's page is offered instead (1982-2013, to read
 online). AutoRundown never downloads from either site itself. Shop setup →
 Manuals → LEMON → **Add a car** does the same from a search.

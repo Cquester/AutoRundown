@@ -679,6 +679,72 @@ def _verify_citations(answer: AnswerModel, passages: list[dict]) -> list[str]:
     return dropped
 
 
+# Labour times are not manual text: WIS's flat-rate book is read straight
+# into the Labour times tab (wis_links.labour_times), never into the
+# passages. "labour time to replace the water pump" came back "not found"
+# with an empty note, ~$0.02 each (agent review, 2026-10-28).
+LABOUR_RE = _re.compile(r"\blabou?r\b|\bflat[- ]rate\b|\bbook time\b|\bhow long\b|\bhours?\b(?! meter)", _re.I)
+LABOUR_NOTE = ("Labour times are not in the manual pages the AI reads: see the Labour times tab "
+               "(it is filled from this question's search).")
+
+
+# A Mercedes part number as an answer writes it: "A 001 420 01 20",
+# "A0014200120", "N 000000 001234" (numbers.py's printed forms)
+_PROSE_PART_RE = _re.compile(r"(?<![\w.-])(?:A\s?\d{3}\s?\d{3}\s?\d{2}\s?\d{2}|N\s?\d{6}\s?\d{6})(?![\w.-])", _re.I)
+
+
+def _check_part_numbers(answer: AnswerModel, passages: list[dict]) -> list[str]:
+    """A part number the answer gives must be printed on a page it cites.
+
+    `_verify_citations` checks which pages are cited, not what is said: Haiku
+    called A 001 420 01 20 a superseded front pad -- it is the REAR pad kit,
+    on a parts page in the passages that the answer did not cite (agent
+    review, 2026-10-28). A mechanic orders from that sentence. Numbers in
+    the answer and caveats must be on one of the answer's cited pages, and
+    a spec's on its own cited pages; any other is taken out and said so.
+    """
+    text: dict[str, str] = {}
+    for p in passages:
+        page = str(p["page_no"])
+        text[page] = text.get(page, "") + _re.sub(r"\s+", "", p.get("body") or "").upper()
+
+    def on(number: str, pages) -> bool:
+        compact = _re.sub(r"\s+", "", number).upper()
+        return any(compact in text.get(str(pg), "") or compact[1:] in text.get(str(pg), "")
+                   for pg in pages)
+
+    dropped: list[str] = []
+    kept = []
+    for spec in answer.specs:
+        bad = [n for n in _PROSE_PART_RE.findall(spec.value or "") if not on(n, spec.source_pages)]
+        if bad:
+            dropped.append(f"spec '{spec.name}' gave {', '.join(bad)}, not on its cited page")
+        else:
+            kept.append(spec)
+    answer.specs = kept
+
+    cited = {str(p) for p in answer.source_pages} | {str(answer.document_page)}
+    for spec in answer.specs:
+        cited.update(str(x) for x in spec.source_pages)
+    removed: list[str] = []
+
+    def scrub(s: str) -> str:
+        def one(m):
+            if on(m.group(0), cited):
+                return m.group(0)
+            removed.append(m.group(0))
+            return "[part number removed: not on a cited page]"
+        return _PROSE_PART_RE.sub(one, s or "")
+
+    answer.answer = scrub(answer.answer)
+    answer.caveats = scrub(answer.caveats)
+    if removed:
+        dropped += [f"part number {n} in the text, not on a cited page" for n in dict.fromkeys(removed)]
+        answer.caveats = (f"{answer.caveats} A part number the AI wrote is not on the pages it "
+                          "cites and was removed; check the parts page.").strip()
+    return dropped
+
+
 # Engine and model codes in a spec's applicability text. "M112", "OM 613",
 # "engine(s) 112, 113", and dotted codes "112.941" / "210.082" -- a dotted
 # code is an engine when its family is a known engine and not this car's
@@ -781,9 +847,24 @@ _PART_LINE_RE = _re.compile(
     r"\s*(?P<name>[^|]*)\|\s*(?P<fits>[^|]*)\|(?P<notes>.*)$")
 _CODE_RE = _re.compile(r"\b\d{3}\.\d{3}\b")
 MAX_ADDED_PARTS = 6
+# words too common among parts to say which part was asked for
+_GENERIC = {"part", "number", "front", "rear", "left", "right", "kit", "set", "ts",
+            "brake", "engine", "replace", "replacement", "new", "the", "for", "and",
+            "what", "which", "car", "my", "oem", "genuine", "mercedes", "upper", "lower"}
 
 
-def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope) -> list[dict]:
+def _words(text: str) -> set[str]:
+    """Significant words, singular: "Front brake pads" -> {"pad"}."""
+    out = set()
+    for w in _re.findall(r"[a-z]{3,}", (text or "").lower()):
+        w = w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+        if w not in _GENERIC:
+            out.add(w)
+    return out
+
+
+def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope,
+                       asked: str = "") -> list[dict]:
     """Add current part numbers that fit this car and that the answer left out.
 
     Two paid answers (2026-10-15) gave only the pencil-type glow plug for a
@@ -819,6 +900,13 @@ def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope) -> list
         # only an engine family chosen (no exact variant): a code of that engine
         return not (model_codes or engine_codes) and any(c[:3] in families for c in codes)
 
+    # only parts of what was asked: "front brake pads" added the calipers,
+    # anchor, disc and its screw from the same page, 7 rows burying the pad
+    # numbers (agent review, 2026-10-28). The question's (and the planner's)
+    # own words, less the ones every brake or engine part shares; none left:
+    # every line, as before.
+    wanted = _words(asked)
+
     added: list[dict] = []
     for p in passages:
         page = str(p["page_no"])
@@ -827,6 +915,8 @@ def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope) -> list
         for line in (p.get("body") or "").split("\n"):
             m = _PART_LINE_RE.match(line.strip())
             if not m or "replaced by" in m["notes"].lower() or not fits_car(m["fits"]):
+                continue
+            if wanted and not wanted & _words(m["name"]):
                 continue
             compact, digits = m["compact"].upper(), m["compact"][1:]
             if compact in said or digits in said or any(a["compact"] == compact for a in added):
@@ -984,10 +1074,14 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
 
     answer = reply.parsed or AnswerModel(
         found=False, answer="", caveats="The model returned no parsable answer.")
-    dropped = _verify_citations(answer, passages)
+    dropped = _check_part_numbers(answer, passages)     # first: an answer left with no
+    dropped += _verify_citations(answer, passages)      # citation is then withheld
     other = _drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
-    added = _add_omitted_parts(answer, passages, scope) if answer.found else []
+    added = (_add_omitted_parts(answer, passages, scope, " ".join([question, *queries]))
+             if answer.found else [])
     linked = _add_linked_torques(answer, passages) if answer.found else []
+    if not answer.found and LABOUR_RE.search(question):
+        answer.caveats = f"{answer.caveats} {LABOUR_NOTE}".strip()
 
     # surface diagrams that belong to the pages actually cited
     cited = set(answer.source_pages)

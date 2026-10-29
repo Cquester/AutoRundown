@@ -40,7 +40,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import ingest  # noqa: E402
 import make_sample_lemon  # noqa: E402
-from autorundown import config, lemon_catalogue, lemon_zip, recycle, server  # noqa: E402
+from autorundown import config, importer_jobs, lemon_catalogue, lemon_zip, recycle, server  # noqa: E402
 
 fails = 0
 
@@ -188,6 +188,21 @@ check(got is not None and Path(got[0]) == folder, f"the Camry is in the index fr
 check((DL / NAME).is_file(), "the zip is still in Downloads (it is the user's file)")
 check(pc.get("/api/catalogue/suggest", params={"q": "2008 camry le 2.4 automatic"}).json()["total"] == 0,
       "and it is no longer offered as not downloaded")
+
+print("an import cut short (agent review, 2026-10-28)")
+with sqlite3.connect(db) as con:          # as a killed ingest leaves it
+    con.execute("UPDATE vehicles SET complete=0, indexed_pages=0 WHERE doc_id=?", (DOC,))
+rows = pc.get("/api/catalogue/suggest", params={"q": "2008 camry le 2.4 automatic"}).json()["rows"]
+check(len(rows) == 1 and rows[0]["partial"], f"a partly imported car is still offered, marked partial: {rows}")
+m = next(x for x in importer_jobs.manuals(db)["lemon"] if x["doc_id"] == DOC)
+check(not m["complete"] and m["pages"] > 0, f"Shop setup counts its pages, not 0: {m['pages']}")
+check(importer_jobs.lemon_on_disk(DOC, db) is not None, "its finished folder is found, so Add this car resumes it")
+lemon_zip.mark(folder, DL / NAME, complete=False)  # as a killed unzip leaves it
+check(importer_jobs.lemon_on_disk(DOC, db) is None,
+      "a folder whose unzip never finished is never imported as it stands (it had 2,738 of 8,001 pages)")
+lemon_zip.mark(folder, DL / NAME, complete=True)
+with sqlite3.connect(db) as con:
+    con.execute("UPDATE vehicles SET complete=1 WHERE doc_id=?", (DOC,))
 
 print("removing it")
 check(recycle.allowed(folder) == "", "its folder may be recycled (download mark, in manuals/)")

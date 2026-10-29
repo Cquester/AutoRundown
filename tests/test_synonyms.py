@@ -37,6 +37,9 @@ check("word boundaries: 'guibos' is not 'guibo'", translations("guibos"), [])
 check("US spelling -> the catalogue's British one", translations("front window molding clip"),
       ["front window moulding clip"])
 check("... plural, and other spellings", translations("rocker panel moldings"), ["sill mouldings"])
+check("drain plug: WIS's drain screw", translations("oil drain plug torque"), ["oil drain screw torque"])
+check("... sump plug and a bare drain plug", (translate("sump plug"), translate("drain plug")),
+      ("oil drain screw", "drain screw"))
 check("nothing to translate", translations("oil filter"), [])
 check("nothing: translate() is None", translate("oil filter"), None)
 

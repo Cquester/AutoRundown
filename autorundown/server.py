@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 from itertools import zip_longest
 from pathlib import Path
 
+import anyio
+import anyio.to_thread
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, RedirectResponse,
@@ -36,8 +38,8 @@ from pydantic import BaseModel, Field
 
 from . import search as search_mod
 from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
-from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_zip, manual_browse, part_procedures,
-               parts_browse, synonyms, tab_values, wis_links, wis_original)
+from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_tables, lemon_zip, manual_browse,
+               part_procedures, parts_browse, synonyms, tab_values, wis_links, wis_original)
 from .search import (as_ids, get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
 
@@ -281,6 +283,17 @@ def _local_path_error(raw: str) -> str | None:
     return None
 
 
+def _relative_name(name: str) -> bool:
+    """A file name from a URL is only ever a plain path *inside* its folder,
+    checked as text before any file call: `(root / name).resolve()` with
+    `\\\\host\\share\\x.png` (or `//host/…`) replaced the root on Windows and
+    resolve() connected out over SMB, offering this PC's login, before the
+    containment check ran (agent review, 2026-10-28)."""
+    if not name or "\x00" in name or "\\" in name or ":" in name or name.startswith("/"):
+        return False
+    return not any(part in ("", ".", "..") for part in name.split("/"))
+
+
 def _cross_site(request: Request) -> bool:
     """A browser says where a request came from (Sec-Fetch-Site). For the
     admin routes only this page itself (same-origin) or a typed URL (none) will
@@ -418,6 +431,10 @@ def _with_vin9_bm(rows: list[dict]) -> list[dict]:
                     pass
         out.append(v)
     return out
+
+
+ASK_THREADS = 8     # answers being worked on at once (see api_ask)
+ASK_QUEUE = 24      # more in flight (answering + waiting) than this: "busy, try again"
 
 
 def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
@@ -614,6 +631,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # read on the phone itself.
     @app.get("/vendor/{name:path}")
     def vendor(name: str) -> Response:
+        if not _relative_name(name):
+            raise HTTPException(404, "Not found.")
         root = (WEB_DIR / "vendor").resolve()
         target = (root / name).resolve()
         kind = VENDOR_TYPES.get(target.suffix.lower())
@@ -717,6 +736,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # the question box's own Search (not a tab's): kept in the history
             if record and tab == "workshop":
                 _remember(request.state.who, "search", vehicle, variant, engine, None, q)
+            # a LEMON manual has no parts catalogue joined in: its own "Parts
+            # Information" tables (lemon_tables), rows as printed
+            if tab == "parts" and vehicle.get("source_name") == "lemon":
+                return lemon_tables.parts(conn, doc_id,
+                                          list(dict.fromkeys(synonyms.translations(q) + [q] + also)), limit)
             if not scope:
                 return []
             # the manual's wording first ("valve cover" -> "cylinder head
@@ -778,8 +802,27 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
+    # Ask waits on the AI for 10-60 s. Run in the shared pool (40 threads),
+    # ~40 slow answers in flight froze every route for everyone, /api/status
+    # included (agent review, 2026-10-28). Ask gets its own few threads, and
+    # past a short queue a plain "busy" instead of a minute's wait.
+    ask_slots: dict = {}
+
     @app.post("/api/ask")
-    def api_ask(request: Request, body: AskBody) -> dict:
+    async def api_ask(request: Request, body: AskBody) -> dict:
+        if "limiter" not in ask_slots:          # made inside the event loop
+            ask_slots["limiter"], ask_slots["waiting"] = anyio.CapacityLimiter(ASK_THREADS), 0
+        limiter = ask_slots["limiter"]
+        if limiter.available_tokens == 0 and ask_slots["waiting"] >= ASK_QUEUE:
+            raise HTTPException(503, "Too many questions at once; try again in a minute. "
+                                     "Keyword search still works.")
+        ask_slots["waiting"] += 1
+        try:
+            return await anyio.to_thread.run_sync(_ask, request, body, limiter=limiter)
+        finally:
+            ask_slots["waiting"] -= 1
+
+    def _ask(request: Request, body: AskBody) -> dict:
         who: auth.Who = request.state.who
         conn = db()
         try:
@@ -1053,6 +1096,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
+            # a LEMON manual's own "Labor Times" pages (lemon_tables): one
+            # book, the car's, no variant needed
+            if vehicle.get("source_name") == "lemon":
+                return {"books": [{"book": "lemon", "family": "LEMON manual", "type": ""}],
+                        "book": "lemon", "need": None,
+                        **lemon_tables.labour(conn, doc_id, q, alt=synonyms.translate(q) or "")}
         finally:
             conn.close()
         if not _is_wis(vehicle):
@@ -1155,7 +1204,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         parts catalogue's -- never outside them; 404 otherwise."""
         # a NUL (x.png%00.db) made Path.resolve() raise: an unhandled 500,
         # without the security headers. No picture is named that way.
-        if "\x00" in name or "\x00" in doc_id:
+        if "\x00" in doc_id or not _relative_name(name):
             raise HTTPException(404, "image not found")
         conn = db()
         try:
