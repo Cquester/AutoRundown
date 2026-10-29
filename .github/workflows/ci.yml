@@ -81,7 +81,7 @@ jobs:
                    tests/test_handoff.py tests/test_history.py tests/test_chat.py tests/test_numbers.py tests/test_part_procedures.py tests/test_providers.py tests/test_vin.py \
                    tests/test_rebuild_wis.py tests/test_wis_tables.py tests/test_parts_diagrams.py \
                    tests/test_synonyms.py tests/test_job_numbers.py tests/test_charm.py tests/test_lemon_zip.py \
-                   tests/test_parts_fit.py tests/test_load.py; do
+                   tests/test_parts_fit.py tests/test_load.py tests/test_lemon_tables.py; do
             echo "::group::$t"
             start=$SECONDS
             python "$t" || { echo "::error::$t failed"; rc=1; }

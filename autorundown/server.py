@@ -38,8 +38,8 @@ from pydantic import BaseModel, Field
 
 from . import search as search_mod
 from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
-from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_zip, manual_browse, part_procedures,
-               parts_browse, synonyms, tab_values, wis_links, wis_original)
+from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_tables, lemon_zip, manual_browse,
+               part_procedures, parts_browse, synonyms, tab_values, wis_links, wis_original)
 from .search import (as_ids, get_page, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
 
@@ -736,6 +736,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # the question box's own Search (not a tab's): kept in the history
             if record and tab == "workshop":
                 _remember(request.state.who, "search", vehicle, variant, engine, None, q)
+            # a LEMON manual has no parts catalogue joined in: its own "Parts
+            # Information" tables (lemon_tables), rows as printed
+            if tab == "parts" and vehicle.get("source_name") == "lemon":
+                return lemon_tables.parts(conn, doc_id,
+                                          list(dict.fromkeys(synonyms.translations(q) + [q] + also)), limit)
             if not scope:
                 return []
             # the manual's wording first ("valve cover" -> "cylinder head
@@ -1091,6 +1096,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
+            # a LEMON manual's own "Labor Times" pages (lemon_tables): one
+            # book, the car's, no variant needed
+            if vehicle.get("source_name") == "lemon":
+                return {"books": [{"book": "lemon", "family": "LEMON manual", "type": ""}],
+                        "book": "lemon", "need": None,
+                        **lemon_tables.labour(conn, doc_id, q, alt=synonyms.translate(q) or "")}
         finally:
             conn.close()
         if not _is_wis(vehicle):

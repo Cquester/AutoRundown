@@ -4151,7 +4151,9 @@ function tabsFor(v) {
   const partsOnly = v?.doc_type === 'parts';
   const hasParts = partsOnly || !!(v?.joined_ids?.length || Object.keys(v?.engine_joins || {}).length);
   const wis = WIS_SOURCE.test(v?.source_name || '');
-  return {workshop: !partsOnly, parts: hasParts, labour: wis, capacity: !partsOnly, torque: !partsOnly};
+  // a LEMON manual's own Labor Times and Parts Information pages (lemon_tables.py)
+  const lemon = v?.source_name === 'lemon';
+  return {workshop: !partsOnly, parts: hasParts || lemon, labour: wis || lemon, capacity: !partsOnly, torque: !partsOnly};
 }
 function syncTabs() {
   const v = vehicles.find(x => x.doc_id === docId());
@@ -4160,10 +4162,12 @@ function syncTabs() {
   $('#resTabs').hidden = !v || Object.values(have).filter(Boolean).length < 2;
   if (v && !have[curTab]) setTab(have.workshop ? 'workshop' : 'parts');
 }
+const lemonCar = () => vehicles.find(x => x.doc_id === docId())?.source_name === 'lemon';
 function tabEmpty(t) {
   const label = carBoxLabel || currentCarLabel();
   if (!docId() || !label) return '';
-  const what = {parts: 'the parts it names from the parts catalogue (part numbers, which models they fit)',
+  const what = {parts: lemonCar() ? 'the parts the manual lists for that job (OEM numbers, prices)'
+                       : 'the parts it names from the parts catalogue (part numbers, which models they fit)',
                 capacity: 'the capacities on that job’s pages',
                 torque: 'the torque values of that job (its page and the procedures it links to)',
                 labour: 'the flat-rate labour times for the job'}[t];
@@ -4588,6 +4592,7 @@ document.addEventListener('click', e => {
 function showPartsBrowse() {
   const pane = $(PANE.parts);
   if (!pane || tabQuery) return;
+  if (lemonCar()) { pane.innerHTML = tabEmpty('parts'); return; }   // no diagrams to browse
   // already showing this car's list: keep it, and the groups left open
   const key = `${docId()}|${variantIdx()}|${engineSel()}`;
   if (pane.dataset.browseKey === key && pane.querySelector('.pbsec')) return;
@@ -4609,6 +4614,13 @@ function catalogsHtml(r) {
         `<button type="button" class="pagelink" ${pageAttrs(c.page_no)}>${esc(catalogName(c))}</button>`).join(' ') : '')
     + `</div>`;
 }
+// a LEMON manual's Parts Information rows, as printed (lemon_tables.py)
+function lemonPartsHtml(rows) {
+  return `<table class="plines"><tbody>` + rows.map(p =>
+    `<tr><td>${esc(p.part)}</td><td class="pn">${esc(p.number)}</td><td>${esc(p.maker)}</td>`
+    + `<td style="text-align:right">${esc(p.price)}</td><td class="nt">${esc(p.notes)}</td></tr>`).join('')
+    + `</tbody></table>`;
+}
 async function tabSearch(tab, q, also, seq) {
   const pane = $(PANE[tab]), doc = docId(), label = carBoxLabel;
   pane.innerHTML = `<div class="card"><span class="spinner"></span> searching&hellip;</div>`;
@@ -4628,14 +4640,15 @@ async function tabSearch(tab, q, also, seq) {
           + `<button type="button" class="hit" style="padding:0" ${pageAttrs(r.page_no)}>
              <div class="t">${esc(r.title)}</div><div class="s">${esc(r.section_path)}</div></button>`
           + catalogsHtml(r)
-          + (r.lines?.length ? partLinesHtml(r.lines) : '')
-          // the page's drawing and whole list, opened in place
-          + `<details class="pbdrop" data-pno="${esc(r.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub pshow">`
-          + (r.drawings?.length ? 'Show drawing and all its parts' : 'Show all parts on this page')
-          + `</summary><div class="pbbody"></div></details>`
+          + (r.lemon_parts ? lemonPartsHtml(r.lemon_parts)
+             : (r.lines?.length ? partLinesHtml(r.lines) : '')
+               // the page's drawing and whole list, opened in place
+               + `<details class="pbdrop" data-pno="${esc(r.page_no)}" data-doc="${esc(doc)}"><summary class="pbsub pshow">`
+               + (r.drawings?.length ? 'Show drawing and all its parts' : 'Show all parts on this page')
+               + `</summary><div class="pbbody"></div></details>`)
           + `</div>`).join('') + `</div>`
-        : `<div class="card"><div class="notfound">${none}</div></div>`)
-      + `<details class="pbmore"><summary>Browse all parts diagrams for this car</summary><div></div></details>`);
+        : `<div class="card"><div class="notfound">${lemonCar() ? 'No part in this manual’s parts lists matches this question.' : none}</div></div>`)
+      + (lemonCar() ? '' : `<details class="pbmore"><summary>Browse all parts diagrams for this car</summary><div></div></details>`));
     const more = pane.querySelector('.pbmore');
     if (more) more.addEventListener('toggle', () => {
       if (more.open && !more.dataset.loaded) { more.dataset.loaded = '1'; partsBrowse(more.lastElementChild); }
@@ -4652,7 +4665,7 @@ async function labourFor(terms, seq) {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
   labFor = docId() + '::' + variantIdx();
-  if (variantIdx() === null) { labQuery = terms.at(-1) || ''; await loadLabour(); setCount('labour', null); return; }
+  if (variantIdx() === null && !lemonCar()) { labQuery = terms.at(-1) || ''; await loadLabour(); setCount('labour', null); return; }
   for (const t of terms) {
     const words = t.replace(LAB_STOP, ' ').replace(/\s+/g, ' ').trim();
     if (!words) continue;
@@ -5860,7 +5873,7 @@ async function loadLabour() {
   const out = $('#labOut');
   // nothing before a question: a model's book has a thousand operations or more
   if (!labQuery) { out.innerHTML = tabEmpty('labour'); return 0; }
-  if (n === null) {
+  if (n === null && !lemonCar()) {
     out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
       + 'Variant): labour times are per model type.</div>';
     return 0;
@@ -5885,6 +5898,9 @@ async function loadLabour() {
   }
   if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return 0; }
   if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return 0; }
+  if (r.book === 'lemon' && !r.total && !r.items.length) {
+    out.innerHTML = '<div class="muted">This manual has no labour times that match, for this car.</div>'; return 0;
+  }
   if (!r.items.length) {
     out.innerHTML = '<div class="muted">No labour operation matches this question. To look one up, '
       + 'type its name in the question box and press <b>Keyword</b>, e.g. <i>water pump</i>.</div>';
@@ -5896,7 +5912,9 @@ async function loadLabour() {
   const rowsHtml = items => `<div class="tablewrap"><table><tbody>` + items.map(i =>
     `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
     + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
-    + ` <span class="muted" style="font-size:12px">${i.minutes} min</span></td></tr>`).join('') + `</tbody></table></div>`;
+    + ` <span class="muted" style="font-size:12px">${i.minutes} min</span>`
+    + (i.warranty ? `<div class="muted" style="font-size:12px">warranty ${esc(i.warranty)} h</div>` : '')
+    + `</td></tr>`).join('') + `</tbody></table></div>`;
   const more = r.items.slice(best);
   out.innerHTML = `<div class="muted" style="margin-bottom:6px">For: <b>${esc(labQuery)}</b></div>`
     + rowsHtml(r.items.slice(0, best))

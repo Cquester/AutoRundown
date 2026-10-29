@@ -180,6 +180,7 @@ python tests/test_charm.py                        # one CHARM car: reader, plan,
 python tests/test_lemon_zip.py                    # "Add a car": LEMON zip found, unsafe zips refused, unpack + import (~10 s)
 python tests/test_parts_fit.py                    # parts pages/lines that fit the car: cut code lists, other models' lines (<1 s)
 python tests/test_load.py                         # many mechanics at once: Ask threads + busy, cached vehicles and labour (~10 s)
+python tests/test_lemon_tables.py                 # LEMON cars' Labour times and Parts tabs from their own tables (<1 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 
 # sample data and tools
@@ -285,6 +286,7 @@ autorundown/
   importer_jobs.py import / remove / VM jobs started from Shop setup
   lemon_catalogue.py  LEMON torrent catalogue tree and picks; LEMON / CHARM page links, zip names
   lemon_zip.py     a LEMON car's zip from Downloads: found, checked (untrusted), unpacked
+  lemon_tables.py  a LEMON manual's own Labor Times / Parts Information tables, for those tabs
   charm.py         Operation CHARM's data (SquashFS + LMDB) read a piece at a time; LEMON-style export
   charm_fetch.py   CHARM torrent pieces from the swarm (libtorrent, never seeds) or a local copy
   wis_links.py     WIS cross-refs, diagram hotspots, oil, labour
