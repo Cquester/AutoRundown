@@ -296,6 +296,14 @@ check("  ... Shop setup lists each provider's models with hidden marked",
       [m["id"] for p in s["providers"] if p["id"] == "xai" for m in p["models"] if m["hidden"]] == ["grok-4.7"])
 r = phone.post("/api/ask", json={"doc_id": vehicle["doc_id"], "question": "q", "model": "grok-4.7"})
 check("a hidden model is refused", r.status_code == 400 and "turned off" in r.json()["detail"], r.json())
+pc.post("/api/settings", json={"provider": "deepseek"})
+rows = phone.get("/api/models", params={"menu": 1}).json()
+check("the default provider has no key: another's default leads, not its first model, and says so",
+      rows[0]["id"] == "gemini-3.8-flash" and rows[0].get("instead_of") == "DeepSeek"
+      and not any(r.get("instead_of") for r in rows[1:]), [(r["id"], r.get("instead_of")) for r in rows[:2]])
+pc.post("/api/settings", json={"provider": "gemini"})
+check("  ... and with a key, nothing is said",
+      not any(r.get("instead_of") for r in phone.get("/api/models", params={"menu": 1}).json()))
 check("an unknown model can't be hidden",
       pc.post("/api/settings", json={"hidden_models": ["gpt-9"]}).status_code == 400)
 pc.post("/api/settings", json={"hidden_models": []})

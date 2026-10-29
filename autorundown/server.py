@@ -1374,8 +1374,13 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if not ids:
             return providers.model_list(config.active_provider(cfg))
         rows = {m["id"]: m for pid in providers.PROVIDERS for m in providers.model_list(pid)}
-        return [{**rows[m], "provider_short": providers.PROVIDERS[rows[m]["provider"]]["short"]}
-                for m in ids]
+        out = [{**rows[m], "provider_short": providers.PROVIDERS[rows[m]["provider"]]["short"]}
+               for m in ids]
+        # the chosen provider has no key for them: the menu says so
+        active = config.active_provider(cfg)
+        if out and not any(r["provider"] == active for r in out):
+            out[0]["instead_of"] = providers.PROVIDERS[active]["short"]
+        return out
 
     # -- import ------------------------------------------------------------
     # Browsing folders and starting an import reach into this PC's files and

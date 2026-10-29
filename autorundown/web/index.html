@@ -268,6 +268,7 @@
     font-weight:700; cursor:pointer; margin:4px 6px 0 0; min-height:36px;
   }
   .warnbox{border-left:4px solid var(--warn); background:var(--warn-bg); padding:12px; border-radius:10px; margin:10px 0}
+  .warnnote{margin:6px 0; color:var(--text); border-left:3px solid var(--warn); padding:4px 8px; font-size:13px}
   .errbox{border-left:4px solid var(--bad); background:var(--bad-bg); padding:12px; border-radius:10px}
   .notfound{border-left:4px solid var(--muted); background:var(--panel-2); padding:14px; border-radius:10px}
   /* WIS pages: reading view vs the document redrawn from its SIDS layout */
@@ -1063,6 +1064,7 @@
         <span class="costline" id="cost">$0.0000 this session</span>
       </div>
     </details>
+    <div class="warnnote" id="modelNote" hidden></div>
     <!-- History: every Ask (its whole answer, free to open again) and Search;
          Clear: back to browsing, every tab as before the question -->
     <div class="qtools">
@@ -2857,8 +2859,16 @@ async function loadModels(pending) {
     const kept = JSON.parse(localStorage.getItem(MODEL_KEY) || 'null');
     if (kept && kept.d === me.default_model) current = kept.m;
   } catch (_) {}
+  // the chosen provider has no key here: its default isn't in the menu, and
+  // the first entry (another provider's default) answers -- said, not silent
+  const instead = menuList[0]?.instead_of;
+  const lead = instead ? menuList[0].id : me.default_model;
   const opt = m => `<option value="${esc(m.id)}">${esc(m.label.split(' — ')[0])}`
-    + `${m.id === me.default_model ? ' (default)' : ''}</option>`;
+    + `${m.id === lead ? (instead ? ' (used now)' : ' (default)') : ''}</option>`;
+  $('#modelNote').hidden = !instead;
+  $('#modelNote').textContent = instead ? `${instead} has no API key, so questions go to `
+    + `${menuList[0].provider_short || 'another provider'} (${menuList[0].label.split(' — ')[0]}). `
+    + `Add the key in Shop setup → AI answers.` : '';
   const groups = [...new Set(menuList.map(m => m.provider))];
   $('#model').innerHTML = groups.length < 2 ? menuList.map(opt).join('')
     : groups.map(g => `<optgroup label="${esc(menuList.find(m => m.provider === g).provider_short || g)}">`
