@@ -82,9 +82,9 @@ withheld / not-found / declined paths, the spend log.
   the system prompt stays the top-level `system`). The fake takes either
   key header, as the API does. The SDK's licence changed from MIT to
   Apache-2.0 at 2.0 (its `dist-info/licenses` ships both; the MSI bundles
-  site-packages as is). **The real API under version 2026-10-21 has not
-  answered one of these requests yet**: one scoped Haiku question is the
-  check.
+  site-packages as is). The real API under version 2026-10-21 answered all
+  22 paid questions of the agent review (2026-10-28; Haiku 4.5 and Sonnet 5,
+  through `query.ask`) without an error.
 - **No new dependency.** The other three use `urllib.request` (stdlib), not
   `google-genai` / `openai`: smaller MSI, nothing to vendor, and the anthropic
   SDK's own HTTP client has changed under us before (1.0 ships `httpx2`).

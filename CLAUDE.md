@@ -28,7 +28,7 @@ broke:
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
 | `providers.py`, the AI provider selector, prices, `tools/fake_anthropic.py`'s provider fakes | [`docs/notes/ai-providers.md`](docs/notes/ai-providers.md) |
-| the EPC parts source — `extractor/pull_epc.js`, `epc_fv4.js`, the EPC↔WIS join (`index.link_sources`) (not in the live index yet) | [`docs/notes/epc-source.md`](docs/notes/epc-source.md) |
+| the EPC parts source — `extractor/pull_epc.js`, `epc_fv4.js`, the EPC↔WIS join (`index.link_sources`) (in the live index since 2026-10-23) | [`docs/notes/epc-source.md`](docs/notes/epc-source.md) |
 
 ---
 
@@ -240,8 +240,6 @@ other manual's page/chunk counts and the spend log before and after
 
 ## Spend discipline — read this before running anything
 
-## Spend discipline — read this before running anything
-
 The user pays per API call and has said so directly. Earlier in this project
 ~87% of all spend was *testing*, not use. Rules:
 
@@ -301,8 +299,6 @@ archive format = one new `Importer` subclass, nothing else changes. Keep that
 boundary.
 
 ---
-
-## Decisions already made — do not silently undo these
 
 ## Decisions already made — do not silently undo these
 
@@ -478,8 +474,10 @@ Only when a car or engine is chosen (`vehicle_codes()` is None for the whole
 generation). Removed specs come back as `other_vehicle_specs` and render
 collapsed ("2 values for other engines or models — not your car, hidden");
 if nothing else is left the answer becomes not-found. Tests in
-`tests/test_records.py` ("answers keep only the chosen car's values"). **Not yet
-tried on a paid answer.**
+`tests/test_records.py` ("answers keep only the chosen car's values"). On 22
+paid answers (agent review, 2026-10-28) no other car's value reached an
+answer, but the check never had to remove one, so it is still unproven on a
+real reply.
 
 **A parts catalogue is joined into the manual's car at query time, and
 its page numbers are prefixed** (2026-10-14). EPC builds its own vehicles;
@@ -632,8 +630,6 @@ in `docs/notes/`. The ones most likely to be undone by accident:
 
 ## Archive-specific traps
 
-## Archive-specific traps
-
 These are properties of the archive, discovered the hard way. A flat or
 simple archive hides most of them.
 
@@ -654,7 +650,7 @@ predates the end-view format. Features here degrade quietly by design.
 ## Verifying changes
 
 1. `python eval.py` — free, catches indexing/ranking/dedup/variant regressions
-   on the F-150. `python eval_wis.py` — free, 19 WIS cases (~15 s): expected
+   on the F-150. `python eval_wis.py` — free, 28 WIS/EPC cases (~20 s): expected
    DokIDs plus wrong-vehicle guards that read page *text*. Guards that fail
    today are a ratchet (`KNOWN_BAD` ceilings): more offenders fails the run,
    fewer prints IMPROVED — lower the ceiling when it does.
@@ -691,11 +687,9 @@ outside the index: 272,181 graphics, 11 GB, in `wis_extract/images/`.
 `index.before-wis.db` is the old pre-WIS backup (no longer used by the
 script; it predates EPC and later manuals, so never restore it);
 `index.v11.db` is the last schema-1.1 index, kept for rollback (both
-gitignored). `eval_wis.py`: 19/19 pass, 13 known-bad guards within their ceilings (checked 2026-10-12).
+gitignored). `eval_wis.py`: 28/28 pass, 26 known-bad guards within their ceilings (checked 2026-10-28).
 
 ---
-
-## Known gaps
 
 ## Known gaps
 
@@ -711,14 +705,18 @@ gitignored). `eval_wis.py`: 19/19 pass, 13 known-bad guards within their ceiling
   (tested on sample data only). Removing ~530k WIS pages fires the FTS
   delete trigger per chunk, so expect it to take longer than the old
   backup restore; freed pages are reused by the re-ingest.
-- **WIS retrieval is checked by `eval_wis.py`, not by answers.** 19 cases,
-  13 known-bad guards left (other engines' documents in the general pool,
+- **WIS retrieval is checked mostly by `eval_wis.py`.** 28 cases, 26
+  known-bad guards left (other engines' documents in the general pool,
   engine buckets not type-narrowed, title-only applicability). The right page
   is found in every case but often at rank 4-7; one page can fill several of
   the top 10 as separate chunks (dedup is per chunk), visibly so in the UI's
   keyword list.
-- **Answers over WIS have not been tried.** Everything above is keyword
-  search; no paid question has been asked against the WIS corpus. The answer
+- **Answers over WIS: 22 paid questions so far** (agent review, 2026-10-28;
+  19 Haiku 4.5, 3 Sonnet 5, W210/W203/W201 and the F-150, $0.63). No wrong
+  torque, no unit converted, no other car's value; 17 right on the right
+  page. The failures it found are fixed in PR 41 (drain plug withheld, a part
+  number in the prose, the 2.3-16 page for the 8-valve, labour questions,
+  added-parts noise) but **not re-asked on a paid answer since**. The answer
   prompt was tuned on LEMON HTML.
 - WIS pages have no system taxonomy (`system` is left empty), so the
   connector index does nothing for that source (`/api/connectors` returns
@@ -768,53 +766,76 @@ gitignored). `eval_wis.py`: 19/19 pass, 13 known-bad guards within their ceiling
 
 ---
 
-## Where we left off (updated 2026-10-12) — start here in a new session
+## Where we left off (updated 2026-10-29) — start here in a new session
 
-Merged to `main` since the last update: the QA fixes (PR #6), the LEMON
-catalogue (#5), sandbox + CI (#7), WIS reference tables (#8), labour times
-(#10), test boxes (#9), and this tidy-up (tests/, tools/, docs/notes/).
+Since the last update: a 12-agent review of the whole app (2026-10-28).
+PR 41 fixed its 14 criticals:
+- parts lost to cut model-code lists, and other models' parts lines;
+- other variants' and engines' pages ranked first;
+- engine sizes shown as capacities;
+- market catalogues not named;
+- unchecked part numbers in the answer's text;
+- half-imported cars;
+- the Ask/SQLite load convoy;
+- UNC paths in `/api/image` (security).
+
+It also fixed eight annoying items: drain plug, labour questions, added
+parts, LEMON Labour/Parts tabs, LEMON labels, type "human", Wider, and the
+W205 eval cases. Released as 0.1.7 and installed on this PC. The review
+report and screenshots are kept outside the repo (not committed).
+
 Still open, in rough order of value:
 
-1. **Sedan/wagon split and the other-engine filter are built but not on the
-   real data.** Checked 2026-10-12: the real `index.db` has no "Wagon"
-   variant yet. Next: `python extractor/parse_vehicles.py` (read its "body
-   styles" lines), `python rebuild_wis.py`, `python tests/test_ui_picks.py`,
-   `python eval_wis.py`; then one scoped paid answer for a W210 wagon (ask
-   first).
-2. **Answers over WIS have never been tried** (see Known gaps). One cheap,
-   scoped paid question — with the user's OK — is the next real test of the
-   answer prompt on that source.
+1. **No paid answer since PR 41.** One scoped Haiku question each for the
+   drain plug (W210 E 320), the 190 E 2.3 cylinder head (must cite 49014339
+   or 49013229, not the 2.3-16's 49013392) and the 190 E 2.3 front pads
+   (no rear-pad number in the text) -- with the user's OK.
+2. **Review findings not fixed yet**:
+   - **Phone readability.** "Original layout" is the default and draws text
+     at ~5 px. Torque values are at 15 px. Four fixed rows take the top
+     205 px.
+   - **A fresh browser starts with the R107 selected**, not "Choose your
+     car".
+   - **"oil pan" never finds "Remove/install oil pan"** (a synonym crowds
+     out the user's words), and "taillight" misses "rear lamp".
+   - **AI fallbacks.** With no key for the default provider, Ask falls to
+     the dearest model. A malformed reply is headed "Not found". A 529 shows
+     as a raw dict.
+   - **Security defaults.** Sign-in is off by default, the session cookie
+     lasts 365 days over plain HTTP, and it is sent to every port on the PC.
+   - **Install.** The README quick start builds `./index.db`, but
+     `serve.py` opens `~/.autorundown/index.db`. A source run collides with
+     the installed copy on port 8756.
+   - **Phone.** Rotating drops the document. Back with a pop-up open closes
+     the view behind it.
+   - **"Add this car" asks lemon-manuals.la for its favicon** as soon as
+     it's clicked. Decide whether that fits the never-fetch rule.
 3. **Shop access + HTTPS not yet tried on the user's phones.**
    `serve.py --https`, install `/ca.crt` on an iPhone and an Android phone,
    sign one in with a code.
-4. **Older figure numbers ("P01-5220-13"): fixed in `parse_sids.py`, not yet
-   in the corpus.** To land: `python extractor/reparse_bodies.py --dry-run`
-   (18 min; not re-run since its check was fixed), then without
-   `--dry-run`, then `apply_images.py`, then `rebuild_wis.py`.
-5. **"Original layout"**: not yet seen by the user on their phone. Open: the
-   undecoded MATH/SYMBOLS glyphs and most LOGO icons, RTF hotspots as links,
-   links inside the iframe, tap targets in the full-size diagram view, and
-   the hotspot junk in `body_text` (`parse_sids.py`).
+4. **Older figure numbers ("P01-5220-13"): fixed in `parse_sids.py`, not
+   confirmed in the corpus.** To land: `python extractor/reparse_bodies.py
+   --dry-run` (18 min), then without `--dry-run`, then `apply_images.py`,
+   then `rebuild_wis.py`.
+5. **"Original layout"**: not yet seen by the user on their phone. Open:
+   - the undecoded MATH/SYMBOLS glyphs and most LOGO icons;
+   - RTF hotspots as links, and links inside the iframe;
+   - tap targets in the full-size diagram view;
+   - the hotspot junk in `body_text` (`parse_sids.py`).
 6. **The extractor has not been re-run end to end from the repo copy** (the
-   paths resolve and the evals pass; the next VM run is the real check).
+   next VM run is the real check).
 7. The car box reads a bare two-digit word as a year ("190 e 2.3 16" → 2016).
-8. **"Add a car" has not run in the installed app yet.** A real LEMON zip
-   (the F-150 Lariat) went through the API into a throwaway index on
-   2026-10-27; the browser's site check and Open on LEMON were seen in a
-   test box only.
+8. **"Add a car" has not run in the installed app yet.** The Honda Civic's
+   LEMON zip went through a second instance on a throwaway index
+   (2026-10-28), after the user typed "human" on LEMON's page.
 9. **Gemini, xAI and DeepSeek have never answered a real question**
    (`ai-providers.md`, "Not verified"): one cheap scoped paid question on
-   each, with the user's OK and their key, is the real test of the request
-   shapes and of the prompt on those models.
+   each, with the user's OK and their key.
 
-Leftovers the user may delete (we never delete data):
-`autorundown_out/_previous_2026-10-07` (~15 GB), `index.v11.db`, the old
-`../Mercedes Documents/autorundown_extractor` copy, and the merged local
-`claude/*` branches.
+Done since 2026-10-12: the sedan/wagon split is in the real index (99 wagon
+variants), and so is EPC (2026-10-23).
 
 ---
-
-## Working style the user prefers
 
 ## Working style the user prefers
 
