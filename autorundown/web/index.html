@@ -1868,6 +1868,12 @@ function refreshPicker(preferId) {
   const ids = [...$('#vehicle').options].map(o => o.value);
   const hit = [wantId, prev].find(x => x && ids.includes(x));
   if (hit) $('#vehicle').value = hit;
+  else if (shown.length) {
+    // nothing remembered: no car, not the list's first (a new phone opened on
+    // the R107 and could ask about it unnoticed -- agent review, 2026-10-28)
+    $('#vehicle').insertAdjacentHTML('afterbegin', `<option value="">Choose your car</option>`);
+    $('#vehicle').value = '';
+  }
   refreshVariants(hit === wantId ? wantN : undefined);
 }
 
@@ -1993,6 +1999,9 @@ function carChanged() {
 const EXAMPLES = ['oil capacity', 'front brake pads torque', 'spark plug gap'];
 function emptyState(m = mode) {
   const label = carBoxLabel || currentCarLabel();
+  if (!docId() && vehicles.length)
+    return `<div class="empty"><b>Choose your car first</b> — type it in the car box (e.g. 2009 E550 4MATIC), `
+      + `paste a VIN, or use Browse. Every answer and search is for that car only.</div>`;
   if (!docId() || !label) return '';
   return `<div class="empty">` + (m === 'kw'
       ? `Search the manual's own words for <b>${esc(label)}</b> (free).`
