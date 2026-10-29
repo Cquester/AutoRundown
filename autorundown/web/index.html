@@ -277,6 +277,12 @@
     min-height:36px; padding:0 14px; font-size:14px}
   .viewtoggle button.on{background:var(--accent); color:var(--on-accent)}
   .fulllink{color:var(--accent); font-weight:600; white-space:nowrap}
+  /* a phone: a real button, not 14 px of muted link (agent review) */
+  @media (max-width:700px){
+    .fulllink{display:flex; align-items:center; justify-content:center; min-height:48px; margin-top:8px;
+      border:1px solid var(--line); border-radius:10px; background:var(--panel-2); font-size:16px;
+      text-decoration:none}
+  }
   .origframe{display:block; width:100%; height:70vh; border:0; border-radius:8px; background:var(--frame-bg)}
   .src{font-size:15px; line-height:1.6}
   .src p{margin:10px 0}
@@ -639,7 +645,14 @@
   .spectab td.val{white-space:nowrap; text-align:right; width:1%}
   .spectab th:last-child{text-align:right}
   .spectab .hit{padding:0; text-align:left; font:inherit; color:inherit}
-  @media (max-width:700px){ .spectab td.val{white-space:normal; width:auto; max-width:45%} }
+  .spectab .src{font-size:12px; margin-top:2px}
+  /* a phone: the value read at arm's length, and which page it is from shown,
+     not only on hover (agent review, 2026-10-28) */
+  @media (max-width:700px){
+    .spectab td.val{white-space:normal; width:auto; max-width:45%}
+    .spectab .torque{font-size:20px}
+    .spectab .src{font-size:13px}
+  }
   .spectab .cond{font-size:12px; margin-top:2px; white-space:normal; text-align:left}
   .spectab td.val .cond{text-align:right}
   .fluids{margin-bottom:14px}
@@ -950,6 +963,9 @@
       border:0; background:var(--pane)}
     body:not(.docview) #right{display:none}
     body.docview #out, body.docview #outKw{display:none}
+    /* the Answer side's own rows: in Document view the page gets their room
+       (agent review, 2026-10-28: four fixed rows took the top 205 px) */
+    body.docview #modeTabs, body.docview #left .qtools{display:none}
     .panelbar{display:none}
     .docgo{display:block; color:var(--accent); font-weight:700; font-size:14px; margin-top:4px}
 
@@ -3720,8 +3736,14 @@ async function keywordSearch() {
 // have reading view looks good. Lets default to original document"). v3:
 // under v2 any click on the page saved "reading" (the click handler matched
 // <body data-view>), so that saved value is not the viewer's choice.
+// On a phone with no saved choice, Reading view: the original fitted to a
+// phone is ~5 px text, readable only by pinching (agent review, 2026-10-28).
 const ORIGINAL_KEY = 'autorundown.pageView.v3';
-function wantOriginal() { try { return localStorage.getItem(ORIGINAL_KEY) !== 'reading'; } catch (_) { return true; } }
+function wantOriginal() {
+  let saved = null;
+  try { saved = localStorage.getItem(ORIGINAL_KEY); } catch (_) {}
+  return saved ? saved !== 'reading' : !phone();
+}
 function viewToggle(doc, pageNo) {
   const on = wantOriginal();
   return `<div class="viewtoggle" role="group" aria-label="Page view">
@@ -3736,7 +3758,7 @@ function originalFrame(doc, pageNo) {
   // offer it on its own, where pinch-zoom and turning the phone work best
   return `<div id="origWrap"><div class="muted" style="margin-bottom:6px">${origWis
       ? 'Redrawn from the WIS page layout; approximate.' : 'The manual&rsquo;s own page.'}
-      &nbsp;<a class="fulllink" href="${url}" target="_blank" rel="noopener">Open full screen &#8599;</a></div>
+      &nbsp;<a class="fulllink" href="${url}" target="_blank" rel="noopener">Open page full screen &#8599;</a></div>
     <iframe class="origframe" id="origFrame" title="Original layout" data-doc="${esc(doc)}" src="${url}"></iframe></div>`;
 }
 // the server marks a page it can't draw; show that here, not in a grey frame
@@ -4762,6 +4784,7 @@ async function jobValues(tab, pages, seq) {
 function valueRowHtml(x) {
   return `<tr><td><button type="button" class="hit" ${pageAttrs(x.page_no)}
       title="${esc(x.title || x.system || '')}">${esc(x.name)}</button>`
+    + (x.title || x.system ? `<div class="muted src">${esc(x.title || x.system)}</div>` : '')
     + (x.condition ? `<div class="muted cond">Only for: ${esc(x.condition)}</div>` : '')
     + `</td><td class="val"><span class="torque">${esc(x.value)}</span>`
     + (x.spec ? `<div class="muted cond">Oil: ${esc(x.spec)}</div>` : '') + `</td></tr>`;
