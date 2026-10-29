@@ -6097,7 +6097,7 @@ function catRender() {
     const key = catKey(r.path), open = catOpen.has(key), leaf = r.level === 'variant';
     const kids = open ? catOpen.get(key) : null;
     // the filter hides variants (and makes at the top) that don't match; open folders stay
-    if (q && (leaf || depth === 0) && !open && !r.name.toLowerCase().includes(q)) return;
+    if (q && (leaf || depth === 0) && !open && !`${r.name} ${r.label || ''}`.toLowerCase().includes(q)) return;
     const tag = leaf ? (r.state === 'imported' ? 'imported' : r.state === 'partial' ? 'partly imported' : '')
       : r.imported ? `${r.imported.toLocaleString()} imported` : '';
     html.push(`<div class="trow lvl-${r.level}" role="treeitem" aria-level="${depth + 1}"`
@@ -6106,7 +6106,9 @@ function catRender() {
       + `${leaf ? ' tabindex="-1"' : ''}>${open ? '&#9662;' : '&#9656;'}</button>`
       + `<input type="checkbox" aria-label="Pick ${esc(r.name)}"${r.picked === 'all' ? ' checked' : ''}`
       + `${r.picked === 'some' ? ' data-some="1"' : ''}>`
-      + `<span class="nm">${esc(r.name)}</span>`
+      // a variant LEMON names by codes only: the model's own name, the code in small
+      + (r.label ? `<span class="nm">${esc(r.label)} <span class="muted">${esc(r.name)}</span></span>`
+                 : `<span class="nm">${esc(r.name)}</span>`)
       + (tag ? `<span class="tag">${tag}</span>` : '')
       + (leaf ? '' : `<span class="sz">${r.count.toLocaleString()}</span>`) + '</div>');
     if (kids) walk(kids, depth + 1);

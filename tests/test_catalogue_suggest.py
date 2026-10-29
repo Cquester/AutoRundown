@@ -107,5 +107,22 @@ check(res.get("action") == "download" and res["links"]["lemon"].startswith("http
 check("charm" not in res["links"], "CHARM's backup page only for 1982-2013 cars")
 check(not lemon_catalogue.picks(), "and it is not ticked on Shop setup's download list")
 
+print("cars LEMON names only by codes (lemon_labels.csv)")
+B23 = ("Mercedes Benz", "1987", "190E", "2.3, 102.983, Automatic")
+check(lemon_catalogue.label(*B23).startswith("190 E 2.3-16 (201.034"),
+      f"102.983 is shown as the 190 E 2.3-16: {lemon_catalogue.label(*B23)}")
+check(lemon_catalogue.label("Toyota", "2008", "Camry", "LE, 2.4 E, Automatic") == lemon_catalogue.vehicle_name(
+      "Camry", "LE, 2.4 E, Automatic"), "a car with a real name keeps it")
+charm = "1987-mercedes-benz-190e-2-3-16-201-034-l4-2-3l-102-983"
+check(lemon_catalogue.on_pc({charm: True}, *B23) == charm,
+      "a manual named another way for the same Baumuster and engine counts as this car")
+check(lemon_catalogue.on_pc({charm: True}, "Mercedes Benz", "1987", "190E", "2.3, 102.985, Automatic") is None,
+      "but not as the 8-valve 2.3 (102.985)")
+check(lemon_catalogue.on_pc({"1986-mercedes-benz-190e-2-3-16-201-034-l4-2-3l-102-983": True}, *B23) is None,
+      "nor as another year's car")
+hits = lemon_catalogue.search("1987 190 E 2.3-16", str(db))
+check(hits["total"] >= 1 and all("2.3-16" in r["label"] for r in hits["rows"]),
+      f"\"190 E 2.3-16\" finds it by its name: {[r['label'] for r in hits['rows']]}")
+
 print("FAILED" if fails else "all passed")
 sys.exit(1 if fails else 0)
