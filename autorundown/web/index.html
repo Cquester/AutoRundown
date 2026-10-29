@@ -1104,7 +1104,7 @@
     <div id="rpTorque" data-pane="torque" hidden></div>
     <div id="tabLabour" data-pane="labour" hidden>
       <div class="muted" id="labCar"></div>
-      <div class="muted" style="font-size:13px; margin-top:4px">Mercedes flat rates from WIS
+      <div class="muted" style="font-size:13px; margin-top:4px" id="labSrc">Mercedes flat rates from WIS
         (international), in hours. Extra-work items are not included. The lookup is local.</div>
       <label for="labBook" id="labBookLbl" hidden>This model is in more than one labour-time book
         (Mercedes splits them by body style, engine or build date) &mdash; pick yours</label>
@@ -4669,6 +4669,10 @@ const LAB_STOP = /\b(torques?|tightening|nm|capacity|capacities|specs?|specifica
 async function labourFor(terms, seq) {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
+  $('#labSrc').textContent = lemonCar()
+    ? 'From this manual’s own labour-time pages: standard and warranty hours, as printed.'
+    : 'Mercedes flat rates from WIS (international), in hours. Extra-work items are not included. '
+      + 'The lookup is local.';
   labFor = docId() + '::' + variantIdx();
   if (variantIdx() === null && !lemonCar()) { labQuery = terms.at(-1) || ''; await loadLabour(); setCount('labour', null); return; }
   for (const t of terms) {
@@ -5887,7 +5891,8 @@ async function loadLabour() {
   const book = $('#labBook').hidden ? '' : $('#labBook').value;
   let r;
   try {
-    r = await api(`/api/wis/labour/${encodeURIComponent(docId())}?variant=${n}`
+    // a LEMON car has no variant: "variant=null" was a 422, drawn as [object Object]
+    r = await api(`/api/wis/labour/${encodeURIComponent(docId())}?` + (n === null ? '' : `variant=${n}`)
       + (eng ? `&engine=${encodeURIComponent(eng)}` : '')
       + (book ? `&book=${encodeURIComponent(book)}` : '')
       + `&q=${encodeURIComponent(labQuery)}`);
