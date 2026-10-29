@@ -504,7 +504,9 @@ on parts pages the answer cites, every current line (no "replaced by")
 that fits the chosen car ("all models", or its exact model/engine code)
 and is not named in the answer is added as a spec citing that page, said
 in `caveats`, and listed in `added_parts`. Only when a car or engine is
-chosen. Tests: `tests/test_citations.py`, and end to end through the fake
+chosen, and only lines whose name shares a word with the question or the
+planner's queries (less generic words like "brake", "front": a "front brake
+pads" answer had calipers, disc and screw added, 2026-10-28). Tests: `tests/test_citations.py`, and end to end through the fake
 API (`fake:onepart`) in `tests/test_epc_join.py`.
 
 **The right box's tabs are plain, and labour shows the job** (2026-10-16,

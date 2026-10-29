@@ -847,9 +847,24 @@ _PART_LINE_RE = _re.compile(
     r"\s*(?P<name>[^|]*)\|\s*(?P<fits>[^|]*)\|(?P<notes>.*)$")
 _CODE_RE = _re.compile(r"\b\d{3}\.\d{3}\b")
 MAX_ADDED_PARTS = 6
+# words too common among parts to say which part was asked for
+_GENERIC = {"part", "number", "front", "rear", "left", "right", "kit", "set", "ts",
+            "brake", "engine", "replace", "replacement", "new", "the", "for", "and",
+            "what", "which", "car", "my", "oem", "genuine", "mercedes", "upper", "lower"}
 
 
-def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope) -> list[dict]:
+def _words(text: str) -> set[str]:
+    """Significant words, singular: "Front brake pads" -> {"pad"}."""
+    out = set()
+    for w in _re.findall(r"[a-z]{3,}", (text or "").lower()):
+        w = w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+        if w not in _GENERIC:
+            out.add(w)
+    return out
+
+
+def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope,
+                       asked: str = "") -> list[dict]:
     """Add current part numbers that fit this car and that the answer left out.
 
     Two paid answers (2026-10-15) gave only the pencil-type glow plug for a
@@ -885,6 +900,13 @@ def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope) -> list
         # only an engine family chosen (no exact variant): a code of that engine
         return not (model_codes or engine_codes) and any(c[:3] in families for c in codes)
 
+    # only parts of what was asked: "front brake pads" added the calipers,
+    # anchor, disc and its screw from the same page, 7 rows burying the pad
+    # numbers (agent review, 2026-10-28). The question's (and the planner's)
+    # own words, less the ones every brake or engine part shares; none left:
+    # every line, as before.
+    wanted = _words(asked)
+
     added: list[dict] = []
     for p in passages:
         page = str(p["page_no"])
@@ -893,6 +915,8 @@ def _add_omitted_parts(answer: AnswerModel, passages: list[dict], scope) -> list
         for line in (p.get("body") or "").split("\n"):
             m = _PART_LINE_RE.match(line.strip())
             if not m or "replaced by" in m["notes"].lower() or not fits_car(m["fits"]):
+                continue
+            if wanted and not wanted & _words(m["name"]):
                 continue
             compact, digits = m["compact"].upper(), m["compact"][1:]
             if compact in said or digits in said or any(a["compact"] == compact for a in added):
@@ -1053,7 +1077,8 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     dropped = _check_part_numbers(answer, passages)     # first: an answer left with no
     dropped += _verify_citations(answer, passages)      # citation is then withheld
     other = _drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
-    added = _add_omitted_parts(answer, passages, scope) if answer.found else []
+    added = (_add_omitted_parts(answer, passages, scope, " ".join([question, *queries]))
+             if answer.found else [])
     linked = _add_linked_torques(answer, passages) if answer.found else []
     if not answer.found and LABOUR_RE.search(question):
         answer.caveats = f"{answer.caveats} {LABOUR_NOTE}".strip()

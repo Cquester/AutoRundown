@@ -195,6 +195,28 @@ check("only an engine chosen: its variants' parts count (66 01 and 99 01)",
 a = pencil_answer(found=False, answer="", specs=[], source_pages=[], document_page="")
 check("a not-found answer gets nothing added", _add_omitted_parts(a, PARTS, C220) == [])
 
+# only parts of what was asked (2026-10-28: "front brake pads" added calipers,
+# anchor, disc and screw from the same page, 7 rows burying the pads)
+BRAKE = [{"page_no": "P1314", "doc_type": "parts", "images": "", "body": "\n".join([
+    "Callout | Part number | Name | Fits | Notes",
+    "(lines of this page matching: brake, pad)",
+    "010 | A 201 420 06 83 (A2014200683, 2014200683) | BRAKE CALIPER HOUSING | qty 1, all models | ",
+    "020 | A 002 420 02 20 (A0024200220, 0024200220) | TS BRAKE PAD, PARTS KIT | qty 1, all models | ",
+    "030 | A 001 420 96 20 (A0014209620, 0014209620) | BRAKE PADS, PARTS KIT | qty 1, all models | ",
+    "040 | A 201 421 10 12 (A2014211012, 2014211012) | BRAKE DISK | qty 2, all models | ",
+    "050 | A 201 540 06 17 (A2015400617, 2015400617) | BRAKE PAD WEAR SENSOR | qty 1, all models | "])}]
+W201 = _Scope(codes=(("201.028",), ("102.985",)), engines=("102",))
+a = AnswerModel.model_validate({
+    "found": True, "answer": "Front pads: A 002 420 02 20.", "document_page": "P1314",
+    "source_pages": ["P1314"], "specs": [{"name": "Front brake pads", "value": "A 002 420 02 20",
+                                          "applicability": "", "source_pages": ["P1314"]}]})
+got = [x["value"] for x in _add_omitted_parts(a, BRAKE, W201, "front brake pads part number")]
+check("only the other pad lines are added, not the caliper or disc",
+      got == ["A 001 420 96 20 (A0014209620)", "A 201 540 06 17 (A2015400617)"], f"{got}")
+a = pencil_answer()
+got = [x["value"] for x in _add_omitted_parts(a, PARTS, C220, "glow plug part number")]
+check("the glow plug case still adds the standard plug", got == ["A 001 159 66 01 (A0011596601)"], f"{got}")
+
 # 11. a part number in the text must be on a page the answer cites
 # (query._check_part_numbers). Haiku called the rear pad kit, on a parts page
 # in the passages it did not cite, a superseded front pad (2026-10-28).
