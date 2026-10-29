@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>AutoRundown</title>
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="theme-color" content="#12141a" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <style>
@@ -357,6 +360,25 @@
     min-height:0; padding:0; border:1.5px solid transparent; border-radius:4px;
     background:transparent; cursor:pointer}
   .hot:hover, .hot:focus-visible, .hot.on{border-color:var(--accent); background:var(--accent-dim)}
+  /* the full-size diagram viewer: zoom, and the same tap targets */
+  #diaDlg{width:min(1200px, 98vw)}
+  #diaDlg[open]{height:min(94vh, 1300px); max-height:min(94vh, 1300px)}
+  #diaDlg .diahead{display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:12px 14px 8px}
+  #diaDlg .diahead h3{margin:0; flex:1 1 8em; font-size:16px}
+  #diaDlg .diahead button, #diaDlg .diahead a{min-height:44px; min-width:44px}
+  #diaDlg .dlgbody{flex:1; padding:0; background:#fff; touch-action:pan-x pan-y pinch-zoom}
+  #diaDlg .diawrap{max-width:none}
+  /* a finger-sized target even where the printed code is tiny */
+  #diaDlg .hot{min-width:44px; min-height:44px}
+  #diaDlg img.diagram{max-width:none; width:100%; margin:0; border-radius:0}
+  #diaInfo{padding:10px 14px; border-top:1px solid var(--line); min-height:3.2em}
+  #diaInfo .code{font-family:Consolas,monospace; font-weight:700; margin-right:8px}
+  #diaInfo .acts{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px}
+  #diaInfo .acts button{min-height:44px; padding:6px 14px}
+  @media (max-width:700px){
+    #diaDlg{width:100vw; max-width:100vw; border-radius:0; margin:0}
+    #diaDlg[open]{height:100dvh; max-height:100dvh}
+  }
   details.comps{margin:10px 0}
   details.comps summary{cursor:pointer; color:var(--accent); padding:8px 0; font-weight:600}
   .comp{display:flex; flex-wrap:wrap; gap:6px 10px; align-items:baseline; padding:8px 6px;
@@ -1598,6 +1620,19 @@
   </div>
 </dialog>
 
+<dialog id="diaDlg" class="framed" aria-labelledby="diaTitle">
+  <div class="diahead">
+    <h3 id="diaTitle">Diagram</h3>
+    <button type="button" class="ghost" id="diaOut" aria-label="Zoom out">&minus;</button>
+    <button type="button" class="ghost" id="diaFit">Fit</button>
+    <button type="button" class="ghost" id="diaIn" aria-label="Zoom in">+</button>
+    <a class="btnlink ghostlink" id="diaRaw" target="_blank" rel="noopener">New tab &#8599;</a>
+    <button type="button" id="diaClose">Close</button>
+  </div>
+  <div class="dlgbody" id="diaBody"></div>
+  <div id="diaInfo" aria-live="polite"></div>
+</dialog>
+
 <dialog id="acctDlg">
   <h3 style="margin:0 0 4px" id="acctName"></h3>
   <div class="muted" id="acctSpend"></div>
@@ -2105,20 +2140,36 @@ function buildCarIndex() {
 function carMatches(q) {
   if (!carIndexReady) buildCarIndex();
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  let year = null; const terms = [];
+  let year = null; const terms = []; const bare = [];
+  const twoDigit = n => n <= 30 ? 2000 + n : 1900 + n;
   for (const w of words) {
     if (/^(19|20)\d\d$/.test(w)) year = +w;
-    else if (/^'?\d\d$/.test(w)) { const n = +w.replace("'", ''); year = n <= 30 ? 2000 + n : 1900 + n; }
+    else if (/^'\d\d$/.test(w)) year = twoDigit(+w.slice(1));     // '09: a year
+    else if (/^\d\d$/.test(w)) bare.push(w);                       // 09, 16: a year or part of a name
     else if (!/^(mercedes|benz|mercedes-benz|mb)$/.test(w)) terms.push(compact(w));
   }
   // one letter matches a whole word only: "c class" found every *-Class,
   // because "c" is inside "mercedes"
   const has = (e, t) => !t || (t.length === 1 ? e.words.has(t) : e.hay.includes(t));
-  const hits = carIndex.filter(e => (!year || (e.years || []).includes(year))
-                                    && terms.every(t => has(e, t)));
-  // exact-year models first, then generations, then the rest; shorter names first
-  const rank = e => (e.year === year && year ? 0 : e.generation ? 1 : 2) * 1000 + e.label.length;
-  return {year, hits: hits.sort((a, b) => rank(a) - rank(b)).slice(0, 12)};
+  const find = (yr, ts) => {
+    // exact-year models first, then generations, then the rest; shorter names first
+    const rank = e => (e.year === yr && yr ? 0 : e.generation ? 1 : 2) * 1000 + e.label.length;
+    return carIndex.filter(e => (!yr || (e.years || []).includes(yr)) && ts.every(t => has(e, t)))
+      .sort((a, b) => rank(a) - rank(b)).slice(0, 12);
+  };
+  if (bare.length) {
+    // "09 e550" is a year; "190 e 2.3 16" is the 2.3-16 (it was read as 2016
+    // and found nothing): the last bare number is the year only when that
+    // finds cars, else it is part of the name
+    const rest = bare.map(compact);
+    if (!year) {
+      const yr = twoDigit(+bare[bare.length - 1]);
+      const asYear = find(yr, [...terms, ...rest.slice(0, -1)]);
+      if (asYear.length) return {year: yr, hits: asYear};
+    }
+    return {year, hits: find(year, [...terms, ...rest])};
+  }
+  return {year, hits: find(year, terms)};
 }
 // cat: the LEMON catalogue's cars for the same words that are not downloaded
 // (catalogueSuggest), listed after the manuals here and marked so
@@ -2968,6 +3019,30 @@ addEventListener('popstate', () => {
   if (!s.sheet) closeSheetNow();
   if (!s.panel) hideRight();
 });
+// A dialog that Back closes: Back with the reference pop-up (or the diagram
+// viewer) open closes that, and leaves the page behind it -- it used to close
+// that view too (agent review, 2026-10-28). Returns the function that opens
+// it; a dialog closed any other way takes its history entry off.
+function dialogHistory(dlg, key) {
+  dlg.addEventListener('close', () => {
+    if (history.state && history.state[key]) history.back();
+  });
+  addEventListener('popstate', () => {
+    if (!(history.state || {})[key] && dlg.open) dlg.close();
+  });
+  return () => {
+    if (dlg.open) return;
+    dlg.showModal();
+    history.pushState({...(history.state || {}), [key]: 1}, '');
+  };
+}
+// close a dialog, then run fn once its history entry is gone (fn may add its own)
+function afterDialog(dlg, key, fn) {
+  const entry = history.state && history.state[key];
+  if (entry) addEventListener('popstate', fn, {once: true});
+  dlg.close();
+  if (!entry) fn();
+}
 $('#carPill').onclick = () => openSheet(false);
 $('#sheetDone').onclick = () => {
   // Done keeps the selected car, as Escape in the box does
@@ -3005,6 +3080,10 @@ $('#q').addEventListener('blur', () => {
 });
 // the scope note, Send to desk and Options live in the car sheet on a phone
 function placeForWidth() {
+  // the page being read follows the phone turning: the Document view in
+  // portrait, the slide-over panel in landscape (it was dropped: the view
+  // that showed it was hidden by the new width -- agent review, 2026-10-28)
+  const readingDoc = document.body.classList.contains('docview') || $('#right').classList.contains('open');
   const inSheet = $('#scopeNote').parentElement === $('#sheetMore');
   if (phone() && !inSheet) {
     $('#sheetMore').append($('#scopeNote'), $('#sendDeskRow'), $('#opts'));
@@ -3015,6 +3094,10 @@ function placeForWidth() {
   // the right box's tabs: its top on a wide screen, the bottom bar on a phone
   if (phone() && $('#resTabs').parentElement === $('#right')) $('#out').before($('#resTabs'));
   else if (!phone() && $('#resTabs').parentElement !== $('#right')) $('#srcout').before($('#resTabs'));
+  if (readingDoc) {
+    if (phone()) { $('#right').classList.remove('open'); setPane(true); }
+    else { setPane(false); if (narrow()) $('#right').classList.add('open'); }
+  }
   if (typeof drawDeskCars === 'function') drawDeskCars();
 }
 PHONE.addEventListener('change', placeForWidth);
@@ -3923,14 +4006,9 @@ async function loadDiagram(seq, doc, p) {
     wrap.className = 'diawrap';
     link.replaceWith(wrap);
     wrap.appendChild(link);
-    d.codes.forEach((c, i) => c.at.forEach(([x, y]) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'hot'; b.dataset.comp = i;
-      b.style.left = (x * 100) + '%'; b.style.top = (y * 100) + '%';
-      b.title = c.name ? `${c.code} — ${c.name}` : c.code;
-      b.setAttribute('aria-label', b.title);
-      wrap.appendChild(b);
-    }));
+    wrap.appendChild(hotButtons(d.codes, 'comp'));
+    link.dataset.dia = img.getAttribute('src');       // opens the full-size viewer
+    link.title = 'Full size, with the component codes tappable';
     anchor = wrap;
   }
   if (!anchor) return;
@@ -3948,6 +4026,68 @@ async function loadDiagram(seq, doc, p) {
       }).join('');
   anchor.after(list);
 }
+
+// a tap target per printed code (the page's, and the full-size viewer's)
+function hotButtons(codes, attr) {
+  const frag = document.createDocumentFragment();
+  codes.forEach((c, i) => c.at.forEach(([x, y]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'hot'; b.dataset[attr] = i;
+    b.style.left = (x * 100) + '%'; b.style.top = (y * 100) + '%';
+    b.title = c.name ? `${c.code} — ${c.name}` : c.code;
+    b.setAttribute('aria-label', b.title);
+    frag.appendChild(b);
+  }));
+  return frag;
+}
+
+// The full-size viewer (the user, 2026-10-29: the full-size view had no tap
+// targets -- it was the browser's own tab, where this page may not run
+// script). Same codes, over a picture that zooms and scrolls; a tapped code
+// says what it is, with Search and Open document under it.
+const dia = {zoom: 1, doc: null};
+const diaShow = dialogHistory($('#diaDlg'), 'dia');
+function diaApply() {
+  const w = $('#diaBody').clientWidth * dia.zoom;
+  const wrap = $('#diaBody .diawrap');
+  if (!wrap) return;
+  wrap.style.width = w + 'px';
+  wrap.style.fontSize = Math.max(12, w / 45) + 'px';      // the tap targets grow with the picture
+}
+function diaOpen(src) {
+  dia.zoom = 1; dia.doc = curComps.doc;
+  $('#diaRaw').href = src;
+  $('#diaInfo').innerHTML = '<span class="muted">Tap a component code on the diagram. Pinch or use + / − to zoom.</span>';
+  $('#diaBody').innerHTML = `<div class="diawrap"><img class="diagram" alt="Diagram" src="${esc(src)}"></div>`;
+  $('#diaBody .diawrap').appendChild(hotButtons(curComps.list, 'diacomp'));
+  diaShow();
+  diaApply();
+}
+function diaInfo(i) {
+  const c = curComps.list[i], t = c && xrefTarget({pages: c.pages || []});
+  if (!c) return;
+  $('#diaBody').querySelectorAll('.hot.on').forEach(h => h.classList.remove('on'));
+  $('#diaBody').querySelectorAll(`.hot[data-diacomp="${i}"]`).forEach(h => h.classList.add('on'));
+  $('#diaInfo').innerHTML = `<span class="code">${esc(c.code)}</span>${esc(c.name || '')}<div class="acts">`
+    + `<button type="button" class="ghost" data-diasearch="${i}">Search</button>`
+    + (t ? `<button type="button" class="ghost" data-diadoc="${esc(t.page_no)}">Open document</button>` : '')
+    + `</div>`;
+}
+$('#diaIn').onclick = () => { dia.zoom = Math.min(6, dia.zoom * 1.5); diaApply(); };
+$('#diaOut').onclick = () => { dia.zoom = Math.max(1, dia.zoom / 1.5); diaApply(); };
+$('#diaFit').onclick = () => { dia.zoom = 1; diaApply(); };
+$('#diaClose').onclick = () => $('#diaDlg').close();
+addEventListener('resize', () => { if ($('#diaDlg').open) diaApply(); });
+$('#diaDlg').addEventListener('click', e => {
+  const dlg = $('#diaDlg');
+  if (e.target === dlg) { dlg.close(); return; }
+  const hot = e.target.closest('[data-diacomp]');
+  if (hot) { diaInfo(+hot.dataset.diacomp); return; }
+  const s = e.target.closest('[data-diasearch]');
+  if (s) { afterDialog(dlg, 'dia', () => searchComp(+s.dataset.diasearch)); return; }
+  const o = e.target.closest('[data-diadoc]');
+  if (o) afterDialog(dlg, 'dia', () => showPage(o.dataset.diadoc, dia.doc));
+});
 
 function showComp(i) {
   const list = $('#comps'), row = document.getElementById(`comp-${i}`);
@@ -3981,6 +4121,7 @@ function followXref(i, ver = null) {
 // model or engine lists every version, the car's own first; "Open as page"
 // makes it the page. References inside the pop-up open in it, with Back.
 const peek = {stack: [], cur: null, seq: 0, xrefs: []};
+const peekShow = dialogHistory($('#peekDlg'), 'peek');
 function peekRef(x, doc, ver = null) {
   peek.stack = [];
   const page = ver || (xrefTarget(x) || x.pages[0]).page_no;
@@ -4003,7 +4144,7 @@ async function peekOpen(item, doc, push = false) {
   $('#peekBack').hidden = !peek.stack.length;
   $('#peekTitle').textContent = item.docnr ? `Referenced document ${item.docnr}` : 'Referenced page';
   $('#peekBody').innerHTML = '<span class="spinner"></span>';
-  if (!dlg.open) dlg.showModal();
+  peekShow();
   let p;
   try { p = await api(`/api/page/${encodeURIComponent(doc)}/${encodeURIComponent(item.page_no)}`); }
   catch (e) {
@@ -4081,8 +4222,8 @@ $('#peekBack').onclick = () => {
 $('#peekClose').onclick = () => $('#peekDlg').close();
 $('#peekOpenPage').onclick = e => {
   const {page, doc} = e.currentTarget.dataset;
-  $('#peekDlg').close();
-  showPage(page, doc);
+  // the page opens once the pop-up's history entry is gone, so it adds its own
+  afterDialog($('#peekDlg'), 'peek', () => showPage(page, doc));
 };
 
 // a page's text to read, and what kind of page it is (the page view and the
@@ -4175,6 +4316,8 @@ document.addEventListener('click', e => {
   if (xr) { e.preventDefault(); followXref(+xr.dataset.xref, xr.dataset.ver || null); return; }
   const pk = e.target.closest('[data-peek]');
   if (pk) { e.preventDefault(); peekPage(pk.dataset.peek, pk.dataset.doc || curXrefs.doc || docId()); return; }
+  const big = e.target.closest('a[data-dia]');
+  if (big) { e.preventDefault(); diaOpen(big.dataset.dia); return; }
   const hot = e.target.closest('[data-comp]');
   if (hot) { e.preventDefault(); showComp(+hot.dataset.comp); return; }
   const cs = e.target.closest('[data-compsearch]');

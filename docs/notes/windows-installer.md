@@ -8,7 +8,25 @@ section names may refer to CLAUDE.md or another file in docs/notes/. -->
 MSI** to `%LOCALAPPDATA%\Programs\AutoRundown`: no UAC prompt, and Python
 can write there.
 
-**The MSI is built on the PC, not in CI** (2026-10-23, the user: "let not
+**2026-10-29: CI builds it again, for the public repo** (the user: "main
+merges are creating msi and creating new releases"): `ci.yml` calls
+`windows-msi.yml` on main, tags and PRs that touch packaging, and its
+`release` job publishes `v<__version__>` with the MSI. Artifacts live 3-7
+days. Both workflows stay disabled until the repo is public
+(`tools/github_setup.py --apply`, `github-repo.md`); the paragraphs below
+say "CI builds nothing" for the stretch 2026-10-23 to 2026-10-29. The PC
+still builds and installs its own after a merge.
+
+**The app's icons** (`tools/make_icons.py`, drawn from code into
+`autorundown/web/icons/`: a hex nut on the tray's amber): the MSI's
+`<Icon>` gives the Start-menu, desktop and Startup shortcuts and
+"Apps & features" the `.ico`; `autostart.py` sets it on the shortcut the
+Settings toggle writes; the tray (`launcher._tray_image`) uses it; the
+browser tab and home screen get `/favicon.ico` and `/icons/` (public paths:
+the sign-in screen has a tab icon). `windows-msi.yml` checks the file is
+installed and the Start-menu shortcut has an icon.
+
+**The MSI was built on the PC, not in CI, 2026-10-23 to 2026-10-29** (the user: "let not
 build msi in the workflow. All claude sessions upon a successful merge to
 main, will run their version of msi locally"). After its PR is merged to
 `main`, a session builds and installs it here:

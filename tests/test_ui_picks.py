@@ -369,6 +369,9 @@ def main(argv=None):
                  ("09 e550 4matic", "-211", "E 500/550 4MATIC"),
                  ("190e 2.3-16", "-201", "190 E 2.3 16"),
                  ("1987 190e 2.3-16", "-201", "190 E 2.3 16"),
+                 # a bare "16" is part of the name, not the year 2016 (it found
+                 # nothing until 2026-10-29); "09" above is still a year
+                 ("190 e 2.3 16", "-201", "190 E 2.3 16"),
                  ("2010 e350", None, None), ("c300 4matic", None, None),
                  ("2012 ml350", None, None), ("300e", None, None)]
         n_typed = 0

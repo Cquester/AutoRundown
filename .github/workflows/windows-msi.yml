@@ -2,13 +2,14 @@
 # app actually works (index a sample corpus, serve it, search it), then
 # uninstall and check nothing is left. Free: no Anthropic API calls.
 #
-# Run by hand only, from the Actions tab with "Run workflow": since
-# 2026-10-23 CI builds no installer (the user's decision) -- after a merge to
-# main the session builds and installs the MSI on the PC instead. Kept for a
-# clean-runner check when packaging changes.
+# Called by ci.yml alongside the tests (main, tags, and PRs that touch
+# packaging); ci.yml makes the release from its AutoRundown-msi artifact
+# once the tests, the browser checks and this have all passed.
+# Run it on its own from the Actions tab with "Run workflow".
 name: Windows installer
 
 on:
+  workflow_call:
   workflow_dispatch:
 
 # read-only token: this workflow builds and tests, it never writes to the repo
@@ -141,13 +142,16 @@ jobs:
           if ($p.ExitCode) { Get-Content install.log -Tail 40; throw "install failed: $($p.ExitCode)" }
           $inst = "$env:LOCALAPPDATA\Programs\AutoRundown"
           # (+ Scan VIN's vendored barcode/OCR libraries)
-          foreach ($f in "python\python.exe", "app\ingest.py", "app\rebuild_wis.py", "app\remove_manuals.py", "app\charm_download.py", "app\unzip_lemon.py", "app\autorundown\web\index.html",
+          foreach ($f in "python\python.exe", "app\ingest.py", "app\rebuild_wis.py", "app\remove_manuals.py", "app\charm_download.py", "app\unzip_lemon.py", "app\autorundown\web\index.html", "app\autorundown\web\icons\favicon.ico",
                          "app\autorundown\web\vendor\zxing-wasm-3.1.4\zxing_reader.wasm", "app\autorundown\web\vendor\tesseract-7.0.0\eng.traineddata.gz",
                          "app\autorundown\web\vendor\tesseract-7.0.0\tesseract-core-simd-lstm.wasm.js") {
             if (-not (Test-Path "$inst\$f")) { throw "missing after install: $f" }
           }
           $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
           if (-not (Test-Path $lnk)) { throw "no Start menu shortcut" }
+          $ic = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).IconLocation
+          "Start menu shortcut icon: $ic"
+          if ($ic -notmatch '\.ico') { throw "the Start menu shortcut has no icon: '$ic'" }
 
       - name: First start from the Start-menu shortcut, driven in Edge
         shell: pwsh
@@ -183,6 +187,7 @@ jobs:
         with:
           name: ui-screenshots
           path: ui-shots/
+          retention-days: 7
 
       - name: Smoke test the installed app
         shell: pwsh
@@ -310,6 +315,7 @@ jobs:
         with:
           name: AutoRundown-msi
           path: dist/*.msi
+          retention-days: 3
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: failure()
@@ -317,3 +323,4 @@ jobs:
         with:
           name: msi-logs
           path: "*.log"
+          retention-days: 7

@@ -181,8 +181,11 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   only the pieces holding the picks' pages) and batch-and-delete to cap peak
   disk. Sizing it needs piece 16308 (the first 12 MB of the 60 MB pages
   index); the user has not yet OK'd that fetch.
-- **Never fetch from lemon-manuals.la over HTTP** -- the user's rule (the
-  site asks not to be scraped). The `.torrent` itself is its download link;
+- **The app never downloads manuals from lemon-manuals.la by itself** --
+  the user's rule (the site asks not to be scraped); clarified 2026-10-29:
+  nothing is fetched automatically, but people may pull data from the site
+  themselves, and the browser's own favicon check (below) is fine. The
+  server makes no request to it. The `.torrent` itself is its download link;
   anything else comes from the swarm. Since 2026-10-27 the app only opens
   a car's page in the user's own browser ("Add a car", below); the user
   downloads. Plain HTTP clients (curl, Python) get a bot trap from the

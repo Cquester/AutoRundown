@@ -359,6 +359,12 @@ rows (ignoring the `*/*/*` wildcard rows) was tested and fixes 140 and 202 but
 makes 201 and 164 worse and does nothing for 117. (`ASRA_Fahrzeug` was
 expected to be the fix; it is not — see above.)
 
+**A bare two-digit word in the car box** (`carMatches`, 2026-10-29): `'09`
+is always a year; a bare `09` / `16` is the last such number read as a
+year *only if that finds cars*, else part of the name -- "09 e550" is
+2009, "190 e 2.3 16" is the 2.3-16 (it was read as 2016 and found
+nothing). `tests/test_ui_picks.py` types both.
+
 **The year filter is not trustworthy, and it does hide cars — a measured
 fact, not a guess.** Scored against 46 series with known production years
 (±1 year): the current min/max spans *hide 6* (the W126 from 1979 and R107 SL

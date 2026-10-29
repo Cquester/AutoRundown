@@ -161,6 +161,13 @@ def main(argv=None):
 
         page = new_page(viewport={"width": 1280, "height": 800})
         labels = page.evaluate(JS_CANDIDATES)
+        # the typed and Browse picks must not be the car the VIN decodes to: the
+        # same car picked twice is one history entry (as "190 e 2.3 16", findable
+        # since 2026-10-29, is the first sample VIN's car)
+        vin = next(iter(truth.vin_cases()), None)
+        vin_docs = {c[0] for c in vin[2]} if vin else set()
+        labels = [x for x in labels
+                  if page.evaluate(f"carIndex.find(e => e.label === {x!r}).doc") not in vin_docs]
         check("sample index has three findable cars", len(labels) >= 3, f"{labels}")
         if len(labels) < 3:
             raise SystemExit(1)
@@ -171,7 +178,6 @@ def main(argv=None):
         orig = {}
         type_pick(page, labels[0])
         orig[page.input_value("#carInput")] = search(page, "pick-typed")
-        vin = next(iter(truth.vin_cases()), None)
         check("sample index has a VIN prefix", vin is not None)
         page.fill("#carInput", "")
         page.type("#carInput", vin[0])

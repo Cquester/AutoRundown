@@ -1,0 +1,14 @@
+# Who must approve a change to what. With the main ruleset's review count at 0
+# (one maintainer) this only routes review requests; when a second maintainer
+# joins and the count goes to 1 (tools/github_setup.py --approvals 1) a code
+# owner's approval is required. Only people with write access can be owners,
+# and only their reviews count.
+*                      @Cquester
+
+# what decides who may do what, and what reaches the release
+/.github/              @Cquester
+/autorundown/auth.py   @Cquester
+/autorundown/server.py @Cquester
+/autorundown/config.py @Cquester
+/packaging/            @Cquester
+/tools/github_setup.py @Cquester

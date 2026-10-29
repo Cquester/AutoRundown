@@ -26,6 +26,7 @@ broke:
 | `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import, the CHARM download (`charm.py`, `charm_fetch.py`, `charm_download.py`) | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
+| GitHub settings: rulesets, Actions, secret scanning, `tools/github_setup.py`, `SECURITY.md`, `CODEOWNERS`, `dependabot.yml`, what the release job does | [`docs/notes/github-repo.md`](docs/notes/github-repo.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
 | `providers.py`, the AI provider selector, prices, `tools/fake_anthropic.py`'s provider fakes | [`docs/notes/ai-providers.md`](docs/notes/ai-providers.md) |
 | the EPC parts source — `extractor/pull_epc.js`, `epc_fv4.js`, the EPC↔WIS join (`index.link_sources`) (in the live index since 2026-10-23) | [`docs/notes/epc-source.md`](docs/notes/epc-source.md) |
@@ -45,6 +46,7 @@ eval.py eval_wis.py retrieval checks against the real index (free)
 tests/              free test suites, `python tests/test_<name>.py`
                     (tests/_paths.py puts the root and tools/ on sys.path)
 tools/              make_sample_corpus.py, make_sample_lemon.py, readme_gifs.py,
+                    make_icons.py (the app's icons), github_setup.py (repo rulesets),
                     check_js.py, build_lemon_catalogue.py, build_us_years.py,
                     sids_render.py; container/ (test boxes); sandbox/
 extractor/          Mercedes WIS extractor (its data stays in ../Mercedes Documents/)
@@ -52,6 +54,8 @@ packaging/windows/  MSI (WiX 5), build.ps1, ui_check.py (first-start UI check)
 docs/               notes/ (deep notes), qa/ (QA reports), images/ (README),
                     SETUP-ON-NEW-PC.md, MERCEDES_WIS_EXTRACTION.md
 .claude/            QA agents + runbook, launch.json
+.github/            workflows (CI, installer, release), CODEOWNERS, dependabot.yml
+SECURITY.md         how to report a vulnerability
 ```
 
 **GitHub Actions is turned off until the repo is public** (the user,
@@ -59,13 +63,19 @@ docs/               notes/ (deep notes), qa/ (QA reports), images/ (README),
 are disabled on GitHub (`gh workflow disable`), so a PR shows no checks.
 **Before asking to merge, run every CI check locally** in a test box
 (`box.sh check <name>`) and say so in the PR. Keep `ci.yml` up to date anyway
-(new tests still go in its loop); once public: `gh workflow enable CI`.
+(new tests still go in its loop). **When the repo goes public** run
+`python tools/github_setup.py --apply`: it turns the workflows on and sets
+the branch rules, fork-PR approval and secret scanning
+(`docs/notes/github-repo.md`). From then on CI builds the MSI and publishes
+`v<version>` on a merge to main (2026-10-29, the user: "main merges are
+creating msi and creating new releases"; they did until 2026-10-23).
 
 **After a PR is merged to `main`, build and install the MSI on this PC**
-(the user, 2026-10-23: CI no longer builds it). From an up-to-date `main`:
+(the user, 2026-10-23). From an up-to-date `main`:
 `packaging\windows\build.ps1`, then `msiexec /i dist\AutoRundown-<ver>.msi
-AUTOSTART=1 /passive`; steps in `docs/notes/windows-installer.md`. Do not add
-the MSI build back to a workflow.
+AUTOSTART=1 /passive`; steps in `docs/notes/windows-installer.md`. (Once CI
+publishes the release, its MSI is the same build.) A new version is its own
+bump PR (`autorundown/__init__.py`), merged only with the user's OK.
 
 **A new free test goes in `tests/` and in the "Test suites" loop in
 `.github/workflows/ci.yml`** -- or, if it drives a browser (Playwright), as
@@ -174,14 +184,17 @@ python tests/test_vin_scan.py [--n 8]             # Scan VIN on generated barcod
 python tests/test_ui_picks.py [--index <db>]      # UI sends the car it shows (~3 min, Playwright)
 python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends the same car (~10 s, Playwright)
 python tests/test_answer_tabs.py [--index <db>]   # one question fills the right box's tabs (~15 s, Playwright)
+python tests/test_phone_ui.py [--index <db>]      # phone: reading view, turning, Back with a pop-up, diagram viewer (~15 s, Playwright)
 python tests/test_drawing_ui.py                   # Manual contents, drawing picks (red, several), divider (~30 s, Playwright)
 python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tests/test_charm.py                        # one CHARM car: reader, plan, download, import, refusals (~10 s)
 python tests/test_lemon_zip.py                    # "Add a car": LEMON zip found, unsafe zips refused, unpack + import (~10 s)
 python tests/test_parts_fit.py                    # parts pages/lines that fit the car: cut code lists, other models' lines (<1 s)
 python tests/test_load.py                         # many mechanics at once: Ask threads + busy, cached vehicles and labour (~10 s)
+python tests/test_parse_sids.py                   # RTF stubs: hotspots are neither text nor graphics (<1 s)
 python tests/test_lemon_tables.py                 # LEMON cars' Labour times and Parts tabs from their own tables (<1 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
+python tools/make_icons.py                        # the app's icons (web/icons/), drawn from code
 
 # sample data and tools
 python tools/make_sample_corpus.py                # stand-in WIS corpus -> sample_corpus/
@@ -358,7 +371,7 @@ separate field) is headed "No checked answer — the AI's sources couldn't be
 verified", with "Search the manual instead", never "Not found".
 The phone layout (car line + full-screen car sheet, Answer | Document, docked
 question, bottom tab bar) is CSS under `@media (max-width:700px)` plus
-`openRight`/`openSheet` in `index.html`; 701-900 px keeps the slide-over panel. `steps` is left empty by the prompt and not rendered; the
+`openRight`/`openSheet` in `index.html`; 701-900 px keeps the slide-over panel. Turning the phone keeps the page open (Document view <-> slide-over, `placeForWidth`); Back with the reference pop-up or the diagram viewer open closes that first (`dialogHistory`); on a phone with no saved choice a page opens in Reading view (the original fitted to a phone is ~5 px). `tests/test_phone_ui.py`. `steps` is left empty by the prompt and not rendered; the
 side panel of "diagrams from cited pages" is gone; `figures` survive only as
 links to a diagram on another page. `document_page` is checked like any
 citation in `_verify_citations` (invented -> dropped, falls back to the first
@@ -609,8 +622,12 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   key. Sign-in is by single-use 15-minute QR grants (hashes only), voided
   when the dialog closes. (`shop-network.md`)
 - **WIS is never removed per model.** (`importing.md`)
-- **Never fetch from lemon-manuals.la over HTTP**; the LEMON download, when
-  built, must follow what the user agreed (2026-10-09). (`importing.md`)
+- **The app never downloads manuals from lemon-manuals.la by itself**
+  (2026-10-09; clarified 2026-10-29, the user: the rule is that nothing is
+  downloaded automatically -- people may pull data from there themselves).
+  The server makes no request to LEMON; the user's own browser may ask the
+  site if it is up (a favicon) and opens its page, and the user saves the
+  zip. (`importing.md`)
 - **"Add a car" opens LEMON's page; the user downloads** (2026-10-27).
   Which site is up is asked by the browser (`siteUp`, a favicon), never
   the server; CHARM's page is the backup when LEMON doesn't answer. The
@@ -670,8 +687,9 @@ predates the end-view format. Features here degrade quietly by design.
    VIN dialog sending what the box sends — and checks the `variant=` each
    sends against the stored `vehicles.variants`.
    Any non-GET or `/api/ask` request fails the run.
-   Known quirk it works around: typing "190 e 2.3 16" finds nothing —
-   `carMatches` reads a bare "16" as the year 2016.
+   A bare two-digit word is a year only when that finds cars ("09 e550"),
+   else part of the name ("190 e 2.3 16" = the 2.3-16; it was read as 2016
+   and found nothing until 2026-10-29).
 4. For extraction changes: re-index (~40s) and re-run `eval.py`. Watch
    `unique_pages` — if it moves, dedup behaviour changed and that should be
    deliberate.
@@ -769,61 +787,82 @@ gitignored). `eval_wis.py`: 28/28 pass, 26 known-bad guards within their ceiling
 ## Where we left off (updated 2026-10-29) — start here in a new session
 
 Since the last update: a 12-agent review of the whole app (2026-10-28).
-PR 41 fixed its 14 criticals:
-- parts lost to cut model-code lists, and other models' parts lines;
-- other variants' and engines' pages ranked first;
-- engine sizes shown as capacities;
-- market catalogues not named;
-- unchecked part numbers in the answer's text;
-- half-imported cars;
-- the Ask/SQLite load convoy;
-- UNC paths in `/api/image` (security).
+PR 41 fixed its 14 criticals and eight annoying items; PR 44 the rest of its
+list (fresh browser with no car, phone readability, search words, AI
+fallbacks, sign-in on by default); released as 0.1.8 and installed on this PC.
+The review report (every finding, with its fix status) and its screenshots
+are kept outside the repo, in `Desktop\AutoRundown agent review 2026-10-28\`
+(not committed: screenshots of the user's data). The next branch
+(`fix/pre-public-polish`) is the "before the repo goes public" pass: README
+install steps, phone rotate / Back, the car box's two-digit year, the
+full-size diagram viewer, the app's icons, the workflows (MSI + release on
+merges to main), `tools/github_setup.py`, SECURITY.md, CODEOWNERS and
+Dependabot.
 
-It also fixed eight annoying items: drain plug, labour questions, added
-parts, LEMON Labour/Parts tabs, LEMON labels, type "human", Wider, and the
-W205 eval cases. Released as 0.1.7 and installed on this PC. The review
-report (every finding, with its fix status) and its screenshots are kept
-outside the repo, in `Desktop\AutoRundown agent review 2026-10-28\` (not
-committed: screenshots of the user's data).
+**The plan now: the repo goes public, after a fresh start.** The user will
+reclone, delete everything in the app and redo it from scratch, "showing
+what we are going to release". Before making it public:
+1. Decide about the commit e-mails (below), then make it public.
+2. `python tools/github_setup.py --apply` (needs `gh` signed in as the
+   owner), then `python tools/github_setup.py` to confirm; it turns on the
+   rulesets, secret scanning, fork-PR approval and the CI + installer
+   workflows. `docs/notes/github-repo.md` says what each setting is for.
+3. The first merge to main after that builds the MSI and, if `__version__`
+   has no release yet, publishes `v<version>` (untested until Actions runs:
+   watch the first run).
+
+**Commit e-mails**: 214 commits carried `(personal e-mail, removed)`, 2
+`(personal e-mail, removed)`. The user chose to rewrite them to the no-reply
+address before going public (`docs/notes/github-repo.md`: a force push
+leaves them on old PRs' `refs/pull/*`). Commits now use
+`14364346+Cquester@users.noreply.github.com` (global git config).
+
+**Merging once the rulesets are on**: only the owner merges without a
+review (`main reviews` ruleset, admin bypass); the checks still must pass.
+With `gh`: `gh pr merge N --merge --admin`.
+
+**Reminders the user asked for**: try shop access + HTTPS on an iPhone and an
+Android phone in the morning (2026-10-30); run "Add a car" in the installed
+app; re-run the VM extractor from the repo copy on the new site (they will
+do that tomorrow).
 
 Still open, in rough order of value:
 
-1. **No paid answer since PR 41.** One scoped Haiku question each for the
-   drain plug (W210 E 320), the 190 E 2.3 cylinder head (must cite 49014339
-   or 49013229, not the 2.3-16's 49013392) and the 190 E 2.3 front pads
-   (no rear-pad number in the text) -- with the user's OK.
-2. **Review findings not fixed yet** (fixed 2026-10-29: phone readability,
-   no car on a fresh browser, "oil pan" / "taillight" search, the AI
-   fallbacks, sign-in on by default with 30-day idle tokens and a cookie per
-   port):
-   - **Install.** The README quick start builds `./index.db`, but
-     `serve.py` opens `~/.autorundown/index.db`. A source run collides with
-     the installed copy on port 8756.
-   - **Phone.** Rotating drops the document. Back with a pop-up open closes
-     the view behind it.
-   - **"Add this car" asks lemon-manuals.la for its favicon** as soon as
-     it's clicked. Decide whether that fits the never-fetch rule.
-3. **Shop access + HTTPS not yet tried on the user's phones.**
-   `serve.py --https`, install `/ca.crt` on an iPhone and an Android phone,
-   sign one in with a code.
-4. **Older figure numbers ("P01-5220-13"): fixed in `parse_sids.py`, not
-   confirmed in the corpus.** To land: `python extractor/reparse_bodies.py
-   --dry-run` (18 min), then without `--dry-run`, then `apply_images.py`,
-   then `rebuild_wis.py`.
+1. **Paid checks, 2026-10-29 (the user's OK; live site, $0.09 in all).**
+   Haiku, W210 E 320 drain plug: 30 Nm, cited, no longer withheld ($0.022).
+   Haiku, 190 E 2.3 cylinder head: cited 49014339 (not the 2.3-16's page)
+   but printed **no torque value** -- it said the passage has the tightening
+   diagram only; safe, not complete; where the value lives is not found.
+   Haiku, 190 E 2.3 front pads: the front pad A 001 420 81 20 and its
+   superseded number, no rear-pad number in the text -- but the disc, its
+   screw and the wear sensor were still added as "also listed" (the
+   planner's words "disc", "lining" matched them). Fixed the same day
+   (`_add_omitted_parts`: the question's own words first), **not re-asked**.
+   Gemini 3.5 Flash-Lite, the drain plug: 30 Nm, cited, $0.009 -- the first
+   real Gemini answer. xAI and DeepSeek have never answered
+   (`ai-providers.md`, "Not verified"): one cheap question each with the
+   user's key.
+2. **Install.** `serve.py` on a taken port now says so; the README's quick
+   start builds the index where `serve.py` looks. Not seen on a clean
+   machine.
+3. **Shop access + HTTPS not yet tried on the user's phones** (see the
+   reminder above). Sign-in is on by default now, so a phone must be signed
+   in with a QR.
+4. **Older figure numbers ("P01-5220-13") and the RTF hotspot junk: both
+   fixed in `parse_sids.py`, neither in the corpus.** To land:
+   `python extractor/reparse_bodies.py --dry-run` (18 min), then without
+   `--dry-run`, then `apply_images.py`, then `rebuild_wis.py`. Most of the
+   corpus is rebuilt on the new site anyway.
 5. **"Original layout"**: not yet seen by the user on their phone. Open:
-   - the undecoded MATH/SYMBOLS glyphs and most LOGO icons;
-   - RTF hotspots as links, and links inside the iframe;
-   - tap targets in the full-size diagram view;
-   - the hotspot junk in `body_text` (`parse_sids.py`).
+   the undecoded MATH/SYMBOLS glyphs and most LOGO icons (deliberate: a
+   guessed symbol in a spec is worse than an obvious unknown) and RTF
+   hotspots as links (they are damage-code menus, off by default). Done: the
+   full-size diagram viewer with tap targets, the hotspot junk (code).
 6. **The extractor has not been re-run end to end from the repo copy** (the
    next VM run is the real check).
-7. The car box reads a bare two-digit word as a year ("190 e 2.3 16" → 2016).
-8. **"Add a car" has not run in the installed app yet.** The Honda Civic's
+7. **"Add a car" has not run in the installed app yet.** The Honda Civic's
    LEMON zip went through a second instance on a throwaway index
    (2026-10-28), after the user typed "human" on LEMON's page.
-9. **Gemini, xAI and DeepSeek have never answered a real question**
-   (`ai-providers.md`, "Not verified"): one cheap scoped paid question on
-   each, with the user's OK and their key.
 
 Done since 2026-10-12: the sedan/wagon split is in the real index (99 wagon
 variants), and so is EPC (2026-10-23).
@@ -837,13 +876,11 @@ empty index. The manuals and images it points to live outside the repo
 Documents\autorundown_extractor` is the extractor the VM tab runs (the
 default when `extractor_dir` is blank), not a leftover.
 
-Leftovers removed on 2026-10-29: `index.v11.db`, `index.before-wis.db` and
-the old extractor copy. Still to delete, by the user:
-`autorundown_out\_previous_2026-10-07` (19 GB, the corpus from before the
-2026-10-07 re-extraction). Kept on purpose: `index.before-epc.db` (3.3 GB,
-the only other copy of the index; it predates EPC, later manuals and spend,
-so never restore it over `index.db`). Delete it once a moved `index.db` is
-confirmed working.
+Leftovers removed on 2026-10-29: `index.v11.db`, `index.before-wis.db`, the
+old extractor copy and (by the user) `autorundown_out\_previous_2026-10-07`.
+Kept on purpose: `index.before-epc.db` (3.3 GB, the only other copy of the
+index; it predates EPC, later manuals and spend, so never restore it over
+`index.db`). Delete it once a moved `index.db` is confirmed working.
 
 ---
 

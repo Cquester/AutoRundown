@@ -1,0 +1,20 @@
+# Weekly update pull requests. The workflows pin every action to a commit
+# (ci.yml, windows-msi.yml); Dependabot moves those pins to the new release.
+# Each update goes through the same checks as any other pull request.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      python:
+        update-types: ["minor", "patch"]

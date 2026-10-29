@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+ICON = Path(__file__).resolve().parent / "web" / "icons" / "favicon.ico"   # tools/make_icons.py
 NAME = "AutoRundown.lnk"
 
 
@@ -48,10 +49,11 @@ def set_enabled(on: bool) -> None:
     ps = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:AR_LNK);"
           "$s.TargetPath = $env:AR_TARGET; $s.Arguments = $env:AR_ARGS;"
           "$s.WorkingDirectory = $env:AR_CWD; $s.Description = 'AutoRundown (background)';"
-          "$s.Save()")
+          "if ($env:AR_ICON) { $s.IconLocation = $env:AR_ICON }; $s.Save()")
     env = {**os.environ, "AR_LNK": str(lnk), "AR_TARGET": pythonw(),
            "AR_ARGS": "-m autorundown.launcher --background --no-browser",
-           "AR_CWD": str(ROOT)}
+           "AR_CWD": str(ROOT),
+           "AR_ICON": str(ICON) if ICON.is_file() else ""}
     r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
                        env=env, capture_output=True, text=True, timeout=60,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

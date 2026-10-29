@@ -1,11 +1,12 @@
-# Every pull request and every push to main: lint, the free test suites and
-# a sample index served and searched (job "test"), and alongside it a first
-# start and the UI checks driven in a real browser (job "browser").
-#
-# No installer is built here (the user's decision, 2026-10-23): after a PR
-# is merged to main, the session that made it builds and installs the MSI on
-# the PC (packaging/windows/build.ps1). windows-msi.yml can still be run by
-# hand from the Actions tab.
+# Every pull request: lint, the free test suites and a sample index served
+# and searched (job "test"), and alongside it a first start and the UI
+# checks driven in a real browser (job "browser"). On main (a merged PR)
+# and on tags the Windows installer is built and checked at the same time,
+# and a release is made only if the tests, the browser checks and the
+# installer all passed. (Released again 2026-10-29, for the public repo: the
+# user wants every merge to main to build the MSI and publish a version's
+# release. Artifacts live 3-7 days -- the release holds the MSI for good --
+# so the storage that filled up while private does not.)
 #
 # Free of Anthropic charges by construction: no secret is used anywhere, the
 # API key is forced empty and the API address points at a closed port, and
@@ -13,12 +14,14 @@
 #
 # Runners: Linux always. Windows and macOS test legs join automatically once
 # the repository is public (Actions minutes are free then; while private,
-# Windows minutes count double and macOS ten times).
+# Windows minutes count double and macOS ten times). The installer job is
+# Windows by necessity: on main, on tags, and on PRs that touch packaging.
 name: CI
 
 on:
+  # no paths-ignore on pull requests: a required check that never runs (a
+  # docs-only PR) leaves the PR waiting for it forever
   pull_request:
-    paths-ignore: ["**.md", "docs/**", ".claude/**", "LICENSE"]
   push:
     branches: [main]
     tags: ["v*"]
@@ -81,7 +84,7 @@ jobs:
                    tests/test_handoff.py tests/test_history.py tests/test_chat.py tests/test_numbers.py tests/test_part_procedures.py tests/test_providers.py tests/test_vin.py \
                    tests/test_rebuild_wis.py tests/test_wis_tables.py tests/test_parts_diagrams.py \
                    tests/test_synonyms.py tests/test_job_numbers.py tests/test_charm.py tests/test_lemon_zip.py \
-                   tests/test_parts_fit.py tests/test_load.py tests/test_lemon_tables.py; do
+                   tests/test_parts_fit.py tests/test_load.py tests/test_lemon_tables.py tests/test_parse_sids.py; do
             echo "::group::$t"
             start=$SECONDS
             python "$t" || { echo "::error::$t failed"; rc=1; }
@@ -173,6 +176,9 @@ jobs:
       - name: Car history remembers the cars picked
         run: python tests/test_car_history.py --index "$RUNNER_TEMP/smoke.db"
 
+      - name: Phone - reading view, turning, Back with a pop-up, diagram viewer
+        run: python tests/test_phone_ui.py --index "$RUNNER_TEMP/smoke.db"
+
       - name: Result tabs show each tab's results
         run: python tests/test_answer_tabs.py --index "$RUNNER_TEMP/smoke.db"
 
@@ -185,3 +191,79 @@ jobs:
         with:
           name: ui-shots-${{ matrix.os }}
           path: ui-shots/
+          retention-days: 7
+
+  # PRs build the installer only when they touch what goes into it
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      packaging: ${{ steps.diff.outputs.packaging }}
+    steps:
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
+          echo "$files"
+          if echo "$files" | grep -qE '^(packaging/|requirements[^/]*\.txt$|autorundown/(launcher|autostart|mdns|config)\.py$|\.github/workflows/)'; then
+            echo "packaging=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Runs at the same time as the tests (it takes the longest, ~10 min), not
+  # after them: a release still needs all three to pass.
+  msi:
+    needs: changes
+    # changes is skipped outside PRs; always() lets msi run then
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.packaging == 'true')
+    uses: ./.github/workflows/windows-msi.yml
+
+  # A push to main (a merged PR) whose tests, browser checks and installer
+  # all passed becomes a GitHub release "v<version>" with the MSI attached. The version is
+  # autorundown/__init__.py's __version__ (the MSI's own file name), so bump
+  # it to publish a new release: a version that already has a release is left
+  # alone, with a notice, rather than overwritten. Only this job may write.
+  release:
+    needs: [test, browser, msi]
+    # always(): msi's own dependency `changes` is skipped on a push, and
+    # GitHub skips every job downstream of a skipped one unless its condition
+    # names a status -- that skipped the v0.1.4 release after PR #8
+    if: >-
+      always() && needs.test.result == 'success' &&
+      needs.browser.result == 'success' && needs.msi.result == 'success' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: AutoRundown-msi
+          path: dist
+          retention-days: 3
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          msi=$(ls dist/AutoRundown-*.msi)
+          version=$(basename "$msi" .msi); version=${version#AutoRundown-}
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::notice::$tag already has a release; bump __version__ in autorundown/__init__.py to publish a new one."
+            exit 0
+          fi
+          (cd dist && sha256sum "$(basename "$msi")" > "$(basename "$msi").sha256")
+          gh release create "$tag" "$msi" "$msi.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "AutoRundown $version" \
+            --generate-notes
+          echo "::notice::published $tag"
