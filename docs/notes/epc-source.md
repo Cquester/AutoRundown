@@ -1,4 +1,4 @@
-# EPC parts catalogue — third source (in progress)
+# EPC parts catalogue — third source (in the live index since 2026-10-23)
 
 Mercedes **EPC** (electronic parts catalogue) extracted from the user's own
 licensed EWA/EPC install in the VM, into AutoRundown as a third source
@@ -285,6 +285,30 @@ name. Now:
 Tests: `tests/test_wis_tables.py` (invented SIDS bodies in WIS's format),
 `tests/test_answer_tabs.py` (the tabs read the answer's pages and the top
 hits, and run no keyword search of their own).
+
+**LEMON cars' Labour times and Parts tabs** (2026-10-28, agent review). The
+two tabs were WIS/EPC only, so a LEMON car hid them, although the 1987
+190E's manual has 528 "<component>: Labor Times" pages and 326 "Parts
+Information" pages. `lemon_tables.py` reads those pages' own pipe tables:
+- **Labour** (standard and warranty hours) goes to `/api/wis/labour/<doc>`,
+  which answers `book: "lemon"` with no variant, and is ranked by
+  `_rank_labour` like WIS.
+- **Parts** (part, maker, OEM number, price, notes, as printed) goes to
+  `/api/search?tab=parts`, as `lemon_parts` rows.
+
+Rules:
+- Only the car's own pages are read (`this_vehicle`). The Honda Civic's
+  labour pages are all the Hybrid's, so its tab stays empty.
+- A two-word question needs two words to match ("water pump" is not the
+  transmission's "Fluid Pump"). A tie goes to the component with the fewest
+  other words, so "brake pads" finds "Brake Pad" before "Brake Pad Wear
+  Sensor".
+- A page filed under several folders shows once.
+- Hours and prices are never computed.
+
+The page must not send `variant=null` for a LEMON car: that was a 422,
+drawn as "[object Object]". Tests: `tests/test_lemon_tables.py`, and
+`test_answer_tabs.py` when its index has a LEMON car with labour pages.
 
 ## Joining WIS (found and built 2026-10-14)
 

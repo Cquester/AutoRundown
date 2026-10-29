@@ -16,6 +16,8 @@
   - [`importing.md`](notes/importing.md) — Shop setup, import jobs, removing manuals, LEMON
   - [`windows-installer.md`](notes/windows-installer.md) — MSI, launcher, CI, releases
   - [`test-environments.md`](notes/test-environments.md) — test boxes and Windows Sandbox
+  - [`ai-providers.md`](notes/ai-providers.md) — the four AI providers, models, prices, what is unverified
+  - [`epc-source.md`](notes/epc-source.md) — EPC parts catalogue, the EPC↔WIS join, the right box's tabs (LEMON's too)
 - [`qa/`](qa/) — the QA agents' reports from 2026-10-09/10 (`REPORT.md` has
   every finding and its status). File names in them are as they were then
   (before `tests/` and `tools/`).
