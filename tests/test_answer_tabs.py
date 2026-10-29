@@ -215,6 +215,32 @@ def main(argv=None):
             check("a new car clears the tabs' counts", all(v == "" for v in counts(pg).values()),
                   str(counts(pg)))
 
+        # -- a LEMON car: its manual's own labour and parts (lemon_tables.py) ----
+        # Only when the index holds one whose manual has labour pages (the
+        # sample corpus is WIS only). The tab once sent variant=null, a 422
+        # drawn as "[object Object]" (2026-10-28).
+        lemon = next((v for v in vehicles if v.get("source_name") == "lemon"
+                      and json.load(urllib.request.urlopen(
+                          f"{base}/api/wis/labour/{v['doc_id']}?q=water+pump"))["total"]), None)
+        if lemon:
+            pg.fill("#carInput", lemon["model"])
+            pg.wait_for_timeout(400)
+            pg.locator("#carList .opt", has_text=lemon["model"]).first.click()
+            pg.wait_for_timeout(500)
+            check("LEMON: the car is picked", pg.evaluate("docId()") == lemon["doc_id"])
+            c = counts(pg)
+            check("LEMON: the Parts and Labour times tabs are shown", "parts" in c and "labour" in c, str(c))
+            pg.fill("#q", "water pump")
+            pg.click("#searchBtn")
+            pg.wait_for_function("!document.querySelector('#resTabs [data-tab=labour] .tcount').hidden")
+            pg.click("#resTabs [data-tab=labour]")
+            lab = pg.inner_text("#labOut")
+            check("LEMON: the Labour tab lists the manual's operations",
+                  pg.locator("#labOut table tr").count() > 0 and "object Object" not in lab, lab[:200])
+            check("LEMON: under the manual's heading, not WIS's", "WIS" not in pg.inner_text("#labSrc"))
+        else:
+            print("  skip  LEMON tabs: no LEMON car with labour pages in this index")
+
         # -- phone --------------------------------------------------------------
         ph = new_page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
         ph.click("#carPill")
