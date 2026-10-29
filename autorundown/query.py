@@ -679,6 +679,15 @@ def _verify_citations(answer: AnswerModel, passages: list[dict]) -> list[str]:
     return dropped
 
 
+# Labour times are not manual text: WIS's flat-rate book is read straight
+# into the Labour times tab (wis_links.labour_times), never into the
+# passages. "labour time to replace the water pump" came back "not found"
+# with an empty note, ~$0.02 each (agent review, 2026-10-28).
+LABOUR_RE = _re.compile(r"\blabou?r\b|\bflat[- ]rate\b|\bbook time\b|\bhow long\b|\bhours?\b(?! meter)", _re.I)
+LABOUR_NOTE = ("Labour times are not in the manual pages the AI reads: see the Labour times tab "
+               "(it is filled from this question's search).")
+
+
 # A Mercedes part number as an answer writes it: "A 001 420 01 20",
 # "A0014200120", "N 000000 001234" (numbers.py's printed forms)
 _PROSE_PART_RE = _re.compile(r"(?<![\w.-])(?:A\s?\d{3}\s?\d{3}\s?\d{2}\s?\d{2}|N\s?\d{6}\s?\d{6})(?![\w.-])", _re.I)
@@ -1043,9 +1052,11 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         found=False, answer="", caveats="The model returned no parsable answer.")
     dropped = _check_part_numbers(answer, passages)     # first: an answer left with no
     dropped += _verify_citations(answer, passages)      # citation is then withheld
-    other =_drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
+    other = _drop_other_vehicles(answer, vehicle_codes(vehicle, scope))
     added = _add_omitted_parts(answer, passages, scope) if answer.found else []
     linked = _add_linked_torques(answer, passages) if answer.found else []
+    if not answer.found and LABOUR_RE.search(question):
+        answer.caveats = f"{answer.caveats} {LABOUR_NOTE}".strip()
 
     # surface diagrams that belong to the pages actually cited
     cited = set(answer.source_pages)

@@ -84,7 +84,11 @@ d = ask("replace the brake pads fake:steps")
 check("uncited procedure withheld", not d["found"] and not d["steps"] and not d["document_page"], f"{d}")
 
 # 5. not found, refusal and API errors reach the user as such
-check("not found", not ask("brake torque fake:notfound")["found"])
+d = ask("brake torque fake:notfound")
+check("not found", not d["found"] and "Labour times tab" not in d["caveats"], d["caveats"])
+d = ask("labour time to replace the brake pads fake:notfound")
+check("a labour question not found points to the Labour times tab",
+      not d["found"] and "Labour times tab" in d["caveats"], d["caveats"])
 check("refusal is not an answer", not ask("brake torque fake:refusal")["found"])
 for word, text in (("fake:error", "529"), ("fake:nocredit", "Out of API credit")):
     try:
