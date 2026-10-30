@@ -113,6 +113,12 @@ def docnrs(corpus: Path, dok_ids: list[int]) -> dict[int, list[str]]:
     return out
 
 
+def all_docnrs(corpus: Path) -> list[tuple[int, str]]:
+    """Every (DokID, stored document number) of the corpus; [] without the
+    sidecar. For the document kinds a shop can hide (search.HIDEABLE_KINDS)."""
+    return _rows(corpus, "SELECT dok_id, docnr FROM docnr") or []
+
+
 def group_names(corpus: Path) -> dict[str, str]:
     """{'42': 'Brakes - hydraulic and mechanical systems', '42.10': 'Service brake', ...}:
     Mercedes' function groups and subgroups, the same numbers as WIS document

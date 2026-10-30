@@ -15,10 +15,12 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import threading
 from itertools import zip_longest
+from pathlib import Path
 from typing import Iterable, Sequence
 
-from . import numbers
+from . import numbers, wis_links
 
 # letters of any language: "Ölwanne" was searched as "lwanne". The FTS
 # tokenizer (unicode61) folds the accents on both sides.
@@ -319,6 +321,8 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
         return []
     assert fts in FTS_TABLES
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
+    hclause, hargs = hidden_clause(conn)
+    where, args = where + hclause, [*args, *hargs]
     if not include_other_variants:
         eclause, eargs = _other_engines_clause(conn, doc_id)
         where, args = where + eclause, [*args, *eargs]
@@ -362,6 +366,8 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
         return {}
     assert fts in FTS_TABLES
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
+    hclause, hargs = hidden_clause(conn)
+    where, args = where + hclause, [*args, *hargs]
     tclause, targs = _types_clause(types)
     if tclause and general in doc_ids:
         where += f" AND (c.doc_id != ? OR {tclause})"
@@ -454,6 +460,71 @@ def is_damage_menu(page_no) -> bool:
     """`_DAMAGE_MENU` in Python (the Manual contents, manual_browse.py)."""
     s = str(page_no)
     return len(s) == 8 and s.startswith("99") and s.isdigit()
+
+
+# WIS document kinds a shop can leave out, by the first two letters of the
+# document number (wis_links.sqlite `docnr`). Counted on the real index,
+# 2026-10-29: retrofits and accessory fitting (AN, AZ, EA) 6,694 documents,
+# shop papers (OF forms, OS disposal, SN new-model overviews, BT technical
+# changes, WF shop-made tools, AS safety notices) ~1,570; ~560 of them
+# filed under no car, so every car got them. Left out of search, Ask and
+# the Manual contents unless the shop turns them on (Config.show_retrofits /
+# show_shop_admin; the server sets `hidden_kinds`). A document is left out
+# only if every number it has is such a kind -- one that is also an AR
+# repair procedure stays. A link still opens it.
+HIDEABLE_KINDS = {"retrofits": ("an", "az", "ea"),
+                  "shop_admin": ("of", "os", "sn", "bt", "wf", "as")}
+hidden_kinds: frozenset = frozenset()
+_hidden_lock = threading.Lock()
+_hidden_cache: dict = {"key": None, "args": None}
+
+
+def _hidden_args(conn: sqlite3.Connection) -> list | None:
+    """[WIS doc_ids as JSON, hidden DokIDs as JSON] for `hidden_kinds`, or
+    None when nothing is hidden. Rebuilt when the kinds, the WIS vehicles or
+    a sidecar change (a re-extraction rewrites it); a few ms otherwise."""
+    prefixes = {p for k in hidden_kinds for p in HIDEABLE_KINDS.get(k, ())}
+    if not prefixes:
+        return None
+    rows = conn.execute("SELECT doc_id, general_doc_id, file_path FROM vehicles "
+                        "WHERE source_name LIKE 'mercedes-wis%'").fetchall()
+    if not rows:
+        return None
+    corpora = sorted({r[2] or "" for r in rows})
+    stamps = []
+    for fp in corpora:
+        side = Path(fp) / wis_links.NAME
+        stamps.append(side.stat().st_mtime if fp and side.is_file() else 0)
+    doc_ids = sorted({d for r in rows for d in r[:2] if d})
+    key = (frozenset(prefixes), tuple(doc_ids), tuple(corpora), tuple(stamps))
+    with _hidden_lock:
+        if _hidden_cache["key"] == key:
+            return _hidden_cache["args"]
+        kinds: dict[int, set] = {}
+        for fp in corpora:
+            for dok, nr in wis_links.all_docnrs(Path(fp)) if fp else ():
+                kinds.setdefault(dok, set()).add(nr[:2])
+        hidden = sorted(str(d) for d, ks in kinds.items() if ks <= prefixes)
+        args = [json.dumps(doc_ids), json.dumps(hidden)] if hidden else None
+        _hidden_cache.update(key=key, args=args)
+        return args
+
+
+def apply_shown(cfg) -> None:
+    """Shop setup's "What to show" (a config.Config), for every search."""
+    global show_damage_codes, hidden_kinds
+    show_damage_codes = cfg.show_damage_codes
+    hidden_kinds = frozenset(k for k, shown in (("retrofits", cfg.show_retrofits),
+                                                ("shop_admin", cfg.show_shop_admin)) if not shown)
+
+
+def hidden_clause(conn: sqlite3.Connection) -> tuple[str, list]:
+    """The SQL that leaves `hidden_kinds` out (pages aliased `p`)."""
+    args = _hidden_args(conn)
+    if not args:
+        return "", []
+    return (" AND NOT (p.doc_id IN (SELECT value FROM json_each(?))"
+            " AND p.page_no IN (SELECT value FROM json_each(?)))", args)
 
 
 class Scope(list):

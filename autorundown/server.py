@@ -80,6 +80,9 @@ class SettingsBody(BaseModel):
     require_signin: bool | None = None
     # WIS damage-code menus in search and the Manual contents
     show_damage_codes: bool | None = None
+    # WIS retrofits and shop papers, the same way (search.HIDEABLE_KINDS)
+    show_retrofits: bool | None = None
+    show_shop_admin: bool | None = None
     # "company" | "per_mechanic" (config.pick_key)
     key_mode: str | None = Field(None, pattern="^(company|per_mechanic)$")
     # the AI provider answering questions (providers.py)
@@ -178,6 +181,9 @@ def _vehicle_or_404(conn, doc_id: str) -> dict:
         if v["doc_id"] == doc_id:
             return v
     raise HTTPException(404, f"unknown vehicle {doc_id}")
+
+
+_apply_shown = search_mod.apply_shown
 
 
 def _is_wis(vehicle: dict) -> bool:
@@ -456,8 +462,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app.state.auth_path = auth_path or auth.AUTH_PATH
     app.state.https = False
     app.state.port = 8756
-    # damage-code menus in search and the Manual contents (Shop setup)
-    search_mod.show_damage_codes = config.load().show_damage_codes
+    # damage-code menus, retrofits, shop papers in search and the Manual contents (Shop setup)
+    _apply_shown(config.load())
     throttle = auth.Throttle()
     app.state.mdns_name = ""          # serve() sets it once announced
     app.state.shutdown = lambda: None   # make_server() wires the real one
@@ -1856,6 +1862,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "phone_urls": _phone_urls(),
             "require_signin": cfg.require_signin,
             "show_damage_codes": cfg.show_damage_codes,
+            "show_retrofits": cfg.show_retrofits,
+            "show_shop_admin": cfg.show_shop_admin,
             "config_path": str(config.CONFIG_PATH),
         }
 
@@ -1913,7 +1921,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         cfg = config.load()
         for field_name in ("archive_dir", "index_path", "importer",
                            "model", "extractor_dir", "require_signin", "key_mode",
-                           "provider", "show_damage_codes"):
+                           "provider", "show_damage_codes", "show_retrofits", "show_shop_admin"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)
@@ -1936,7 +1944,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             else:
                 cfg.provider_keys = {**(cfg.provider_keys or {}), kp: body.api_key.strip()}
         cfg.save()
-        search_mod.show_damage_codes = cfg.show_damage_codes
+        _apply_shown(cfg)
         # only a new index path moves the server: saving anything else (the
         # model, sign-in) used to swap a `serve.py --index X` server onto the
         # config's index

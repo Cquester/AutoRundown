@@ -69,6 +69,10 @@ class Config:
     # fault codes, not repairs; off = left out of search, Ask and the Manual
     # contents (the user, 2026-10-24: off by default, a setting to show them)
     show_damage_codes: bool = False
+    # WIS retrofit / accessory fitting and shop papers (search.HIDEABLE_KINDS):
+    # off = left out the same way (the user, 2026-10-29)
+    show_retrofits: bool = False
+    show_shop_admin: bool = False
     # where the LEMON torrent is (or will be) downloaded; its lemon/index.json
     # replaces the built-in catalogue snapshot (lemon_catalogue.py)
     lemon_torrent_dir: str = ""

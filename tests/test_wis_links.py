@@ -57,7 +57,12 @@ def main() -> int:
                                        "Preceding work: Removing and installing bumper (88-0220). "
                                        "Not a reference: 10-2015 and a range 12-2000 in text; "
                                        "(88-0221, 88-0220) again", series=["176"]),
-                      test_records.rec(1002350, "Notes on quuxrod bolts", "quuxrod bolts text")):
+                      test_records.rec(1002350, "Notes on quuxrod bolts", "quuxrod bolts text"),
+                      # retrofits / shop papers (search.HIDEABLE_KINDS), by their numbers
+                      test_records.rec(1002360, "Retrofit zorbtrim holder", "zorbtrim retrofit"),
+                      test_records.rec(1002361, "Form: zorbtrim damage sheet", "zorbtrim form"),
+                      test_records.rec(1002362, "Remove/install zorbtrim", "zorbtrim repair and retrofit"),
+                      test_records.rec(1002363, "Zorbtrim notes", "zorbtrim, no number")):
                 f.write(json.dumps(r) + "\n")
         idx = TMP / "index.db"
         with open(os.devnull, "w") as quiet:
@@ -325,6 +330,30 @@ def main() -> int:
         check("on: in the contents", "99026283" in walk(), True)
         app.post("/api/settings", json={"show_damage_codes": False})
         check("off again: gone", (found("quuxrod"), search.show_damage_codes), (["1002350"], False))
+
+        print("retrofits and shop papers: off by default, by document number")
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executemany("INSERT INTO docnr VALUES (?,?,?)", [
+                ("an8800p0010a", 20, 1002360),     # a retrofit
+                ("of0000p0001a", 21, 1002361),     # a form
+                ("ar8810p0100a", 22, 1002362),     # a repair that is also
+                ("an8800p0020a", 23, 1002362),     # a retrofit: stays
+            ])
+        s = app.get("/api/settings").json()
+        check("both off by default", (s["show_retrofits"], s["show_shop_admin"]), (False, False))
+        check("off: only the repair and the unnumbered page are found",
+              found("zorbtrim"), ["1002362", "1002363"])
+        check("off: not in the contents", ("1002360" in walk(), "1002361" in walk()), (False, False))
+        check("a link still opens it", app.get(f"/api/page/{c176}/1002360").status_code, 200)
+        app.post("/api/settings", json={"show_retrofits": True})
+        check("retrofits on: the retrofit comes back, the form doesn't",
+              found("zorbtrim"), ["1002360", "1002362", "1002363"])
+        check("retrofits on: in the contents", ("1002360" in walk(), "1002361" in walk()), (True, False))
+        app.post("/api/settings", json={"show_shop_admin": True})
+        check("both on: everything", found("zorbtrim"), ["1002360", "1002361", "1002362", "1002363"])
+        app.post("/api/settings", json={"show_retrofits": False, "show_shop_admin": False})
+        check("off again", (found("zorbtrim"), search.hidden_kinds),
+              (["1002362", "1002363"], frozenset({"retrofits", "shop_admin"})))
         v23, v26 = names.index("190 E 2.3 16"), names.index("190 E 2.6")
         check("labour times need the exact model",
               app.get(f"/api/wis/labour/{c201}").json()["need"], "variant")
