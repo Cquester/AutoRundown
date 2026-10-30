@@ -566,14 +566,37 @@
   .modetabs button + button{border-left:1px solid var(--line)}
   .modetabs button[aria-selected="true"]{background:var(--accent-dim); color:var(--pill-text)}
   #out[hidden], #outKw[hidden], #askBtn[hidden], #searchBtn[hidden]{display:none !important}
-  /* a chat: the earlier turns, short, above the latest answer */
-  .turn{margin:0 0 10px}
-  .tq{display:inline-block; max-width:92%; margin:0 0 6px; padding:8px 12px; border-radius:12px 12px 12px 4px;
-    background:var(--panel-2); border:1px solid var(--line); white-space:pre-wrap; overflow-wrap:anywhere}
-  .tq b{color:var(--muted); font-size:13px; margin-right:6px}
-  .turn.past .card{padding:10px 12px; margin-bottom:0}
-  .turn.past .answer p{margin:0}
+  /* a chat, top to bottom: your question on the right, the AI's reply under
+     it; the reply the page and tabs follow is marked, the others tap to show */
+  .turn{margin:0 0 16px}
+  .tq{display:block; width:fit-content; max-width:85%; margin:0 0 8px auto; padding:8px 12px;
+    border-radius:12px 12px 4px 12px; background:var(--accent-dim); color:var(--pill-text);
+    white-space:pre-wrap; overflow-wrap:anywhere}
+  .areply{border-left:3px solid transparent; padding-left:8px; margin-left:-11px; cursor:pointer}
+  .areply.sel{border-left-color:var(--accent); cursor:auto}
+  .areply > .card:last-of-type, .areply > .card{margin-bottom:6px}
+  .turnfoot{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted)}
+  .turnfoot .turnshow{min-height:36px; font-size:13px; padding:0 10px}
+  .areply.sel .turnshow, .areply:not(.sel) .turnon{display:none}
+  .turnon{color:var(--accent); font-weight:600}
+  .speakbtn{min-height:36px; font-size:13px; padding:0 10px; margin:2px 0 4px}
+  .speakbtn.on, #micBtn.on{background:var(--accent-dim); color:var(--pill-text); border-color:var(--accent-dim)}
+  #micBtn{width:48px; padding:0; display:inline-flex; align-items:center; justify-content:center}
+  #micBtn[hidden]{display:none}
+  #micBtn .ico{display:block; width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9;
+    stroke-linecap:round; stroke-linejoin:round}
   .chatnote{margin:4px 0 12px}
+  /* Keyword search is free: no AI model, no spend */
+  body.kwmode #model, body.kwmode #cost, body.kwmode #modelNote{display:none !important}
+  /* on a PC the AI chat is a chat window: the conversation scrolls, the
+     question box sits under it (a phone docks the box already) */
+  @media (min-width:701px){
+    body:not(.kwmode):not(.collapsed) #left{display:flex; flex-direction:column; overflow:hidden}
+    body:not(.kwmode) #left > *{flex:none}
+    body:not(.kwmode) #left > #out{order:5; flex:1 1 auto; min-height:0; overflow-y:auto; margin:0 -16px;
+      padding:4px 16px 0 27px}
+    body:not(.kwmode) #left > .askbar{order:6; margin:10px 0 0}
+  }
   /* History and Clear, under the question box */
   .qtools{display:flex; gap:8px; flex-wrap:wrap; margin:-6px 0 12px}
   .qtools .chipbtn{min-height:34px}
@@ -908,7 +931,6 @@
 
   /* -- main screen: empty-state hints; options fold away on a phone */
   .empty{color:var(--muted); padding:8px 2px}
-  .examples{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px}
   .chipbtn{background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:999px;
     font-weight:500; font-size:14px; min-height:44px; padding:0 14px}
   .askbtns{display:flex; gap:8px}
@@ -1125,6 +1147,10 @@
     <div class="askbar">
       <textarea id="q" rows="1" placeholder="Torque for the front caliper anchor plate bolts?"></textarea>
       <div class="askbtns">
+        <!-- speak instead of typing: the browser's own speech recognition,
+             shown only where the browser has it -->
+        <button type="button" class="ghost" id="micBtn" hidden aria-pressed="false" aria-label="Speak your question"
+                title="Speak instead of typing (your browser turns speech into text; press Ask to send)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
         <button id="askBtn" title="AI answer from the manual (uses your API key)">Ask</button>
         <button id="searchBtn" hidden title="Search the manual's words (free)" aria-label="Keyword search"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg><span class="lbl">Search</span></button>
       </div>
@@ -2103,8 +2129,8 @@ function carChanged() {
   shownDoc = docId();
   resetTabs();                        // each tab's results were for the old car
   chat = null;                        // a chat is about one car
-  out.innerHTML = emptyState('ai');
-  kwOut.innerHTML = emptyState('kw');
+  out.innerHTML = emptyState();
+  kwOut.innerHTML = emptyState();
   shown.ai = shown.kw = false;
   syncMode();
   manualEl = null;
@@ -2113,20 +2139,14 @@ function carChanged() {
   hideRight();
   $('#segDot').hidden = true;
 }
-// nothing asked yet: say what the box is for, with a few starting points
-const EXAMPLES = ['oil capacity', 'front brake pads torque', 'spark plug gap'];
-function emptyState(m = mode) {
-  const label = carBoxLabel || currentCarLabel();
+// nothing asked yet: only "choose a car" when there is none. With a car the
+// box speaks for itself -- no description or sample questions (the user,
+// 2026-10-30: "I don't think there's any point to having that")
+function emptyState() {
   if (!docId() && vehicles.length)
     return `<div class="empty"><b>Choose your car first</b> — type it in the car box (e.g. 2009 E550 4MATIC), `
       + `paste a VIN, or use Browse. Every answer and search is for that car only.</div>`;
-  if (!docId() || !label) return '';
-  return `<div class="empty">` + (m === 'kw'
-      ? `Search the manual's own words for <b>${esc(label)}</b> (free).`
-      : `Ask a question about <b>${esc(label)}</b>. The AI answers from the manual and opens its page;`
-        + ` then tell it what you tested and found, and it answers from the manual again.`)
-    + `<div class="examples">${EXAMPLES.map(x =>
-        `<button type="button" class="chipbtn" data-example="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`;
+  return '';
 }
 // which car results were drawn for, on the results themselves
 const resultsFor = (label = carBoxLabel || currentCarLabel()) => label
@@ -2926,8 +2946,8 @@ function showScope() {
   }
   // the contents shown are for the old model or engine
   if (srcout.firstElementChild?.classList.contains('mbrowse')) showManualBrowse();
-  if (!out.innerHTML.trim()) out.innerHTML = emptyState('ai');
-  if (!kwOut.innerHTML.trim()) kwOut.innerHTML = emptyState('kw');
+  if (!out.innerHTML.trim()) out.innerHTML = emptyState();
+  if (!kwOut.innerHTML.trim()) kwOut.innerHTML = emptyState();
   if (!v || !v._variants.length) { note.hidden = true; return; }
   setTimeout(() => showOil(v));
   note.classList.remove('pickhint');
@@ -3428,20 +3448,25 @@ function figureHtml(f) {
   </button>`;
 }
 
-// replay: an answer opened from the history -- paid for then, not now
-function renderAnswer(d, doc = docId(), label = carBoxLabel, replay = false, before = '', after = '') {
-  withDoc(doc, () => drawAnswer(d, label, replay, before, after));
+// one answer on its own, as a chat of one turn (the console's way to draw a
+// payload; replay: opened from the history -- paid for then, not now)
+function renderAnswer(d, doc = docId(), label = carBoxLabel, replay = false) {
+  chat = {id: null, doc, label, full: true, turns: [{question: lastAsked, d}]};
+  if (!replay) addCost(d);
+  drawChat();
+  selectTurn(0);
 }
-function drawAnswer(d, label, replay = false, before = '', after = '') {
-  pageTitles = d.page_titles || {};
-  if (!replay) {
-    sessionCost += d.usage?.cost_usd || 0;
-    if (d.usage && d.usage.calls && d.usage.cost_usd == null) costUntracked = true;
-  }
+// the session's spend, shown in the AI chat tab only
+function addCost(d) {
+  sessionCost += d.usage?.cost_usd || 0;
+  if (d.usage && d.usage.calls && d.usage.cost_usd == null) costUntracked = true;
   $('#cost').textContent = '$' + sessionCost.toFixed(4) + ' this session'
     + (costUntracked ? ' (some cost not tracked)' : '')
     + (d.usage?.model ? ' · ' + d.usage.model.replace('claude-', '') : '');
-
+}
+// one AI reply in the chat (drawn inside withDoc: its links carry the chat's car)
+function answerHtml(d, label) {
+  pageTitles = d.page_titles || {};
   let h = '';
   // _verify_citations withholds an answer left with no real citation and
   // says so in caveats; that is not "the manual doesn't have it"
@@ -3480,6 +3505,7 @@ function drawAnswer(d, label, replay = false, before = '', after = '') {
              .filter(s => s.trim())
              .map(s => `<p style="margin:8px 0">${s.trim()}</p>`).join('')
          + `</div>`;
+      if (canSpeak) h += `<button type="button" class="ghost speakbtn" data-speak>${SPEAK_LABEL}</button>`;
     }
     if (d.document_page) {
       const t = pageTitles[String(d.document_page)] || '';
@@ -3526,14 +3552,15 @@ function drawAnswer(d, label, replay = false, before = '', after = '') {
     h += `<div class="card"><div class="warnbox"><strong>Unverifiable citations removed</strong>
       <div class="muted">${d.dropped_citations.map(esc).join('<br>')}</div></div></div>`;
   }
-  h += `<div class="muted">searched: ${d.queries.map(esc).join(' &middot; ')}</div>`;
-  out.innerHTML = before + chatNote() + h + after;
-
-  // the cited document opens on the right. On a phone the page would cover
-  // the answer, so there it is loaded into the Document view and waits (a
-  // dot on "Document") for a tap on the button above.
+  h += `<div class="muted">searched: ${(d.queries || []).map(esc).join(' &middot; ')}</div>`;
+  return h;
+}
+// the cited document opens on the right. On a phone the page would cover
+// the answer, so there it is loaded into the Document view and waits (a
+// dot on "Document") for a tap on the answer's button.
+function showAnswerPage(d, doc) {
   if (d.found && d.document_page) {
-    showPage(d.document_page, viewDoc(), !narrow());
+    showPage(d.document_page, doc, !narrow());
     $('#segDot').hidden = !phone() || docShown();
   } else {
     // the last answer's page would read as this answer's source
@@ -3553,37 +3580,120 @@ function drawAnswer(d, label, replay = false, before = '', after = '') {
 const MAX_FOLLOWUPS = 10;           // query.MAX_FOLLOWUPS
 let chat = null;                    // {id, doc, label, turns: [{question, d}]}
 const shown = {ai: false, kw: false};   // a tab showing results (Clear / New chat)
-function turnHtml(t) {
-  const d = t.d;
-  const text = d.found ? (d.answer || 'See the values and page below.')
-    : /Answer withheld:/i.test(d.caveats || '') ? 'No checked answer (its sources could not be verified).'
-    : /no parsable answer|declined by the model/i.test(d.caveats || '') ? 'No answer (the AI’s reply couldn’t be used).'
-    : 'Not found in the manual.';
-  const page = d.found && d.document_page
-    ? `<button class="pagelink" ${pageAttrs(d.document_page)}>page ${esc(d.document_page)}</button>` : '';
-  return `<div class="turn past"><div class="tq"><b>You</b>${esc(t.question)}</div>`
-    + `<div class="card"><div class="answer"><p>${esc(text)}</p></div>${page}</div></div>`;
+// A chat reads top to bottom, like a conversation (the user, 2026-10-30:
+// "a chat window with you and the AI agent"): each question, then the AI's
+// reply in full, the box under the chat on a PC as on a phone. The page and
+// the right box's tabs follow the reply picked -- the newest when it comes
+// in; a tap on an earlier reply brings its page and tabs back, no new call.
+const canFollow = () => chat && chat.doc === docId() && !chat.full
+  && chat.turns.length - 1 < MAX_FOLLOWUPS;
+function drawChat() {
+  const sel = chat.sel ?? chat.turns.length - 1;
+  withDoc(chat.doc, () => {
+    out.innerHTML = chat.turns.map((t, i) => `<div class="turn">`
+        + (t.question ? `<div class="tq">${esc(t.question)}</div>` : '')
+        + `<div class="areply${i === sel ? ' sel' : ''}" data-turn="${i}">${answerHtml(t.d, chat.label)}`
+        + `<div class="turnfoot"><span class="turnon">Showing this answer's page and tabs</span>`
+        + `<button type="button" class="ghost turnshow" data-turnshow="${i}">Show this answer's page and tabs</button>`
+        + `</div></div></div>`).join('')
+      + chatNote();
+  });
+  // after the rows above the chat settle (New chat appears, the tabs' counts)
+  const last = chat.turns.length - 1;
+  requestAnimationFrame(() => scrollToTurn(last));
 }
-// newest first, under the box: the latest question over its full answer,
-// then the earlier turns, short (the box is above the chat on a PC, and the
-// reply to what you just typed should be the first thing under it)
-function drawChat(replay = false) {
-  const turns = chat.turns, last = turns[turns.length - 1];
-  const now = `<div class="turn" id="turnNow"><div class="tq"><b>You</b>${esc(last.question)}</div></div>`;
-  const past = turns.slice(0, -1).reverse();
-  const after = past.length
-    ? `<div class="sechead">Earlier in this chat</div>` + past.map(turnHtml).join('') : '';
-  renderAnswer(last.d, chat.doc, chat.label, replay, now, after);
-  out.scrollTop = 0;
+// the newest question at the top of the chat's view, its reply under it
+function scrollToTurn(i) {
+  const t = out.querySelectorAll('.turn')[i];
+  if (t) out.scrollTop += t.getBoundingClientRect().top - out.getBoundingClientRect().top - 8;
+}
+// a reply's page on the right and its search terms in the tabs (free)
+function selectTurn(i, page = true) {
+  const t = chat && chat.turns[i];
+  if (!t) return;
+  chat.sel = i;
+  out.querySelectorAll('.areply').forEach(r => r.classList.toggle('sel', +r.dataset.turn === i));
+  pageTitles = t.d.page_titles || {};
+  if (page) showAnswerPage(t.d, chat.doc);
+  if (docId() === chat.doc) answerTabs(t.d, t.question);
 }
 function chatNote() {
-  if (!chat) return '';
-  const left = MAX_FOLLOWUPS - (chat.turns.length - 1);
-  return `<div class="muted chatnote">` + (left > 0
-    ? `Follow up in the box: what you tested and what you found. The reply comes from the manual only.`
-    : `This conversation has ${MAX_FOLLOWUPS} follow-ups. Start a <b>New chat</b> for the next question.`)
-    + `</div>`;
+  if (!chat || chat.full || chat.turns.length - 1 < MAX_FOLLOWUPS) return '';
+  return `<div class="muted chatnote">This conversation has ${MAX_FOLLOWUPS} follow-ups. `
+    + `Start a <b>New chat</b> for the next question.</div>`;
 }
+out.addEventListener('click', e => {
+  const r = e.target.closest('.areply');
+  if (!r || !chat) return;
+  const i = +r.dataset.turn;
+  // a button or link in an earlier reply does its own thing (a page, a
+  // caveat) and makes that reply the one the tabs follow
+  const own = e.target.closest('button:not([data-turnshow]), a, summary, input, select, .spectable');
+  if (i !== chat.sel || !own) selectTurn(i, !own);
+});
+
+// -- voice ---------------------------------------------------------------------
+// The user (2026-10-30): "click like a voice icon and talk instead of having
+// to type it out", and an answer read back. Both are the browser's own:
+// speech to text is its SpeechRecognition (Chrome and Edge send the sound to
+// Google's / Microsoft's speech service; it needs HTTPS or this PC), and the
+// reading aloud is speechSynthesis with the device's voices. The app's server
+// takes no sound, and nothing is sent by voice alone: Ask still sends.
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+if (SpeechRec && window.isSecureContext) $('#micBtn').hidden = false;
+function micState(on) {
+  $('#micBtn').classList.toggle('on', on);
+  $('#micBtn').setAttribute('aria-pressed', String(on));
+  $('#micBtn').setAttribute('aria-label', on ? 'Stop listening' : 'Speak your question');
+}
+$('#micBtn').onclick = () => {
+  if (rec) { rec.stop(); return; }
+  stopSpeaking();
+  const before = $('#q').value.trim();
+  rec = new SpeechRec();
+  rec.lang = navigator.language || 'en-US';
+  rec.interimResults = true;
+  rec.onresult = e => {
+    const said = [...e.results].map(r => r[0].transcript).join('').trim();
+    $('#q').value = before && said ? before + ' ' + said : before || said;
+  };
+  rec.onerror = e => {
+    const why = e.error === 'not-allowed' || e.error === 'service-not-allowed'
+      ? 'The microphone is blocked for this page: allow it in the browser’s site settings.'
+      : e.error === 'network' ? 'Speech to text needs the internet (the browser’s speech service).'
+      : e.error === 'no-speech' ? 'Nothing heard: press the microphone and speak.' : '';
+    if (why) { $('#q').placeholder = why; }
+  };
+  rec.onend = () => { rec = null; micState(false); $('#q').focus(); };
+  try { rec.start(); micState(true); } catch (_) { rec = null; micState(false); }
+};
+const canSpeak = 'speechSynthesis' in window;
+const SPEAK_LABEL = '&#128266; Read aloud';
+function stopSpeaking() {
+  if (!canSpeak) return;
+  speechSynthesis.cancel();
+  document.querySelectorAll('.speakbtn.on').forEach(b => { b.classList.remove('on'); b.innerHTML = SPEAK_LABEL; });
+}
+// the answer and its values, as printed (no unit is converted or spelled out)
+function speakText(d) {
+  const vals = (d.specs || []).map(s => `${s.name}: ${s.value}`);
+  return [d.answer || '', ...vals].filter(Boolean).join('. ');
+}
+out.addEventListener('click', e => {
+  const b = e.target.closest('[data-speak]');
+  if (!b || !chat) return;
+  const on = b.classList.contains('on');
+  stopSpeaking();
+  if (on) return;
+  const t = chat.turns[+b.closest('.areply').dataset.turn];
+  const u = new SpeechSynthesisUtterance(speakText(t.d));
+  u.lang = navigator.language || 'en-US';
+  u.onend = u.onerror = () => { b.classList.remove('on'); b.innerHTML = SPEAK_LABEL; };
+  b.classList.add('on'); b.innerHTML = '&#9632; Stop reading';
+  speechSynthesis.speak(u);
+});
+
 let asking = false, lastAsked = '';
 async function ask() {
   const q = $('#q').value.trim();
@@ -3593,17 +3703,19 @@ async function ask() {
   if (mode !== 'ai') setMode('ai');
   if (!carBoxMatches()) return;
   // a follow-up while the chat's car is still the one selected
-  const follow = chat && chat.doc === docId() ? chat : null;
+  const follow = canFollow() ? chat : null;
   const doc = docId(), label = follow ? follow.label : carBoxLabel;
   lastAsked = q;
   toAnswerView();
   asking = true;
   $('#askBtn').disabled = true;
-  const wait = `<div class="card" id="asking"><span class="spinner"></span> searching the manual&hellip;</div>`;
+  stopSpeaking();
+  const wait = `<div class="turn" id="turnWait"><div class="tq">${esc(q)}</div>`
+    + `<div class="card" id="asking"><span class="spinner"></span> searching the manual&hellip;</div></div>`;
   if (follow) {
     $('#out .chatnote')?.remove();
-    out.insertAdjacentHTML('afterbegin', `<div class="turn" id="turnWait"><div class="tq"><b>You</b>${esc(q)}</div></div>` + wait);
-    out.scrollTop = 0;
+    out.insertAdjacentHTML('beforeend', wait);
+    scrollToTurn(follow.turns.length);
   } else {
     chat = null;
     out.innerHTML = wait;
@@ -3618,15 +3730,18 @@ async function ask() {
     if (follow && chat === follow) chat.turns.push({question: q, d});
     else chat = {id: d.chat_id, doc, label, turns: [{question: q, d}]};
     if (d.chat_id == null) chat.full = true;      // not kept: no follow-up possible
+    chat.sel = chat.turns.length - 1;
+    addCost(d);
     $('#q').value = '';
     drawChat();
-    if (docId() === doc) answerTabs(d, q);
+    selectTurn(chat.sel);
     shown.ai = true;
   } catch (e) {
-    const err = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
-    // a follow-up's error goes under the chat, which stays as it was
-    if (follow) { $('#asking')?.remove(); $('#turnWait')?.insertAdjacentHTML('afterend', err); }
-    else out.innerHTML = err;
+    // the question stays in the chat with the error under it
+    $('#asking')?.remove();
+    const w = $('#turnWait');
+    w?.insertAdjacentHTML('beforeend', `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`);
+    w?.removeAttribute('id');
   } finally {
     asking = false;
     $('#askBtn').disabled = false;
@@ -3654,8 +3769,9 @@ function syncMode() {
   });
   out.hidden = !ai; kwOut.hidden = ai;
   $('#askBtn').hidden = !ai; $('#searchBtn').hidden = ai;
-  const inChat = ai && chat && chat.doc === docId() && !chat.full
-    && chat.turns.length - 1 < MAX_FOLLOWUPS;
+  // Keyword search is free: no AI model or spend shown there (the user, 2026-10-30)
+  document.body.classList.toggle('kwmode', !ai);
+  const inChat = ai && canFollow();
   $('#askBtn').textContent = inChat ? 'Send' : 'Ask';
   $('#q').placeholder = !ai ? 'Words to find in the manual, e.g. oil drain plug torque'
     : inChat ? (narrow() ? 'What did you test and find?' : 'Follow up: what you tested, what you found…')
@@ -3747,9 +3863,8 @@ async function openHistory(id) {
   chat = {id: h.id, doc: docId(), label: carBoxLabel,
           turns: [{question: h.question, d: first}, ...turns.map(t => ({question: t.question, d: t}))]};
   $('#q').value = '';
-  drawChat(true);
-  const last = chat.turns[chat.turns.length - 1];
-  answerTabs(last.d, last.question);
+  drawChat();
+  selectTurn(chat.turns.length - 1);
   shown.ai = true;
   syncMode();
   const when = new Date(h.created * 1000).toLocaleString();
@@ -3760,6 +3875,7 @@ async function openHistory(id) {
 }
 // back to where a car starts: no question, every tab browsing again
 function clearQuestion() {
+  stopSpeaking();
   if (mode === 'ai') chat = null; else ++searchSeq;
   pageSeq++;
   $('#q').value = '';
@@ -7382,8 +7498,8 @@ function route() {
                     'AutoRundown is being set up on the shop PC — check back later.', true);
   }
   showView('app');
-  if (!out.innerHTML.trim()) out.innerHTML = emptyState('ai');
-  if (!kwOut.innerHTML.trim()) kwOut.innerHTML = emptyState('kw');
+  if (!out.innerHTML.trim()) out.innerHTML = emptyState();
+  if (!kwOut.innerHTML.trim()) kwOut.innerHTML = emptyState();
 }
 addEventListener('hashchange', route);
 // the Options row (AI model, trims) is open on a PC, folded on a phone
@@ -7391,8 +7507,6 @@ const syncOpts = () => { if (window.innerWidth > 700) $('#opts').open = true; };
 addEventListener('resize', syncOpts);
 syncOpts();
 $('#left').addEventListener('click', e => {
-  const ex = e.target.closest('[data-example]');
-  if (ex) { $('#q').value = ex.dataset.example; $('#q').focus(); }
   // a withheld answer: the same question as a (free) keyword search
   if (e.target.closest('[data-searchinstead]')) {
     setMode('kw');

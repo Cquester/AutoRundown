@@ -816,9 +816,30 @@ where one will be AI chat and then one will be keyword search".
   passages, marked "cited earlier in this conversation"; they are real
   passages, so `_verify_citations` and the other checks apply unchanged.
   A first question sends exactly the request it did before.
-- The chat shows newest first under the box: the latest question over its
-  full answer, then "Earlier in this chat", short. History shows "AI · N
-  follow-ups"; opening a chat redraws every turn for free and can go on.
+- The chat reads top to bottom like a chat window (the user, 2026-10-30:
+  "a chat window with you and the AI agent"; until then it was newest first
+  under the box, earlier turns short): each question as a bubble, the AI's
+  reply under it in full (`answerHtml`, `drawChat`); on a PC the box sits
+  under the chat and the chat scrolls (a phone docked it already). The
+  reply picked (`chat.sel`, marked; the newest when it arrives) is the one
+  the right box follows: `selectTurn` opens its `document_page` and fills
+  the tabs from its own question and search terms (`answerTabs`) -- a tap on
+  an earlier reply, or its "Show this answer's page and tabs", brings them
+  back with no AI call; a button inside a reply does its own thing and makes
+  that reply the one the tabs follow. History shows "AI · N follow-ups";
+  opening a chat redraws every turn for free and can go on.
+- No sample questions and no description in either tab (the user,
+  2026-10-30); only "Choose your car first" when no car is picked. Keyword
+  search shows no AI model menu, spend or model warning (`body.kwmode`);
+  Options there is only "include other trims/engines".
+- Voice (2026-10-30): `#micBtn` uses the browser's SpeechRecognition, shown
+  only where it exists and the page is a secure context (HTTPS, or this
+  PC's localhost). Chrome and Edge send the sound to their own speech
+  service; the app's server takes no sound and the mic never sends -- Ask
+  does. **Read aloud** (`data-speak`) is `speechSynthesis`: the answer and
+  its values as printed, the device's voices. Not a voice mode: no AI
+  provider here takes sound, and a hands-free loop (listen, ask, read back,
+  listen) is not built. `tests/test_chat_ui.py` stubs both.
 - Tests: `tests/test_chat.py` (the prompt the model gets, carried pages,
   citation checks, who may follow up, the car from the entry, the limit).
 - **First paid chat (2026-10-25, the user's OK; Haiku, $0.032, 4 calls).**
