@@ -620,6 +620,28 @@
   .pfx{width:32px; min-height:32px; height:32px; padding:0; background:none; border:0; border-radius:8px;
     color:var(--muted); font-size:20px; font-weight:400; line-height:1}
   .pfx:hover, .pfx:focus-visible{background:var(--line); color:var(--text)}
+  /* a part number: tap to copy its digits (and keep it in the parts list) */
+  .pfhint{font-size:12.5px; margin:-2px 0 4px}
+  .pfpart{display:flex; flex-direction:column; align-items:flex-start; padding:2px 0}
+  .pncopy{min-height:32px; padding:2px 8px; margin:2px 0; border-radius:6px; background:var(--panel);
+    border:1px solid var(--line); color:var(--text); font-weight:700; font-size:14px; text-align:left;
+    overflow-wrap:anywhere}
+  .pncopy:hover, .pncopy:focus-visible{border-color:var(--accent)}
+  .pncopy.flash{border-color:var(--accent); color:var(--accent); font-weight:600}
+  .plistbtn{display:block; width:100%; margin-top:8px; min-height:36px}
+  .plistbtn[hidden]{display:none}
+  #plistDlg{width:min(760px, 96vw)}
+  .pllist{list-style:none; margin:0 0 12px; padding:0}
+  .plrow{display:grid; grid-template-columns:minmax(0, 1fr) auto auto auto; gap:10px; align-items:center;
+    padding:8px 0; border-top:1px solid var(--line)}
+  .plqty{display:flex; align-items:center; gap:4px; font-size:13px; color:var(--muted)}
+  .plqty input{width:4.2em; min-height:32px}
+  @media (max-width:700px){
+    #plistDlg{width:100vw; max-width:100vw; border-radius:0; margin:0}
+    #plistDlg[open]{height:100dvh; max-height:100dvh}
+    #plistDlg .dlgbody{flex:1}
+    .plrow{grid-template-columns:minmax(0, 1fr) auto; row-gap:4px}
+  }
   .pcap{text-align:center; margin:-4px 0 10px; font-size:12px}
   .tabhit::after{content:""; display:block; clear:both}
   .pcats{font-size:13px; color:var(--muted); margin:2px 0 6px}
@@ -1629,6 +1651,17 @@
   <div class="dlgfoot">
     <button type="button" class="ghost" id="peekOpenPage">Open as page</button>
     <button type="button" id="peekClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="plistDlg" class="framed" aria-labelledby="plistTitle">
+  <div class="dlghead"><h3 id="plistTitle" style="margin:0">Parts list</h3>
+    <div class="muted" style="font-size:13px">Kept in this browser. Tap a number to copy it (digits only).</div></div>
+  <div class="dlgbody" id="plistBody"></div>
+  <div class="dlgfoot">
+    <button type="button" class="ghost" id="plistClear">Clear list</button>
+    <button type="button" class="ghost" id="plistCopyAll" title="Every number, its quantity and name, one per line">Copy all</button>
+    <button type="button" id="plistClose">Close</button>
   </div>
 </dialog>
 
@@ -4435,7 +4468,7 @@ function partLinesHtml(lines, clickable = false) {
     if (!m) return `<tr><td colspan="5">${esc(l)}</td></tr>`;
     const co = calloutLabel(m[1]);
     const act = clickable && co
-      ? ` class="pick" data-callout="${esc(co)}" data-cname="${esc(m[4].trim())}" data-cpn="${esc(m[2].trim())}"`
+      ? ` class="pick" data-callout="${esc(co)}" data-cname="${esc(m[4].trim())}" data-cpn="${esc(m[2].trim())}" data-cfits="${esc(m[5].trim())}"`
         + ` title="Find ${esc(co)} on the drawing"` : '';
     return `<tr${act}><td class="co">${esc(co)}</td><td class="pn">${esc(m[2].trim())}</td><td>${esc(m[4].trim())}</td>`
       + `<td>${esc(m[5].trim())}</td><td class="nt">${esc(m[6].trim().replace(/^;\s*/, ''))}</td></tr>`;
@@ -4462,7 +4495,7 @@ function partsPageHtml(p, body, inline = false) {
       : `<button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`)
     + (imgs.length
       ? `<div class="pdraw"><div class="pdgrid"><div class="pdfig">` + drawingsHtml(imgs) + `</div>`
-        + `<aside class="pfind" aria-label="Picked parts" aria-live="polite">${picksEmpty}</aside></div></div>`
+        + `<aside class="pfind" aria-label="Picked parts" aria-live="polite">${picksEmpty}${plistBtn()}</aside></div></div>`
       : `<div class="muted">No drawing for this group in the parts catalogue.</div>`)
     + (parts.length ? `<div class="pall"><div class="sechead">`
       + (imgs.length > 1 ? 'All parts on this page' : 'Parts on this drawing')
@@ -4648,11 +4681,13 @@ function showPicks(host) {
     const rows = calloutRows(host, co), marks = calloutMarks(host, co);
     rows.forEach(r => r.classList.add('on'));
     marks.forEach(b => b.classList.add('on'));
-    const listed = rows.filter(r => r.closest('.pall'));   // each part once
-    const r = listed[0] || rows[0];
-    return `<li class="pfline"><b class="cbig">${esc(co)}</b><span class="pftext">` + (r
-      ? `${esc(r.dataset.cname)}<span class="pn">${esc(r.dataset.cpn)}</span>`
-        + (listed.length > 1 ? `<span class="muted">+${listed.length - 1} more in the list</span>` : '')
+    // every number under this callout once (a drawing's own list repeats the page's)
+    const listed = rows.filter(r => r.closest('.pall'));
+    const seen = new Set(), uniq = (listed.length ? listed : rows).filter(r => !seen.has(r.dataset.cpn) && seen.add(r.dataset.cpn));
+    return `<li class="pfline"><b class="cbig">${esc(co)}</b><span class="pftext">` + (uniq.length
+      ? uniq.map(r => `<span class="pfpart">${esc(r.dataset.cname)}${pnCopyBtn(r.dataset.cpn, r.dataset.cname, r.dataset.cfits)}`
+          + (uniq.length > 1 && r.dataset.cfits ? `<span class="muted">${esc(r.dataset.cfits)}</span>` : '')
+          + `</span>`).join('')
         + (marks.length ? '' : '<span class="muted">Look for this number on the drawing</span>')
       : `<span class="muted">Not in this page's parts list</span>`)
       + `</span><button type="button" class="pfx" data-unpick="${esc(co)}" title="Take ${esc(co)} off the list"`
@@ -4662,8 +4697,9 @@ function showPicks(host) {
   f.innerHTML = sel.length
     ? `<div class="pfhead"><b>Picked parts</b><span class="muted">${sel.length}</span>`
       + `<button type="button" class="ghost" data-clear-picks>Clear</button></div>`
-      + `<ol class="pflist">${lines.join('')}</ol>`
-    : picksEmpty;
+      + `<div class="muted pfhint">Tap a part number to copy it and add it to your parts list.</div>`
+      + `<ol class="pflist">${lines.join('')}</ol>` + plistBtn()
+    : picksEmpty + plistBtn();
 }
 function pickCallout(host, co, from, el) {
   let sel = JSON.parse(host.dataset.picks || '[]');
@@ -4695,6 +4731,113 @@ document.addEventListener('click', e => {
   if (host) pickCallout(host, r.dataset.callout, 'row', r);
 });
 
+// -- Parts list ------------------------------------------------------------------
+// A tap on a part number (picked parts, or the parts list) copies its digits
+// -- "A 001 159 66 01" -> "0011596601", no letter, no spaces -- and keeps the
+// part in a parts list across drawings and cars (the user, 2026-10-29: pick
+// parts on several drawings, then see them all to order). The list is this
+// browser's own (localStorage); it opens from a "Parts list" button, never
+// floats over the page. "RockAuto" opens RockAuto's own part-number search in
+// a new tab: the app asks no shop for prices (RockAuto has no public API and
+// turns automated requests away; the server makes no request but the AI's).
+const PLIST_KEY = 'autorundown.partsList.v1';
+const pnDigits = pn => (pn || '').trim().replace(/^[A-Z]\s*/i, '').replace(/\s+/g, '');
+const rockAutoUrl = pn => `https://www.rockauto.com/en/partsearch/?partnum=${encodeURIComponent(pnDigits(pn))}`;
+function plistLoad() {
+  try { const v = JSON.parse(localStorage.getItem(PLIST_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+  catch { return []; }
+}
+function plistSave(list) {
+  try { localStorage.setItem(PLIST_KEY, JSON.stringify(list)); } catch {}
+  updatePlistBtns(list);
+}
+const pnCopyBtn = (pn, name, fits) => `<button type="button" class="pncopy" data-pn="${esc(pn)}" data-name="${esc(name || '')}"`
+  + ` data-fits="${esc(fits || '')}" title="Copy ${esc(pnDigits(pn))} and add it to the parts list">${esc(pn)}</button>`;
+const plistBtn = () => `<button type="button" class="ghost plistbtn" data-open-plist${plistLoad().length ? '' : ' hidden'}>`
+  + `Parts list (<span class="plistn">${plistLoad().length}</span>)</button>`;
+function updatePlistBtns(list = plistLoad()) {
+  document.querySelectorAll('.plistbtn').forEach(b => {
+    b.hidden = !list.length;
+    b.querySelector('.plistn').textContent = list.length;
+  });
+}
+// navigator.clipboard needs a secure page (HTTPS or this PC); a phone on the
+// shop network over plain HTTP gets the older copy command instead
+async function copyText(text) {
+  try { if (window.isSecureContext && navigator.clipboard) { await navigator.clipboard.writeText(text); return true; } }
+  catch {}
+  const t = document.createElement('textarea');
+  t.value = text; t.setAttribute('readonly', ''); t.style.position = 'fixed'; t.style.opacity = '0';
+  (document.querySelector('dialog[open]') || document.body).appendChild(t);
+  t.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch {}
+  t.remove();
+  return ok;
+}
+// what the button says for a moment after a tap, then its number again
+function flashBtn(btn, msg) {
+  if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+  btn.textContent = msg; btn.classList.add('flash');
+  clearTimeout(btn._flash);
+  btn._flash = setTimeout(() => { btn.textContent = btn.dataset.label; btn.classList.remove('flash'); }, 1600);
+}
+async function copyPart(btn) {
+  const pn = btn.dataset.pn, digits = pnDigits(pn);
+  const ok = await copyText(digits);
+  if (btn.closest('#plistDlg')) { flashBtn(btn, ok ? `Copied ${digits}` : `Copy failed`); return; }
+  const list = plistLoad(), car = carBoxLabel || currentCarLabel() || '';
+  const had = list.some(x => x.pn === pn && x.car === car);
+  if (!had) plistSave([...list, {pn, name: btn.dataset.name, fits: btn.dataset.fits, car, qty: 1}]);
+  flashBtn(btn, (ok ? `Copied ${digits}` : 'Copy failed') + (had ? ' · already in list' : ' · added to list'));
+}
+const plistShow = dialogHistory($('#plistDlg'), 'plist');
+function renderPlist() {
+  const list = plistLoad(), body = $('#plistBody');
+  $('#plistCopyAll').disabled = $('#plistClear').disabled = !list.length;
+  if (!list.length) {
+    body.innerHTML = `<div class="muted">No parts yet. On a parts drawing, pick a number and tap its part number.</div>`;
+    return;
+  }
+  const cars = [...new Set(list.map(x => x.car))];
+  body.innerHTML = cars.map(car => `<div class="sechead">${esc(car || 'No car chosen')}</div><ul class="pllist">`
+    + list.map((x, i) => x.car !== car ? '' : `<li class="plrow">`
+      + `<span class="pftext">${pnCopyBtn(x.pn, x.name, x.fits)}<span>${esc(x.name)}</span>`
+      + (x.fits ? `<span class="muted">${esc(x.fits)}</span>` : '') + `</span>`
+      + `<label class="plqty">Qty <input type="number" min="1" max="999" value="${Number(x.qty) || 1}" data-qty="${i}"></label>`
+      + `<a class="btnlink ghostlink" href="${esc(rockAutoUrl(x.pn))}" target="_blank" rel="noopener noreferrer"`
+      + ` title="Search RockAuto for ${esc(pnDigits(x.pn))}">RockAuto &#8599;</a>`
+      + `<button type="button" class="pfx" data-plist-del="${i}" title="Take ${esc(x.pn)} off the list"`
+      + ` aria-label="Take ${esc(x.pn)} off the list">&times;</button></li>`).join('')
+    + `</ul>`).join('');
+}
+document.addEventListener('click', e => {
+  const c = e.target.closest('.pncopy');
+  if (c) { copyPart(c); return; }
+  if (e.target.closest('[data-open-plist]')) { renderPlist(); plistShow(); return; }
+  const d = e.target.closest('[data-plist-del]');
+  if (d) { const l = plistLoad(); l.splice(+d.dataset.plistDel, 1); plistSave(l); renderPlist(); }
+});
+$('#plistBody').addEventListener('change', e => {
+  const q = e.target.closest('[data-qty]');
+  if (!q) return;
+  const l = plistLoad(), x = l[+q.dataset.qty];
+  if (x) { x.qty = Math.max(1, Math.min(999, parseInt(q.value, 10) || 1)); q.value = x.qty; plistSave(l); }
+});
+// every number, digits only, one line each with its quantity: pastes into an
+// order form or a spreadsheet
+$('#plistCopyAll').onclick = async () => {
+  const l = plistLoad();
+  const ok = await copyText(l.map(x => `${pnDigits(x.pn)}\t${Number(x.qty) || 1}\t${x.name}`).join('\n'));
+  flashBtn($('#plistCopyAll'), ok ? `Copied ${l.length}` : 'Copy failed');
+};
+$('#plistClear').onclick = () => {
+  if (!confirm('Take every part off the parts list?')) return;
+  plistSave([]); renderPlist();
+};
+$('#plistClose').onclick = () => $('#plistDlg').close();
+addEventListener('storage', e => { if (e.key === PLIST_KEY) updatePlistBtns(); });
+
 // The car's parts diagrams as the catalogue reads (server: parts_browse.py):
 // chassis, engines, options > group > subgroup; a subgroup is a dropdown
 // that shows its page (drawing + list) in place. Shown in the Parts tab before a question, and folded
@@ -4718,7 +4861,7 @@ async function partsBrowse(target) {
     return;
   }
   const subs = data.reduce((n, s) => n + s.groups.reduce((m, g) => m + g.subs.length, 0), 0);
-  target.innerHTML = withDoc(doc, () =>
+  target.innerHTML = withDoc(doc, () => plistBtn() +
     `<div class="muted" style="margin:0 0 8px">Parts diagrams for <b>${esc(label)}</b> &mdash; ${subs} diagrams `
     + `by group.${variantIdx() === null && !engineSel() ? ' Pick your model or engine above to narrow it.' : ''}</div>`
     + data.map(s => `<details class="pbsec"${data.length === 1 ? ' open' : ''}><summary>${esc(s.section)}`

@@ -647,6 +647,36 @@ live index opened read-only, 1400x900 and 375x812: four picks, scroll and
 drawing position unchanged, panel beside / below, the tab bar on top at
 every scroll depth. Tests: `tests/test_drawing_ui.py`.
 
+**Tap a number to copy it; the parts list; RockAuto** (2026-10-29, the
+user: tap the number to copy it without the "A", keep the parts picked on
+several drawings in a list to order from, and look into RockAuto prices).
+- The picks panel shows every number under a picked callout (two coil
+  springs under one 5), each a button (`.pncopy`). A tap copies the
+  digits only (`pnDigits`: "A 210 321 23 04" -> "2103212304"; an N number
+  keeps its 12) and adds the part, with the car, to the **parts list**,
+  once. `navigator.clipboard` needs a secure page; a phone on the shop
+  network over plain HTTP gets `document.execCommand('copy')` instead
+  (both checked in Edge). The desktop app's own browser pane refuses
+  clipboard writes, so check copying in a real browser.
+- The list is this browser's own (`localStorage` `autorundown.partsList.v1`:
+  pn, name, fits, car, qty), across drawings and cars; nothing on the
+  server. It opens from a "Parts list (n)" button (in the picks panel and
+  at the top of the Parts tab's diagrams, hidden while empty), as a dialog
+  (`#plistDlg`, full screen on a phone, Back closes it): grouped by car,
+  quantity, x, Copy all (digits, quantity, name per line, tab-separated:
+  pastes into an order form or a spreadsheet), Clear list.
+- **RockAuto: a link, not prices.** RockAuto has no public API, turns
+  automated requests away (captcha), and the app's server asks nothing of
+  anyone but the AI provider. Each line has "RockAuto" -> RockAuto's own
+  part-number search, `rockauto.com/en/partsearch/?partnum=<digits>`, in a
+  new tab: the user's browser, the user's click, as with LEMON. Prices in
+  the app would need a supplier with an API and the shop's own account.
+  Whether RockAuto's search matches a Mercedes number without the A was not
+  checked (their site blocks automated fetches).
+Tests: `tests/test_parts_list.py` (Playwright: digits, both copy paths,
+the list across drawings and a reload, quantity, x, Copy all, the RockAuto
+link; any request leaving the machine fails it).
+
 **Manual contents and the divider (2026-10-24, the user: "change the Manual
 page to be like the parts page ... auto fill the page in sections for the
 car"; "what if i just want a little more or less").**
