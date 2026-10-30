@@ -105,7 +105,8 @@ def main() -> int:
         page.click("#settingsBtn")                 # Shop setup: a page, not a pop-up
         expect(page.locator("#setup")).to_be_visible(timeout=10_000)
         page.click("a[data-sec=phones]")
-        expect(page.locator("#sPhone")).to_be_visible()
+        # the phone addresses look the host name up, which takes seconds on a Mac
+        expect(page.locator("#sPhone")).to_be_visible(timeout=20_000)
         step(f"shop setup: {page.locator('#sPhone').inner_text()}")
         start_row = page.locator("#sStartRow").is_visible()
         if start_row != (sys.platform == "win32"):

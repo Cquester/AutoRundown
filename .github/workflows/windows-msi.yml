@@ -73,13 +73,13 @@ jobs:
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809  # v4.2.4
         with:
           path: old-msi
-          key: msi-0.1.1-1373ebc-wix5.0.2-v1
+          key: msi-0.1.1-6a803f8-wix5.0.2-v1
 
       - name: Build the 0.1.1 installer (only when not cached)
         if: steps.old-msi.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          git worktree add ..\old 1373ebc
+          git worktree add ..\old 6a803f8
           Push-Location ..\old
           powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -Out dist-old
           Pop-Location

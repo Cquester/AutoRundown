@@ -62,7 +62,7 @@ def _lan_addresses() -> list[str]:
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None):
             out.add(info[4][0].split("%")[0])
-    except OSError:
+    except (OSError, UnicodeError):  # UnicodeError: a host name too long to look up
         pass
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -107,7 +107,8 @@ def ensure_ca():
                 serialization.load_pem_private_key(CA_KEY.read_bytes(), None))
     TLS_DIR.mkdir(parents=True, exist_ok=True)
     key = ec.generate_private_key(ec.SECP256R1())
-    host = socket.gethostname().split(".")[0] or "this PC"
+    # a common name is at most 64 characters; a Mac's host name can be longer
+    host = socket.gethostname().split(".")[0][:40] or "this PC"
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"AutoRundown local CA ({host})"),
                       x509.NameAttribute(NameOID.ORGANIZATION_NAME, "AutoRundown")])
     now = _now()
@@ -168,7 +169,7 @@ def ensure_server_cert() -> tuple[Path, Path, list[str], list[str]]:
     now = _now()
     san = [x509.DNSName(n) for n in names] + [x509.IPAddress(ipaddress.ip_address(i)) for i in ips]
     cert = (x509.CertificateBuilder()
-            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, names[-1])]))
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, names[-1][:64])]))
             .issuer_name(ca_cert.subject)
             .public_key(key.public_key())
             .serial_number(x509.random_serial_number())
