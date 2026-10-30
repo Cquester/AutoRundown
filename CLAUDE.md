@@ -186,6 +186,7 @@ python tests/test_car_history.py [--index <db>]   # recent cars: re-select sends
 python tests/test_answer_tabs.py [--index <db>]   # one question fills the right box's tabs (~15 s, Playwright)
 python tests/test_phone_ui.py [--index <db>]      # phone: reading view, turning, Back with a pop-up, diagram viewer (~15 s, Playwright)
 python tests/test_drawing_ui.py                   # Manual contents, drawing picks (red, several), divider (~30 s, Playwright)
+python tests/test_parts_list.py                   # tap a part number: digits copied; the parts list, RockAuto link (~30 s, Playwright)
 python tests/test_rebuild_wis.py                  # WIS rebuild keeps EPC, other manuals, spend log (~5 s)
 python tests/test_charm.py                        # one CHARM car: reader, plan, download, import, refusals (~10 s)
 python tests/test_lemon_zip.py                    # "Add a car": LEMON zip found, unsafe zips refused, unpack + import (~10 s)

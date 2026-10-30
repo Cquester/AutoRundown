@@ -186,6 +186,10 @@ jobs:
         # builds its own sample index with the stand-in parts catalogue
         run: python tests/test_drawing_ui.py
 
+      - name: Part numbers copy their digits; the parts list
+        # builds its own sample index with the stand-in parts catalogue
+        run: python tests/test_parts_list.py
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: failure()
         with:
