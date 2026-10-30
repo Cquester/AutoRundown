@@ -692,8 +692,9 @@ picked-parts panel beside the drawing, 2026-10-24..29).
   get the same tags.
 - **The parts list** is this browser's own (`localStorage`
   `autorundown.partsList.v1`: pn, name, fits, notes, by, co, car, page,
-  title, qty; nothing on the server). It opens as a pane from the right
-  (`#plistDlg`, full screen on a phone, Back closes it) from "Parts list
+  title, qty; nothing on the server). It opens over the whole page
+  (`#plistDlg`, 100vw x 100dvh -- the user, 2026-10-30, after a 640 px pane
+  from the right; Back closes it; a drawing in it is held to 900 px) from "Parts list
   (n)" buttons: on the window's right edge on a wide screen (`.edgeplist`,
   hidden while the list is empty, and at 900 px and less), in the picks
   bar under each drawing, and at the top of the Parts tab. Grouped by car,
@@ -701,7 +702,9 @@ picked-parts panel beside the drawing, 2026-10-24..29).
   catalog 580); each section opens its drawing in the pane (the same
   `pbdrop` dropdown as the Parts tab), where the lines show what is already
   in the list and Add adds more -- the drawing stays open while the list
-  redraws. Quantity, x, Copy all (digits, quantity, name per line,
+  redraws. Each piece of a row has its own grid column: a part saved
+  without a callout (from 0.1.9's first parts list) hid its callout box and
+  the rest slid one column left, cutting off RockAuto. Quantity, x, Copy all (digits, quantity, name per line,
   tab-separated: pastes into an order form or a spreadsheet), Clear list.
 Tests: `tests/test_parts_list.py` (Playwright: digits, both copy paths,
 superseded / current tags, Add and In list, the pane by section, its
