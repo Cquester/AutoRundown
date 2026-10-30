@@ -16,10 +16,12 @@ asked for on 2026-10-29/30:
   - "Add" on a line puts the part in the parts list (with its callout, page
     and car); a second tap takes it off; picks narrow the list first;
   - the "Parts list (n)" button (the window's right edge on a wide screen)
-    opens the list as a pane: by car, then by the catalogue's section
+    opens the list over the whole page: by car, then by the catalogue's section
     ("32 Suspension / 005 Front springs"); a section opens its drawing in
     the pane, its lines show what is already in the list, and Add there
     adds more without closing the drawing;
+  - a part saved without a callout (0.1.9's first list) keeps its row's
+    columns, RockAuto inside the page;
   - in the list: a number copies, the quantity is kept, x takes a part off,
     "Copy all" gives digits, quantity and name per line, the RockAuto link is
     RockAuto's own part-number search in a new tab (the app never asks
@@ -179,7 +181,7 @@ def main(argv=None):
         pg.click(".edgeplist")
         pg.wait_for_selector("#plistDlg[open]")
         box = pg.locator("#plistDlg").bounding_box()
-        check("pane: opens on the right, full height", box["x"] + box["width"] >= 1399 and box["height"] >= 899, str(box))
+        check("pane: fills the page", box["x"] <= 0.5 and box["width"] >= 1399 and box["height"] >= 899, str(box))
         heads = pg.locator("#plistDlg .plsechead b").all_inner_texts()
         check("pane: grouped by the catalogue's section",
               heads == ["32 Suspension / 005 Front springs", "01 Crankcase / 030 Oil pan"], str(heads))
@@ -232,6 +234,17 @@ def main(argv=None):
         pg.set_viewport_size({"width": 375, "height": 812})
         pg.wait_for_timeout(200)
         check("phone: no button on the screen's edge", not pg.locator(".edgeplist").is_visible())
+        pg.set_viewport_size({"width": 1000, "height": 800})
+        pg.evaluate("""() => { const l = plistLoad(); l.push({pn: 'N 304017 005002', qty: 1, car: 'X',
+                 name: 'HEXAGON HEAD BOLT, BRACKET TO AUTOMATIC ANTENNA', fits: 'qty 2, all models'});
+                 localStorage.setItem(PLIST_KEY, JSON.stringify(l)); renderPlist(); plistShow(); }""")
+        fit = pg.evaluate("""() => { const b = document.querySelector('#plistBody'),
+                 r = [...b.querySelectorAll('.plrow')].pop(), ra = r.querySelector('a').getBoundingClientRect();
+                 return {over: b.scrollWidth - b.clientWidth, raRight: ra.right, bodyRight: b.getBoundingClientRect().right}; }""")
+        check("pane: a part saved without a callout keeps its row inside the page (RockAuto shown)",
+              fit["over"] <= 0 and fit["raRight"] <= fit["bodyRight"], str(fit))
+        pg.evaluate("$('#plistDlg').close()")
+        pg.set_viewport_size({"width": 375, "height": 812})
         pg.evaluate("renderPlist(); plistShow()")
         box = pg.locator("#plistDlg").bounding_box()
         check("phone: the pane fills the screen", box["width"] >= 374 and box["height"] >= 811, str(box))
