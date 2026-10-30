@@ -1,24 +1,29 @@
-"""UI check: part numbers copy their digits; the parts list -- free.
+"""UI check: part numbers copy their digits; superseded lines; the parts list -- free.
 
     python tests/test_parts_list.py            # sample WIS + EPC index, built in a temp dir
     python tests/test_parts_list.py --headed
 
 Drives the real page (Playwright, the installed Edge/Chrome) against the
 stand-in parts catalogue (tools/make_sample_epc.py) and checks what the user
-asked for on 2026-10-29:
+asked for on 2026-10-29/30:
 
-  - a tap on a picked part's number copies its digits only
-    ("A 210 321 23 04" -> "2103212304"; an N number keeps its 12 digits),
-    on a secure page (navigator.clipboard) and on a plain-HTTP one (a phone
-    on the shop network: the older copy command);
-  - every number under a callout is offered, each its own button;
-  - the tapped part goes into the parts list, once, across drawings; the
-    "Parts list (n)" button shows the count and opens the list, which
-    survives a reload (this browser's own storage);
-  - in the list: a number copies again, the quantity is kept, x takes a
-    part off, "Copy all" gives digits, quantity and name per line, and the
-    RockAuto link is RockAuto's own part-number search, opened in a new tab
-    (the app itself never asks RockAuto anything).
+  - a tap on a part number copies its digits only ("A 210 321 23 04" ->
+    "2103212304"; an N number keeps its 12 digits), on a secure page
+    (navigator.clipboard) and on a plain-HTTP one (a phone on the shop
+    network: the older copy command); copying adds nothing to the list;
+  - a superseded line (EPC's "replaced by") says what replaced it, and the
+    callout's other line says it is current;
+  - "Add" on a line puts the part in the parts list (with its callout, page
+    and car); a second tap takes it off; picks narrow the list first;
+  - the "Parts list (n)" button (the window's right edge on a wide screen)
+    opens the list as a pane: by car, then by the catalogue's section
+    ("32 Suspension / 005 Front springs"); a section opens its drawing in
+    the pane, its lines show what is already in the list, and Add there
+    adds more without closing the drawing;
+  - in the list: a number copies, the quantity is kept, x takes a part off,
+    "Copy all" gives digits, quantity and name per line, the RockAuto link is
+    RockAuto's own part-number search in a new tab (the app never asks
+    RockAuto anything), and the list survives a reload.
 
 Anything that is not a GET fails the run (nothing here may write or ask),
 and so does any request that leaves this machine.
@@ -91,94 +96,145 @@ def main(argv=None):
 
         clip = lambda: pg.evaluate("navigator.clipboard.readText()")
         stored = lambda: pg.evaluate("plistLoad()")
+        page = "#srcout .ppage"
 
         def open_page(pno):
             pg.evaluate("([pno, doc]) => showPage(pno, doc)", [pno, docs[pno]])
-            pg.wait_for_selector("#srcout .ppage .pall", timeout=10_000)
-            # the drawing's callouts redraw the picks panel once it has loaded:
-            # tap after that, or the button tapped is replaced (a slow box)
+            pg.wait_for_selector(f"{page} .pall", timeout=10_000)
+            # the drawing's callouts redraw the page's picks once it has loaded:
+            # act after that (a slow box)
             pg.evaluate("document.querySelectorAll('#srcout .pdwrap img').forEach(i => i.scrollIntoView())")
             pg.wait_for_function("[...document.querySelectorAll('#srcout .pdwrap')].every(w => w.dataset.done"
                                  " && w.querySelector('img').complete)", timeout=15_000)
             pg.wait_for_timeout(300)
 
+        def row(pn, where=page):
+            return pg.locator(f"{where} .pall tr", has=pg.locator(f".pncopy[data-pn='{pn}']"))
+
         def tap(loc):
             # a copy button says what it did once the copy has finished
             loc.click()
-            loc.element_handle().wait_for_element_state("stable")
             pg.wait_for_function("b => b.classList.contains('flash')", arg=loc.element_handle(), timeout=5_000)
             return loc.inner_text()   # before it turns back into the number (1.6 s)
 
-        def pick(co):
-            pg.evaluate("co => [...document.querySelectorAll('#srcout .pall tr[data-callout]')]"
-                        ".find(r => r.dataset.callout === co).click()", co)
-            pg.wait_for_timeout(150)
-
         open_page("P900004")
-        check("parts list: no button while the list is empty",
-              pg.locator("#srcout .pfind .plistbtn").is_hidden())
-        pick("5")
-        btns = pg.locator("#srcout .pfind .pncopy")
-        check("picks: every number under the callout is offered",
-              btns.all_inner_texts() == ["A 210 321 23 04", "A 210 321 24 04"], str(btns.all_inner_texts()))
+        check("list: no Parts list button while the list is empty",
+              pg.locator(".plistbtn:visible").count() == 0)
 
-        # -- copy on a secure page (this PC) ------------------------------------
-        said = tap(btns.first)
+        # -- superseded lines ---------------------------------------------------
+        old, cur = row("A 210 323 13 65"), row("A 210 323 15 65")
+        check("superseded: the old line says what replaced it",
+              "old" in (old.get_attribute("class") or "")
+              and old.locator(".ptag.old").inner_text() == "Superseded by A 210 323 15 65"
+              and "fn 039: A 240011" in old.inner_text() and "replaced by" not in old.inner_text(),
+              old.inner_text())
+        check("superseded: the callout's other line is current",
+              cur.locator(".ptag.cur").inner_text() == "Current")
+        check("superseded: a callout with none has no tag", row("A 210 321 23 04").locator(".ptag").count() == 0)
+
+        # -- copy ------------------------------------------------------------------
+        said = tap(row("A 210 321 23 04").locator(".pncopy"))
         check("copy: the digits only, no letter or spaces", clip() == "2103212304", repr(clip()))
         check("copy: the button says so", "Copied 2103212304" in said, said)
-        s = stored()
-        check("list: the part is added with its car",
-              len(s) == 1 and s[0]["pn"] == "A 210 321 23 04" and s[0]["name"] == "COIL SPRING"
-              and "W210" in s[0]["car"] and s[0]["qty"] == 1, str(s))
-        check("list: the button shows the count",
-              pg.inner_text("#srcout .pfind .plistbtn") == "Parts list (1)")
-        pg.wait_for_function("() => !document.querySelector('#srcout .pfind .pncopy.flash')", timeout=5_000)
-        said = tap(btns.first)
-        check("list: a second tap adds it once", len(stored()) == 1 and "already in list" in said, said)
-
-        # -- copy on a plain-HTTP page (a phone on the shop network) ---------
+        check("copy: copying adds nothing to the list", stored() == [], str(stored()))
         pg.evaluate("Object.defineProperty(window, 'isSecureContext', {value: false})")
         pg.evaluate("navigator.clipboard.writeText('-')")
-        tap(btns.nth(1))
+        tap(row("A 210 321 24 04").locator(".pncopy"))
         check("copy: without navigator.clipboard (plain HTTP) the copy command copies",
               clip() == "2103212404", repr(clip()))
 
-        # -- another drawing; an N number ------------------------------------
-        open_page("P900007")
-        pick("30")
-        tap(pg.locator("#srcout .pfind .pncopy").first)
-        check("copy: an N number keeps all its digits", clip() == "000000004321", repr(clip()))
-        check("list: parts from several drawings", [x["pn"] for x in stored()]
-              == ["A 210 321 23 04", "A 210 321 24 04", "N 000000 004321"], str(stored()))
+        # -- pick, then Add ------------------------------------------------------
+        cur.locator("td").nth(2).click()
+        pg.wait_for_timeout(200)
+        shown = pg.evaluate("[...document.querySelectorAll('#srcout .pall tbody tr:not(.pfout)')].map(r => r.dataset.cpn)")
+        check("pick: the list narrows to the picked number's lines",
+              shown == ["A 210 323 13 65", "A 210 323 15 65"], str(shown))
+        add = cur.locator(".padd")
+        add.click()
+        s = stored()
+        check("add: the part goes into the list, with its callout, page and car",
+              len(s) == 1 and s[0]["pn"] == "A 210 323 15 65" and s[0]["co"] == "40"
+              and s[0]["page"] == f"{docs['P900004']}|P900004" and "FRONT SPRINGS" in s[0]["title"]
+              and "W210" in s[0]["car"] and s[0]["qty"] == 1, str(s))
+        check("add: the button says it is in the list", add.inner_text().startswith("In list")
+              and add.get_attribute("aria-pressed") == "true", add.inner_text())
+        check("add: the Parts list button shows the count, on the window's edge",
+              pg.locator(".edgeplist").inner_text() == "Parts list (1)" and pg.locator(".edgeplist").is_visible())
+        add.click()
+        check("add: a second tap takes it off", stored() == [] and add.inner_text() == "Add", str(stored()))
+        add.click()
+        pg.click(f"{page} [data-clear-picks]")
+        row("A 210 321 23 04").locator(".padd").click()
 
-        # -- the list ---------------------------------------------------------
+        # -- another drawing; an N number --------------------------------------
+        open_page("P900007")
+        row("N 000000 004321").locator(".padd").click()
+        check("add: parts from several drawings", [x["pn"] for x in stored()]
+              == ["A 210 323 15 65", "A 210 321 23 04", "N 000000 004321"], str(stored()))
+
+        # -- the pane --------------------------------------------------------------
         pg.reload()
         pg.wait_for_function("vehicles.length > 0")
         check("list: kept after a reload", len(stored()) == 3)
-        open_page("P900004")
-        pg.click("#srcout .pfind .plistbtn")
+        pg.click(".edgeplist")
         pg.wait_for_selector("#plistDlg[open]")
+        box = pg.locator("#plistDlg").bounding_box()
+        check("pane: opens on the right, full height", box["x"] + box["width"] >= 1399 and box["height"] >= 899, str(box))
+        heads = pg.locator("#plistDlg .plsechead b").all_inner_texts()
+        check("pane: grouped by the catalogue's section",
+              heads == ["32 Suspension / 005 Front springs", "01 Crankcase / 030 Oil pan"], str(heads))
+        check("pane: a section says its catalogue",
+              pg.locator("#plistDlg .plsechead .muted").first.inner_text() == "catalog S10")
         rows = pg.locator("#plistDlg .plrow")
-        check("list: opens from the button, every part listed", rows.count() == 3)
-        ra = rows.first.locator("a").get_attribute("href")
-        check("list: RockAuto is its own part-number search, in a new tab",
-              ra == "https://www.rockauto.com/en/partsearch/?partnum=2103212304"
-              and rows.first.locator("a").get_attribute("target") == "_blank", ra)
+        check("pane: every part listed, with its callout", rows.count() == 3
+              and rows.first.locator(".cbig").inner_text() == "40")
+        ra = rows.first.locator("a")
+        check("pane: RockAuto is its own part-number search, in a new tab",
+              ra.get_attribute("href") == "https://www.rockauto.com/en/partsearch/?partnum=2103231565"
+              and ra.get_attribute("target") == "_blank", ra.get_attribute("href"))
         q = rows.first.locator("input[type=number]")
         q.fill("4")
         q.dispatch_event("change")
-        check("list: the quantity is kept", stored()[0]["qty"] == 4, str(stored()[0]))
+        check("pane: the quantity is kept", stored()[0]["qty"] == 4, str(stored()[0]))
         tap(rows.nth(2).locator(".pncopy"))
-        check("list: a number copies again", clip() == "000000004321", repr(clip()))
+        check("pane: a number copies", clip() == "000000004321", repr(clip()))
+
+        # a section's drawing, in the pane: check a part, add more
+        sec = pg.locator("#plistDlg .plsec").first
+        sec.locator("details.pldraw > summary").click()
+        pg.wait_for_selector("#plistDlg .plsec .ppage .pall", timeout=10_000)
+        inpane = "#plistDlg .plsec .ppage"
+        states = pg.evaluate(f"[...document.querySelectorAll('{inpane} .pall tr')].map(r => "
+                             "[r.dataset.cpn, r.querySelector('.padd').textContent])")
+        check("pane: the drawing's lines show what is already in the list",
+              dict(states)["A 210 323 15 65"].startswith("In list") and dict(states)["A 210 321 24 04"] == "Add",
+              str(states))
+        row("A 210 321 24 04", inpane).locator(".padd").click()
+        pg.wait_for_timeout(200)
+        check("pane: Add in the drawing adds to the list, under its section",
+              len(stored()) == 4 and stored()[3]["pn"] == "A 210 321 24 04"
+              and pg.locator("#plistDlg .plsec").first.locator(".plrow").count() == 3, str(stored()))
+        check("pane: the drawing stays open after adding",
+              pg.locator("#plistDlg details.pldraw[open] .ppage").count() == 1)
+
         tap(pg.locator("#plistCopyAll"))
-        check("list: Copy all gives digits, quantity and name per line",
-              clip().splitlines() == ["2103212304\t4\tCOIL SPRING", "2103212404\t1\tCOIL SPRING, REINFORCED",
-                                      "000000004321\t1\tSELF-TAPPING SCREW"], repr(clip()))
-        rows.nth(1).locator("[data-plist-del]").click()
-        check("list: x takes a part off", [x["pn"] for x in stored()] == ["A 210 321 23 04", "N 000000 004321"]
-              and pg.locator("#plistDlg .plrow").count() == 2)
+        check("pane: Copy all gives digits, quantity and name per line",
+              clip().splitlines() == ["2103231565\t4\tSTABILIZER", "2103212304\t1\tCOIL SPRING",
+                                      "000000004321\t1\tSELF-TAPPING SCREW",
+                                      "2103212404\t1\tCOIL SPRING, REINFORCED"], repr(clip()))
+        pg.locator("#plistDlg .plrow").nth(1).locator("[data-plist-del]").click()
+        check("pane: x takes a part off", [x["pn"] for x in stored()]
+              == ["A 210 323 15 65", "N 000000 004321", "A 210 321 24 04"], str(stored()))
         pg.click("#plistClose")
-        check("list: the count follows", pg.inner_text("#srcout .pfind .plistbtn") == "Parts list (2)")
+        check("pane: the count follows", pg.locator(".edgeplist").inner_text() == "Parts list (3)")
+
+        # a phone: no edge button; the pane fills the screen
+        pg.set_viewport_size({"width": 375, "height": 812})
+        pg.wait_for_timeout(200)
+        check("phone: no button on the screen's edge", not pg.locator(".edgeplist").is_visible())
+        pg.evaluate("renderPlist(); plistShow()")
+        box = pg.locator("#plistDlg").bounding_box()
+        check("phone: the pane fills the screen", box["width"] >= 374 and box["height"] >= 811, str(box))
 
         check("no non-GET request", not forbidden, str(forbidden))
         check("no request leaves this machine", not outside, str(outside))

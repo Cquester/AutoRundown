@@ -650,32 +650,64 @@ every scroll depth. Tests: `tests/test_drawing_ui.py`.
 **Tap a number to copy it; the parts list; RockAuto** (2026-10-29, the
 user: tap the number to copy it without the "A", keep the parts picked on
 several drawings in a list to order from, and look into RockAuto prices).
-- The picks panel shows every number under a picked callout (two coil
-  springs under one 5), each a button (`.pncopy`). A tap copies the
-  digits only (`pnDigits`: "A 210 321 23 04" -> "2103212304"; an N number
-  keeps its 12) and adds the part, with the car, to the **parts list**,
-  once. `navigator.clipboard` needs a secure page; a phone on the shop
-  network over plain HTTP gets `document.execCommand('copy')` instead
-  (both checked in Edge). The desktop app's own browser pane refuses
-  clipboard writes, so check copying in a real browser.
-- The list is this browser's own (`localStorage` `autorundown.partsList.v1`:
-  pn, name, fits, car, qty), across drawings and cars; nothing on the
-  server. It opens from a "Parts list (n)" button (in the picks panel and
-  at the top of the Parts tab's diagrams, hidden while empty), as a dialog
-  (`#plistDlg`, full screen on a phone, Back closes it): grouped by car,
-  quantity, x, Copy all (digits, quantity, name per line, tab-separated:
-  pastes into an order form or a spreadsheet), Clear list.
+- Every part number in a parts table is a button (`.pncopy`). A tap copies
+  the digits only (`pnDigits`: "A 210 321 23 04" -> "2103212304"; an N
+  number keeps its 12) and adds nothing. `navigator.clipboard` needs a
+  secure page; a phone on the shop network over plain HTTP gets
+  `document.execCommand('copy')` instead (both checked in Edge). The desktop
+  app's own browser pane refuses clipboard writes, so check copying in a
+  real browser.
 - **RockAuto: a link, not prices.** RockAuto has no public API, turns
   automated requests away (captcha), and the app's server asks nothing of
-  anyone but the AI provider. Each line has "RockAuto" -> RockAuto's own
-  part-number search, `rockauto.com/en/partsearch/?partnum=<digits>`, in a
-  new tab: the user's browser, the user's click, as with LEMON. Prices in
-  the app would need a supplier with an API and the shop's own account.
-  Whether RockAuto's search matches a Mercedes number without the A was not
-  checked (their site blocks automated fetches).
+  anyone but the AI provider. Each part in the list has "RockAuto" ->
+  RockAuto's own part-number search,
+  `rockauto.com/en/partsearch/?partnum=<digits>`, in a new tab: the user's
+  browser, the user's click, as with LEMON. Prices in the app would need a
+  supplier with an API and the shop's own account. Whether RockAuto's
+  search matches a Mercedes number without the A was not checked (their
+  site blocks automated fetches).
+
+**Picks narrow the list; Add; superseded lines; the parts list pane**
+(2026-10-30, the user, on the real 190 E 2.3-16 wiper page, EPC catalog 580
+group 82/120: "do what the Mercedes-Benz manual is doing"; it replaces the
+picked-parts panel beside the drawing, 2026-10-24..29).
+- **A tap on the drawing narrows the lists to its lines** (`showPicks`:
+  rows `.pfout`, a list left empty `.pfnone`); several picks show each; a
+  second tap takes one off; the bar between drawing and list ("Showing
+  parts 89 95", `.pfbar`) has "Show all parts". A tap on a narrowed line
+  keeps it picked (it only brings its number into view). The page keeps
+  the height it had (`min-height`): scrolled down, a shorter page pulled
+  the drawing up under the finger.
+- **Picking adds nothing; "Add" on a line does** (the user's choice: a
+  number often has several lines -- the wiper arm's 089 has four, two
+  superseded and two current split by chassis number -- and only the
+  mechanic knows which). Add / "In list" toggles the part, with its
+  callout, page (`doc|page_no`, `.ppage` `data-pkey` -- not `data-page`,
+  which is the app's "open this page" link) and section title.
+- **Superseded lines say so.** EPC's notes "replaced by A 201 820 52 44
+  (…)" become a tag "Superseded by A 201 820 52 44", the line dimmed and
+  its number struck; where a callout has one, its other lines are tagged
+  "Current" (`lineNotes`, `partLinesHtml`). The rest of the notes
+  (footnotes, chassis ranges) stay as printed. Search results' part lines
+  get the same tags.
+- **The parts list** is this browser's own (`localStorage`
+  `autorundown.partsList.v1`: pn, name, fits, notes, by, co, car, page,
+  title, qty; nothing on the server). It opens as a pane from the right
+  (`#plistDlg`, full screen on a phone, Back closes it) from "Parts list
+  (n)" buttons: on the window's right edge on a wide screen (`.edgeplist`,
+  hidden while the list is empty, and at 900 px and less), in the picks
+  bar under each drawing, and at the top of the Parts tab. Grouped by car,
+  then by the catalogue's section ("82 Electrical system / 120 Pane wiper",
+  catalog 580); each section opens its drawing in the pane (the same
+  `pbdrop` dropdown as the Parts tab), where the lines show what is already
+  in the list and Add adds more -- the drawing stays open while the list
+  redraws. Quantity, x, Copy all (digits, quantity, name per line,
+  tab-separated: pastes into an order form or a spreadsheet), Clear list.
 Tests: `tests/test_parts_list.py` (Playwright: digits, both copy paths,
-the list across drawings and a reload, quantity, x, Copy all, the RockAuto
-link; any request leaving the machine fails it).
+superseded / current tags, Add and In list, the pane by section, its
+drawing and Add there, quantity, x, Copy all, the RockAuto link, a reload,
+phone; any request leaving the machine fails it) and
+`tests/test_drawing_ui.py` (picks narrow the lists, nothing moves).
 
 **Manual contents and the divider (2026-10-24, the user: "change the Manual
 page to be like the parts page ... auto fill the page in sections for the
