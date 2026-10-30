@@ -23,6 +23,7 @@ import datetime as dt
 import ipaddress
 import os
 import socket
+import threading
 from pathlib import Path
 
 from . import config
@@ -57,13 +58,34 @@ def local_names() -> tuple[list[str], list[str]]:
     return names, sorted(ips)
 
 
+_lookup: threading.Thread | None = None
+
+
+def _host_addresses() -> set[str]:
+    """This PC's addresses by its own host name, waiting at most 2 s: where the
+    name doesn't resolve (a Mac without its .local name) the lookup hangs for
+    ~35 s, and Shop setup waited for it. A hung lookup is left to finish
+    alone, and no second one starts while it runs."""
+    global _lookup
+    out: set[str] = set()
+
+    def look():
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None):
+                out.add(info[4][0].split("%")[0])
+        except (OSError, UnicodeError):  # UnicodeError: a host name too long to look up
+            pass
+
+    if _lookup is not None and _lookup.is_alive():
+        return set()
+    _lookup = threading.Thread(target=look, daemon=True)
+    _lookup.start()
+    _lookup.join(2)
+    return set() if _lookup.is_alive() else out
+
+
 def _lan_addresses() -> list[str]:
-    out = set()
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None):
-            out.add(info[4][0].split("%")[0])
-    except (OSError, UnicodeError):  # UnicodeError: a host name too long to look up
-        pass
+    out = _host_addresses()
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("8.8.8.8", 80))  # no packet is sent; picks the LAN route
