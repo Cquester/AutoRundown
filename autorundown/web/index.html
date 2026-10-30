@@ -585,62 +585,70 @@
   .hkind{display:inline-block; font-size:12px; font-weight:700; border-radius:8px; padding:0 6px;
     margin-right:6px; border:1px solid var(--line); background:var(--panel-2)}
   .hkind.ai{color:var(--accent); border-color:var(--accent-dim)}
-  /* the picked parts: a panel of their own, docked beside the drawing when the
-     box is wide enough and below it when not -- never laid over anything
-     (the user, 2026-10-26: the old floating line covered the tab bar). Its
-     place is kept while empty, so the first pick doesn't move the drawing. */
+  /* picks narrow the lists under the drawing (the user, 2026-10-30, as
+     Mercedes' viewer does); the bar between drawing and list says which */
   .pdraw{container-type:inline-size}
-  /* the browser's scroll anchoring moved the drawing when the panel grew
+  /* the browser's scroll anchoring moved the drawing when the list changed
      under it (the anchor was the list below): a parts page never anchors */
   .ppage{overflow-anchor:none}
-  .pdgrid{display:grid; grid-template-columns:minmax(0, 1fr); gap:12px}
-  .pfind{padding:10px 12px; border-radius:10px; background:var(--panel-2); border:1px solid var(--line);
-    font-size:14px; align-self:start; margin-bottom:8px}
-  /* 560: the box at the default split on a 1400 px window is ~600 */
-  @container (min-width:560px){
-    .pdgrid{grid-template-columns:minmax(0, 1fr) clamp(200px, 30%, 300px)}
-    /* stays in view while the drawing scrolls, under the sticky tab bar */
-    .pfind{position:sticky; top:var(--picks-top, 56px); z-index:1; margin-bottom:0;
-      max-height:calc(100vh - var(--picks-top, 56px) - 120px); overflow:auto}
-  }
-  .pfempty b{display:block; margin-bottom:2px}
-  .pfempty .muted{font-size:13px}
-  .pfhead{display:flex; align-items:center; gap:8px; margin-bottom:6px}
-  .pfhead .muted{flex:1}
-  .pfhead button{min-height:34px; padding:0 12px; font-size:13px}
-  .pflist{list-style:none; margin:0; padding:0}
-  .pfline{display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:8px; align-items:start;
-    padding:6px 0; border-top:1px solid var(--line)}
+  .pfbar{display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin:8px 0 4px; padding:8px 10px;
+    border-radius:10px; background:var(--panel-2); border:1px solid var(--line); font-size:14px}
+  .pfsay{flex:1 1 220px; line-height:1.6}
+  .pfbar button{min-height:34px; padding:0 12px; font-size:13px}
+  .pfbar .plistbtn{width:auto; margin:0}
+  .plines tr.pfout, .pfnone{display:none}
   /* the number in the drawing's own red on white, as it is marked there */
-  .pfline .cbig{min-width:2.2em; padding:1px 5px; text-align:center; border:2px solid #d40000;
+  .cbig{display:inline-block; min-width:2.2em; padding:1px 5px; text-align:center; border:2px solid #d40000;
     border-radius:4px; background:#fff; color:#d40000; font:700 15px/1.3 Arial, Helvetica, sans-serif}
-  .pftext{display:flex; flex-direction:column; min-width:0; overflow-wrap:anywhere; line-height:1.35}
-  .pftext .pn{font-weight:700}
+  /* superseded ("replaced by") and current lines */
+  .plines tr.old td{color:var(--muted)}
+  .plines tr.old .pncopy{font-weight:600; text-decoration:line-through; text-decoration-thickness:1px}
+  .ptag{display:inline-block; margin:0 6px 2px 0; padding:0 6px; border-radius:999px; font-size:12px;
+    font-weight:700; line-height:1.6; border:1px solid var(--line); white-space:nowrap}
+  .ptag.old{color:var(--warn); border-color:var(--warn); background:var(--warn-bg)}
+  .ptag.cur{color:var(--good); border-color:var(--good)}
+  .plines td.pa{white-space:nowrap; text-align:right}
+  .padd{min-height:32px; padding:0 12px; font-size:13px}
+  .padd.on{background:var(--panel-2); color:var(--accent); border:1px solid var(--accent-dim)}
+  .pftext{display:flex; flex-direction:column; align-items:flex-start; min-width:0; overflow-wrap:anywhere; line-height:1.35}
   .pftext .muted{font-size:12.5px}
   .pfx{width:32px; min-height:32px; height:32px; padding:0; background:none; border:0; border-radius:8px;
     color:var(--muted); font-size:20px; font-weight:400; line-height:1}
   .pfx:hover, .pfx:focus-visible{background:var(--line); color:var(--text)}
-  /* a part number: tap to copy its digits (and keep it in the parts list) */
-  .pfhint{font-size:12.5px; margin:-2px 0 4px}
-  .pfpart{display:flex; flex-direction:column; align-items:flex-start; padding:2px 0}
-  .pncopy{min-height:32px; padding:2px 8px; margin:2px 0; border-radius:6px; background:var(--panel);
+  /* a part number: tap to copy its digits */
+  .pncopy{min-height:30px; padding:1px 7px; margin:1px 0; border-radius:6px; background:var(--panel);
     border:1px solid var(--line); color:var(--text); font-weight:700; font-size:14px; text-align:left;
-    overflow-wrap:anywhere}
+    overflow-wrap:anywhere; white-space:nowrap}
   .pncopy:hover, .pncopy:focus-visible{border-color:var(--accent)}
   .pncopy.flash{border-color:var(--accent); color:var(--accent); font-weight:600}
   .plistbtn{display:block; width:100%; margin-top:8px; min-height:36px}
-  .plistbtn[hidden]{display:none}
-  #plistDlg{width:min(760px, 96vw)}
-  .pllist{list-style:none; margin:0 0 12px; padding:0}
-  .plrow{display:grid; grid-template-columns:minmax(0, 1fr) auto auto auto; gap:10px; align-items:center;
+  .plistbtn[hidden]{display:none !important}
+  /* the parts list: a pane from the right, over the page (full screen on a
+     phone); its button on the window's right edge on wide screens */
+  .edgeplist{position:fixed; right:0; top:45%; z-index:30; width:auto; margin:0; min-height:0;
+    padding:12px 7px; writing-mode:vertical-rl; transform:rotate(180deg); border-radius:0 8px 8px 0;
+    font-size:13px; box-shadow:0 2px 8px rgba(0,0,0,.35)}
+  @media (max-width:900px){ .edgeplist{display:none !important} }
+  #plistDlg{width:min(640px, 100vw); max-width:100vw; margin:0 0 0 auto; border-radius:0}
+  #plistDlg[open]{height:100dvh; max-height:100dvh}
+  #plistDlg .dlgbody{flex:1; overflow:auto}
+  .plcar + .plcar{margin-top:14px}
+  .plsec{margin:6px 0 14px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2)}
+  .plsechead{display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; margin-bottom:4px}
+  .pllist{list-style:none; margin:0; padding:0}
+  .plrow{display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:10px; align-items:start;
     padding:8px 0; border-top:1px solid var(--line)}
+  .plact{display:flex; align-items:center; gap:8px}
   .plqty{display:flex; align-items:center; gap:4px; font-size:13px; color:var(--muted)}
   .plqty input{width:4.2em; min-height:32px}
+  .pldraw{margin-top:6px}
+  .pldraw > summary{cursor:pointer; padding:6px 0; color:var(--accent)}
+  /* a drawing in the pane: the list and Add only, not the page's other links */
+  #plistDlg .ppage .popen, #plistDlg .ppage .pprocs, #plistDlg .pfbar .plistbtn{display:none}
   @media (max-width:700px){
-    #plistDlg{width:100vw; max-width:100vw; border-radius:0; margin:0}
-    #plistDlg[open]{height:100dvh; max-height:100dvh}
-    #plistDlg .dlgbody{flex:1}
-    .plrow{grid-template-columns:minmax(0, 1fr) auto; row-gap:4px}
+    .plrow{grid-template-columns:auto minmax(0, 1fr)}
+    .plact{grid-column:2; flex-wrap:wrap}
+    .plines td.pa{text-align:left}
   }
   .pcap{text-align:center; margin:-4px 0 10px; font-size:12px}
   .tabhit::after{content:""; display:block; clear:both}
@@ -1654,9 +1662,14 @@
   </div>
 </dialog>
 
+<!-- wide screens: the parts list pane, from anywhere, on the window's right
+     edge (a phone has the button in the Parts tab and under each drawing) -->
+<button type="button" class="edgeplist plistbtn" data-open-plist hidden
+        aria-label="Open the parts list">Parts list (<span class="plistn">0</span>)</button>
 <dialog id="plistDlg" class="framed" aria-labelledby="plistTitle">
   <div class="dlghead"><h3 id="plistTitle" style="margin:0">Parts list</h3>
-    <div class="muted" style="font-size:13px">Kept in this browser. Tap a number to copy it (digits only).</div></div>
+    <div class="muted" style="font-size:13px">Kept in this browser, by section. Tap a number to copy it (digits only);
+      open a section's drawing to check a part or add more.</div></div>
   <div class="dlgbody" id="plistBody"></div>
   <div class="dlgfoot">
     <button type="button" class="ghost" id="plistClear">Clear list</button>
@@ -4462,22 +4475,46 @@ const PART_LINE = /^([^|]*)\|\s*([A-Z][^(|]*?)\s*\(([^)]*)\)\s*\|\s*([^|]*)\|\s*
 // a parts line's callout as the drawing prints it: "007C" -> "7C"; "-" (a
 // line with no callout of its own) -> ""
 const calloutLabel = c => { c = (c || '').trim(); return c === '-' ? '' : (c.replace(/^0+(?=\w)/, '') || c); };
-function partLinesHtml(lines, clickable = false) {
-  return `<table class="plines"><tbody>` + lines.map(l => {
-    const m = PART_LINE.exec(l);
-    if (!m) return `<tr><td colspan="5">${esc(l)}</td></tr>`;
-    const co = calloutLabel(m[1]);
-    const act = clickable && co
-      ? ` class="pick" data-callout="${esc(co)}" data-cname="${esc(m[4].trim())}" data-cpn="${esc(m[2].trim())}" data-cfits="${esc(m[5].trim())}"`
-        + ` title="Find ${esc(co)} on the drawing"` : '';
-    return `<tr${act}><td class="co">${esc(co)}</td><td class="pn">${esc(m[2].trim())}</td><td>${esc(m[4].trim())}</td>`
-      + `<td>${esc(m[5].trim())}</td><td class="nt">${esc(m[6].trim().replace(/^;\s*/, ''))}</td></tr>`;
+// a line's notes: "replaced by A 201 820 52 44 (A2018205244, …); fn 039: …" ->
+// the number that replaced it, and the rest of the notes as printed
+const REPLACED = /(?:^|;\s*)replaced by ([A-Z] [\d ]*\d)(?:\s*\([^)]*\))?/;
+function lineNotes(notes) {
+  notes = (notes || '').trim().replace(/^;\s*/, '');
+  const r = REPLACED.exec(notes);
+  return {by: r ? r[1] : '', rest: r ? notes.replace(r[0], '').replace(/^;\s*/, '').trim() : notes};
+}
+// A parts table. Superseded lines (Mercedes' "replaced by") are said so and
+// dimmed; where a callout has one, its other lines are marked current (the
+// user, 2026-10-30: four wiper arms under one number, two of them replaced).
+// Every number copies its digits (pncopy). page: the parts page's key
+// (doc|page_no) -- then each line also has "Add" for the parts list.
+function partLinesHtml(lines, clickable = false, page = '') {
+  const ms = lines.map(l => PART_LINE.exec(l));
+  const oldCos = new Set(ms.filter(m => m && lineNotes(m[6]).by).map(m => calloutLabel(m[1])));
+  const listed = page ? plistLoad().filter(x => x.page === page) : [];
+  return `<table class="plines"><tbody>` + lines.map((l, i) => {
+    const m = ms[i];
+    if (!m) return `<tr><td colspan="6">${esc(l)}</td></tr>`;
+    const co = calloutLabel(m[1]), pn = m[2].trim(), name = m[4].trim(), fits = m[5].trim();
+    const {by, rest} = lineNotes(m[6]);
+    const tag = by ? `<span class="ptag old">Superseded by ${esc(by)}</span>`
+      : oldCos.has(co) ? `<span class="ptag cur">Current</span>` : '';
+    const cls = [clickable && co ? 'pick' : '', by ? 'old' : ''].filter(Boolean).join(' ');
+    const act = (cls ? ` class="${cls}"` : '') + (clickable && co
+      ? ` data-callout="${esc(co)}" data-cname="${esc(name)}" data-cpn="${esc(pn)}" data-cfits="${esc(fits)}"`
+        + ` data-cnotes="${esc(rest)}" data-cby="${esc(by)}" title="Show ${esc(co)} on the drawing"` : '');
+    const inList = listed.some(x => x.pn === pn);
+    return `<tr${act}><td class="co">${esc(co)}</td><td class="pn">${pnCopyBtn(pn)}</td><td>${esc(name)}</td>`
+      + `<td>${esc(fits)}</td><td class="nt">${tag}${esc(rest)}</td>`
+      + (page ? `<td class="pa"><button type="button" class="padd${inList ? ' on' : ''}" aria-pressed="${inList}"`
+        + ` title="${inList ? 'Take it off' : 'Add it to'} the parts list">${inList ? 'In list &#10003;' : 'Add'}</button></td>` : '')
+      + `</tr>`;
   }).join('') + `</tbody></table>`;
 }
 // A parts catalogue page: its drawings first (the callouts printed on them
 // are the list's first column), then the parts list as a table. Tapping a
-// number on the drawing marks its rows; tapping a row marks its number on
-// the drawing (placeCallouts / pickCallout).
+// number on the drawing narrows the list to it; tapping a row marks its
+// number on the drawing (placeCallouts / pickCallout).
 // inline: the same inside a Parts-tab dropdown (no Back / Full width; "Open
 // as a page" instead). Each copy finds its own "Find 7C" line (.ppage).
 function partsPageHtml(p, body, inline = false) {
@@ -4490,16 +4527,17 @@ function partsPageHtml(p, body, inline = false) {
   const imgs = p.images || [];
   // a parts page opens on the Manual page tab; this goes back to the Parts
   // tab as it was left (the open groups, or the question's results)
-  return `<div class="ppage">`
+  const page = `${viewDoc()}|${p.page_no}`;
+  return `<div class="ppage" data-pkey="${esc(page)}" data-ptitle="${esc(p.title || '')}">`
     + (inline ? ''
       : `<button type="button" class="pback" data-back-parts>&larr; Back to Parts</button>`)
     + (imgs.length
-      ? `<div class="pdraw"><div class="pdgrid"><div class="pdfig">` + drawingsHtml(imgs) + `</div>`
-        + `<aside class="pfind" aria-label="Picked parts" aria-live="polite">${picksEmpty}${plistBtn()}</aside></div></div>`
+      ? `<div class="pdraw"><div class="pdfig">` + drawingsHtml(imgs) +`</div></div>`
       : `<div class="muted">No drawing for this group in the parts catalogue.</div>`)
+    + (parts.length ? `<div class="pfbar" aria-live="polite">${pickBarHtml([])}</div>` : '')
     + (parts.length ? `<div class="pall"><div class="sechead">`
       + (imgs.length > 1 ? 'All parts on this page' : 'Parts on this drawing')
-      + `</div>${partLinesHtml(parts, true)}</div>` : '')
+      + `</div>${partLinesHtml(parts, true, page)}</div>` : '')
     + (rest ? `<div class="src">${renderSource(rest)}</div>` : '')
     + procsSlot(p)
     + (inline ? `<button type="button" class="ghost popen" ${pageAttrs(p.page_no)}>Open as a page</button>` : '')
@@ -4652,63 +4690,52 @@ function splitParts(w, cs) {
 }
 // Callouts are picked from either side, several at once (the user,
 // 2026-10-24: "can we select multiple parts on the diagram?"): a tap adds a
-// number to the picks, a second tap on it takes it off, "Clear" empties
-// them. Every pick's rows and numbers are marked, and the picks panel docked
-// beside the drawing (below it in a narrow box) lists them. A tap on the
+// number to the picks, a second tap on it takes it off, "Show all parts"
+// empties them. Picks narrow the page's lists to their lines, as Mercedes'
+// viewer does (the user, 2026-10-30: "if I select one, then the parts in the
+// drawing should be limited to just that part"; it replaced a picks panel
+// beside the drawing); each line has "Add" for the parts list. A tap on the
 // drawing moves nothing (the user, 2026-10-26: "leave the view exactly where
-// it is"; it used to scroll to the part's row, and the list floated over the
-// tab bar): the panel is always there, so a pick never shifts the drawing.
-// A tap on a row of the list still brings its number on the drawing into view.
-// where the docked panel sticks: just under the tab bar, which sticks itself
-// (its own top differs by width: under the slide-over's bar at <=900 px)
-function placePicksTop() {
-  const t = $('#resTabs'), right = $('#right');
-  if (!t || !right) return;
-  const top = parseFloat(getComputedStyle(t).top);
-  right.style.setProperty('--picks-top', `${(isNaN(top) ? 0 : top) + t.offsetHeight + 8}px`);
-}
-if (window.ResizeObserver) new ResizeObserver(placePicksTop).observe($('#resTabs'));
-addEventListener('resize', placePicksTop);
-const picksEmpty = `<div class="pfempty"><b>Picked parts</b><span class="muted">Tap numbers on the drawing to `
-  + `build a list. Tap a number again to take it off.</span></div>`;
+// it is"); a tap on a row brings its number on the drawing into view.
 const calloutRows = (host, co) => [...host.querySelectorAll('tr[data-callout]')].filter(r => r.dataset.callout === co);
 const calloutMarks = (host, co) => [...host.querySelectorAll('.pco')].filter(b => b.dataset.co === co);
+function pickBarHtml(sel) {
+  return (sel.length
+    ? `<span class="pfsay">Showing ${sel.length === 1 ? 'part' : 'parts'} `
+      + sel.map(co => `<b class="cbig">${esc(co)}</b>`).join(' ') + `</span>`
+      + `<button type="button" class="ghost" data-clear-picks>Show all parts</button>`
+    : `<span class="pfsay muted">Tap a number on the drawing to show just its parts. `
+      + `<b>Add</b> puts a part in your parts list.</span>`) + plistBtn();
+}
 function showPicks(host) {
-  const sel = JSON.parse(host.dataset.picks || '[]');
+  const sel = JSON.parse(host.dataset.picks || '[]'), on = new Set(sel);
   host.querySelectorAll('tr.pick.on, .pco.on').forEach(x => x.classList.remove('on'));
-  const f = host.querySelector('.pfind');
-  const lines = sel.map(co => {
-    const rows = calloutRows(host, co), marks = calloutMarks(host, co);
-    rows.forEach(r => r.classList.add('on'));
-    marks.forEach(b => b.classList.add('on'));
-    // every number under this callout once (a drawing's own list repeats the page's)
-    const listed = rows.filter(r => r.closest('.pall'));
-    const seen = new Set(), uniq = (listed.length ? listed : rows).filter(r => !seen.has(r.dataset.cpn) && seen.add(r.dataset.cpn));
-    return `<li class="pfline"><b class="cbig">${esc(co)}</b><span class="pftext">` + (uniq.length
-      ? uniq.map(r => `<span class="pfpart">${esc(r.dataset.cname)}${pnCopyBtn(r.dataset.cpn, r.dataset.cname, r.dataset.cfits)}`
-          + (uniq.length > 1 && r.dataset.cfits ? `<span class="muted">${esc(r.dataset.cfits)}</span>` : '')
-          + `</span>`).join('')
-        + (marks.length ? '' : '<span class="muted">Look for this number on the drawing</span>')
-      : `<span class="muted">Not in this page's parts list</span>`)
-      + `</span><button type="button" class="pfx" data-unpick="${esc(co)}" title="Take ${esc(co)} off the list"`
-      + ` aria-label="Take part ${esc(co)} off the list">&times;</button></li>`;
-  });
-  if (!f) return;
-  f.innerHTML = sel.length
-    ? `<div class="pfhead"><b>Picked parts</b><span class="muted">${sel.length}</span>`
-      + `<button type="button" class="ghost" data-clear-picks>Clear</button></div>`
-      + `<div class="muted pfhint">Tap a part number to copy it and add it to your parts list.</div>`
-      + `<ol class="pflist">${lines.join('')}</ol>` + plistBtn()
-    : picksEmpty + plistBtn();
+  for (const co of sel) {
+    calloutRows(host, co).forEach(r => r.classList.add('on'));
+    calloutMarks(host, co).forEach(b => b.classList.add('on'));
+  }
+  // narrow every list on the page to the picks; a list left empty folds away.
+  // The page keeps the height it had: a shorter page, scrolled down, would
+  // pull the drawing up under the finger (the view must not move on a pick)
+  host.style.minHeight = `${Math.max(parseFloat(host.style.minHeight) || 0, host.offsetHeight)}px`;
+  host.querySelectorAll('.plines tbody tr').forEach(r => r.classList.toggle('pfout', sel.length > 0 && !on.has(r.dataset.callout)));
+  host.querySelectorAll('.pall, .pdparts').forEach(box =>
+    box.classList.toggle('pfnone', sel.length > 0 && !box.querySelector('tbody tr:not(.pfout):not([hidden])')));
+  const bar = host.querySelector('.pfbar');
+  if (bar) bar.innerHTML = pickBarHtml(sel);
 }
 function pickCallout(host, co, from, el) {
   let sel = JSON.parse(host.dataset.picks || '[]');
+  // a row of a picked number only shows it on the drawing (the narrowed
+  // list is made of those rows: a tap on one must not undo the pick)
   const adding = !sel.includes(co);
-  sel = adding ? [...sel, co] : sel.filter(x => x !== co);
-  host.dataset.picks = JSON.stringify(sel);
-  showPicks(host);
+  if (adding || from !== 'row') {
+    sel = adding ? [...sel, co] : sel.filter(x => x !== co);
+    host.dataset.picks = JSON.stringify(sel);
+    showPicks(host);
+  }
   // taking one off, or picking on the drawing, moves nothing
-  if (!adding || from !== 'row') return;
+  if (from !== 'row') return;
   const sec = el?.closest('.pdsec');
   const near = xs => { const s = sec ? xs.filter(x => sec.contains(x)) : []; return s.length ? s : xs; };
   // a row: its number on the drawing (a drawing folded away is opened)
@@ -4721,8 +4748,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-back-parts]')) { setTab('parts'); return; }
   const clr = e.target.closest('[data-clear-picks]');
   if (clr) { const host = clr.closest('.ppage'); if (host) { host.dataset.picks = '[]'; showPicks(host); } return; }
-  const un = e.target.closest('[data-unpick]');
-  if (un) { const host = un.closest('.ppage'); if (host) pickCallout(host, un.dataset.unpick, 'list', un); return; }
+  if (e.target.closest('.pncopy, .padd')) return;     // a line's own buttons (Parts list)
   const b = e.target.closest('.pco');
   if (b) { const host = b.closest('.ppage'); if (host) pickCallout(host, b.dataset.co, 'drawing', b); return; }
   const r = e.target.closest('tr[data-callout]');
@@ -4732,14 +4758,17 @@ document.addEventListener('click', e => {
 });
 
 // -- Parts list ------------------------------------------------------------------
-// A tap on a part number (picked parts, or the parts list) copies its digits
-// -- "A 001 159 66 01" -> "0011596601", no letter, no spaces -- and keeps the
-// part in a parts list across drawings and cars (the user, 2026-10-29: pick
-// parts on several drawings, then see them all to order). The list is this
-// browser's own (localStorage); it opens from a "Parts list" button, never
-// floats over the page. "RockAuto" opens RockAuto's own part-number search in
-// a new tab: the app asks no shop for prices (RockAuto has no public API and
-// turns automated requests away; the server makes no request but the AI's).
+// A tap on a part number copies its digits -- "A 001 159 66 01" ->
+// "0011596601", no letter, no spaces (the user, 2026-10-29). "Add" on a line
+// keeps the part in a parts list across drawings and cars, to order from
+// (2026-10-30: picking on the drawing only narrows the list; Add is the
+// choice). The list is this browser's own (localStorage). It opens as a pane
+// from the right ("Parts list" buttons), grouped by car and by the
+// catalogue's section, each with its drawing one tap away -- to check the
+// part, and to add more from it. "RockAuto" opens RockAuto's own part-number
+// search in a new tab: the app asks no shop for prices (RockAuto has no
+// public API and turns automated requests away; the server makes no request
+// but the AI's).
 const PLIST_KEY = 'autorundown.partsList.v1';
 const pnDigits = pn => (pn || '').trim().replace(/^[A-Z]\s*/i, '').replace(/\s+/g, '');
 const rockAutoUrl = pn => `https://www.rockauto.com/en/partsearch/?partnum=${encodeURIComponent(pnDigits(pn))}`;
@@ -4750,15 +4779,27 @@ function plistLoad() {
 function plistSave(list) {
   try { localStorage.setItem(PLIST_KEY, JSON.stringify(list)); } catch {}
   updatePlistBtns(list);
+  updateAddBtns(list);
+  if ($('#plistDlg').open) renderPlist();
 }
-const pnCopyBtn = (pn, name, fits) => `<button type="button" class="pncopy" data-pn="${esc(pn)}" data-name="${esc(name || '')}"`
-  + ` data-fits="${esc(fits || '')}" title="Copy ${esc(pnDigits(pn))} and add it to the parts list">${esc(pn)}</button>`;
+const pnCopyBtn = pn => `<button type="button" class="pncopy" data-pn="${esc(pn)}"`
+  + ` title="Copy ${esc(pnDigits(pn))}">${esc(pn)}</button>`;
 const plistBtn = () => `<button type="button" class="ghost plistbtn" data-open-plist${plistLoad().length ? '' : ' hidden'}>`
   + `Parts list (<span class="plistn">${plistLoad().length}</span>)</button>`;
 function updatePlistBtns(list = plistLoad()) {
   document.querySelectorAll('.plistbtn').forEach(b => {
     b.hidden = !list.length;
     b.querySelector('.plistn').textContent = list.length;
+  });
+}
+// every Add on screen says whether its part is in the list
+function updateAddBtns(list = plistLoad()) {
+  document.querySelectorAll('.padd').forEach(b => {
+    const page = b.closest('.ppage')?.dataset.pkey, pn = b.closest('tr')?.dataset.cpn;
+    const on = list.some(x => x.page === page && x.pn === pn);
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+    b.innerHTML = on ? 'In list &#10003;' : 'Add';
+    b.title = `${on ? 'Take it off' : 'Add it to'} the parts list`;
   });
 }
 // navigator.clipboard needs a secure page (HTTPS or this PC); a phone on the
@@ -4783,46 +4824,89 @@ function flashBtn(btn, msg) {
   btn._flash = setTimeout(() => { btn.textContent = btn.dataset.label; btn.classList.remove('flash'); }, 1600);
 }
 async function copyPart(btn) {
-  const pn = btn.dataset.pn, digits = pnDigits(pn);
-  const ok = await copyText(digits);
-  if (btn.closest('#plistDlg')) { flashBtn(btn, ok ? `Copied ${digits}` : `Copy failed`); return; }
-  const list = plistLoad(), car = carBoxLabel || currentCarLabel() || '';
-  const had = list.some(x => x.pn === pn && x.car === car);
-  if (!had) plistSave([...list, {pn, name: btn.dataset.name, fits: btn.dataset.fits, car, qty: 1}]);
-  flashBtn(btn, (ok ? `Copied ${digits}` : 'Copy failed') + (had ? ' · already in list' : ' · added to list'));
+  const digits = pnDigits(btn.dataset.pn);
+  flashBtn(btn, (await copyText(digits)) ? `Copied ${digits}` : 'Copy failed');
+}
+// Add / In list on a line: the part, its callout, and the page it is on
+// (doc|page_no and title: the pane groups by it and reopens its drawing)
+function toggleAdd(btn) {
+  const r = btn.closest('tr'), host = btn.closest('.ppage');
+  if (!r || !host) return;
+  const page = host.dataset.pkey, pn = r.dataset.cpn, list = plistLoad();
+  const i = list.findIndex(x => x.page === page && x.pn === pn);
+  if (i >= 0) { list.splice(i, 1); plistSave(list); return; }
+  const car = btn.closest('[data-car]')?.dataset.car ?? (carBoxLabel || currentCarLabel() || '');
+  plistSave([...list, {pn, name: r.dataset.cname, fits: r.dataset.cfits, notes: r.dataset.cnotes, by: r.dataset.cby,
+                       co: r.dataset.callout, car, page, title: host.dataset.ptitle, qty: 1}]);
+}
+// "Parts: model 201 (EPC catalog 580), group 82 ELECTRICAL SYSTEM / subgroup
+// 120 PANE WIPER" -> "82 Electrical system / 120 Pane wiper", "catalog 580"
+const SECTION_TITLE = /\(EPC catalog (\w+)\),\s*(?:group (\w+)\s+(.*?)\s*\/\s*)?subgroup (\w+)\s*(.*)$/;
+const capFirst = s => s ? s.charAt(0) + s.slice(1).toLowerCase() : s;
+function sectionLabel(title) {
+  const m = SECTION_TITLE.exec(title || '');
+  if (!m) return {name: (title || 'Other parts').replace(/^Parts:\s*/, ''), cat: ''};
+  return {name: (m[2] ? `${m[2]} ${capFirst(m[3])} / ` : '') + `${m[4]} ${capFirst(m[5])}`, cat: `catalog ${m[1]}`};
 }
 const plistShow = dialogHistory($('#plistDlg'), 'plist');
 function renderPlist() {
   const list = plistLoad(), body = $('#plistBody');
   $('#plistCopyAll').disabled = $('#plistClear').disabled = !list.length;
+  // drawings opened in the pane stay open (and keep their picks) through a re-draw
+  const kept = new Map([...body.querySelectorAll('details.pldraw[data-loaded]')].map(d => [d.dataset.key, d]));
   if (!list.length) {
-    body.innerHTML = `<div class="muted">No parts yet. On a parts drawing, pick a number and tap its part number.</div>`;
+    body.innerHTML = `<div class="muted">No parts yet. On a parts drawing, tap a number, then <b>Add</b> on its line.</div>`;
     return;
   }
   const cars = [...new Set(list.map(x => x.car))];
-  body.innerHTML = cars.map(car => `<div class="sechead">${esc(car || 'No car chosen')}</div><ul class="pllist">`
-    + list.map((x, i) => x.car !== car ? '' : `<li class="plrow">`
-      + `<span class="pftext">${pnCopyBtn(x.pn, x.name, x.fits)}<span>${esc(x.name)}</span>`
-      + (x.fits ? `<span class="muted">${esc(x.fits)}</span>` : '') + `</span>`
-      + `<label class="plqty">Qty <input type="number" min="1" max="999" value="${Number(x.qty) || 1}" data-qty="${i}"></label>`
-      + `<a class="btnlink ghostlink" href="${esc(rockAutoUrl(x.pn))}" target="_blank" rel="noopener noreferrer"`
-      + ` title="Search RockAuto for ${esc(pnDigits(x.pn))}">RockAuto &#8599;</a>`
-      + `<button type="button" class="pfx" data-plist-del="${i}" title="Take ${esc(x.pn)} off the list"`
-      + ` aria-label="Take ${esc(x.pn)} off the list">&times;</button></li>`).join('')
-    + `</ul>`).join('');
+  body.innerHTML = cars.map(car => {
+    const mine = list.map((x, i) => ({...x, i})).filter(x => x.car === car);
+    const pages = [...new Set(mine.map(x => x.page || ''))];
+    return `<section class="plcar" data-car="${esc(car)}"><div class="sechead">${esc(car || 'No car chosen')}</div>`
+      + pages.map(page => {
+        const xs = mine.filter(x => (x.page || '') === page), s = sectionLabel(xs[0].title);
+        const [doc, pno] = page.split('|');
+        return `<div class="plsec"><div class="plsechead"><b>${esc(s.name)}</b>`
+          + (s.cat ? `<span class="muted">${esc(s.cat)}</span>` : '') + `</div><ul class="pllist">`
+          + xs.map(x => `<li class="plrow">`
+            + `<b class="cbig"${x.co ? '' : ' hidden'}>${esc(x.co || '')}</b>`
+            + `<span class="pftext">${pnCopyBtn(x.pn)}<span>${esc(x.name)}</span>`
+            + (x.by ? `<span class="ptag old">Superseded by ${esc(x.by)}</span>` : '')
+            + ([x.fits, x.notes].filter(Boolean).length
+              ? `<span class="muted">${esc([x.fits, x.notes].filter(Boolean).join(' · '))}</span>` : '') + `</span>`
+            + `<span class="plact"><label class="plqty">Qty <input type="number" min="1" max="999" value="${Number(x.qty) || 1}" data-qty="${x.i}"></label>`
+            + `<a class="btnlink ghostlink" href="${esc(rockAutoUrl(x.pn))}" target="_blank" rel="noopener noreferrer"`
+            + ` title="Search RockAuto for ${esc(pnDigits(x.pn))}">RockAuto &#8599;</a>`
+            + `<button type="button" class="pfx" data-plist-del="${x.i}" title="Take ${esc(x.pn)} off the list"`
+            + ` aria-label="Take ${esc(x.pn)} off the list">&times;</button></span></li>`).join('')
+          + `</ul>`
+          + (pno ? `<details class="pbdrop pldraw" data-key="${esc(car + '\n' + page)}" data-doc="${esc(doc)}" data-pno="${esc(pno)}">`
+            + `<summary>Drawing &mdash; check the part, add more</summary><div class="pbbody"></div></details>` : '')
+          + `</div>`;
+      }).join('') + `</section>`;
+  }).join('');
+  body.querySelectorAll('details.pldraw').forEach(d => {
+    const old = kept.get(d.dataset.key);
+    if (old) d.replaceWith(old);
+  });
+  updateAddBtns(list);
 }
 document.addEventListener('click', e => {
   const c = e.target.closest('.pncopy');
   if (c) { copyPart(c); return; }
+  const a = e.target.closest('.padd');
+  if (a) { toggleAdd(a); return; }
   if (e.target.closest('[data-open-plist]')) { renderPlist(); plistShow(); return; }
   const d = e.target.closest('[data-plist-del]');
-  if (d) { const l = plistLoad(); l.splice(+d.dataset.plistDel, 1); plistSave(l); renderPlist(); }
+  if (d) { const l = plistLoad(); l.splice(+d.dataset.plistDel, 1); plistSave(l); }
 });
 $('#plistBody').addEventListener('change', e => {
   const q = e.target.closest('[data-qty]');
   if (!q) return;
   const l = plistLoad(), x = l[+q.dataset.qty];
-  if (x) { x.qty = Math.max(1, Math.min(999, parseInt(q.value, 10) || 1)); q.value = x.qty; plistSave(l); }
+  if (!x) return;
+  x.qty = Math.max(1, Math.min(999, parseInt(q.value, 10) || 1)); q.value = x.qty;
+  try { localStorage.setItem(PLIST_KEY, JSON.stringify(l)); } catch {}   // nothing else to redraw
 });
 // every number, digits only, one line each with its quantity: pastes into an
 // order form or a spreadsheet
@@ -4836,7 +4920,8 @@ $('#plistClear').onclick = () => {
   plistSave([]); renderPlist();
 };
 $('#plistClose').onclick = () => $('#plistDlg').close();
-addEventListener('storage', e => { if (e.key === PLIST_KEY) updatePlistBtns(); });
+addEventListener('storage', e => { if (e.key === PLIST_KEY) { updatePlistBtns(); updateAddBtns(); } });
+updatePlistBtns();   // the edge button, as the page opens
 
 // The car's parts diagrams as the catalogue reads (server: parts_browse.py):
 // chassis, engines, options > group > subgroup; a subgroup is a dropdown

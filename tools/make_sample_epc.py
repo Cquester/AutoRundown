@@ -51,7 +51,10 @@ PAGES = [
      ("model", "210"), [
          line("005", "A 210 321 23 04", "COIL SPRING", "qty 2: 210.082"),
          line("005", "A 210 321 24 04", "COIL SPRING, REINFORCED", "qty 2: 210.282", "wagon"),
-         # EPC's word for a sway bar (synonyms.py; tests/test_parts_diagrams.py)
+         # EPC's word for a sway bar (synonyms.py; tests/test_parts_diagrams.py);
+         # the old number as EPC prints a superseded line (tests/test_parts_list.py)
+         line("040", "A 210 323 13 65", "STABILIZER", "all models",
+              "replaced by A 210 323 15 65 (A2103231565, 2103231565); fn 039: A 240011"),
          line("040", "A 210 323 15 65", "STABILIZER", "qty 1, all models")], 1),
     (900005, "Parts: model 201 (EPC catalog S01), group 42 BRAKES / subgroup 010 FRONT WHEEL BRAKE",
      ("model", "201"), [
