@@ -193,7 +193,7 @@ and a 64 MB-piece torrent can't hand over one vehicle. Images are
   nothing) -- a real browser gets the real page.
 - LEMON's server went down on 2026-10-26 (the user: hit in an attack on
   Ukraine); its download is on hold and **Operation CHARM is the backup**,
-  below. The LEMON `.torrent` is at `C:\Users\cques\lemon-manuals.torrent`
+  below. The LEMON `.torrent` is in the user's home folder (`lemon-manuals.torrent`)
   (328 KB, 2026-08-19); a torrent does not need LEMON's website, but its
   layout (above) makes one car a large part of 31.5 GB, where CHARM's is
   ~200 MB -- so one car comes from CHARM. The LEMON torrent also carries
