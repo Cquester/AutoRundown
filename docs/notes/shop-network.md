@@ -147,6 +147,26 @@ only the PC changes the default. `/api/stats` hides this PC's paths from
 others. The UI asks `/api/me` first and shows the gear (admin), an account
 button (mechanic) or the sign-in box. `#code=XXXX` in the URL pre-fills it.
 
+**HTTPS for phones (Shop setup, 2026-10-30).** The microphone and
+tap-to-copy need a secure page; `http://localhost` is one, a phone on
+`http://<ip>` is not (the user: "if we can get voice working on the phones").
+`Config.https_phones` (off by default) starts a second uvicorn listener for
+the same app on the port + 2 (8758; 8757 is `dev.py`'s), TLS from the CA
+below, `lifespan="off"`, in a thread (`server.start_tls_listener` /
+`stop_tls_listener`): switched on and off from Shop setup while the server
+runs, started by `serve()` when saved on, stopped with the server and by the
+tray's Quit. Plain http stays: the PC's own browser keeps
+`http://localhost:8756` (no certificate warning there), and phones not yet
+moved keep working. `_phone_urls`, the site QR and sign-in QRs point at the
+HTTPS port while it runs; sign-in cookies are per port
+(`auth.cookie_names`), so a phone signs in once more there. A port in use
+is refused with the reason, and the setting is not saved as on. Each phone
+installs `/ca.crt` once (Shop setup says how on iPhone and Android).
+`tests/test_https_phones.py`. Tests pick ports below 49152: on Windows a
+connect probe in the ephemeral range can connect to itself
+(`_port_taken` said a free port was taken). **Not yet tried on a real
+phone**, like the rest of this section.
+
 **HTTPS (`serve.py --https`, `tls.py`).** Own CA (EC P-256, 10 years,
 `~/.autorundown/tls/`), Name Constraints (critical): DNS `localhost`,
 `.local`; private IPv4/IPv6 ranges only -- a leaked CA key cannot sign for a

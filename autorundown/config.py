@@ -73,6 +73,11 @@ class Config:
     # off = left out the same way (the user, 2026-10-29)
     show_retrofits: bool = False
     show_shop_admin: bool = False
+    # phones also get HTTPS, on the app's port + 2, with a certificate from
+    # this PC's own CA (tls.py): the microphone and copy need a secure page,
+    # and a phone on plain http is not one (the user, 2026-10-30). This PC
+    # keeps http://localhost, which its browser already counts as secure.
+    https_phones: bool = False
     # where the LEMON torrent is (or will be) downloaded; its lemon/index.json
     # replaces the built-in catalogue snapshot (lemon_catalogue.py)
     lemon_torrent_dir: str = ""

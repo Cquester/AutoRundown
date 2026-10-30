@@ -119,6 +119,8 @@ def run_background(srv, url: str, open_browser: bool) -> int:
         def phone_text(_item) -> str:
             st = srv.config.app.state
             host = st.mdns_name or server.lan_ip()     # autorundown.local once announced
+            if st.tls_srv:                             # Shop setup: HTTPS for phones
+                return f"Phone: https://{host}:{st.tls_port}"
             scheme = "https" if st.https else "http"
             return f"Phone: {scheme}://{host}:{srv.config.port}"
 
@@ -129,6 +131,7 @@ def run_background(srv, url: str, open_browser: bool) -> int:
                 _message(str(exc))
 
         def stop_all(_icon, _item) -> None:
+            server.stop_tls_listener(srv.config.app)
             srv.should_exit = True
 
         tray = pystray.Icon("AutoRundown", _tray_image(), f"AutoRundown {__version__}", menu=pystray.Menu(

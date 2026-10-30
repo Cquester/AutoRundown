@@ -21,6 +21,7 @@ import shutil
 import secrets
 import socket
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 from itertools import zip_longest
@@ -83,6 +84,7 @@ class SettingsBody(BaseModel):
     # WIS retrofits and shop papers, the same way (search.HIDEABLE_KINDS)
     show_retrofits: bool | None = None
     show_shop_admin: bool | None = None
+    https_phones: bool | None = None
     # "company" | "per_mechanic" (config.pick_key)
     key_mode: str | None = Field(None, pattern="^(company|per_mechanic)$")
     # the AI provider answering questions (providers.py)
@@ -462,6 +464,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     app.state.auth_path = auth_path or auth.AUTH_PATH
     app.state.https = False
     app.state.port = 8756
+    app.state.host = "0.0.0.0"
+    # the phones' HTTPS listener beside the plain one (start_tls_listener)
+    app.state.tls_srv = None
+    app.state.tls_port = 0
+    app.state.tls_error = ""
     # damage-code menus, retrofits, shop papers in search and the Manual contents (Shop setup)
     _apply_shown(config.load())
     throttle = auth.Throttle()
@@ -634,7 +641,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     @app.get("/ca.crt")
     def ca_cert() -> Response:
         if not tls.CA_CRT.exists():
-            raise HTTPException(404, "HTTPS is not set up (start with --https).")
+            raise HTTPException(404, "HTTPS is not set up (Shop setup: HTTPS for phones).")
         return Response(tls.CA_CRT.read_bytes(), media_type="application/x-x509-ca-cert",
                         headers={"Content-Disposition": 'attachment; filename="autorundown-ca.crt"'})
 
@@ -1864,6 +1871,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "show_damage_codes": cfg.show_damage_codes,
             "show_retrofits": cfg.show_retrofits,
             "show_shop_admin": cfg.show_shop_admin,
+            # the whole server is HTTPS (serve.py --https): no separate phone port
+            "https_main": app.state.https,
+            "https_phones": cfg.https_phones,
+            "https_port": app.state.tls_port,
+            "https_error": app.state.tls_error,
             "config_path": str(config.CONFIG_PATH),
         }
 
@@ -1921,7 +1933,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         cfg = config.load()
         for field_name in ("archive_dir", "index_path", "importer",
                            "model", "extractor_dir", "require_signin", "key_mode",
-                           "provider", "show_damage_codes", "show_retrofits", "show_shop_admin"):
+                           "provider", "show_damage_codes", "show_retrofits", "show_shop_admin",
+                           "https_phones"):
             value = getattr(body, field_name)
             if value is not None:
                 setattr(cfg, field_name, value)
@@ -1945,6 +1958,15 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 cfg.provider_keys = {**(cfg.provider_keys or {}), kp: body.api_key.strip()}
         cfg.save()
         _apply_shown(cfg)
+        if body.https_phones is not None and not app.state.https:
+            if body.https_phones:
+                start_tls_listener(app)
+                if app.state.tls_error:            # not running: not saved as on
+                    cfg.https_phones = False
+                    cfg.save()
+                    raise HTTPException(400, app.state.tls_error)
+            else:
+                stop_tls_listener(app)
         # only a new index path moves the server: saving anything else (the
         # model, sign-in) used to swap a `serve.py --index X` server onto the
         # config's index
@@ -2111,22 +2133,31 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             aconn.close()
         return {"ok": True}
 
+    def _phone_scheme_port() -> tuple[str, int]:
+        """Where a phone is sent: HTTPS when the server or its phone
+        listener speaks it, else plain http."""
+        if app.state.https:
+            return "https", app.state.port
+        if app.state.tls_srv:
+            return "https", app.state.tls_port
+        return "http", app.state.port
+
     def _phone_urls() -> list[str]:
         """autorundown.local first (mdns.py, when announced), then the IPs."""
-        scheme = "https" if app.state.https else "http"
+        scheme, port = _phone_scheme_port()
         _, ips = tls.local_names()
         hosts = [app.state.mdns_name] if app.state.mdns_name else []
         hosts += [ip for ip in ips if ":" not in ip and not ip.startswith("127.")]
-        return [f"{scheme}://{h}:{app.state.port}" for h in hosts]
+        return [f"{scheme}://{h}:{port}" for h in hosts]
 
     def _qr_base() -> str:
         """The address a QR sends a phone to: this PC's LAN address (the one
         its default route uses, not a WSL/VPN adapter's), else the first
         address found; "" when there is none."""
-        scheme = "https" if app.state.https else "http"
+        scheme, port = _phone_scheme_port()
         ip = lan_ip()
         if not ip.startswith("127."):
-            return f"{scheme}://{ip}:{app.state.port}"
+            return f"{scheme}://{ip}:{port}"
         mdns = app.state.mdns_name
         urls = [u for u in _phone_urls() if not (mdns and f"//{mdns}:" in u)]
         return urls[0] if urls else ""
@@ -2175,6 +2206,7 @@ def make_server(index_path: str, host: str = "0.0.0.0", port: int = 8756,
 
     app = create_app(index_path)
     app.state.port = port
+    app.state.host = host
     ssl = {}
     if https:
         crt, key, names, ips = tls.ensure_server_cert()
@@ -2185,8 +2217,58 @@ def make_server(index_path: str, host: str = "0.0.0.0", port: int = 8756,
     # the socket's own peer, never an X-Forwarded-For header
     srv = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning",
                                         proxy_headers=False, **ssl))
-    app.state.shutdown = lambda: setattr(srv, "should_exit", True)
+    def shutdown() -> None:
+        stop_tls_listener(app)
+        srv.should_exit = True
+    app.state.shutdown = shutdown
     return srv
+
+
+TLS_PORT_OFFSET = 2          # phones' HTTPS: 8756 -> 8758 (8757 is dev.py's)
+
+
+def start_tls_listener(app) -> None:
+    """HTTPS for phones beside the plain listener (Shop setup "HTTPS for
+    phones"): the same app on port + 2, with a certificate from this PC's own
+    CA (tls.py), started and stopped while the server runs. Plain http stays,
+    so the PC's http://localhost and phones not yet moved keep working; the
+    phone addresses and sign-in QRs point at HTTPS once it runs. A problem
+    is left in app.state.tls_error and nothing listens."""
+    import uvicorn
+
+    if app.state.tls_srv or app.state.https:
+        return
+    port = app.state.port + TLS_PORT_OFFSET
+    if _port_taken(port):
+        app.state.tls_error = f"Port {port} is already used by another program, so HTTPS can't start."
+        return
+    try:
+        crt, key, names, ips = tls.ensure_server_cert()
+    except Exception as exc:        # noqa: BLE001 -- shown in Shop setup
+        app.state.tls_error = f"The certificate couldn't be made: {exc}"
+        return
+    # lifespan off: the app's start-up already ran on the plain listener
+    srv = uvicorn.Server(uvicorn.Config(app, host=app.state.host, port=port, log_level="warning",
+                                        proxy_headers=False, lifespan="off",
+                                        ssl_certfile=str(crt), ssl_keyfile=str(key)))
+    threading.Thread(target=srv.run, name="autorundown-https", daemon=True).start()
+    for _ in range(100):
+        if srv.started:
+            break
+        time.sleep(0.05)
+    if not srv.started:
+        srv.should_exit = True
+        app.state.tls_error = f"HTTPS didn't start on port {port}."
+        return
+    app.state.tls_srv, app.state.tls_port, app.state.tls_error = srv, port, ""
+    app.state.cert_names = names + ips
+
+
+def stop_tls_listener(app) -> None:
+    srv = app.state.tls_srv
+    if srv:
+        srv.should_exit = True
+    app.state.tls_srv, app.state.tls_port = None, 0
 
 
 def serve(srv) -> int:
@@ -2206,15 +2288,20 @@ def serve(srv) -> int:
         print(f"  LAN   : {scheme}://{ip}:{port}   (phones on same wifi)")
         print(f"  name  : {scheme}://{app.state.mdns_name}:{port}" if ann.url
               else f"  name  : not announced ({ann.error})")
-    if app.state.https:
+    if not app.state.https and config.load().https_phones:
+        start_tls_listener(app)
+        print(f"  phones: https://{lan_ip()}:{app.state.tls_port}" if app.state.tls_srv
+              else f"  phones: no HTTPS ({app.state.tls_error})")
+    if app.state.https or app.state.tls_srv:
         print(f"  cert  : {', '.join(app.state.cert_names)}")
-        print(f"  phones: install {scheme}://{lan_ip()}:{port}/ca.crt once "
+        print(f"  phones: install https://{lan_ip()}:{app.state.tls_port or port}/ca.crt once "
               "to remove the warning")
     print(f"  sign-in for other devices: "
           f"{'REQUIRED' if config.load().require_signin else 'off (anyone on the network)'}")
     try:
         srv.run()
     finally:
+        stop_tls_listener(app)
         if ann:
             ann.close()
     return 0

@@ -138,7 +138,8 @@ a cloud session or remote agent without asking.**
 
 ```bash
 python serve.py                                   # web UI, localhost + LAN
-python serve.py --https                           # TLS from a local CA (tls.py)
+python serve.py --https                           # TLS from a local CA (tls.py), the whole server
+                                                  # (or Shop setup: "HTTPS for phones" -- port + 2, the PC stays http)
 python -m autorundown.launcher                    # what the Windows shortcut runs
 python ingest.py --archive <dir> --index index.db # build index (~40s)
 python ingest.py --archive <dir> --repath         # fix archive path only
@@ -161,6 +162,7 @@ python eval_wis.py                                # FREE, WIS retrieval + wrong-
 python tests/test_citations.py                    # _verify_citations (<1 s)
 python tests/test_records.py                      # `records` importer
 python tests/test_access.py                       # admin/sign-in QRs/limits/keys/HTTPS (~4 s)
+python tests/test_https_phones.py                 # Shop setup's HTTPS for phones: port + 2 on/off, only the PC (~5 s)
 python tests/test_lemon_import.py                 # LEMON import source (~3 s)
 python tests/test_lemon_catalogue.py              # LEMON tab's catalogue tree (~3 s)
 python tests/test_catalogue_suggest.py            # car box: LEMON cars not downloaded, Add this car (~5 s)

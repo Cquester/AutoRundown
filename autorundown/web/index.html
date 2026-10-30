@@ -1567,6 +1567,15 @@
             <div id="sPhone" class="help"></div>
           </div>
         </div>
+        <!-- the microphone and tap-to-copy need a secure page; a phone on plain
+             http is not one (the user, 2026-10-30) -->
+        <div id="httpsRow">
+          <label class="check"><input type="checkbox" id="sHttps"> HTTPS for phones (the microphone and copy need it)
+            <span class="savedmark" id="mHttps" role="status"></span></label>
+          <div class="help" id="httpsHelp">Phones then open AutoRundown at an <b>https://</b> address (the QR and
+            addresses above). Free: the certificate comes from this PC, nothing is bought or sent anywhere. This PC
+            stays on http://localhost.</div>
+        </div>
         <label class="check"><input type="checkbox" id="sSignin"> Require each mechanic to sign in
           <span class="savedmark" id="mSignin" role="status"></span></label>
         <div class="help">Off: anyone on your wifi can search and ask on your API key.
@@ -5416,6 +5425,7 @@ async function loadSetup() {
   $('#sStartRow').hidden = s.autostart === null || s.autostart === undefined;
   $('#sAutostart').checked = !!s.autostart;
   $('#sSignin').checked = !!s.require_signin;
+  showHttps(s);
   $('#sDamage').checked = !!s.show_damage_codes;
   $('#sRetrofits').checked = !!s.show_retrofits;
   $('#sShopAdmin').checked = !!s.show_shop_admin;
@@ -5675,6 +5685,30 @@ $('#sModel').onchange = async () => {
   showModelPrice();
   const v = $('#sModel').value;
   if (await saveSetting({model: v}, '#mModel')) { me.default_model = v; await loadSetup(); loadModels().catch(() => {}); }
+};
+// HTTPS for phones: what each phone does once, after it is on
+function showHttps(s) {
+  $('#httpsRow').hidden = !!s.https_main;     // serve.py --https: the whole server is HTTPS already
+  $('#sHttps').checked = !!s.https_phones && !!s.https_port;
+  const base = (s.phone_urls || []).find(u => u.startsWith('https://') && /\/\/\d/.test(u))
+    || (s.phone_urls || []).find(u => u.startsWith('https://'));
+  $('#httpsHelp').innerHTML = s.https_phones && s.https_port && base
+    ? `<b>On each phone, once:</b> open <b>${esc(base)}/ca.crt</b> and install it, so the phone trusts this PC `
+      + `(until then it shows a security warning). <b>iPhone:</b> open it in Safari, Allow, then Settings &rarr; `
+      + `Profile Downloaded &rarr; Install, then Settings &rarr; General &rarr; About &rarr; Certificate Trust `
+      + `Settings and turn it on. <b>Android:</b> Settings &rarr; Security &rarr; Encryption &amp; credentials &rarr; Install a `
+      + `certificate &rarr; CA certificate. A phone signed in at the old address signs in once more.`
+    : (s.https_error ? `<span style="color:var(--warn)">${esc(s.https_error)}</span> ` : '')
+      + `Phones then open AutoRundown at an <b>https://</b> address. Free: the certificate comes from this PC, `
+      + `nothing is bought or sent anywhere. This PC stays on http://localhost.`;
+}
+$('#sHttps').onchange = async e => {
+  const v = e.target.checked;
+  e.target.disabled = true;
+  if (!await saveSetting({https_phones: v}, '#mHttps')) e.target.checked = !v;
+  e.target.disabled = false;
+  await loadSetup();                  // the addresses, the QR and what to do on each phone
+  loadSiteQr().catch(() => {});
 };
 $('#sSignin').onchange = async e => {
   const v = e.target.checked;

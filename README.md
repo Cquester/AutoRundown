@@ -296,6 +296,12 @@ isolate guest-wifi devices from everything else).
 
 ### HTTPS on the shop network
 
+Phones need HTTPS for the microphone and for tap-to-copy. In the installed
+app: Shop setup → *Phones & mechanics* → **HTTPS for phones**. Phones then
+use `https://<PC address>:8758` (the QR and addresses shown there switch to
+it); this PC stays on `http://localhost:8756`. From source, the whole server
+can be HTTPS instead:
+
 ```bash
 python serve.py --https
 ```
@@ -304,7 +310,8 @@ No public certificate authority will sign for an address like
 `192.168.1.20`, so AutoRundown makes its own small one, once, in
 `~/.autorundown/tls/`, and issues a certificate for this PC's addresses
 (re-issued by itself when the PC's address changes). Each phone installs the
-authority once from `https://<PC address>:8756/ca.crt`:
+authority once from `https://<PC address>:8758/ca.crt` (`:8756` with
+`serve.py --https`), and signs in once more at the new address:
 
 - **iPhone/iPad:** open that link in Safari → Allow → Settings → *Profile
   Downloaded* → Install; then Settings → General → About → *Certificate Trust
@@ -355,8 +362,9 @@ switch between them without losing either:
   the session's spend show in this tab only.
 - **Voice**: the microphone beside **Ask** fills the box from speech (the
   browser's own speech to text -- Chrome and Edge send the sound to Google's
-  or Microsoft's speech service; it needs HTTPS or this PC; on a phone the
-  keyboard's own microphone works too). It never sends: you still press
+  or Microsoft's speech service; it needs HTTPS or this PC: for phones, turn
+  on **HTTPS for phones** in Shop setup → Phones & mechanics; the keyboard's
+  own microphone works either way). It never sends: you still press
   **Ask**. **Read aloud** on an answer reads it and its values with the
   device's own voices.
 - **Keyword search**: the manual's own words, free, no AI. Numbers work too:
