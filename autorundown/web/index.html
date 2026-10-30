@@ -1390,6 +1390,13 @@
     </div>
     <div class="manuals" id="impWisManuals"></div>
     <div class="manuals" id="impEpcManuals"></div>
+    <!-- a WIS setting, so it sits with WIS; outside impVmControls, which hide when VirtualBox is missing -->
+    <h3 class="subhead">What to show</h3>
+    <label class="check"><input type="checkbox" id="sDamage"> Show Mercedes damage-code menus
+      <span class="savedmark" id="mDamage" role="status"></span></label>
+    <div class="help">WIS has about 18,000 picture menus for picking a warranty fault code. They are not repair
+      documents and are not filed under any car, so when shown they appear for every car, in search, answers
+      and the manual's contents. Off unless you file warranty claims.</div>
   </div>
             </div>
             <div class="impbar">
@@ -1420,12 +1427,6 @@
             <div class="implog" id="impLog" hidden></div>
           </aside>
         </div>
-        <h3 class="subhead">What to show</h3>
-        <label class="check"><input type="checkbox" id="sDamage"> Show Mercedes damage-code menus
-          <span class="savedmark" id="mDamage" role="status"></span></label>
-        <div class="help">WIS has about 18,000 picture menus for picking a warranty fault code. They are not repair
-          documents and are not filed under any car, so when shown they appear for every car, in search, answers
-          and the manual's contents. Off unless you file warranty claims.</div>
       </section>
 
       <section class="setsec" id="sec-ai" hidden>

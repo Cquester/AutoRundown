@@ -139,7 +139,7 @@ files. "Start when I sign in" runs it as you, in the background.
   and pick `Mercedes Documents\autorundown_out\wis_extract`.
   WIS also holds ~18,000 **damage-code menus** (pictures for picking a warranty
   fault code, filed under no car). They are left out of search, answers and the
-  manual's contents; Shop setup → *Manuals* → *Show Mercedes damage-code menus*
+  manual's contents; Shop setup → *Manuals* → *Mercedes VM* → *Show Mercedes damage-code menus*
   turns them on.
 - The command-line tools are installed too:
   `"%LOCALAPPDATA%\Programs\AutoRundown\python\python.exe" "%LOCALAPPDATA%\Programs\AutoRundown\app\ask.py" --usage`.

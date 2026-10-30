@@ -679,7 +679,8 @@ car"; "what if i just want a little more or less").**
   M271.9, OM470 and a Fuso 4D34i, under a W210 (2026-10-24). W210 whole
   series 34,238 -> 16,241 documents. Search and Ask leave them out too
   (one ranked #1 for "connecting rod piston"): `search.show_damage_codes`,
-  off unless Shop setup -> Manuals -> "Show Mercedes damage-code menus"
+  off unless Shop setup -> Manuals -> Mercedes VM tab -> "Show Mercedes damage-code menus"
+  (under the import list until 2026-10-29)
   (`Config.show_damage_codes`, the user's choice: off by default, a
   setting to show them). Both use one rule, `search.is_damage_menu` /
   `_DAMAGE_MENU`: an 8-digit DokID starting 99 -- on the real index exactly
