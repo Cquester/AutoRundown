@@ -177,6 +177,7 @@ python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + pro
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
 python tests/test_history.py                      # question history: answers kept whole, who sees what (~2 s)
 python tests/test_chat.py                         # AI chat follow-ups vs the fake API, who may follow up (~5 s)
+python tests/test_chat_ui.py [--index <db>]       # AI chat reads top to bottom, earlier replies reshow, no AI in Keyword search, voice (~20 s, Playwright)
 python tests/test_numbers.py                      # typed part / document numbers stay whole; words stay words (<1 s)
 python tests/test_part_procedures.py              # a part's repair procedures: own group first, jobs first (<1 s)
 python tests/test_vin.py                          # VIN check digit, I/O/Q, typos (~5 s)
@@ -424,7 +425,10 @@ a follow-up ("tests 1-4 OK, 0 V at A5 -- the culprit?") is answered from
 the passages with `FOLLOWUP_SYSTEM`, the pages the chat cited sent again
 from the index, through the same `_verify_citations` and checks. A chat is
 one `history` entry; a follow-up's car and earlier turns come from that
-entry, never from the request. Earlier answers are never a source. Do not
+entry, never from the request. Earlier answers are never a source. The
+chat reads top to bottom (2026-10-30); a tap on an earlier reply shows its
+page and tabs again with no AI call (`selectTurn`); Keyword search shows no
+model or spend; the mic is the browser's speech to text and never sends. Do not
 let a follow-up skip a check or answer from general knowledge. Tests:
 `tests/test_chat.py`. First paid chat (Haiku, $0.032): an F-150 J2 reading
 of 50 ohms was answered "go to J3", the page's own branch. Details:

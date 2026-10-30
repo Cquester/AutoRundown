@@ -349,7 +349,16 @@ switch between them without losing either:
   manuals. Each reply's sources are checked like the first answer's, and the
   pages the chat already used are sent again so the test stays in view. Each
   message is one AI call; a chat holds 10 follow-ups, and **New chat** starts
-  another.
+  another. The chat reads top to bottom like any chat window, the box under
+  it; the newest reply's page and tabs are shown, and tapping an earlier
+  reply brings its page and tabs back (no new AI call). The AI model menu and
+  the session's spend show in this tab only.
+- **Voice**: the microphone beside **Ask** fills the box from speech (the
+  browser's own speech to text -- Chrome and Edge send the sound to Google's
+  or Microsoft's speech service; it needs HTTPS or this PC; on a phone the
+  keyboard's own microphone works too). It never sends: you still press
+  **Ask**. **Read aloud** on an answer reads it and its values with the
+  device's own voices.
 - **Keyword search**: the manual's own words, free, no AI. Numbers work too:
   a part number as printed (`A 201 880 25 71`, `A2018802571`, or its start,
   `A 201 880`) finds the parts that carry it, and a manual document number

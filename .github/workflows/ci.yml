@@ -182,6 +182,9 @@ jobs:
       - name: Result tabs show each tab's results
         run: python tests/test_answer_tabs.py --index "$RUNNER_TEMP/smoke.db"
 
+      - name: AI chat reads top to bottom; earlier replies reshow; voice
+        run: python tests/test_chat_ui.py --index "$RUNNER_TEMP/smoke.db"
+
       - name: Manual contents, parts drawings (red picks, several at once) and the divider
         # builds its own sample index with the stand-in parts catalogue
         run: python tests/test_drawing_ui.py
