@@ -687,7 +687,24 @@ car"; "what if i just want a little more or less").**
   the 17,997 SS documents, nothing else. `eval_wis` ceilings rose on three
   cases: the menus' general-pool slots now go to untied general documents
   that name other models (the menus named other vehicles too, as "BR 400",
-  which the guards don't read). Each document is listed with
+  which the guards don't read).
+  **Retrofits and shop papers are left out the same way** (2026-10-29, the
+  user picked them from a count of every kind on the live index):
+  `search.HIDEABLE_KINDS` by the document number's first two letters --
+  retrofits AN/AZ/EA (6,694 documents), shop papers OF/OS/SN/BT/WF/AS
+  (~1,570) -- read from `wis_links.sqlite`, so a re-extraction re-reads them;
+  10,153 DokIDs hidden on the live index (a document filed under several
+  numbers counts once per number kind). Only a document whose *every* number
+  is such a kind; one that is also an AR stays. `search.hidden_clause` is
+  in `_run`, `_run_scope` and the Manual contents (`manual_browse._rows`);
+  a link still opens the page. Off unless Shop setup -> Mercedes VM tab ->
+  "Show retrofit and accessory fitting" / "Show Mercedes shop papers"
+  (`Config.show_retrofits`, `show_shop_admin`). Cost on the live W210
+  scope: +15-110 ms on 160-980 ms searches; the list builds in 0.2 s and is
+  cached until the WIS vehicles or a sidecar change. Kept, after the same
+  count: SM service measures (recalls; they name a known fault), WS special
+  tools (repair pages link them), AD diagnosis, SI. `eval_wis.py` does not
+  set the kinds (it searches everything). Each document is listed with
   its kind; those left (pairs of one title) are one per engine, e.g. the
   E 320's M104 and M112 "Connecting rods"), each with
   what it is (Repair = AR, Function = GF, Service information = SI,

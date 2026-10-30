@@ -33,7 +33,7 @@ def money(x) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     cfg = config.load()
-    search_mod.show_damage_codes = cfg.show_damage_codes
+    search_mod.apply_shown(cfg)
     ap = argparse.ArgumentParser(description="Query the manual archive.")
     ap.add_argument("question", nargs="*", help="your question")
     ap.add_argument("--index", default=cfg.index_path)

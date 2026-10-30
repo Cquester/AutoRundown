@@ -73,6 +73,8 @@ def _rows(conn: sqlite3.Connection, scope) -> list[tuple]:
         return []
     where, args, _, _ = _filters(False, tuple(getattr(scope, "engines", ()) or ()),
                                  getattr(scope, "codes", ((), ())) or ((), ()))
+    hclause, hargs = search.hidden_clause(conn)      # the kinds the shop hides
+    where, args = where + hclause, [*args, *hargs]
     general = getattr(scope, "general", "")
     tclause, targs = _types_clause(getattr(scope, "types", "") or "")
     if tclause and general in ids:
@@ -138,7 +140,7 @@ def tree(conn: sqlite3.Connection, vehicle: dict, scope, wis: bool) -> dict:
     state = (*state, side.stat().st_mtime if wis and side.is_file() else 0)
     key = (vehicle["doc_id"], tuple(as_ids(scope)), getattr(scope, "engines", ()),
            getattr(scope, "codes", ()), getattr(scope, "types", ""), wis, tuple(state),
-           search.show_damage_codes)
+           search.show_damage_codes, search.hidden_kinds)
     with _lock:
         if key in _cache:
             return _cache[key]

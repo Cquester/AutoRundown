@@ -140,7 +140,8 @@ files. "Start when I sign in" runs it as you, in the background.
   WIS also holds ~18,000 **damage-code menus** (pictures for picking a warranty
   fault code, filed under no car). They are left out of search, answers and the
   manual's contents; Shop setup → *Manuals* → *Mercedes VM* → *Show Mercedes damage-code menus*
-  turns them on.
+  turns them on. Retrofit and accessory fitting (~6,700 documents) and Mercedes shop papers (forms,
+  disposal, new-model overviews: ~1,600) are left out the same way, each with its own checkbox there.
 - The command-line tools are installed too:
   `"%LOCALAPPDATA%\Programs\AutoRundown\python\python.exe" "%LOCALAPPDATA%\Programs\AutoRundown\app\ask.py" --usage`.
 
