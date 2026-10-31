@@ -295,8 +295,11 @@ def ewa_copy_checks(vmp) -> None:
     env.pop("AR_OUT_ROOT", None)
     out = subprocess.run([sys.executable, str(app / "extractor" / "wis_paths.py")], env=env,
                          capture_output=True, text=True).stdout
+    # compared as resolved paths: RUNNER~1 vs runneradmin, /var vs /private/var
+    got = next((l.split(None, 1)[1] for l in out.splitlines() if l.startswith("out_root ")), "")
+    want = user / "Desktop" / "Mercedes Documents" / "autorundown_out"
     check("the installed extractor writes to Desktop\\Mercedes Documents, not into the app",
-          f"out_root {user / 'Desktop' / 'Mercedes Documents' / 'autorundown_out'}" in out, out)
+          got and Path(got).resolve() == want.resolve(), out)
 
 
 def wait(c: TestClient, seen: list, timeout: float = 90) -> dict:
