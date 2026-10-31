@@ -108,12 +108,16 @@ files. "Start when I sign in" runs it as you, in the background.
   install's Java and its database driver (`tbjdbc.jar`) -- is Mercedes
   software, so it is not in the installer: the first run copies it out of
   the VM (about 175 MB, once, typed into the VM like the firewall rule
-  below) into `Desktop\Mercedes Documents\ewa_extract`. The extracted
-  manuals go to `Desktop\Mercedes Documents\autorundown_out`. To use
+  below). It and the extracted manuals are kept in the app's own data
+  folder, `%LOCALAPPDATA%\AutoRundown\Mercedes data` (an older install's
+  `Desktop\Mercedes Documents` is moved there when the app starts).
+  Uninstalling leaves it; **Delete all Mercedes data** on the VM tab removes
+  WIS and EPC from the index and sends the folder to the Recycle Bin. To use
   another extractor copy, set it under Shop setup → *Advanced* →
   *Mercedes extractor folder*. Choose the VM with
-  *Choose VM file…*: browse to its `.vbox` file (usually in its own folder
-  under `VirtualBox VMs`); the choice is remembered. The same tab can pull
+  *Choose VM file…*: Windows' own Open window comes up; pick its `.vbox`
+  file (usually in its own folder under `VirtualBox VMs`). The choice is
+  remembered. The *Folder* tab's *Browse…* opens it too. The same tab can pull
   the **EPC parts catalogue** (*What to extract* → *EPC*): part
   numbers and exploded drawings then show under each car beside its manual.
   *Both* runs WIS and then EPC as one job (EPC is not started if WIS fails);
@@ -138,7 +142,7 @@ files. "Start when I sign in" runs it as you, in the background.
   own **snapshot** of the VM; *Snapshots and rolling back* restores one (the
   VM as it was is snapshotted first, so that can be undone too).
   **If your manuals are already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,
-  and pick `Mercedes Documents\autorundown_out\wis_extract`.
+  and pick the `autorundown_out\wis_extract` folder.
   WIS also holds ~18,000 **damage-code menus** (pictures for picking a warranty
   fault code, filed under no car). They are left out of search, answers and the
   manual's contents; Shop setup → *Manuals* → *Mercedes VM* → *Show Mercedes damage-code menus*

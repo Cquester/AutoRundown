@@ -1280,6 +1280,7 @@
   <div id="impFolder">
     <label for="impPath">Folder</label>
     <div class="row"><input id="impPath" type="text" style="flex:1">
+      <button class="ghost" id="impPick" hidden title="Choose the folder in Windows' own window">Browse…</button>
       <button class="ghost" id="impGo">Open</button><button class="ghost" id="impUp" title="Parent folder">Up</button></div>
     <button type="button" class="linkbtn" id="impChange" hidden style="margin-top:8px">Change folder…</button>
     <div class="dirlist" id="impDirs"></div>
@@ -1785,6 +1786,7 @@ let me = {admin: false};
 async function loadMe() {
   me = await api('/api/me');
   $('#settingsBtn').hidden = !me.admin;   // (the gate hides it while starting)
+  $('#impPick').hidden = !me.file_dialog;  // Windows' own Open dialog, the PC only
   $('#acctBtn').hidden = !me.signed_in;
   if (me.signed_in) $('#acctBtn').textContent = me.name;
   return me;
@@ -6887,7 +6889,8 @@ async function manRemove(mode, ids) {
 let impSawRunning = false;
 const impDur = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`
   : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
-const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'remove_wis'
+const impJobName = s => s.mode === 'remove' ? 'removing manuals' : s.mode === 'remove_mercedes'
+  ? 'deleting Mercedes data' : s.mode === 'remove_wis'
   ? 'removing Mercedes WIS' : s.mode === 'remove_epc' ? 'removing Mercedes EPC'
   : s.mode === 'vm' ? 'Mercedes VM extract' : s.mode === 'vm_epc' ? 'Mercedes EPC extract'
   : s.mode === 'vm_both' ? 'Mercedes WIS + EPC extract' : s.mode === 'vm_check' ? 'VM test'
@@ -7044,9 +7047,51 @@ async function impVms() {
     vmSetChosen(running && running !== r.chosen?.name ? {name: running, file: ''}
                 : r.chosen && r.vms.some(v => v.name === r.chosen.name) ? r.chosen : null, false);
     $('#impVmNote').innerHTML = `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`;
+    vmHome();
   } catch (e) { noVm(e.message); }
 }
+// the installed app's Mercedes folder (pulls, images, the EWA copy): in the
+// app's own data folder, never the Desktop, and deletable here as a whole
+// (the user, 2026-10-31). A source checkout has none: the note above stays.
+const gb = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`;
+async function vmHome() {
+  let h;
+  try { h = await api('/api/vms/home'); } catch (_) { return; }
+  if (!h.path) return;
+  $('#impVmNote').innerHTML = `<div class="detected">Extracted data is kept in AutoRundown's own data folder: `
+    + `<code style="word-break:break-all">${esc(h.path)}</code>${h.exists ? ' <span class="muted" id="vmHomeSize">(counting…)</span>' : ''}</div>`
+    + (h.exists ? '<div class="rmbar"><button type="button" class="danger" id="vmHomeDelete">Delete all Mercedes data</button></div>'
+      + '<div class="muted" style="font-size:13px; margin-top:6px">Removes Mercedes WIS and EPC from the index and '
+      + 'sends this folder to the Recycle Bin. The VM itself is not touched.</div>' : '');
+  if (!h.exists) return;
+  let size = '';
+  api('/api/vms/home?size=1', {}, 300000).then(r => {
+    size = gb(r.bytes || 0);
+    if ($('#vmHomeSize')) $('#vmHomeSize').textContent = `(${size})`;
+  }, () => { $('#vmHomeSize')?.remove(); });
+  $('#vmHomeDelete').onclick = () => {
+    if (!confirm(`Delete ALL Mercedes data${size ? ` (${size})` : ''}?\n\nMercedes WIS and EPC are removed from the `
+        + `index, the index file is shrunk, and this folder goes to the Recycle Bin:\n  • ${h.path}\n\n`
+        + 'Your other manuals, the spend log and the VM are not touched. Getting it back means extracting '
+        + 'it from the VM again (hours).')) return;
+    manRemove('remove_mercedes', []);
+  };
+}
+// Browse: the PC's own Open dialog (/api/browse/native) where there is one;
+// null = none here (the page's own folder list is used instead)
+async function nativePick(kind, start = '') {
+  try {
+    const r = await api('/api/browse/native', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({kind, start})}, 610000);
+    return r.path;
+  } catch (e) {
+    if (e.status === 501) { me.file_dialog = false; return null; }
+    throw e;
+  }
+}
+let vmFile = '';
 function vmSetChosen(c, check = true) {
+  vmFile = c?.file || '';
   $('#impVm').value = c?.name || '';
   $('#impVmChosen').innerHTML = c?.name
     ? `<b>${esc(c.name)}</b>${c.file ? ` <span class="muted" style="font-size:13px">${esc(c.file)}</span>` : ''}`
@@ -7083,9 +7128,30 @@ async function vmPick(file) {
     $('#impVmFiles').insertAdjacentHTML('afterbegin', `<div class="errbox">${esc(e.message)}</div>`);
   }
 }
-$('#impVmBrowse').addEventListener('click', () => {
+$('#impVmBrowse').addEventListener('click', async () => {
   if (!$('#impVmFiles').hidden) { $('#impVmFiles').hidden = true; return; }
-  vmBrowse('');
+  if (!me.file_dialog) return vmBrowse('');
+  const b = $('#impVmBrowse'), was = b.textContent;
+  b.disabled = true; b.textContent = 'Choose it in the window that opened…';
+  try {
+    const f = await nativePick('vbox', vmFile.replace(/[\\/][^\\/]*$/, ''));
+    if (f === null) vmBrowse('');
+    else if (f) await vmPick(f);
+  } catch (e) {
+    $('#impVmFiles').hidden = false;
+    $('#impVmFiles').innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  } finally { b.disabled = false; if (b.textContent.startsWith('Choose it')) b.textContent = was; }
+});
+$('#impPick').addEventListener('click', async () => {
+  const b = $('#impPick');
+  b.disabled = true;
+  try {
+    const f = await nativePick('folder', $('#impPath').value.trim());
+    if (f === null) b.hidden = true;               // none here: the list below it is the way
+    else if (f) { impTyped++; $('#impPath').value = f; impBrowse(f); }
+  } catch (e) {
+    $('#impDetected').innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  } finally { b.disabled = false; }
 });
 // what a run on the chosen VM needs, checked without booting it
 // (vm_pipeline.py --check): Extract and Test stay off until nothing fails

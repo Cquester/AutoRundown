@@ -10,9 +10,10 @@ Those stay in the "Mercedes Documents" folder:
   otherwise    the nearest "Mercedes Documents" folder beside the repo or one
                of its parents (Desktop/Mercedes Documents for the usual layout,
                also found from a worktree); in the installed app (the MSI's
-               app/extractor) Desktop/Mercedes Documents; or this folder's
-               parent when the extractor still sits in that folder (the old
-               standalone layout)
+               app/extractor) the app's own data folder,
+               %LOCALAPPDATA%/AutoRundown/Mercedes data (installed_home); or
+               this folder's parent when the extractor still sits in that
+               folder (the old standalone layout)
 
 An output root inside the repo is refused: one run would put gigabytes of
 Mercedes data where `git add` can reach it.
@@ -31,7 +32,11 @@ def home() -> Path:
     if os.environ.get("AR_HOME"):
         return Path(os.environ["AR_HOME"]).resolve()
     if REPO is None and (HERE.parent / "autorundown").is_dir():
-        return installed_home()                 # the MSI's app/extractor: never write into the app
+        # the MSI's app/extractor: never write into the app. An older
+        # install's Desktop folder stays in use until the server has moved
+        # it (a failed move strands nothing)
+        new, old = installed_home(), legacy_home()
+        return old if old is not None and not new.exists() else new
     if REPO is None:
         return HERE.parent                      # .../Mercedes Documents/autorundown_extractor
     for p in REPO.parents:
@@ -40,18 +45,30 @@ def home() -> Path:
     return REPO.parent / "Mercedes Documents"   # created on first use, outside the repo
 
 
+HOME_NAME = "Mercedes data"
+
+
 def installed_home() -> Path:
-    """Desktop/Mercedes Documents (the OneDrive Desktop's when only that one
-    exists): where a source checkout keeps it too, so moving between the two
-    finds the same data. Uninstalling the app leaves it alone."""
-    sub = "Mercedes Documents"
+    """The installed app's Mercedes folder: beside the program, never on the
+    Desktop (the user, 2026-10-31: a 12 GB folder named after nobody's PC,
+    and OneDrive syncs a Desktop). %LOCALAPPDATA%/AutoRundown/Mercedes data;
+    under AUTORUNDOWN_HOME when that is set (tests, a second instance).
+    Uninstalling leaves it; Shop setup's "Delete all Mercedes data" removes
+    it. The server moves an older install's Desktop folder here
+    (importer_jobs.move_mercedes_home, legacy_home)."""
+    if os.environ.get("AUTORUNDOWN_HOME"):
+        return Path(os.environ["AUTORUNDOWN_HOME"]) / HOME_NAME
+    base = os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+    return Path(base) / "AutoRundown" / HOME_NAME   # created on first use
+
+
+def legacy_home() -> Path | None:
+    """Where the installed app kept it until 0.1.10: Desktop/Mercedes
+    Documents (the OneDrive Desktop's too), if it is there."""
     for desk in (Path.home() / "Desktop", Path.home() / "OneDrive" / "Desktop"):
-        if (desk / sub).is_dir():
-            return desk / sub
-    desk = Path.home() / "Desktop"
-    if not desk.is_dir() and (Path.home() / "OneDrive" / "Desktop").is_dir():
-        desk = Path.home() / "OneDrive" / "Desktop"
-    return desk / sub                           # created on first use
+        if (desk / "Mercedes Documents").is_dir():
+            return desk / "Mercedes Documents"
+    return None
 
 
 def out_root() -> Path:

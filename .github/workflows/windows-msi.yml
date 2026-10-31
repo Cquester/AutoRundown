@@ -221,16 +221,21 @@ jobs:
           if ($wasm.Headers["Content-Type"] -ne "application/wasm") { throw "Scan VIN's barcode reader not served" }
           # the WIS extractor ships in the app and runs under the bundled
           # Python (no VirtualBox here, so it stops at --list-vms); it writes
-          # to Desktop\Mercedes Documents, never into the app's folder
+          # to the app's data folder (%LOCALAPPDATA%\AutoRundown\Mercedes data),
+          # never the Desktop nor the app's program folder
           $ext = "$env:LOCALAPPDATA\Programs\AutoRundown\app\extractor"
           $vms = Invoke-RestMethod http://127.0.0.1:8756/api/vms
           "extractor: $($vms.extractor) | $($vms.error)"
           if ($vms.extractor -ne $ext) { throw "the bundled extractor was not used" }
           $where = & "$env:LOCALAPPDATA\Programs\AutoRundown\python\python.exe" "$ext\wis_paths.py"
           "$where"
-          if (-not ($where -match [regex]::Escape("out_root $env:USERPROFILE\Desktop\Mercedes Documents\autorundown_out"))) {
-            throw "the bundled extractor would not write to Desktop\Mercedes Documents"
+          # (under AUTORUNDOWN_HOME when that is set, as in this step)
+          $data = if ($env:AUTORUNDOWN_HOME) { $env:AUTORUNDOWN_HOME } else { "$env:LOCALAPPDATA\AutoRundown" }
+          if (-not ($where -match [regex]::Escape("out_root $data\Mercedes data\autorundown_out"))) {
+            throw "the bundled extractor would not write to the app's data folder"
           }
+          $me = Invoke-RestMethod http://127.0.0.1:8756/api/me
+          if (-not $me.file_dialog) { throw "Browse would not open Windows' own file dialog" }
           # the phone name: announced, and resolvable from another process
           $s = Invoke-RestMethod http://127.0.0.1:8756/api/settings
           "phone: $($s.phone_urls -join ' | ')  autostart: $($s.autostart)"

@@ -283,23 +283,129 @@ def ewa_copy_checks(vmp) -> None:
         vmp.STARTED.discard("VM")
 
     # where the installed app's extractor (app/extractor, beside autorundown/)
-    # reads and writes: the user's Desktop, never the app's own folder
+    # reads and writes: the app's own data folder, never the Desktop
+    # (2026-10-31) nor the app's program folder
     app = TMP / "Programs" / "AutoRundown" / "app"
     (app / "autorundown").mkdir(parents=True, exist_ok=True)
     (app / "extractor").mkdir(exist_ok=True)
     shutil.copy2(ROOT / "extractor" / "wis_paths.py", app / "extractor")
     user = TMP / "user"
     (user / "Desktop").mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "USERPROFILE": str(user), "HOME": str(user)}
-    env.pop("AR_HOME", None)
-    env.pop("AR_OUT_ROOT", None)
-    out = subprocess.run([sys.executable, str(app / "extractor" / "wis_paths.py")], env=env,
-                         capture_output=True, text=True).stdout
+    local = user / "AppData" / "Local"
+    env = {**os.environ, "USERPROFILE": str(user), "HOME": str(user), "LOCALAPPDATA": str(local)}
+    for k in ("AR_HOME", "AR_OUT_ROOT", "AUTORUNDOWN_HOME"):
+        env.pop(k, None)
+
+    def where() -> str:
+        out = subprocess.run([sys.executable, str(app / "extractor" / "wis_paths.py")], env=env,
+                             capture_output=True, text=True).stdout
+        return next((l.split(None, 1)[1] for l in out.splitlines() if l.startswith("out_root ")), out)
+
     # compared as resolved paths: RUNNER~1 vs runneradmin, /var vs /private/var
-    got = next((l.split(None, 1)[1] for l in out.splitlines() if l.startswith("out_root ")), "")
-    want = user / "Desktop" / "Mercedes Documents" / "autorundown_out"
-    check("the installed extractor writes to Desktop\\Mercedes Documents, not into the app",
-          got and Path(got).resolve() == want.resolve(), out)
+    want = local / "AutoRundown" / "Mercedes data" / "autorundown_out"
+    got = where()
+    check("the installed extractor writes to %LOCALAPPDATA%\\AutoRundown\\Mercedes data, not the Desktop",
+          Path(got).resolve() == want.resolve(), got)
+    old = user / "Desktop" / "Mercedes Documents"
+    (old / "autorundown_out").mkdir(parents=True)
+    got = where()
+    check("... an older install's Desktop folder stays in use until the app has moved it",
+          Path(got).resolve() == (old / "autorundown_out").resolve(), got)
+    shutil.rmtree(old)
+
+
+def home_checks(pc: TestClient, phone: TestClient) -> None:
+    """The installed app's Mercedes folder: moved off the Desktop once, its
+    manuals repointed; "Delete all Mercedes data"; Browse's own dialog."""
+    from autorundown import index, native_dialog, recycle
+    pc.post("/api/settings", json={"extractor_dir": ""})   # the app's own extractor
+    # an installed app (no .git): app/autorundown + app/extractor
+    app = TMP / "inst" / "app"
+    (app / "autorundown").mkdir(parents=True)
+    (app / "extractor").mkdir()
+    shutil.copy2(ROOT / "extractor" / "wis_paths.py", app / "extractor")
+    (app / "extractor" / "vm_pipeline.py").write_text("", encoding="utf-8")
+    user = TMP / "inst" / "user"
+    old = user / "Desktop" / "Mercedes Documents"
+    (old / "autorundown_out" / "wis_extract" / "images").mkdir(parents=True)
+    (old / "autorundown_out" / "wis_extract" / "images" / "1.png").write_bytes(b"x" * 10)
+    db = TMP / "inst" / "index.db"
+    conn = index.connect(db)
+    conn.execute("INSERT INTO vehicles(doc_id, source_name, file_path) VALUES"
+                 "('w', 'mercedes-wis-virtualbox', ?), ('l', 'lemon', ?)",
+                 (str(old / "autorundown_out" / "wis_extract"), str(TMP / "lemon" / "car")))
+    conn.commit()
+    conn.close()
+    real_root, saved = importer_jobs.ROOT, {k: os.environ.get(k) for k in ("USERPROFILE", "HOME")}
+    importer_jobs.ROOT = app
+    os.environ["USERPROFILE"] = os.environ["HOME"] = str(user)
+    new = Path(os.environ["AUTORUNDOWN_HOME"]) / "Mercedes data"
+    try:
+        got = importer_jobs.mercedes_home()
+        check("installed app: the old Desktop folder is used until it is moved", got == old, got)
+        said = importer_jobs.move_mercedes_home(db)
+        conn = index.connect(db)
+        paths = dict(conn.execute("SELECT doc_id, file_path FROM vehicles"))
+        conn.close()
+        check("an older install's Desktop folder is moved to the app's data folder",
+              not old.exists() and (new / "autorundown_out" / "wis_extract" / "images" / "1.png").is_file()
+              and "moved" in said, said)
+        check("... WIS is repointed there, another manual left alone",
+              Path(paths["w"]) == new / "autorundown_out" / "wis_extract"
+              and paths["l"] == str(TMP / "lemon" / "car"), paths)
+        check("... and it is in use from then on, moved once",
+              importer_jobs.mercedes_home() == new and importer_jobs.move_mercedes_home(db) == "")
+    finally:
+        importer_jobs.ROOT = real_root
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    check("a source checkout has no app Mercedes folder to delete", importer_jobs.mercedes_home() is None)
+    stray = TMP / "inst" / "other" / "Mercedes data"
+    stray.mkdir(parents=True)
+    check("the Recycle Bin takes the Mercedes folder, not just any folder of that name",
+          recycle.allowed(new) == "" and recycle.allowed(stray) != "")
+
+    # Delete all Mercedes data: WIS and EPC out of the index, the folder away
+    os.environ["AUTORUNDOWN_RECYCLE_TO"] = str(TMP / "inst" / "bin")
+    real_home = importer_jobs.mercedes_home
+    importer_jobs.mercedes_home = lambda: new
+    try:
+        check("a phone cannot delete the Mercedes data or ask where it is",
+              phone.post("/api/import", json={"path": "", "mode": "remove_mercedes"}).status_code == 403
+              and phone.get("/api/vms/home").status_code == 403)
+        h = pc.get("/api/vms/home", params={"size": 1}).json()
+        check("the PC sees the folder and its size", h["exists"] and h["bytes"] == 10, h)
+        r = pc.post("/api/import", json={"path": "", "mode": "remove_mercedes"})
+        s = wait(pc, []) if r.status_code == 200 else {"state": r.text}
+        vs = {v["doc_id"] for v in pc.get("/api/vehicles").json()}
+        check("Delete all Mercedes data: the folder goes to the Recycle Bin, WIS / EPC leave the index",
+              s["state"] == "done" and not new.exists() and any((TMP / "inst" / "bin").iterdir())
+              and not any(d.startswith("mercedes-") for d in vs), s.get("state"))
+        r = pc.post("/api/import", json={"path": "", "mode": "remove_mercedes"})
+        check("... and with none left, there is nothing to delete", r.status_code == 400, r.status_code)
+    finally:
+        importer_jobs.mercedes_home = real_home
+        os.environ.pop("AUTORUNDOWN_RECYCLE_TO", None)
+
+    # Browse: the PC's own Open dialog -- stubbed: a real one waits for a person
+    real_pick = native_dialog.pick
+    try:
+        native_dialog.pick = lambda kind, start="": "C:\\VMs\\Mercedes.vbox"
+        r = pc.post("/api/browse/native", json={"kind": "vbox"})
+        check("Browse: the PC's dialog's pick comes back", r.json() == {"path": "C:\\VMs\\Mercedes.vbox"}, r.text)
+        native_dialog.pick = lambda kind, start="": None
+        check("... no dialog on this PC: 501, the page uses its own list",
+              pc.post("/api/browse/native", json={"kind": "folder"}).status_code == 501)
+        check("... an unknown kind is refused",
+              pc.post("/api/browse/native", json={"kind": "exe"}).status_code == 422)
+        check("... a phone can never open one",
+              phone.post("/api/browse/native", json={"kind": "vbox"}).status_code == 403
+              and phone.get("/api/me").json()["file_dialog"] is False)
+    finally:
+        native_dialog.pick = real_pick
 
 
 def wait(c: TestClient, seen: list, timeout: float = 90) -> dict:
@@ -586,6 +692,7 @@ def main() -> int:
         ck = pc.get("/api/vms/check", params={"vm": "Old VM", "what": "wis"}).json()
         check("an extractor too old to check a VM is not ready, and says to update it",
               not ck["ready"] and "too old" in ck["checks"][0]["message"], ck)
+        home_checks(pc, phone)
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print(f"\n{'all passed' if not fails else f'{fails} FAILED'}")
