@@ -95,12 +95,18 @@ def main(argv=None):
         return 1
 
     asks, pages, forbidden, errors = [], [], [], []
+    key = [True]
 
     def on_api(route, request):
         u = urlparse(request.url)
         if u.path == "/api/ask" and request.method == "POST":
             asks.append(request.post_data_json)
             return route.fulfill(json=canned(min(len(asks) - 1, 1)))
+        if u.path == "/api/me":     # the test server has no key: Ask on unless a test says
+            me = {**route.fetch().json(), "can_ask": key[0]}
+            if not key[0]:
+                me["ask_off"] = "No AI API key yet. Add one in Shop setup → AI answers."
+            return route.fulfill(json=me)
         if request.method != "GET":
             forbidden.append(f"{request.method} {u.path}")
             return route.abort()
@@ -233,6 +239,26 @@ def main(argv=None):
         check("phone: the box is docked under the chat",
               ph.evaluate("document.querySelector('.askbar').getBoundingClientRect().top"
                           " >= document.querySelector('#out').getBoundingClientRect().bottom - 1"))
+
+        # -- no API key: greyed out with why, never a question that spins ----
+        key[0] = False
+        n = len(asks)
+        for nk in (new_page(viewport={"width": 1280, "height": 800}),
+                   new_page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)):
+            w = nk.viewport_size["width"]
+            check(f"no key ({w}px): Ask and the box are greyed out",
+                  nk.locator("#askBtn").is_disabled() and nk.locator("#q").is_disabled())
+            check(f"no key ({w}px): the AI chat says why, with the way out",
+                  nk.locator("#keyNote").is_visible() and "API key" in nk.inner_text("#keyNote")
+                  and nk.locator("#keyNoteAdd").is_visible() and nk.locator("#keyNoteKw").is_visible())
+            nk.evaluate("$('#q').disabled = false; $('#q').value = 'drain plug torque'; ask()")
+            nk.wait_for_timeout(500)
+            check(f"no key ({w}px): Enter or Ask sends nothing, no spinner",
+                  len(asks) == n and nk.locator("#asking").count() == 0)
+            nk.click("#keyNoteKw")
+            check(f"no key ({w}px): Keyword search still works from the note",
+                  nk.locator("#searchBtn").is_visible() and nk.locator("#q").is_enabled()
+                  and not nk.locator("#keyNote").is_visible())
         browser.close()
 
     check("no request but GETs and the canned Asks", not forbidden, str(forbidden))
