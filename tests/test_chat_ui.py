@@ -246,12 +246,14 @@ def main(argv=None):
         for nk in (new_page(viewport={"width": 1280, "height": 800}),
                    new_page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)):
             w = nk.viewport_size["width"]
-            check(f"no key ({w}px): Ask and the box are greyed out",
-                  nk.locator("#askBtn").is_disabled() and nk.locator("#q").is_disabled())
+            check(f"no key ({w}px): Ask is greyed out, the box says why",
+                  nk.locator("#askBtn").is_disabled()
+                  and "API key" in nk.get_attribute("#q", "placeholder"))
             check(f"no key ({w}px): the AI chat says why, with the way out",
                   nk.locator("#keyNote").is_visible() and "API key" in nk.inner_text("#keyNote")
                   and nk.locator("#keyNoteAdd").is_visible() and nk.locator("#keyNoteKw").is_visible())
-            nk.evaluate("$('#q').disabled = false; $('#q').value = 'drain plug torque'; ask()")
+            nk.fill("#q", "drain plug torque")
+            nk.press("#q", "Enter")
             nk.wait_for_timeout(500)
             check(f"no key ({w}px): Enter or Ask sends nothing, no spinner",
                   len(asks) == n and nk.locator("#asking").count() == 0)

@@ -3791,11 +3791,11 @@ function syncMode() {
   $('#clearBtn').title = ai ? 'End this conversation; the next question starts a new one'
                             : 'Clear the search and its results';
   $('#clearBtn').hidden = !shown[mode];
-  // no API key for this person (/api/me can_ask): greyed out, with why --
-  // a question sent anyway only came back refused
+  // no API key for this person (/api/me can_ask): Ask greyed out, with why --
+  // a question sent anyway only came back refused. The box stays usable: its
+  // text can go to Keyword search
   const off = ai && !canAsk();
   $('#askBtn').disabled = asking || off;
-  $('#q').disabled = $('#micBtn').disabled = off;
   if (off) $('#q').placeholder = 'AI answers need an API key';
   $('#keyNote').hidden = !off;
   $('#keyNoteText').textContent = (me.ask_off || '') + ' Keyword search works without one.';
