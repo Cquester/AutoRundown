@@ -41,7 +41,7 @@ by the test, not the server, so nothing is written and it is fast. Anything
 that is not a GET, and /api/ask in particular, is aborted and fails the run --
 this never spends API credit.
 """
-from _paths import ROOT  # noqa: F401  (puts the repo on sys.path)
+from _paths import ROOT, exit_now  # noqa: F401  (puts the repo on sys.path)
 import argparse
 import json
 import socket
@@ -632,4 +632,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    exit_now(main())

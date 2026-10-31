@@ -31,7 +31,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from _paths import ROOT
+from _paths import ROOT, exit_now
 
 HTML = (ROOT / "autorundown" / "web" / "index.html").read_text(encoding="utf-8")
 # ../Mercedes Documents next to the repo (or next to the main checkout, from a
@@ -281,4 +281,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_now(main())

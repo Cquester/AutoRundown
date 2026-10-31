@@ -19,7 +19,7 @@ Drives the real page against a read-only index (agent review, 2026-10-28):
 Anything that is not a GET, and /api/ask, is aborted and fails the run.
 Never spends API credit.
 """
-from _paths import ROOT
+from _paths import ROOT, exit_now
 import argparse
 import os
 import subprocess
@@ -189,4 +189,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_now(main())

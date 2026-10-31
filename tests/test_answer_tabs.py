@@ -24,7 +24,7 @@ read-only index and checks:
 
 Anything that is not a GET, apart from the canned Ask, fails the run.
 """
-from _paths import ROOT
+from _paths import ROOT, exit_now
 import argparse
 import json
 import os
@@ -272,4 +272,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_now(main())

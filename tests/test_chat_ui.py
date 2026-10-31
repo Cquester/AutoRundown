@@ -25,7 +25,7 @@ read-only index, answers each Ask with a canned payload, and checks:
 
 Anything that is not a GET, apart from the canned Asks, fails the run.
 """
-from _paths import ROOT  # noqa: F401
+from _paths import ROOT, exit_now  # noqa: F401
 import argparse
 import json
 import sys
@@ -244,4 +244,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_now(main())

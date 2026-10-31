@@ -27,7 +27,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from _paths import ROOT
+from _paths import ROOT, exit_now
 from _vin_images import _font, barcode, fin, phone_photo, text_label, us_vin, with_check
 
 HTML = (ROOT / "autorundown" / "web" / "index.html").read_text(encoding="utf-8")
@@ -197,4 +197,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_now(main())
