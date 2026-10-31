@@ -142,9 +142,16 @@ macOS/Linux run from source (README), by the user's decision.
   it runs -- the EWA Java and `tbjdbc.jar` -- is Mercedes software and never
   ships: `vm_pipeline.copy_ewa_from_vm` copies them out of the chosen VM on
   the first run (`importing.md`). In the app, `wis_paths.home()` is
-  `Desktop\Mercedes Documents` (`installed_home`; the OneDrive Desktop's
-  when only that exists), never the app's folder: uninstalling must not
-  take the user's extraction with it.
+  `%LOCALAPPDATA%\AutoRundown\Mercedes data` (`installed_home`; under
+  `AUTORUNDOWN_HOME` when set), never the app's program folder: uninstalling
+  must not take the user's extraction with it (the user, 2026-10-31, chose
+  "keep it, add a button": Shop setup's "Delete all Mercedes data"). Until
+  0.1.10 it was `Desktop\Mercedes Documents`: the user found a 64 GB folder
+  on the Desktop showing their own name, and OneDrive syncs a Desktop. As
+  the server starts, `importer_jobs.move_mercedes_home` renames that folder
+  to the new place (instant on one drive) and repoints `vehicles.file_path`;
+  if the rename fails (another drive, a file open) the old folder stays in
+  use (`wis_paths.home` prefers it until the new one exists).
   `importer_jobs.extractor_candidates()`: config `extractor_dir` (Settings
   -> "Mercedes extractor folder"), then `extractor/` beside the app (the
   repo's, or the bundled one) -- no fallback to a second copy (they drift).
@@ -153,7 +160,11 @@ macOS/Linux run from source (README), by the user's decision.
   Desktop one. The bundle includes `requirements-extractor.txt` (Pillow,
   ezdxf) because the extractor runs under the bundled Python and its build
   step converts images. CI checks `/api/vms` uses the bundled extractor and
-  that it would write to `Desktop\Mercedes Documents\autorundown_out`.
+  that it would write to `...\Mercedes data\autorundown_out`, and that
+  `/api/me` offers Windows' own file dialog (`native_dialog.py`:
+  PowerShell's Windows.Forms Open / folder dialogs, run by the server on the
+  PC; a page cannot learn a picked file's path, so the browser's own file
+  input could not do this).
 - Unsigned: SmartScreen warns (README says what to click). Signing needs a
   certificate; nothing in the build does it yet.
 - **The embeddable Python is verified** (2026-10-09): `build.ps1` checks

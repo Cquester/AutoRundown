@@ -877,11 +877,16 @@ default, since the fresh start on 2026-10-29; `config.json` `index_path`
 names it), and the spend log lives inside it. The repo folder holds no
 index the app uses, so recloning or moving the repo changes nothing for the
 installed app. The manuals and images it points to live outside the repo
-(`Downloads`, `Desktop\Mercedes Documents`). The MSI ships the extractor
+(`Downloads`, the Mercedes data folder). The MSI ships the extractor
 (`app\extractor`, 2026-10-31), which the VM tab runs when `extractor_dir`
-is blank; it reads and writes `Desktop\Mercedes Documents`
-(`wis_paths.installed_home`) and copies the EWA Java and `tbjdbc.jar` out
-of the VM when that folder has none (`vm_pipeline.copy_ewa_from_vm`).
+is blank; it reads and writes `%LOCALAPPDATA%\AutoRundown\Mercedes data`
+(`wis_paths.installed_home`, 2026-10-31, the user: not on the Desktop; the
+server moves an older install's `Desktop\Mercedes Documents` there once,
+`importer_jobs.move_mercedes_home`, and repoints the index) and copies the
+EWA Java and `tbjdbc.jar` out of the VM when that folder has none
+(`vm_pipeline.copy_ewa_from_vm`). Uninstalling leaves it; "Delete all
+Mercedes data" (VM tab) removes WIS + EPC and recycles it. Browse buttons
+open Windows' own Open dialog (`native_dialog.py`, the PC only).
 `Mercedes Documents\autorundown_extractor` is the old standalone copy, used
 only by an older MSI.
 

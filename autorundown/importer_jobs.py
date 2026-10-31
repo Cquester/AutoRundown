@@ -85,17 +85,91 @@ def extractor_out_root(ext: Path) -> Path:
     Asks the extractor's own wis_paths.py, so the site and the scripts agree;
     an older copy without it wrote beside itself.
     """
-    import importlib.util
-    paths = ext / "wis_paths.py"
-    if not paths.is_file():
+    mod = _wis_paths(ext)
+    if mod is None:
         return ext.parent / "autorundown_out"
-    spec = importlib.util.spec_from_file_location("_ar_wis_paths", paths)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
     try:
         return mod.out_root()
     except SystemExit as e:              # an AR_OUT_ROOT inside the repo
         raise RuntimeError(str(e)) from None
+
+
+def _wis_paths(ext: Path):
+    """That extractor's own wis_paths module, or None (an older copy)."""
+    import importlib.util
+    paths = ext / "wis_paths.py"
+    if not paths.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("_ar_wis_paths", paths)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def mercedes_home() -> Path | None:
+    """The installed app's Mercedes folder (autorundown_out, the EWA copy),
+    or None for a source checkout or an extractor set by hand: "Delete all
+    Mercedes data" only ever offers the app's own folder."""
+    ext = find_extractor()
+    mod = _wis_paths(ext) if ext else None
+    if (mod is None or not hasattr(mod, "installed_home") or mod.REPO is not None
+            or ext.resolve() != (ROOT / "extractor").resolve()
+            or os.environ.get("AR_HOME") or os.environ.get("AR_OUT_ROOT")):
+        return None
+    return mod.home()
+
+
+def folder_size(path: Path) -> int:
+    """Bytes under `path` (links not followed)."""
+    total, todo = 0, [Path(path)]
+    while todo:
+        try:
+            with os.scandir(todo.pop()) as it:
+                for e in it:
+                    try:
+                        if e.is_dir(follow_symlinks=False):
+                            todo.append(Path(e.path))
+                        elif e.is_file(follow_symlinks=False):
+                            total += e.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+    return total
+
+
+def move_mercedes_home(index_path: Path) -> str:
+    """Move an older install's Desktop/Mercedes Documents to the app's data
+    folder (wis_paths.installed_home; the user, 2026-10-31) and repoint the
+    index's manuals at it. A rename: instant on one drive, refused across
+    drives or with a file open -- then the old folder simply stays in use
+    (wis_paths.home). Run by the server as it starts. Returns what it did,
+    for the log ("" = nothing to do)."""
+    ext = find_extractor()
+    mod = _wis_paths(ext) if ext else None
+    if mercedes_home() is None or not hasattr(mod, "legacy_home"):
+        return ""
+    old, new = mod.legacy_home(), mod.installed_home()
+    if old is None or new.exists():
+        return ""
+    try:
+        new.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(old, new)
+    except OSError as e:
+        return f"Mercedes data stays at {old}: could not move it to {new} ({e})"
+    # vehicles.file_path is what pages, images and the WIS links are served
+    # from; pages.file_path (records.jsonl for WIS / EPC) is never read back
+    from . import index
+    conn = index.connect(index_path)
+    try:
+        prefix = str(old) + os.sep
+        n = conn.execute("UPDATE vehicles SET file_path = ? || substr(file_path, ?) "
+                         "WHERE lower(substr(file_path, 1, ?)) = lower(?)",
+                         (str(new) + os.sep, len(prefix) + 1, len(prefix), prefix)).rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    return f"moved the Mercedes data from {old} to {new}; {n} manual(s) repointed"
 
 
 # One VirtualBox query at a time: two VBoxManage calls on one VM collide
@@ -946,6 +1020,13 @@ class ImportJobs:
                         if r["doc_id"] in (only or []) and r["file_path"]                                 and recycle.downloaded_car(Path(r["file_path"])):
                             cmd += ["--recycle", r["file_path"]]
                 cmds = [cmd]
+            elif mode == "remove_mercedes":
+                # "Delete all Mercedes data": WIS and EPC out of the index (if
+                # there), the index shrunk, and the whole Mercedes folder
+                # (`path`: mercedes_home -- pulls, images, the EWA copy) to
+                # the Recycle Bin
+                cmds = [[*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path), "--compact",
+                         "--source", "mercedes-wis", "--source", "mercedes-epc", "--recycle", str(path)]]
             elif mode == "rebuild_wis":
                 # removes WIS in place, re-ingests; every other manual and the
                 # spend log stay -- see rebuild_wis.py
