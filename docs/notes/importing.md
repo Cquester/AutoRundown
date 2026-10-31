@@ -537,7 +537,11 @@ closed and the extractor kept running on its own).
 - **The check, without booting** (`vm_pipeline.py --check`, `GET
   /api/vms/check?vm=&what=&steps=`): one `CHECK <key> <ok|warn|fail> <msg>`
   line each -- the VM exists; its state (running / saved / aborted are
-  warnings, said in words); a host-only adapter (fail without) on the
+  warnings, said in words); its disk files are where VirtualBox looks
+  (`disks`, fail with the missing paths; 2026-10-31, the laptop: a VM
+  copied without its `Snapshots` folder listed fine, passed the check and
+  failed the run's snapshot with VERR_PATH_NOT_FOUND -- the run checks it
+  again before the snapshot); a host-only adapter (fail without) on the
   `--subnet` -- with **Fix it** beside that ✗ (2026-10-29, the user's
   new-user run on the reverted `AutoRundown-base`: Adapter 1 was NAT):
   `POST /api/vms/fix-network` runs `vm_pipeline.py --fix-network`, which

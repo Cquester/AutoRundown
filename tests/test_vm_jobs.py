@@ -166,6 +166,20 @@ def pipeline_checks() -> None:
           [c[3:] for c in calls[:1]] == [vmp.WIN_KEY] and typed[0][3] == "cmd"
           and "localport=any" in typed[-1][3] and "remoteip=192.168.56.0/24" in typed[-1][3]
           and "state off" not in typed[-1][3] and "VM" in vmp.GUEST_SETUP, calls)
+    # a VM copied without its Snapshots folder: named before the run, not
+    # VBoxManage's VERR_PATH_NOT_FOUND from the snapshot (the laptop, 2026-10-31)
+    here = TMP / "vm_disks"
+    here.mkdir(exist_ok=True)
+    (here / "base.vdi").write_text("x")
+    esc = lambda p: str(p).replace("\\", "\\\\")
+    vmp.vbox = lambda *a, check=True: (
+        f'CfgFile="{esc(here / "VM.vbox")}"\n"SATA-0-0"="{esc(here / "Snapshots")}/{{bed35fcb}}.vdi"\n'
+        f'"SATA-ImageUUID-0-0"="bed35fcb"\n"SATA-0-1"="{esc(here / "base.vdi")}"\n"IDE-1-0"="emptydrive"\n')
+    gone = vmp.missing_disks("VM")
+    check("a missing disk file is named (escaped paths read back), one that is there is not",
+          gone == [str(here / "Snapshots" / "{bed35fcb}.vdi")], gone)
+    check("the message says to copy the whole folder, Snapshots included",
+          "Snapshots" in vmp.disks_message("VM", gone) and gone[0] in vmp.disks_message("VM", gone))
     ewa_copy_checks(vmp)
     users = ["Value: 0"]
     vmp.vbox = lambda *a, check=True: users[0] if a[0] == "guestproperty" else ""

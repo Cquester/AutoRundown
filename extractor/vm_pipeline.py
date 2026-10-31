@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -313,6 +314,33 @@ def _stamp(name: str) -> float:
         return time.mktime(time.strptime(name.rsplit("-", 2)[-2] + name.rsplit("-", 1)[-1], "%Y%m%d%H%M%S"))
     except (ValueError, IndexError):
         return 0.0
+
+
+DISK_EXTS = (".vdi", ".vmdk", ".vhd", ".vhdx", ".hdd", ".iso")
+
+
+def missing_disks(vm: str) -> list[str]:
+    """The VM's disk files that aren't where VirtualBox looks for them. A VM
+    copied to another PC without its Snapshots folder lists fine but can't
+    snapshot or start (the laptop, 2026-10-31: VERR_PATH_NOT_FOUND on the
+    current-state .vdi)."""
+    out = []
+    for line in vbox("showvminfo", vm, "--machinereadable", check=False).splitlines():
+        key, _, val = line.partition("=")
+        if "ImageUUID" in key or not (val.startswith('"') and val.endswith('"')):
+            continue
+        # machinereadable escapes \ and " inside values
+        path = re.sub(r'\\(.)', r'\1', val[1:-1])
+        if path.lower().endswith(DISK_EXTS) and not Path(path).is_file():
+            out.append(str(Path(path)))
+    return out
+
+
+def disks_message(vm: str, missing: list[str]) -> str:
+    return (f"{vm}'s disk file{'s are' if len(missing) > 1 else ' is'} missing: "
+            f"{'; '.join(missing)}. VirtualBox can't start or snapshot the VM without "
+            f"{'them' if len(missing) > 1 else 'it'}. If the VM was copied from another PC, copy "
+            "its whole folder again, the Snapshots folder inside it included.")
 
 
 def auto_snapshot(vm: str, why: str) -> str:
@@ -691,6 +719,9 @@ def preflight(vm: str, steps: list[str], out: Path, subnet: str, java: str, jar:
                                           "run a disk check or Startup Repair on its next boot."))
     else:
         levels.append(check("vm", "ok", f"{vm} is off and ready to start."))
+    gone = missing_disks(vm)
+    levels.append(check("disks", "fail", disks_message(vm, gone)) if gone else
+                  check("disks", "ok", f"{vm}'s disk files are all there."))
     if online:
         ours = [s["name"] for s in snapshots(vm) if s.get("name", "").startswith(AUTO_PREFIX)]
         recent = max((_stamp(n) for n in ours), default=0.0)
@@ -982,6 +1013,9 @@ def main(argv=None) -> int:
     started_here = vm_state(args.vm) != "running"
 
     if online:
+        gone = missing_disks(args.vm)
+        if gone:
+            die(disks_message(args.vm, gone))
         auto_snapshot(args.vm, f"an extraction ({','.join(steps)})")
         ewa_ready(args.vm, args.java, args.jar, args.wait)
         JAVA, STAGE = find_java(args.java), stage_scripts(find_jar(args.jar))
