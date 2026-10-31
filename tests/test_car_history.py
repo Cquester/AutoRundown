@@ -26,7 +26,7 @@ index and checks:
 /api/search is answered by the test, not the server; anything that is not a
 GET, and /api/ask, is aborted and fails the run. Never spends API credit.
 """
-from _paths import ROOT
+from _paths import ROOT, exit_now
 import argparse
 import os
 import subprocess
@@ -340,4 +340,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    exit_now(main())

@@ -30,10 +30,9 @@ asked for on 2026-10-29/30:
 Anything that is not a GET fails the run (nothing here may write or ask),
 and so does any request that leaves this machine.
 """
-from _paths import ROOT  # noqa: F401
+from _paths import ROOT, exit_now  # noqa: F401
 import argparse
 import sqlite3
-import sys
 from urllib.parse import urlparse
 
 from test_drawing_ui import build_sample  # noqa: E402  (same folder)
@@ -267,4 +266,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_now(main())

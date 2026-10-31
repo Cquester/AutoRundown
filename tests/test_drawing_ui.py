@@ -28,7 +28,7 @@ two drawings and callout sidecars) and checks what the user asked for on
 
 Anything that is not a GET fails the run (nothing here may write or ask).
 """
-from _paths import ROOT
+from _paths import ROOT, exit_now
 import argparse
 import os
 import sqlite3
@@ -286,4 +286,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_now(main())
