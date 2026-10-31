@@ -581,7 +581,11 @@ closed and the extractor kept running on its own).
   the files didn't come. The preflight says it will happen (`java` ok) or,
   with no Guest Additions, fails. The line was run in a real cmd against
   made-up folders (both Program Files layouts); `tests/test_vm_jobs.py`
-  covers the rest with VBoxManage stubbed.
+  covers the rest with VBoxManage stubbed. On the real VM (2026-10-31,
+  running, into a temp folder): 174 MB in 43 s; `tbjdbc.jar` and `sun_jre`
+  identical to the hand-made `ewa_extract` (plus an empty `lib\applet`,
+  which xcopy /E keeps), and that Java's Nashorn loads the driver. A full
+  pull with the copied files has not run (the VM's databases weren't up).
   Checked from `AutoRundown-base` through the installed app: typed at
   +98 s, the database answered 22 s later and the real pulls logged in
   (model links: 33,085 Baumuster rows). The databases start with Windows
