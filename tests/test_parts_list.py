@@ -246,6 +246,8 @@ def main(argv=None):
         pg.evaluate("$('#plistDlg').close()")
         pg.set_viewport_size({"width": 375, "height": 812})
         pg.evaluate("renderPlist(); plistShow()")
+        pg.locator("#plistDlg").wait_for(state="visible")   # no box until it is laid out
+        pg.wait_for_timeout(200)
         box = pg.locator("#plistDlg").bounding_box()
         check("phone: the pane fills the screen", box["width"] >= 374 and box["height"] >= 811, str(box))
 
