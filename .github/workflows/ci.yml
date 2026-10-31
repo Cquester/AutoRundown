@@ -163,7 +163,8 @@ jobs:
           rc=0
           python packaging/windows/ui_check.py --url http://localhost:8756 --corpus sample_corpus --shots ui-shots || rc=$?
           curl -s -X POST http://127.0.0.1:8756/api/shutdown > /dev/null || true
-          [ $rc = 0 ] || { echo "--- server log"; cat "$RUNNER_TEMP/ui-server.log"; }
+          [ $rc = 0 ] || { echo "--- server log"; cat "$RUNNER_TEMP/ui-server.log"
+            echo "--- /api/settings"; curl -s -m 60 -w '\n%{http_code} in %{time_total} s\n' http://localhost:8756/api/settings | tail -c 600; }
           exit $rc
 
       - name: Scan VIN reads generated barcodes and VIN labels (vendored zxing + Tesseract)

@@ -134,6 +134,10 @@ def main(argv=None):
         pg.wait_for_function("!$('#peekDlg').open")
         check("Back closes the pop-up", not pg.evaluate("$('#peekDlg').open"))
         check("... and leaves the page behind it open", pg.evaluate("docShown()"))
+        # let Back's history change settle: a late popstate closed the next
+        # pop-up as it opened (macOS runner)
+        pg.wait_for_function("!(history.state && history.state.peek)")
+        pg.wait_for_timeout(500)
         pg.evaluate("(a) => peekPage(a[1], a[0])", [doc, page_no])
         pg.wait_for_function("$('#peekDlg').open")
         pg.click("#peekClose")

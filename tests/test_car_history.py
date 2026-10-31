@@ -192,6 +192,8 @@ def main(argv=None):
         page.select_option("#make", "")
         page.select_option("#vehicle", b_doc)
         page.select_option("#variant", str(b_n))
+        # the box takes the Browse pick a moment later on a slow runner
+        page.wait_for_function(f"$('#carInput').value !== {vin_label!r}")
         b_label = page.input_value("#carInput")
         orig[b_label] = search(page, "pick-browse")
         check("Browse pick sent its variant", orig[b_label] and orig[b_label]["variant"] == str(b_n),
