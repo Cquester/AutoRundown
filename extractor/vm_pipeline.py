@@ -160,24 +160,33 @@ def find_vbox() -> str:
     die("VBoxManage not found. Install VirtualBox, or add it to PATH.")
 
 
-def find_java(explicit: str = "") -> str:
+def java_path(explicit: str = "") -> str:
+    """The EWA install's Java, or "" (then the run copies it out of the VM)."""
     if explicit and Path(explicit).is_file():
         return explicit
     # the 32-bit JRE bundled with the EWA install: its Nashorn runs the .js pulls
+    # (not a Java on PATH: a newer one has no Nashorn)
     for base in (home() / "ewa_extract", home()):
         for p in base.glob("**/sun_jre/bin/java.exe"):
             return str(p)
-    j = shutil.which("java")
-    if j:
-        return j
-    die("Java not found. Pass --java <path to the EWA install's sun_jre\\bin\\java.exe>.")
+    return ""
 
 
-def find_jar(explicit: str = "") -> str:
+def jar_path(explicit: str = "") -> str:
+    """The Transbase JDBC driver, or "" (then the run copies it out of the VM)."""
     for c in ([explicit] if explicit else []) + [str(p) for p in home().glob("**/tbjdbc.jar")]:
         if c and Path(c).is_file():
             return c
-    die("tbjdbc.jar (Transbase JDBC driver) not found; pass --jar.")
+    return ""
+
+
+def find_java(explicit: str = "") -> str:
+    return java_path(explicit) or die(
+        "Java not found. Pass --java <path to the EWA install's sun_jre\\bin\\java.exe>.")
+
+
+def find_jar(explicit: str = "") -> str:
+    return jar_path(explicit) or die("tbjdbc.jar (Transbase JDBC driver) not found; pass --jar.")
 
 
 def vbox(*args: str, check: bool = True) -> str:
@@ -395,6 +404,105 @@ def open_guest_firewall(vm: str, subnet: str) -> None:
          f"rule name={FW_RULE} dir=in action=allow protocol=TCP localport={DB_PORTS} "
          f"remoteip={subnet}.0/24 & exit", check=False)
     keys(ENTER)
+
+
+EWA_SHARE = "ar_ewa"
+# inside the VM: where the EWA install keeps them (Mercedes_Ultimate_207 has
+# C:\Program Files\EWA; (x86) in case another install put it there)
+EWA_JRE, EWA_LIB = r"EWA\apps\jre\sun_jre", r"EWA\server\lib"
+EWA_JAR = EWA_LIB + r"\tbjdbc.jar"
+
+
+def ewa_copy_command(share: str = EWA_SHARE) -> str:
+    """The line typed into a cmd window in the VM: copy the EWA install's Java
+    and JDBC driver to the shared folder, keeping their paths under
+    "Program Files" (what java_path/jar_path look for), then write
+    copied.txt so this PC knows it finished, and close the window."""
+    dst = rf"\\vboxsvr\{share}\Program Files"
+    one = (rf'if exist "%~d\{EWA_JRE}\bin\java.exe" (xcopy "%~d\{EWA_JRE}" "{dst}\{EWA_JRE}\" /E /I /Y /Q'
+           rf' & xcopy "%~d\{EWA_JAR}" "{dst}\{EWA_LIB}\" /Y /Q)')
+    # the for loop in brackets: otherwise "& exit" would run inside it, after
+    # the first folder
+    return (rf'(for %d in ("C:\Program Files" "C:\Program Files (x86)") do {one})'
+            rf' & echo done> "\\vboxsvr\{share}\copied.txt" & exit')
+
+
+def copy_ewa_from_vm(vm: str, dest: Path, wait_s: int) -> None:
+    """Copy the EWA install's Java (sun_jre, ~175 MB) and tbjdbc.jar out of
+    the VM into `dest` (<Mercedes Documents>/ewa_extract), for a PC that has
+    never had them: they are Mercedes software, so the app can't ship them,
+    and before this a person copied them out of the VM's disk by hand.
+
+    Typed into the VM's keyboard like the firewall rule (guestcontrol refuses
+    the VM's blank password); the files go through a transient shared folder
+    (Guest Additions), removed again afterwards. Read-only in the VM: xcopy
+    from its Program Files to the share. The run's own snapshot is taken
+    before this."""
+    dest.mkdir(parents=True, exist_ok=True)
+    marker = dest / "copied.txt"
+    marker.unlink(missing_ok=True)
+    log("this PC has no copy of the EWA install's Java and JDBC driver; copying them out of "
+        f"{vm} into {dest} (about 175 MB, once)")
+    if vm_state(vm) != "running":
+        log(f"starting {vm} headless")
+        try:
+            vbox("startvm", vm, "--type", "headless")
+        except RuntimeError as exc:
+            die(f"VirtualBox could not start {vm}: {exc}")
+        STARTED.add(vm)
+    deadline = time.time() + wait_s
+    while not (windows_up(vm) and logged_in(vm)):
+        stop_if_cancelled()
+        if time.time() > deadline:
+            screenshot(vm)
+            die(f"Windows in {vm} did not reach a signed-in desktop within {wait_s // 60} min, so "
+                f"Java and the JDBC driver could not be copied out of it -- see the picture of its "
+                f"screen. Sign in to Windows in the VM (VirtualBox: select it, Show), then run this "
+                f"again.")
+        time.sleep(5)
+    sleep(20)                       # let the desktop finish starting before typing into it
+    vbox("sharedfolder", "remove", vm, "--name", EWA_SHARE, "--transient", check=False)
+    try:
+        vbox("sharedfolder", "add", vm, "--name", EWA_SHARE, "--hostpath", str(dest), "--transient")
+    except RuntimeError as exc:
+        die(f"VirtualBox could not share a folder with {vm} ({exc}); it needs the Guest "
+            f"Additions. Or copy sun_jre and tbjdbc.jar from the VM's C:\\Program Files\\EWA into "
+            f"{dest} by hand, keeping their folders.")
+    try:
+        def keys(codes):
+            vbox("controlvm", vm, "keyboardputscancode", *codes, check=False)
+        keys(WIN_KEY)
+        sleep(2)
+        vbox("controlvm", vm, "keyboardputstring", "cmd", check=False)
+        sleep(2)
+        keys(ENTER)
+        sleep(4)
+        vbox("controlvm", vm, "keyboardputstring", ewa_copy_command(), check=False)
+        keys(ENTER)
+        end = time.time() + 600
+        while not marker.is_file():
+            stop_if_cancelled()
+            if time.time() > end:
+                screenshot(vm)
+                die(f"Copying Java and the JDBC driver out of {vm} did not finish within 10 "
+                    f"minutes -- see the picture of its screen.")
+            time.sleep(3)
+    finally:
+        vbox("sharedfolder", "remove", vm, "--name", EWA_SHARE, "--transient", check=False)
+    marker.unlink(missing_ok=True)
+    if not (java_path() and jar_path()):
+        screenshot(vm)
+        die(f"{vm} has no EWA install where it was looked for (C:\\Program Files\\{EWA_JRE} "
+            f"and {EWA_JAR}), so nothing was copied. Copy sun_jre and tbjdbc.jar from the EWA "
+            f"install in the VM into {dest} by hand, keeping their folders, or pass --java "
+            f"and --jar.")
+    log(f"copied: Java {java_path()}, driver {jar_path()}")
+
+
+def ewa_ready(vm: str, java: str, jar: str, wait_s: int) -> None:
+    """Java and the JDBC driver on this PC: found, or copied out of the VM."""
+    if not (java_path(java) and jar_path(jar)):
+        copy_ewa_from_vm(vm, home() / "ewa_extract", wait_s)
 
 
 DB_NAMES: dict[int, str] = {2054: "wisnet", 2034: "SPECIALFILES"}   # port -> database (set from the arguments)
@@ -620,14 +728,20 @@ def preflight(vm: str, steps: list[str], out: Path, subnet: str, java: str, jar:
             levels.append(check("guest", "warn", "No Guest Additions seen in this VM: whether Windows "
                                                  "started can't be told apart from the database not "
                                                  "answering."))
-        j = java if java and Path(java).is_file() else next(
-            (str(p) for base in (home() / "ewa_extract", home()) for p in base.glob("**/sun_jre/bin/java.exe")),
-            shutil.which("java") or "")
-        levels.append(check("java", "ok", f"Java: {j}") if j else
-                      check("java", "fail", "Java was not found (the EWA install's sun_jre\\bin\\java.exe)."))
-        jr = jar if jar and Path(jar).is_file() else next((str(p) for p in home().glob("**/tbjdbc.jar")), "")
-        levels.append(check("jdbc", "ok", "Transbase JDBC driver found.") if jr else
-                      check("jdbc", "fail", "tbjdbc.jar (the Transbase JDBC driver) was not found."))
+        j, jr = java_path(java), jar_path(jar)
+        if j and jr:
+            levels.append(check("java", "ok", f"Java: {j}"))
+            levels.append(check("jdbc", "ok", "Transbase JDBC driver found."))
+        elif "Value:" in ga:
+            levels.append(check("java", "ok", "Java and the Transbase JDBC driver are copied out of the VM "
+                                              "on the first run (about 175 MB, once), into "
+                                              f"{home() / 'ewa_extract'}."))
+        else:
+            levels.append(check("java", "fail", "Java and the Transbase JDBC driver (from the EWA install in "
+                                                "the VM) are not on this PC, and without Guest Additions "
+                                                "they can't be copied out of the VM. Copy sun_jre and "
+                                                "tbjdbc.jar from the VM's C:\\Program Files\\EWA into "
+                                                f"{home() / 'ewa_extract'} by hand, keeping their folders."))
     missing = [f for s in steps for f in STEP_SCRIPTS.get(s, []) if not (HERE / f).is_file()]
     if online and not (HERE / "db_login.js").is_file():
         missing.append("db_login.js")      # the login check every online run makes
@@ -849,9 +963,11 @@ def main(argv=None) -> int:
         levels = preflight(args.vm, steps, out, args.subnet, args.java, args.jar)
         if args.boot and "fail" not in levels:
             SHOT_DIR = out
-            # Java for the real login (db_login.js); the preflight found both
-            JAVA, STAGE = find_java(args.java), stage_scripts(find_jar(args.jar))
             auto_snapshot(args.vm, "a VM test")
+            # Java for the real login (db_login.js): copied out of the VM if
+            # this PC has none (the preflight said it would be)
+            ewa_ready(args.vm, args.java, args.jar, args.wait)
+            JAVA, STAGE = find_java(args.java), stage_scripts(find_jar(args.jar))
             levels += boot_check(args.vm, steps, args.subnet, args.wait, args.port, args.epc_port)
         log("check: " + ("ready" if "fail" not in levels else "NOT ready -- see the CHECK lines"))
         return 0 if "fail" not in levels else 2
@@ -866,9 +982,10 @@ def main(argv=None) -> int:
     started_here = vm_state(args.vm) != "running"
 
     if online:
+        auto_snapshot(args.vm, f"an extraction ({','.join(steps)})")
+        ewa_ready(args.vm, args.java, args.jar, args.wait)
         JAVA, STAGE = find_java(args.java), stage_scripts(find_jar(args.jar))
         log(f"VM {args.vm}; Java {JAVA}; output {out}")
-        auto_snapshot(args.vm, f"an extraction ({','.join(steps)})")
         # the database the first step needs: WIS (2054), or EPC (2034) alone
         port = args.epc_port if online == ["epc"] else args.port
         ip = vm_up(args.vm, port, args.subnet, args.wait)

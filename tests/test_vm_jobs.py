@@ -33,6 +33,7 @@ import contextlib
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -165,6 +166,7 @@ def pipeline_checks() -> None:
           [c[3:] for c in calls[:1]] == [vmp.WIN_KEY] and typed[0][3] == "cmd"
           and "localport=any" in typed[-1][3] and "remoteip=192.168.56.0/24" in typed[-1][3]
           and "state off" not in typed[-1][3] and "VM" in vmp.GUEST_SETUP, calls)
+    ewa_copy_checks(vmp)
     users = ["Value: 0"]
     vmp.vbox = lambda *a, check=True: users[0] if a[0] == "guestproperty" else ""
     check("nobody signed in: not a desktop, so nothing is typed", not vmp.logged_in("VM"))
@@ -210,6 +212,94 @@ def pipeline_checks() -> None:
             if "creationflags" not in src[m.start():i]:
                 loose.append(f"{p.name}:{src.count(chr(10), 0, m.start()) + 1}")
     check("every program a job or the extractor starts opens no terminal window", not loose, loose)
+
+
+def ewa_copy_checks(vmp) -> None:
+    """A PC that never had the EWA install's Java and tbjdbc.jar: the run
+    copies them out of the VM (VBoxManage stubbed; the "guest" copies the
+    files when the command is typed)."""
+    print("\n-- Java and the JDBC driver copied out of the VM --")
+    line = vmp.ewa_copy_command()
+    check("the typed copy: both Program Files folders, to the shared folder, exit after the loop",
+          line.startswith('(for %d in ("C:\\Program Files" "C:\\Program Files (x86)") do ')
+          and "\\\\vboxsvr\\ar_ewa\\Program Files\\EWA\\apps\\jre\\sun_jre\\" in line
+          and "\\\\vboxsvr\\ar_ewa\\Program Files\\EWA\\server\\lib\\" in line
+          and line.endswith(') & echo done> "\\\\vboxsvr\\ar_ewa\\copied.txt" & exit'), line)
+    home = TMP / "ewa_home"
+    real_home, vmp.home = vmp.home, lambda: home
+    calls, has_ewa, state = [], [True], ["poweroff"]
+
+    def fake_vbox(*a, check=True):
+        calls.append(a)
+        if a[0] == "showvminfo":
+            return f'VMState="{state[0]}"\nGuestAdditionsRunLevel=3\n'
+        if a[0] == "guestproperty":
+            return "Value: 1"
+        if a[:2] == ("startvm", "VM"):
+            state[0] = "running"
+        if a[0] == "controlvm" and a[2] == "keyboardputstring" and a[3].startswith("(for"):
+            share = next(c[c.index("--hostpath") + 1] for c in calls if c[:2] == ("sharedfolder", "add"))
+            pf = Path(share) / "Program Files" / "EWA"
+            if has_ewa[0]:
+                (pf / "apps/jre/sun_jre/bin").mkdir(parents=True, exist_ok=True)
+                (pf / "apps/jre/sun_jre/bin/java.exe").write_text("x")
+                (pf / "server/lib").mkdir(parents=True, exist_ok=True)
+                (pf / "server/lib/tbjdbc.jar").write_text("x")
+            (Path(share) / "copied.txt").write_text("done")
+        return ""
+    real_vbox, vmp.vbox = vmp.vbox, fake_vbox
+    real_sleep, vmp.sleep = vmp.sleep, lambda s: None
+    real_time_sleep, vmp.time.sleep = vmp.time.sleep, lambda s: None
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            vmp.ewa_ready("VM", "", "", 60)
+        check("found nothing, so copied them: java.exe and tbjdbc.jar where the run looks",
+              vmp.java_path().endswith("java.exe") and vmp.jar_path().endswith("tbjdbc.jar"),
+              (vmp.java_path(), vmp.jar_path()))
+        adds = [c for c in calls if c[:2] == ("sharedfolder", "add")]
+        check("through a transient shared folder of ewa_extract, removed afterwards",
+              len(adds) == 1 and "--transient" in adds[0]
+              and adds[0][adds[0].index("--hostpath") + 1] == str(home / "ewa_extract")
+              and calls[-1][:2] == ("sharedfolder", "remove"), calls)
+        check("the VM it started is shut down at the end (STARTED), never powered off",
+              "VM" in vmp.STARTED and not any("poweroff" in c for c in calls), calls)
+        vmp.STARTED.discard("VM")
+        calls.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            vmp.ewa_ready("VM", "", "", 60)
+        check("a second run finds them: nothing typed, no shared folder", not calls, calls)
+        shutil.rmtree(home)
+        has_ewa[0] = False
+        with contextlib.redirect_stdout(io.StringIO()) as o:
+            try:
+                vmp.ewa_ready("VM", "", "", 60)
+                stopped = False
+            except SystemExit:
+                stopped = True
+        check("a VM with no EWA install: stops and says how to copy them by hand",
+              stopped and "by hand" in o.getvalue(), o.getvalue()[-300:])
+    finally:
+        vmp.vbox, vmp.sleep, vmp.time.sleep, vmp.home = real_vbox, real_sleep, real_time_sleep, real_home
+        vmp.STARTED.discard("VM")
+
+    # where the installed app's extractor (app/extractor, beside autorundown/)
+    # reads and writes: the user's Desktop, never the app's own folder
+    app = TMP / "Programs" / "AutoRundown" / "app"
+    (app / "autorundown").mkdir(parents=True, exist_ok=True)
+    (app / "extractor").mkdir(exist_ok=True)
+    shutil.copy2(ROOT / "extractor" / "wis_paths.py", app / "extractor")
+    user = TMP / "user"
+    (user / "Desktop").mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "USERPROFILE": str(user), "HOME": str(user)}
+    env.pop("AR_HOME", None)
+    env.pop("AR_OUT_ROOT", None)
+    out = subprocess.run([sys.executable, str(app / "extractor" / "wis_paths.py")], env=env,
+                         capture_output=True, text=True).stdout
+    # compared as resolved paths: RUNNER~1 vs runneradmin, /var vs /private/var
+    got = next((l.split(None, 1)[1] for l in out.splitlines() if l.startswith("out_root ")), "")
+    want = user / "Desktop" / "Mercedes Documents" / "autorundown_out"
+    check("the installed extractor writes to Desktop\\Mercedes Documents, not into the app",
+          got and Path(got).resolve() == want.resolve(), out)
 
 
 def wait(c: TestClient, seen: list, timeout: float = 90) -> dict:

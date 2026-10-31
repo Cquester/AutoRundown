@@ -105,6 +105,12 @@ Copy-Item -Recurse (Join-Path $root "autorundown") $app
 foreach ($f in "serve.py", "ingest.py", "ask.py", "rebuild_wis.py", "remove_manuals.py", "charm_download.py", "unzip_lemon.py", "LICENSE", "README.md") {
     Copy-Item (Join-Path $root $f) $app
 }
+# the Mercedes WIS/EPC extractor: our own scripts only (the .py and the .js
+# pulls). What they run -- the EWA install's Java and tbjdbc.jar -- is
+# Mercedes software: never shipped; the first run copies it out of the VM.
+$ext = Join-Path $app "extractor"
+New-Item -ItemType Directory -Force $ext | Out-Null
+Copy-Item (Join-Path $root "extractor\*.py"), (Join-Path $root "extractor\*.js") $ext
 Get-ChildItem $app -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
 # Compile everything now so the bytecode is installed (and uninstalled) with
 # the MSI. Otherwise the first run writes .pyc files the MSI does not own, and

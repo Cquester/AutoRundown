@@ -136,18 +136,24 @@ macOS/Linux run from source (README), by the user's decision.
   build, and only when the user asks. In a hand-run `windows-msi.yml` the
   artifact uploads are `continue-on-error`: a full artifact quota (it
   happened on PR #22) had skipped the smoke, uninstall and autostart steps.
-- The WIS extractor is **not bundled**, deliberately: it reads the EWA
-  Java and `tbjdbc.jar` from the "Mercedes Documents" folder
-  (`extractor/wis_paths.py`; Mercedes software, never shipped).
+- The WIS extractor **is bundled** (2026-10-31; before, a new PC failed
+  with "vm_pipeline.py was not found" though the user had chosen a VM):
+  `build.ps1` copies `extractor/*.py` and `*.js` into `app\extractor`. What
+  it runs -- the EWA Java and `tbjdbc.jar` -- is Mercedes software and never
+  ships: `vm_pipeline.copy_ewa_from_vm` copies them out of the chosen VM on
+  the first run (`importing.md`). In the app, `wis_paths.home()` is
+  `Desktop\Mercedes Documents` (`installed_home`; the OneDrive Desktop's
+  when only that exists), never the app's folder: uninstalling must not
+  take the user's extraction with it.
   `importer_jobs.extractor_candidates()`: config `extractor_dir` (Settings
-  -> "Mercedes extractor folder"), then the repo's `extractor/` -- from
-  source that is all, no fallback to a second copy (they drift). Only the
-  installed app, which has no `extractor/`, also tries
+  -> "Mercedes extractor folder"), then `extractor/` beside the app (the
+  repo's, or the bundled one) -- no fallback to a second copy (they drift).
+  Only an older MSI, with no `extractor/`, still tries
   `~/Desktop/Mercedes Documents/autorundown_extractor` and the OneDrive
-  Desktop one (the user's copy). The bundle includes `requirements-extractor.txt`
-  (Pillow, ezdxf) because the extractor runs under the bundled Python and its
-  build step converts images. CI copies `extractor/` to the runner's Desktop
-  and checks `/api/vms` finds it.
+  Desktop one. The bundle includes `requirements-extractor.txt` (Pillow,
+  ezdxf) because the extractor runs under the bundled Python and its build
+  step converts images. CI checks `/api/vms` uses the bundled extractor and
+  that it would write to `Desktop\Mercedes Documents\autorundown_out`.
 - Unsigned: SmartScreen warns (README says what to click). Signing needs a
   certificate; nothing in the build does it yet.
 - **The embeddable Python is verified** (2026-10-09): `build.ps1` checks
