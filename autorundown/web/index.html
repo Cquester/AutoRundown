@@ -1167,6 +1167,14 @@
       </div>
     </details>
     <div class="warnnote" id="modelNote" hidden></div>
+    <!-- no API key for this person: the AI chat is greyed out and says why -->
+    <div class="warnnote" id="keyNote" role="status" hidden>
+      <span id="keyNoteText"></span>
+      <div class="row" style="margin-top:6px; gap:8px; flex-wrap:wrap">
+        <button type="button" class="chipbtn" id="keyNoteAdd" hidden>Add an API key</button>
+        <button type="button" class="chipbtn" id="keyNoteKw">Use Keyword search (free)</button>
+      </div>
+    </div>
     <!-- History: every Ask (its whole answer, free to open again) and Search;
          Clear: back to browsing, every tab as before the question -->
     <div class="qtools">
@@ -1787,6 +1795,7 @@ async function loadMe() {
   $('#settingsBtn').hidden = !me.admin;   // (the gate hides it while starting)
   $('#acctBtn').hidden = !me.signed_in;
   if (me.signed_in) $('#acctBtn').textContent = me.name;
+  syncMode();                             // Ask on or greyed out (can_ask)
   return me;
 }
 // a sign-in QR that didn't work comes back as /#signin=<why> (server.signin_link)
@@ -3003,6 +3012,8 @@ const model = () => $('#model').value || undefined;
 const MODEL_KEY = 'autorundown.model';
 let menuList = [];
 async function loadModels(pending) {
+  // after a key or provider change in Shop setup: whether Ask is on, again
+  if (!pending) await loadMe().catch(() => {});
   const got = pending ? await pending : await api('/api/models?menu=1');
   if (got instanceof Error) throw got;
   menuList = got;
@@ -3701,6 +3712,7 @@ async function ask() {
   // used to send another (the button was disabled, the key was not)
   if (!q || asking) return;
   if (mode !== 'ai') setMode('ai');
+  if (!canAsk()) return;              // no key: the note under the box says so
   if (!carBoxMatches()) return;
   // a follow-up while the chat's car is still the one selected
   const follow = canFollow() ? chat : null;
@@ -3744,7 +3756,6 @@ async function ask() {
     w?.removeAttribute('id');
   } finally {
     asking = false;
-    $('#askBtn').disabled = false;
     syncMode();
   }
 }
@@ -3780,7 +3791,20 @@ function syncMode() {
   $('#clearBtn').title = ai ? 'End this conversation; the next question starts a new one'
                             : 'Clear the search and its results';
   $('#clearBtn').hidden = !shown[mode];
+  // no API key for this person (/api/me can_ask): Ask greyed out, with why --
+  // a question sent anyway only came back refused. The box stays usable: its
+  // text can go to Keyword search
+  const off = ai && !canAsk();
+  $('#askBtn').disabled = asking || off;
+  if (off) $('#q').placeholder = 'AI answers need an API key';
+  $('#keyNote').hidden = !off;
+  $('#keyNoteText').textContent = (me.ask_off || '') + ' Keyword search works without one.';
+  $('#keyNoteAdd').hidden = !me.admin;
 }
+// unknown until /api/me answers: allowed, the server still refuses
+const canAsk = () => me.can_ask !== false;
+$('#keyNoteAdd').onclick = () => showSetup('ai');
+$('#keyNoteKw').onclick = () => setMode('kw', !narrow());
 $('#modeTabs').addEventListener('click', e => {
   const b = e.target.closest('[data-mode]');
   if (b) setMode(b.dataset.mode, !narrow());

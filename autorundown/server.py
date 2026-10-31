@@ -539,6 +539,18 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "https": request.url.scheme == "https",
         }
         out["key_mode"] = cfg.key_mode
+        # no key this requester may use: the AI chat is greyed out with why,
+        # not a question sent to be refused (it looked like a search that
+        # never ended on a PC with no key)
+        out["can_ask"] = bool(config.menu_models(cfg, who.user_id, who.admin))
+        if not out["can_ask"]:
+            try:
+                config.pick_key(cfg, who.user_id, who.admin)
+                out["ask_off"] = ("No AI API key yet. Add one in Shop setup → AI answers."
+                                  if who.admin else
+                                  "AI answers are off: the shop hasn’t added an AI API key yet.")
+            except config.NoKeyForRequest as exc:
+                out["ask_off"] = str(exc)
         if who.user_id is not None:
             conn, aconn = db(), adb()
             try:

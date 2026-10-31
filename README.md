@@ -276,8 +276,9 @@ mechanics* → *Require each mechanic to sign in*):
   spent on it and roughly what is left. *Left* is AutoRundown's own estimate
   (the amount you entered minus what it logged on that key) -- the provider
   doesn't tell an ordinary key its balance -- so after adding credit or
-  swapping the key, use **Topped up / new key**. A mechanic with no key is
-  told so; their questions never go on another key. Questions asked on the PC
+  swapping the key, use **Topped up / new key**. A mechanic with no key sees
+  the AI chat greyed out with the reason (so does the PC before its key is
+  added); their questions never go on another key. Questions asked on the PC
   itself still use the PC's key.
 
 **From the phone to the desk.** Pick the car on a phone in the bay -- type
