@@ -39,11 +39,11 @@ def can_rebuild_wis(index_path: str | Path) -> bool:
 
 def extractor_candidates() -> list[Path]:
     """Where the WIS extractor is looked for, in order: config.extractor_dir,
-    then the copy in this repo (`extractor/`). There is deliberately no
-    fallback to the old standalone copy beside a source checkout: two copies
-    drift. The installed app (Windows MSI) has no `extractor/` -- it never
-    ships, see packaging/windows -- so only there it looks for the user's
-    copy on the Desktop."""
+    then the copy beside the app (`extractor/`: the repo's, or the one the
+    MSI ships, 2026-10-31). There is deliberately no fallback to the old
+    standalone copy beside a source checkout: two copies drift. Only an app
+    with no `extractor/` (an older MSI) still looks for the user's copy on
+    the Desktop."""
     from . import config
     # its Python gets run: never from a network share or a relative path,
     # whatever an older config holds (server.py checks new settings)

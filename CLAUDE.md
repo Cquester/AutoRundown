@@ -877,9 +877,13 @@ default, since the fresh start on 2026-10-29; `config.json` `index_path`
 names it), and the spend log lives inside it. The repo folder holds no
 index the app uses, so recloning or moving the repo changes nothing for the
 installed app. The manuals and images it points to live outside the repo
-(`Downloads`, `Desktop\Mercedes Documents`). `Mercedes
-Documents\autorundown_extractor` is the extractor the VM tab runs (the
-default when `extractor_dir` is blank), not a leftover.
+(`Downloads`, `Desktop\Mercedes Documents`). The MSI ships the extractor
+(`app\extractor`, 2026-10-31), which the VM tab runs when `extractor_dir`
+is blank; it reads and writes `Desktop\Mercedes Documents`
+(`wis_paths.installed_home`) and copies the EWA Java and `tbjdbc.jar` out
+of the VM when that folder has none (`vm_pipeline.copy_ewa_from_vm`).
+`Mercedes Documents\autorundown_extractor` is the old standalone copy, used
+only by an older MSI.
 
 On 2026-10-29 the user started fresh: the old working copy
 (`Desktop\AI Mechanic`, with its 3.5 GB index and `index.before-epc.db`) is

@@ -103,11 +103,15 @@ files. "Start when I sign in" runs it as you, in the background.
 - **Your data is not in the install folder.** The index, settings and spend
   log are in `%USERPROFILE%\.autorundown`. Upgrading (just run a newer
   `.msi`) or uninstalling (Settings -> Apps) never touches them.
-- **Importing from a Mercedes VM** uses your own copy of the WIS extractor
-  (it needs the Mercedes software next to it, so it can't be part of the
-  installer). It is found automatically at `Desktop\Mercedes Documents\autorundown_extractor`;
-  anywhere else, set it under Shop setup → *Advanced* → *Mercedes extractor folder*.
-  The installer includes the Python packages it needs. Choose the VM with
+- **Importing from a Mercedes VM**: the installer includes the WIS/EPC
+  extractor; all it needs is the VM. What the extractor runs -- the EWA
+  install's Java and its database driver (`tbjdbc.jar`) -- is Mercedes
+  software, so it is not in the installer: the first run copies it out of
+  the VM (about 175 MB, once, typed into the VM like the firewall rule
+  below) into `Desktop\Mercedes Documents\ewa_extract`. The extracted
+  manuals go to `Desktop\Mercedes Documents\autorundown_out`. To use
+  another extractor copy, set it under Shop setup → *Advanced* →
+  *Mercedes extractor folder*. Choose the VM with
   *Choose VM file…*: browse to its `.vbox` file (usually in its own folder
   under `VirtualBox VMs`); the choice is remembered. The same tab can pull
   the **EPC parts catalogue** (*What to extract* → *EPC*): part
@@ -133,8 +137,6 @@ files. "Start when I sign in" runs it as you, in the background.
   there for you to open in VirtualBox. Before each run AutoRundown takes its
   own **snapshot** of the VM; *Snapshots and rolling back* restores one (the
   VM as it was is snapshotted first, so that can be undone too).
-  **After updating AutoRundown, update the extractor copy too** (copy a
-  current extractor folder over it): the check says so when it's too old.
   **If your manuals are already extracted**, skip the VM: Shop setup → *Manuals* → the *Folder* tab,
   and pick `Mercedes Documents\autorundown_out\wis_extract`.
   WIS also holds ~18,000 **damage-code menus** (pictures for picking a warranty

@@ -9,8 +9,10 @@ Those stay in the "Mercedes Documents" folder:
   AR_HOME      the folder holding autorundown_out/ and the EWA install, if set
   otherwise    the nearest "Mercedes Documents" folder beside the repo or one
                of its parents (Desktop/Mercedes Documents for the usual layout,
-               also found from a worktree), or this folder's parent when the
-               extractor still sits in that folder (the old standalone layout)
+               also found from a worktree); in the installed app (the MSI's
+               app/extractor) Desktop/Mercedes Documents; or this folder's
+               parent when the extractor still sits in that folder (the old
+               standalone layout)
 
 An output root inside the repo is refused: one run would put gigabytes of
 Mercedes data where `git add` can reach it.
@@ -28,12 +30,28 @@ def home() -> Path:
     """The folder holding autorundown_out/ and the EWA install."""
     if os.environ.get("AR_HOME"):
         return Path(os.environ["AR_HOME"]).resolve()
+    if REPO is None and (HERE.parent / "autorundown").is_dir():
+        return installed_home()                 # the MSI's app/extractor: never write into the app
     if REPO is None:
         return HERE.parent                      # .../Mercedes Documents/autorundown_extractor
     for p in REPO.parents:
         if (p / "Mercedes Documents").is_dir():
             return p / "Mercedes Documents"
     return REPO.parent / "Mercedes Documents"   # created on first use, outside the repo
+
+
+def installed_home() -> Path:
+    """Desktop/Mercedes Documents (the OneDrive Desktop's when only that one
+    exists): where a source checkout keeps it too, so moving between the two
+    finds the same data. Uninstalling the app leaves it alone."""
+    sub = "Mercedes Documents"
+    for desk in (Path.home() / "Desktop", Path.home() / "OneDrive" / "Desktop"):
+        if (desk / sub).is_dir():
+            return desk / sub
+    desk = Path.home() / "Desktop"
+    if not desk.is_dir() and (Path.home() / "OneDrive" / "Desktop").is_dir():
+        desk = Path.home() / "OneDrive" / "Desktop"
+    return desk / sub                           # created on first use
 
 
 def out_root() -> Path:

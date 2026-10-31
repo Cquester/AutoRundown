@@ -144,7 +144,8 @@ jobs:
           # (+ Scan VIN's vendored barcode/OCR libraries)
           foreach ($f in "python\python.exe", "app\ingest.py", "app\rebuild_wis.py", "app\remove_manuals.py", "app\charm_download.py", "app\unzip_lemon.py", "app\autorundown\web\index.html", "app\autorundown\web\icons\favicon.ico",
                          "app\autorundown\web\vendor\zxing-wasm-3.1.4\zxing_reader.wasm", "app\autorundown\web\vendor\tesseract-7.0.0\eng.traineddata.gz",
-                         "app\autorundown\web\vendor\tesseract-7.0.0\tesseract-core-simd-lstm.wasm.js") {
+                         "app\autorundown\web\vendor\tesseract-7.0.0\tesseract-core-simd-lstm.wasm.js",
+                         "app\extractor\vm_pipeline.py", "app\extractor\wis_paths.py", "app\extractor\pull_epc.js") {
             if (-not (Test-Path "$inst\$f")) { throw "missing after install: $f" }
           }
           $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoRundown.lnk"
@@ -218,15 +219,18 @@ jobs:
           if ($page.Content -notmatch "<html") { throw "UI not served" }
           $wasm = Invoke-WebRequest http://127.0.0.1:8756/vendor/zxing-wasm-3.1.4/zxing_reader.wasm -UseBasicParsing
           if ($wasm.Headers["Content-Type"] -ne "application/wasm") { throw "Scan VIN's barcode reader not served" }
-          # the user's WIS extractor is found on the Desktop and run by the
-          # bundled Python (no VirtualBox here, so it stops at --list-vms)
-          $ext = "$env:USERPROFILE\Desktop\Mercedes Documents\autorundown_extractor"
-          New-Item -ItemType Directory -Force (Split-Path $ext) | Out-Null
-          Copy-Item -Recurse extractor $ext
+          # the WIS extractor ships in the app and runs under the bundled
+          # Python (no VirtualBox here, so it stops at --list-vms); it writes
+          # to Desktop\Mercedes Documents, never into the app's folder
+          $ext = "$env:LOCALAPPDATA\Programs\AutoRundown\app\extractor"
           $vms = Invoke-RestMethod http://127.0.0.1:8756/api/vms
           "extractor: $($vms.extractor) | $($vms.error)"
-          Remove-Item -Recurse -Force (Split-Path $ext)
-          if ($vms.extractor -ne $ext) { throw "extractor on the Desktop not found" }
+          if ($vms.extractor -ne $ext) { throw "the bundled extractor was not used" }
+          $where = & "$env:LOCALAPPDATA\Programs\AutoRundown\python\python.exe" "$ext\wis_paths.py"
+          "$where"
+          if (-not ($where -match [regex]::Escape("out_root $env:USERPROFILE\Desktop\Mercedes Documents\autorundown_out"))) {
+            throw "the bundled extractor would not write to Desktop\Mercedes Documents"
+          }
           # the phone name: announced, and resolvable from another process
           $s = Invoke-RestMethod http://127.0.0.1:8756/api/settings
           "phone: $($s.phone_urls -join ' | ')  autostart: $($s.autostart)"

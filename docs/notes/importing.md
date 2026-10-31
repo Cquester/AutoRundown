@@ -563,6 +563,25 @@ closed and the extractor kept running on its own).
   it only checks the port answers -- and every real login fail with
   "Transbase Client Error <30209> IO exception on socket", one VM
   power-cycle after another. Once per run; the rule stays in the VM.
+  **Java and `tbjdbc.jar` are copied out of the VM** (`copy_ewa_from_vm`,
+  2026-10-31) when `wis_paths.home()` has none: the MSI now ships the
+  extractor, but the EWA install's 32-bit Java (its Nashorn runs the pulls;
+  a Java on PATH is no longer used, a newer one has no Nashorn) and the
+  Transbase driver are Mercedes software. Before this a person copied
+  `ewa_extract` (42 GB, the whole EWA install) off the VM's disk by hand.
+  After the run's snapshot, with Windows up and signed in, it adds a
+  transient shared folder `ar_ewa` = `<home>\ewa_extract` (Guest Additions),
+  types Win key, `cmd`, Enter (no administrator needed), then one line
+  (`ewa_copy_command`): for `C:\Program Files` and `C:\Program Files (x86)`,
+  if `EWA\apps\jre\sun_jre\bin\java.exe` is there, `xcopy` `sun_jre` and
+  `EWA\server\lib\tbjdbc.jar` to the share under the same paths, then
+  `copied.txt`, then `exit` (the `for` is in brackets, or `& exit` runs
+  inside it after the first folder). It waits up to 10 min for
+  `copied.txt`, removes the share, and stops with "copy them by hand" if
+  the files didn't come. The preflight says it will happen (`java` ok) or,
+  with no Guest Additions, fails. The line was run in a real cmd against
+  made-up folders (both Program Files layouts); `tests/test_vm_jobs.py`
+  covers the rest with VBoxManage stubbed.
   Checked from `AutoRundown-base` through the installed app: typed at
   +98 s, the database answered 22 s later and the real pulls logged in
   (model links: 33,085 Baumuster rows). The databases start with Windows
