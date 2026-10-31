@@ -77,7 +77,11 @@ with analytics scope), so "remaining" = `loaded_usd` minus the logged spend
 with that key_ref since `since`; a new key or "Topped up / new key" resets
 `since`. The admin sees the last 4; a phone gets only its own
 `own_key {has_key, loaded_usd, spent_usd, remaining_usd}` in `/api/me`, and
-`/api/stats.has_api_key` says whether *it* may ask. Per-mechanic routes:
+`/api/stats.has_api_key` says whether *it* may ask. `/api/me` has `can_ask` (any
+provider with a key this requester may use, `config.menu_models`) and, when
+false, `ask_off` (why): the AI chat then greys out the box and Ask and says
+why, with "Add an API key" (the PC) and "Use Keyword search" (2026-10-30, the
+user: on a PC with no key a question looked like a search that never ended). Per-mechanic routes:
 `POST /api/admin/users/{id}/key` (`api_key`, `loaded_usd`, `reset`,
 `clear_loaded`, `remove`). `/api/settings` adds `key_mode`, this month's
 `month_questions` / `month_spend_usd` (everyone, every source) and

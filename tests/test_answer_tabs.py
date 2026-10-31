@@ -111,6 +111,8 @@ def main(argv=None):
         if u.path == "/api/ask" and request.method == "POST":
             asks.append(request.post_data_json)
             return route.fulfill(json=canned_answer())
+        if u.path == "/api/me":                 # the test server has no key: Ask on anyway
+            return route.fulfill(json={**route.fetch().json(), "can_ask": True})
         if request.method != "GET":
             forbidden.append(f"{request.method} {u.path}")
             return route.abort()

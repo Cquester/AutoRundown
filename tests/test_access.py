@@ -456,6 +456,9 @@ def stub_ask(conn, vehicle, question, api_key, **kw):
 
 
 real_ask, q.ask = q.ask, stub_ask
+me = pc.get("/api/me").json()
+check(me["can_ask"] is False and "Shop setup" in me["ask_off"],
+      "no key yet: this PC's page greys Ask out and says where to add one")
 COMPANY, SAMKEY = "sk-ant-test-company-0000AAAA", "sk-ant-test-sam-00001111SAMK"
 check(post(pc, "/api/settings", {"api_key": COMPANY}).status_code == 200, "this PC saves the company key")
 post(pc, f"/api/admin/users/{sam_id}", {"clear_cap": True})
@@ -473,6 +476,10 @@ r = post(phone, "/api/ask", {"doc_id": "v1", "question": "q2"})
 check(r.status_code == 400 and "No API key is set up for you" in r.json()["detail"] and len(asked) == 1,
       "  ... Sam with no key of his own is told so -- no fallback to the company key")
 check(phone.get("/api/stats").json()["has_api_key"] is False, "  ... and his page knows Ask is off for him")
+me = phone.get("/api/me").json()
+check(me["can_ask"] is False and "No API key is set up for you" in me["ask_off"],
+      "  ... his AI chat is greyed out, saying why")
+check(pc.get("/api/me").json()["can_ask"] is True, "  ... this PC's isn't (the company key)")
 check(post(phone, f"/api/admin/users/{sam_id}/key", {"api_key": "sk-ant-stolen"}).status_code == 403,
       "a phone cannot set a mechanic's key")
 check(post(pc, f"/api/admin/users/{sam_id}/key", {"loaded_usd": 5}).status_code == 400,
@@ -489,6 +496,7 @@ r = post(phone, "/api/ask", {"doc_id": "v1", "question": "q3"})
 check(r.status_code == 200 and asked[-1] == (SAMKEY, f"user:{sam_id}", sam_id),
       "Sam's question now goes on Sam's key")
 check(phone.get("/api/stats").json()["has_api_key"] is True, "  ... and his page knows Ask is on")
+check(phone.get("/api/me").json()["can_ask"] is True, "  ... and his AI chat is on again")
 k = user_row(sam_id)["key"]
 check(k["spent_usd"] == 0.25 and k["remaining_usd"] == 9.75,
       "spent on Sam's key since it was loaded: $0.25, $9.75 remaining (last month's $5 on it not counted)")
