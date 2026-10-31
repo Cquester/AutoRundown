@@ -55,8 +55,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--index", default=config.load().index_path)
     ap.add_argument("--doc-id", action="append", default=[], help="a vehicle to remove (repeatable)")
-    ap.add_argument("--source", help="remove every vehicle whose source starts with this "
-                                     f"(allowed: {', '.join(GROUPED)})")
+    ap.add_argument("--source", action="append", default=[],
+                    help="remove every vehicle whose source starts with this, repeatable "
+                         f"(allowed: {', '.join(GROUPED)})")
     ap.add_argument("--compact", action="store_true", help="VACUUM afterwards to shrink the file")
     ap.add_argument("--recycle", action="append", default=[], metavar="FOLDER",
                     help="an extract folder to send to the Recycle Bin afterwards (repeatable)")
@@ -77,13 +78,16 @@ def main(argv: list[str] | None = None) -> int:
         "SELECT doc_id, source_name, year_range, make, model FROM vehicles")}
 
     if args.source:
-        if args.source not in GROUPED:
+        bad = [s for s in args.source if s not in GROUPED]
+        if bad:
             print(f"! --source is only for {', '.join(GROUPED)}; remove other manuals by --doc-id")
             return 1
-        targets = [d for d, (s, _) in rows.items() if (s or "").startswith(args.source)]
+        targets = [d for d, (s, _) in rows.items() if (s or "").startswith(tuple(args.source))]
         if not targets:
-            print(f"nothing from {args.source} in this index")
-            return 0
+            print(f"nothing from {', '.join(args.source)} in this index")
+            conn.close()
+            # "Delete all Mercedes data" with nothing imported: the files still go
+            return _recycle(args.recycle, path)
     else:
         targets = list(dict.fromkeys(args.doc_id))
         missing = [d for d in targets if d not in rows]
@@ -136,8 +140,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print("the freed space is reused by later imports (--compact gives it back now)")
     conn.close()
+    return _recycle(args.recycle, path)
+
+
+def _recycle(folders: list[str], path: Path) -> int:
     failed = 0
-    for f in args.recycle:
+    for f in folders:
         if not Path(f).exists():
             continue
         print(f"sending {f} to the Recycle Bin…", flush=True)

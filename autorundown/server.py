@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 from . import search as search_mod
 from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
 from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_tables, lemon_zip, manual_browse,
+               native_dialog,
                part_procedures, parts_browse, synonyms, tab_values, wis_links, wis_original)
 from .search import (as_ids, get_page, merge_wordings, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
@@ -138,6 +139,11 @@ class MechanicKeyBody(BaseModel):
 
 class VmPickBody(BaseModel):
     file: str = Field(max_length=1000)    # the VM's .vbox file
+
+
+class NativePickBody(BaseModel):
+    kind: str = Field(pattern="^(vbox|folder)$")   # native_dialog.KINDS
+    start: str = Field("", max_length=1000)        # the folder it opens in
 
 
 class VmFixBody(BaseModel):
@@ -471,6 +477,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # tables, indexes and new columns are brought up to date here, before the
     # server answers anything (see index.connect)
     index.connect(index_path).close()
+    # an older install's Desktop/Mercedes Documents moves to the app's data
+    # folder, once (installed app only; a failed move leaves it in use)
+    try:
+        moved = importer_jobs.move_mercedes_home(Path(index_path))
+    except Exception as exc:          # never stops the app from starting
+        moved = f"Mercedes data not moved: {exc}"
+    if moved:
+        print(moved, flush=True)
 
     def db():
         # SQLite connections are per-thread; make a fresh one per request.
@@ -537,6 +551,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "default_model": config.active_model(cfg),
             "provider": config.active_provider(cfg),
             "https": request.url.scheme == "https",
+            # Browse opens the PC's own Open dialog (the PC only, on Windows)
+            "file_dialog": who.admin and native_dialog.available(),
         }
         out["key_mode"] = cfg.key_mode
         # no key this requester may use: the AI chat is greyed out with why,
@@ -1584,6 +1600,29 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc))
 
+    # Browse: the PC's own Open dialog (native_dialog); 501 = none here, and
+    # the page uses its own folder list instead. /api/browse: the PC only
+    @app.post("/api/browse/native")
+    def api_browse_native(body: NativePickBody) -> dict:
+        start = body.start if body.start and not _local_path_error(body.start) else ""
+        try:
+            got = native_dialog.pick(body.kind, start)
+        except native_dialog.Busy as exc:
+            raise HTTPException(409, str(exc))
+        if got is None:
+            raise HTTPException(501, "No file dialog on this PC.")
+        return {"path": got}
+
+    # the installed app's Mercedes folder: where it is and how big
+    # (counted over ~270k files: asked for separately, after the page shows)
+    @app.get("/api/vms/home")
+    def api_vm_home(size: bool = False) -> dict:
+        home = importer_jobs.mercedes_home()
+        out = {"path": str(home) if home else "", "exists": bool(home and home.is_dir())}
+        if size and out["exists"]:
+            out["bytes"] = importer_jobs.folder_size(home)
+        return out
+
     @app.post("/api/vms/pick")
     def api_vm_pick(body: VmPickBody) -> dict:
         if _local_path_error(body.file):
@@ -1775,6 +1814,16 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             try:
                 return jobs.start(Path(info["out_root"]) / "wis_extract", app.state.index_path,
                                   "vm", vm=body.vm, steps=",".join(steps))
+            except RuntimeError as exc:
+                raise HTTPException(409, str(exc))
+        if body.mode == "remove_mercedes":
+            # WIS and EPC out of the index, the whole Mercedes folder to the
+            # Recycle Bin (the user, 2026-10-31: "an option to delete that")
+            home = importer_jobs.mercedes_home()
+            if home is None or not home.is_dir():
+                raise HTTPException(400, "There is no Mercedes data folder to delete.")
+            try:
+                return jobs.start(home, app.state.index_path, "remove_mercedes")
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
         if body.mode in ("remove", "remove_wis", "remove_epc"):
