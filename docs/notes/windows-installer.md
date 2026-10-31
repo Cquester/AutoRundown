@@ -146,7 +146,7 @@ macOS/Linux run from source (README), by the user's decision.
   `AUTORUNDOWN_HOME` when set), never the app's program folder: uninstalling
   must not take the user's extraction with it (the user, 2026-10-31, chose
   "keep it, add a button": Shop setup's "Delete all Mercedes data"). Until
-  0.1.10 it was `Desktop\Mercedes Documents`: the user found a 12 GB folder
+  0.1.10 it was `Desktop\Mercedes Documents`: the user found a 64 GB folder
   on the Desktop showing their own name, and OneDrive syncs a Desktop. As
   the server starts, `importer_jobs.move_mercedes_home` renames that folder
   to the new place (instant on one drive) and repoints `vehicles.file_path`;

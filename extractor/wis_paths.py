@@ -50,7 +50,7 @@ HOME_NAME = "Mercedes data"
 
 def installed_home() -> Path:
     """The installed app's Mercedes folder: beside the program, never on the
-    Desktop (the user, 2026-10-31: a 12 GB folder named after nobody's PC,
+    Desktop (the user, 2026-10-31: a 64 GB folder showing their own name,
     and OneDrive syncs a Desktop). %LOCALAPPDATA%/AutoRundown/Mercedes data;
     under AUTORUNDOWN_HOME when that is set (tests, a second instance).
     Uninstalling leaves it; Shop setup's "Delete all Mercedes data" removes
