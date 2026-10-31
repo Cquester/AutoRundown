@@ -228,6 +228,7 @@ def main(argv=None):
         check("pane: x takes a part off", [x["pn"] for x in stored()]
               == ["A 210 323 15 65", "N 000000 004321", "A 210 321 24 04"], str(stored()))
         pg.click("#plistClose")
+        pg.wait_for_function("!(history.state && history.state.plist)")   # see the reopen below
         check("pane: the count follows", pg.locator(".edgeplist").inner_text() == "Parts list (3)")
 
         # a phone: no edge button; the pane fills the screen
@@ -238,12 +239,17 @@ def main(argv=None):
         pg.evaluate("""() => { const l = plistLoad(); l.push({pn: 'N 304017 005002', qty: 1, car: 'X',
                  name: 'HEXAGON HEAD BOLT, BRACKET TO AUTOMATIC ANTENNA', fits: 'qty 2, all models'});
                  localStorage.setItem(PLIST_KEY, JSON.stringify(l)); renderPlist(); plistShow(); }""")
+        pg.locator("#plistDlg").wait_for(state="visible")
         fit = pg.evaluate("""() => { const b = document.querySelector('#plistBody'),
                  r = [...b.querySelectorAll('.plrow')].pop(), ra = r.querySelector('a').getBoundingClientRect();
                  return {over: b.scrollWidth - b.clientWidth, raRight: ra.right, bodyRight: b.getBoundingClientRect().right}; }""")
         check("pane: a part saved without a callout keeps its row inside the page (RockAuto shown)",
               fit["over"] <= 0 and fit["raRight"] <= fit["bodyRight"], str(fit))
         pg.evaluate("$('#plistDlg').close()")
+        # closing steps history back; a late popstate closed the pane reopened
+        # below (dialogHistory), so wait for it first (Ubuntu runner)
+        pg.wait_for_function("!(history.state && history.state.plist)")
+        pg.wait_for_timeout(500)
         pg.set_viewport_size({"width": 375, "height": 812})
         pg.evaluate("renderPlist(); plistShow()")
         pg.locator("#plistDlg").wait_for(state="visible")   # no box until it is laid out
