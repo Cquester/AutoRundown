@@ -33,7 +33,6 @@ and so does any request that leaves this machine.
 from _paths import ROOT, exit_now  # noqa: F401
 import argparse
 import sqlite3
-import sys
 from urllib.parse import urlparse
 
 from test_drawing_ui import build_sample  # noqa: E402  (same folder)

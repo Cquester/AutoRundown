@@ -28,7 +28,6 @@ Anything that is not a GET, apart from the canned Asks, fails the run.
 from _paths import ROOT, exit_now  # noqa: F401
 import argparse
 import json
-import sys
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
