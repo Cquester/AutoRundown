@@ -258,7 +258,10 @@ jobs:
           # a second start must find the running server and exit at once
           & $py -m autorundown.launcher --no-browser --port 8756
           if ($LASTEXITCODE) { throw "second launch failed" }
-          Stop-Process -Id $srv.Id -Force
+          # the process may have gone already (it passed on two runs, failed on
+          # one with "Cannot find a process"); what matters is the server stops
+          Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
+          try { Invoke-RestMethod -Method Post http://127.0.0.1:8756/api/shutdown | Out-Null } catch {}
           $srv.WaitForExit(15000) | Out-Null
 
       - name: Uninstall (while running in the background)
