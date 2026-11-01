@@ -15,7 +15,7 @@ in order, each resumable -- a re-run skips what is already pulled:
                                                SA codes, oil capacities, labour
                     links     pull_links.js    wiring-diagram component codes,
                                                positions and names (batched)
-                    images    pull_images.js   graphics, 15k per batch,
+                    images    pull_images.js   graphics, 60k per batch,
                                                VM power-cycled between batches
   offline:          build     parse.py -> apply_applic.py -> parse_vehicles.py
                               -> parse_links.py -> convert_images.py
@@ -62,9 +62,13 @@ exits 3. It does the same if the process in AR_PARENT_PID (the web server
 that started it) goes away -- on 2026-10-16 a closed server left a run going.
 
 Two properties of this setup shape the batching (see CLAUDE.md): the in-VM
-database resets its connection after ~19.5k graphics in one session, and the
-host has hard-powered-off under sustained heavy I/O -- so images go in 15k
-batches with the VM off in between, and conversion runs on 3 workers.
+database dies (every reconnect fails until the VM restarts) after a long
+session -- ~10 min into one, whatever the pace -- and the host has
+hard-powered-off under sustained heavy I/O. So images go in 60k batches, no
+pause and a new connection every 5k (~3 min a batch, ~15 MB/s to disk), with
+the VM restarted in between, and conversion runs on 3 workers. Measured
+2026-11-01 (tools/pull_bench): all 272k images in 22 min, no drops; the old
+15k batches with 25 ms per image took ~37 min per 60k.
 """
 from __future__ import annotations
 
@@ -87,7 +91,13 @@ from wis_paths import home, out_root, check_outside_repo  # noqa: E402
 DEFAULT_OUT = out_root()
 STEPS = ("docs", "applic", "vehicles", "links", "images", "build")   # the default: WIS
 ALL_STEPS = STEPS + ("epc",)
-BATCH = 15000
+BATCH = 60000       # images per VM session (see above)
+FRESH = 5000        # images per database connection
+# a VM session's pulling time: the database dies ~10 min into one (5.5 on a
+# slower laptop), and Windows then can't shut down cleanly -- so documents and
+# images stop before that and resume on a freshly started VM
+SESSION_S = 240
+SESSION_UP = 4      # a pull's exit code for "stopped at SESSION_S, resume me"
 GZIP_MAGIC = bytes((0x1F, 0x8B))     # a SIDS body; anything else is an RTF/XML stub
 
 
@@ -664,6 +674,25 @@ STEP_SCRIPTS = {"docs": ["pull.js"], "applic": ["pull_applic.js", "pull_applic2.
 NEED_GB = {"images": 30, "epc": 10}
 
 
+def host_ram_mb() -> int:
+    """This PC's memory in MB, or 0 if it can't be told."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class Status(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong)] + \
+                           [(n, ctypes.c_ulonglong) for n in ("total", "avail", "page", "apage",
+                                                              "virt", "avirt", "aext")]
+            s = Status()
+            s.dwLength = ctypes.sizeof(Status)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(s))
+            return s.total // 2**20
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // 2**20
+    except (OSError, ValueError, AttributeError):
+        return 0
+
+
 def check(key: str, level: str, msg: str) -> str:
     print(f"CHECK\t{key}\t{level}\t{msg}", flush=True)
     return level
@@ -691,6 +720,15 @@ def preflight(vm: str, steps: list[str], out: Path, subnet: str, java: str, jar:
                                           "run a disk check or Startup Repair on its next boot."))
     else:
         levels.append(check("vm", "ok", f"{vm} is off and ready to start."))
+    vm_mb, pc_mb = int(info.get("memory", "0") or 0), host_ram_mb()
+    if vm_mb and pc_mb:
+        levels.append(check("memory", "warn", f"{vm} is given {vm_mb / 1024:.0f} GB of this PC's "
+                                              f"{pc_mb / 1024:.0f} GB, which leaves the PC short while it "
+                                              "runs and can slow the pull. 4-8 GB is enough: in VirtualBox, "
+                                              "with the VM off, Settings -> System -> Base Memory.")
+                      if vm_mb > pc_mb / 2 else
+                      check("memory", "ok", f"{vm} is given {vm_mb / 1024:.0f} GB of this PC's "
+                                            f"{pc_mb / 1024:.0f} GB."))
     if online:
         ours = [s["name"] for s in snapshots(vm) if s.get("name", "").startswith(AUTO_PREFIX)]
         recent = max((_stamp(n) for n in ours), default=0.0)
@@ -1000,15 +1038,26 @@ def main(argv=None) -> int:
                  port: int = args.port, heap: str = "") -> None:
             """Run a pull; on a dropped connection power-cycle and run it again.
             The in-VM database resets connections under sustained load (the
-            first from-scratch run lost it on the last table of pull_applic2)."""
-            for attempt in range(6):
-                if nashorn(script, {**base, **(env or {}), "AR_OUT": str(out_dir)}, heap) == 0:
+            first from-scratch run lost it on the last table of pull_applic2).
+            A pull that stops at its session limit (exit SESSION_UP) is
+            restarted on a fresh VM without counting as a failure."""
+            attempt = 0
+            while attempt < 6:
+                rc = nashorn(script, {**base, "AR_MAX_S": str(SESSION_S), **(env or {}),
+                                      "AR_OUT": str(out_dir)}, heap)
+                if rc == 0:
                     return
+                if rc == SESSION_UP:
+                    log(f"{what}: {SESSION_S // 60} min in this VM session; restarting the VM "
+                        f"before the database drops, then resuming")
+                    base["AR_HOST"] = cycle(port)
+                    continue
+                attempt += 1
                 if LAST_FATAL:
                     die(f"{what} failed with {LAST_FATAL} -- a problem in the pull itself, "
                         f"not the database, so restarting the VM would not help. What it "
                         f"saved so far is kept; a re-run after the fix resumes.")
-                log(f"{what} stopped (attempt {attempt + 1}); power-cycling and resuming")
+                log(f"{what} stopped (attempt {attempt}); power-cycling and resuming")
                 base["AR_HOST"] = cycle(port)
             die(f"{what} kept stopping; re-run to resume")
 
@@ -1037,7 +1086,8 @@ def main(argv=None) -> int:
                 before = pulled_count(images)
                 nashorn("pull_images.js", {**base, "AR_OUT": str(images),
                                            "AR_SAMPLE": str(images / "list.tsv"),
-                                           "AR_SLEEP": "25", "AR_LIMIT": str(BATCH)})
+                                           "AR_SLEEP": "0", "AR_FRESH": str(FRESH),
+                                           "AR_LIMIT": str(BATCH), "AR_MAX_S": str(SESSION_S)})
                 got = pulled_count(images) - before
                 log(f"batch: +{got:,} -> {pulled_count(images):,} / {total:,}")
                 stalls = stalls + 1 if got == 0 else 0

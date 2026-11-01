@@ -15,7 +15,7 @@ the EWA install it reads, `autorundown_out/` it writes -- stays in
 ```bash
 python extractor/wis_paths.py                     # where it reads + writes
 # 1. everything, resumable (~4 h from scratch, mostly images): docs ->
-#    applic -> vehicles -> links -> images (VM on, headless, 15k-image
+#    applic -> vehicles -> links -> images (VM on, headless, 60k-image
 #    batches with the VM off between) -> build (offline: parse.py,
 #    apply_applic.py --rebuild-join, parse_vehicles.py, parse_links.py,
 #    convert_images.py, apply_images.py)
@@ -218,9 +218,9 @@ not stored under the citing document) into
 re-encoded, DXF R12 -> SVG via `ezdxf.recover` (WIS DXF reuses entity
 handles; a strict read silently draws nothing), plus the text labels of
 vector graphics; `apply_images.py` adds `image_files` / `figure_text` to
-records. **Pull in batches** (`pull_images_batches.sh`, 15k each, VM off
-between): the in-VM database resets its connection after ~19.5k graphics in
-one session, and the host crashed twice (bugcheck 0x9F, VirtualBox 7.1.4)
+records. **Pull in batches** (60k each since 2026-11-01, VM off between;
+15k with 25 ms per image before): the in-VM database dies after a long
+session, and the host crashed twice (bugcheck 0x9F, VirtualBox 7.1.4)
 during long VM runs — none since updating to 7.2.18 and batching. Full
 English pass: 272,185 graphics, ~2 h in 11 batches, conversion minutes.
 

@@ -13,6 +13,8 @@
 //   probe    try a few size functions / key shapes and print what works.
 //
 // Config via environment: AR_HOST AR_PORT AR_DB AR_OUT AR_SAMPLE AR_MODE
+//   (pull: AR_SLEEP ms per graphic, AR_LIMIT per run, AR_FRESH per connection,
+//    AR_MAX_S seconds per run)
 // Run like pull.js: from a space-free staging dir next to tbjdbc.jar.
 var System = Java.type("java.lang.System");
 var DriverManager = Java.type("java.sql.DriverManager");
@@ -34,6 +36,8 @@ var MODE = env("AR_MODE", "pull");
 var SLEEP = parseInt(env("AR_SLEEP", "50"), 10);   // ms between rows
 var LAYOUT = env("AR_LAYOUT", "full");
 var LIMIT = parseInt(env("AR_LIMIT", "0"), 10);   // stop after N new graphics (0 = all)
+var FRESH = parseInt(env("AR_FRESH", "0"), 10);   // a new connection every N graphics (0 = never)
+var MAX_S = parseInt(env("AR_MAX_S", "0"), 10);   // stop after this many seconds (0 = never)
 new File(OUT + "/raw").mkdirs();
 
 function log(msg){
@@ -109,7 +113,7 @@ if (MODE == "pull") {
   var lines = Files.readAllLines(Paths.get(env("AR_SAMPLE", OUT + "/sample.tsv")));
   var idx = OUT + "/pull_images.tsv";
   if (!new File(idx).exists()) append(idx, "graphik_id\tgraphik_nr\tdok_id\tcluster\tblob_dok_id\tbytes\tms\tstatus");
-  var ok=0, miss=0, totalB=0, totalMs=0;
+  var ok=0, miss=0, totalB=0, totalMs=0, T0=System.currentTimeMillis();
   for (var i = 1; i < lines.size(); i++) {
     var f = (""+lines.get(i)).split("\t");
     var dok=parseInt(f[0],10), gid=parseInt(f[1],10), nr=f[2], cl=parseInt(f[4],10);
@@ -134,8 +138,10 @@ if (MODE == "pull") {
     ok++; totalB += b.length; totalMs += ms;
     append(idx, gid+"\t"+nr+"\t"+dok+"\t"+cl+"\t"+blobDok+"\t"+b.length+"\t"+ms+"\tok");
     if (LIMIT && ok >= LIMIT) { log("batch limit " + LIMIT + " reached at row " + i); break; }
+    if (MAX_S && System.currentTimeMillis() - T0 > MAX_S * 1000) { log("session limit " + MAX_S + " s reached at row " + i); break; }
+    if (FRESH && ok % FRESH == 0) connect();
     if (ok % 2000 == 0) log("progress: row " + i + "/" + (lines.size()-1) + " ok=" + ok + " missing=" + miss + " MB=" + Math.round(totalB/1048576));
-    Thread.sleep(SLEEP);
+    if (SLEEP) Thread.sleep(SLEEP);
   }
   log("pull done: ok="+ok+" missing="+miss+" bytes="+totalB+" ms="+totalMs);
 }
