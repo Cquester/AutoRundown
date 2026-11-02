@@ -48,7 +48,8 @@ tests/              free test suites, `python tests/test_<name>.py`
 tools/              make_sample_corpus.py, make_sample_lemon.py, readme_gifs.py,
                     make_icons.py (the app's icons), github_setup.py (repo rulesets),
                     check_js.py, build_lemon_catalogue.py, build_us_years.py,
-                    sids_render.py; container/ (test boxes); sandbox/
+                    sids_render.py; container/ (test boxes); sandbox/;
+                    pull_bench/ (Mercedes pull settings timed on the real VM)
 extractor/          Mercedes WIS extractor (its data stays in ../Mercedes Documents/)
 packaging/windows/  MSI (WiX 5), build.ps1, ui_check.py (first-start UI check)
 docs/               notes/ (deep notes), qa/ (QA reports), images/ (README),

@@ -9,6 +9,9 @@
 //   AR_OUT   output directory        (created if missing)
 //   AR_LANG  SprachCode to extract   (default 2 = English)
 //   AR_JAR   path to tbjdbc.jar      (on the classpath already; informational)
+//   AR_MAX_S stop (checkpointed, exit 4) after this many seconds; 0 = never.
+//            The database dies ~10 min into a session, so the pipeline
+//            restarts the VM and resumes before that.
 var System = Java.type("java.lang.System");
 var DriverManager = Java.type("java.sql.DriverManager");
 var JStr = Java.type("java.lang.String");
@@ -28,6 +31,8 @@ var DB   = env("AR_DB",   "wisnet");
 var OUT  = env("AR_OUT",  ".").replace(/\\/g, "/");
 var LANG = parseInt(env("AR_LANG", "2"), 10);
 var CHECKPOINT = 500;
+var MAX_S = parseInt(env("AR_MAX_S", "0"), 10);
+var T0 = System.currentTimeMillis();
 
 new File(OUT).mkdirs();
 function readWatermark(){
@@ -125,6 +130,11 @@ while(rs.next()){
   got++; sinceCk++; lastDok=dokid;
   if(sinceCk>=CHECKPOINT){ pack.flush(); meta.flush(); figs.flush(); writeWatermark(lastDok); sinceCk=0; }
   if(got%5000===0){ log("progress: "+got+" pulled, "+nobody+" no-body, at DokID "+dokid); Java.type("java.lang.Thread").sleep(300); }
+  if(MAX_S && System.currentTimeMillis()-T0 > MAX_S*1000){
+    pack.flush(); meta.flush(); figs.flush(); writeWatermark(lastDok);
+    log("SESSION limit "+MAX_S+" s: pulled="+got+", checkpointed at DokID "+lastDok+" -- resumes from there");
+    System.exit(4);
+  }
 }
 } catch(e) {
   // the document list itself died -- the connection dropped between rows

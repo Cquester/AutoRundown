@@ -437,8 +437,12 @@ and the chosen one; the job runs the extractor's
 `rebuild_wis.py` on `<out_root>/wis_extract`. The pipeline is the manual
 procedure in one resumable script: docs (`pull.js`, power-cycle + resume on a
 drop, 6 tries) → applic (`pull_applic.js`, `pull_applic2.js`) → vehicles
-(`pull_vehicles.js`) → images (list from `figures.tsv`, 15k per batch, VM off
-60 s between) → build (`parse.py` → `apply_applic.py --rebuild-join` →
+(`pull_vehicles.js`) → images (list from `figures.tsv`, 60k per batch with no
+pause and a new connection every 5k, VM off 60 s between; 15k with 25 ms per
+image until 2026-11-01). Documents and images stop after 4 min in one VM
+session (`SESSION_S`; `pull.js` exits 4) and resume on a restarted VM: the
+database dies ~10 min into a session, 5.5 on the laptop, and after a drop
+Windows didn't shut down cleanly; measured in `tools/pull_bench` → build (`parse.py` → `apply_applic.py --rebuild-join` →
 `parse_vehicles.py` → `convert_images.py --jobs 3` → `apply_images.py`). It
 only starts/stops the VM headless and reads the DB; it never snapshots,
 changes the NIC or the guest firewall (the old `extract.ps1` did) — if the DB
@@ -537,7 +541,9 @@ closed and the extractor kept running on its own).
 - **The check, without booting** (`vm_pipeline.py --check`, `GET
   /api/vms/check?vm=&what=&steps=`): one `CHECK <key> <ok|warn|fail> <msg>`
   line each -- the VM exists; its state (running / saved / aborted are
-  warnings, said in words); a host-only adapter (fail without) on the
+  warnings, said in words); its memory (a warning over half the PC's:
+  the laptop, 2026-10-31, gave it 12 GB of 16 and pulled ~8x slower than
+  this PC; 4-8 GB is enough, 15 of 15 boots at 8 GB); a host-only adapter (fail without) on the
   `--subnet` -- with **Fix it** beside that ✗ (2026-10-29, the user's
   new-user run on the reverted `AutoRundown-base`: Adapter 1 was NAT):
   `POST /api/vms/fix-network` runs `vm_pipeline.py --fix-network`, which

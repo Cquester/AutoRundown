@@ -166,6 +166,40 @@ def pipeline_checks() -> None:
           [c[3:] for c in calls[:1]] == [vmp.WIN_KEY] and typed[0][3] == "cmd"
           and "localport=any" in typed[-1][3] and "remoteip=192.168.56.0/24" in typed[-1][3]
           and "state off" not in typed[-1][3] and "VM" in vmp.GUEST_SETUP, calls)
+    # a VM given most of the PC's memory: a warning, not a stop (the laptop,
+    # 2026-10-31: 12 GB of 16; 4-8 GB is enough, tools/pull_bench)
+    vmp.vbox = lambda *a, check=True: ('"VM" {1}\n' if a[:2] == ("list", "vms") else
+                                       'VMState="poweroff"\nmemory=12288\n' if a[0] == "showvminfo" else "")
+    real_ram = vmp.host_ram_mb
+
+    def memory_line(pc_mb):
+        vmp.host_ram_mb = lambda: pc_mb
+        with contextlib.redirect_stdout(io.StringIO()) as o:
+            vmp.preflight("VM", ["build"], TMP / "pre", "192.168.56", "", "")
+        return next((l for l in o.getvalue().splitlines() if l.startswith("CHECK\tmemory")), "")
+    line = memory_line(16384)
+    check("12 GB of a 16 GB PC: a warning that says how much is enough",
+          line.startswith("CHECK\tmemory\twarn") and "4-8 GB" in line, line)
+    line = memory_line(65536)
+    check("12 GB of a 64 GB PC: fine", line.startswith("CHECK\tmemory\tok"), line)
+    check("PC memory unknown: no memory line", memory_line(0) == "")
+    vmp.host_ram_mb = real_ram
+    check("this PC's memory can be read", vmp.host_ram_mb() > 0)
+    # images: no pause, a new connection every 5k, the VM restarted every 60k
+    # (tools/pull_bench, 2026-11-01: 272k images in 22 min, no drops)
+    src_py = (ROOT / "extractor" / "vm_pipeline.py").read_text(encoding="utf-8")
+    src_js = (ROOT / "extractor" / "pull_images.js").read_text(encoding="utf-8")
+    check("the image pull runs with no pause and a new connection every 5,000, 60,000 per VM session",
+          vmp.BATCH == 60000 and vmp.FRESH == 5000 and '"AR_SLEEP": "0", "AR_FRESH": str(FRESH)' in src_py
+          and 'env("AR_FRESH"' in src_js and "if (FRESH && ok % FRESH == 0) connect();" in src_js)
+    # every document / image session stops before the database's ~10 min
+    # (then Windows can't shut down cleanly): pull.js exits SESSION_UP, the
+    # pipeline restarts the VM without counting a failure
+    src_doc = (ROOT / "extractor" / "pull.js").read_text(encoding="utf-8")
+    check("documents and images stop after 4 min a session; that exit is not a failure",
+          vmp.SESSION_S == 240 and vmp.SESSION_UP == 4 and 'env("AR_MAX_S"' in src_js
+          and 'env("AR_MAX_S"' in src_doc and "System.exit(4)" in src_doc
+          and "if rc == SESSION_UP:" in src_py and '"AR_MAX_S": str(SESSION_S)' in src_py)
     ewa_copy_checks(vmp)
     users = ["Value: 0"]
     vmp.vbox = lambda *a, check=True: users[0] if a[0] == "guestproperty" else ""

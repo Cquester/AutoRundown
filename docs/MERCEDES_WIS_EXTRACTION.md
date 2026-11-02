@@ -123,10 +123,16 @@ the importer measures agreement on every corpus and ignores the links below 50%.
 
 ## 6. Stability — read before a long run
 
-- **The in-VM database drops its connection under sustained load** — after
-  ~19.5k graphics in one session, sometimes mid-document. Every pull is
+- **The in-VM database drops its connection after a long session** — about
+  10 minutes into one, whatever the pace, sometimes mid-document. A reconnect
+  doesn't help (the database is gone until the VM restarts). Every pull is
   resumable and checkpointed; the pipeline power-cycles the VM and resumes.
-  Images go in **15k batches with the VM off between batches**.
+  Images go in **60k batches, no pause, a new connection every 5k, with the
+  VM off between batches** -- about 3 minutes a batch, all 272k in ~22 min
+  (measured 2026-11-01; 15k batches at 25 ms per image took ~2 h 50 min).
+  Documents and images also **stop after 4 minutes in one VM session** and
+  resume on a restarted VM: after a drop, Windows in the VM would not shut
+  down cleanly (twice), and once the next boot hung at "Starting Windows".
 - **This host has hard-powered-off under heavy disk I/O** (Kernel-Power 41,
   and one bugcheck 0x9F with VirtualBox 7.1.4). Stable since VirtualBox
   7.2.18 + batching + throttled conversion (3-4 workers). After any crash,
