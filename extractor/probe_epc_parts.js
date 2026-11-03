@@ -38,7 +38,7 @@ function rows(sql,max,dbname){
   rs.close(); st.close(); return out;
 }
 function one(sql,dbname){ var r=rows(sql,1,dbname); if(!r.length) return ""; for(var k in r[0]) return r[0][k]; }
-function step(title,fn){ print("\n== "+title); try{ fn(); }catch(e){ print("  ERROR: "+e); } }
+function step(title,fn){ if(STEPS && (","+STEPS.replace(/\s+/g,"")+",").indexOf(","+title.split(".")[0]+",")<0) return; print("\n== "+title); try{ fn(); }catch(e){ print("  ERROR: "+e); } }
 function show(rs){ for(var i=0;i<rs.length;i++) print("  "+JSON.stringify(rs[i])); }
 
 print("probe catnum="+CATNUM+" lang="+LANG);
@@ -207,6 +207,28 @@ step("10. footnotes", function(){
     +"where a.SANUM=' 10981' and a.DESCIDX=b.DESCIDX and (b.LANG="+q(LANG)+" or b.LANG='N') order by a.FTNTNUM, b.SEQNUM").slice(0,12));
   print("  totals: BM_FOOTNOTES_V "+one("select count(*) from BM_FOOTNOTES_V")+", SA_FOOTNOTES_V "+one("select count(*) from SA_FOOTNOTES_V")
     +", BM part rows with footnotes "+one("select count(*) from BM_PARTS2_V where FOOTNOTES <> ''"));
+});
+
+// 11. old-style footnotes with no "up to" / "from" (2026-11-02): the W201's
+// catalog 14A, group 67, subgroup 030 has two rear-window seals whose notes are
+// only "F 496808" and "F 496809" -- about 38,000 part lines read like that. Shows
+// every column of those rows, then which ABBR values footnotes use across all
+// catalogs, with a sample, so the decoder can learn where the direction is kept.
+// AR_FN_CAT / AR_FN_GROUP pick the example (default 14A / 67).
+step("11. old-style footnotes", function(){
+  var cat=env("AR_FN_CAT","14A"), g=env("AR_FN_GROUP","67");
+  print("  BM_FOOTNOTES_V rows of "+cat+" group "+g+", every column:");
+  show(rows("select * from BM_FOOTNOTES_V where CATNUM="+q(cat)+" and GROUPNUM="+q(g)+" order by FTNTNUM").slice(0,40));
+  print("  their dictionary rows, every column (any language):");
+  show(rows("select b.* from BM_FOOTNOTES_V a, BM_FOOTNOTES_DICTIONARY_V b where a.CATNUM="+q(cat)+" and a.GROUPNUM="+q(g)
+    +" and a.DESCIDX=b.DESCIDX order by b.DESCIDX, b.LANG, b.SEQNUM").slice(0,80));
+  print("  ABBR values in BM_FOOTNOTES_DICTIONARY_V (count, one sample TEXT):");
+  rows("select ABBR, count(*) as N from BM_FOOTNOTES_DICTIONARY_V group by ABBR order by N desc",60).forEach(function(r){
+    var t=one("select TEXT from BM_FOOTNOTES_DICTIONARY_V where ABBR="+q(r.ABBR)+" and (LANG="+q(LANG)+" or LANG='N')");
+    print("    ["+r.ABBR+"] "+r.N+"  "+JSON.stringify(t));
+  });
+  print("  part rows of "+cat+" group "+g+" with footnotes, every column:");
+  show(rows("select * from BM_PARTS2_V where CATNUM="+q(cat)+" and GROUPNUM="+q(g)+" and FOOTNOTES <> '' order by SUBGRP, SEQNUM").slice(0,12));
 });
 
 for(var k in dbs) dbs[k].close();
