@@ -6,7 +6,9 @@
 // SA in SA_FOOTNOTES_V, one dictionary row per line (BM/SA_FOOTNOTES_
 // DICTIONARY_V, LANG = the language or 'N' for language-neutral).
 //
-// Two shapes (probe step 10, 2026-10-15):
+// Three shapes (probe step 10, 2026-10-15; the third probe step 11, 2026-11-02):
+// - old-revision serial footnotes: ABBR "#" + A(from)/B(up to) + the unit
+//   letter, TEXT the ident ("F 496808"), one row per plant;
 // - old-style text, e.g. "UP TO CHASSIS:" then "100,102,103,110,112 126027"
 //   (baumuster suffixes and the chassis number), used as written;
 // - revision 9 serial footnotes: ABBR "E" + A(from)/B(up to) + the unit letter,
@@ -47,16 +49,33 @@ function fnSerial(abbr, text) {
   return s;
 }
 
+// one old-revision serial row -> "up to chassis F 496808", or null. ABBR "#" +
+// A(from)/B(up to) + the unit letter, TEXT the ident as printed ("A 109999",
+// "016134", a range "025406-227295"); several rows of one footnote are one per
+// plant (probe step 11, 2026-11-02: W201 catalog 14A group 67; before, only
+// "F 496808" reached the record, without its direction)
+function fnOldSerial(abbr, text) {
+  var m = /^#([AB])([A-Z])$/.exec((abbr || "").replace(/\s+/g, ""));
+  var ident = (text || "").replace(/^\s+|\s+$/g, "").replace(/\s{2,}/g, " ");
+  if (!m || !ident) return null;
+  return (m[1] == "A" ? "from" : "up to") + " " + (FN_UNITS[m[2]] || ("unit " + m[2])) + " " + ident;
+}
+
 // rows {FTNTNUM, REVVER, ABBR, SEQNUM, CONTINUED, TEXT} ordered by FTNTNUM,
 // SEQNUM -> {"003": "up to engine ...", ...}. TEXT must not be trimmed at the
 // front: the serial fields are positional.
 function fnDecode(rows) {
-  var lines = {};
+  var lines = {}, lastOld = {};
   rows.forEach(function (r) {
     var num = (r.FTNTNUM || "").replace(/\s+/g, "");
     if (!num) return;
     var raw = r.TEXT == null ? "" : String(r.TEXT).replace(/\s+$/, "");
-    var s = fnSerial(r.ABBR, raw);
+    var old = fnOldSerial(r.ABBR, raw), abbr = (r.ABBR || "").replace(/\s+/g, "");
+    var l0 = lines[num];
+    // the same old-style condition at another plant: "up to chassis A 444135, F 496808"
+    if (old && l0 && l0.length && lastOld[num] == abbr) { l0[l0.length - 1] += ", " + raw.replace(/^\s+/, ""); return; }
+    lastOld[num] = old ? abbr : "";
+    var s = old || fnSerial(r.ABBR, raw);
     if (s == null) s = raw.replace(/^\s+/, "").replace(/\s{2,}/g, " ");
     if (!s || /^[=\-_*]+$/.test(s)) return;          // ruler lines in text tables
     var l = lines[num] || (lines[num] = []);
