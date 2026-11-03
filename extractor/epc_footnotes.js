@@ -34,15 +34,16 @@ function fnSerial(abbr, text) {
   var m = /^E([AB])([A-Z])$/.exec((abbr || "").replace(/\s+/g, ""));
   if (!m || !text) return null;
   var dir = m[1] == "A" ? "from" : "up to", unit = FN_UNITS[m[2]] || ("unit " + m[2]);
+  var units = unit == "chassis" ? unit : unit + "s";   // not "chassiss"
   var ident = text.substr(0, 8).replace(/\s+/g, ""), date = fnDate(text.substr(8, 8));
   var my = text.length > 16 ? text.substr(16, 5).replace(/\s+/g, "") : "";
   var s;
-  if (ident.length <= 1) s = dir + " " + unit + "s built " + (date || "?") + (ident ? " (plant " + ident + ")" : "");
+  if (ident.length <= 1) s = dir + " " + units + " built " + (date || "?") + (ident ? " (plant " + ident + ")" : "");
   else s = dir + " " + unit + " " + ident + (date ? " (change date " + date + ")" : "");
   if (my) s += ", model year code " + my;
   var extra = text.length > 23 ? fnIdents(text.substr(23), 30) : "";
-  if (extra && text.charAt(21) == "P") s += "; also " + unit + "s " + extra;
-  if (extra && text.charAt(22) == "M") s += "; not " + unit + "s " + extra;
+  if (extra && text.charAt(21) == "P") s += "; also " + units + " " + extra;
+  if (extra && text.charAt(22) == "M") s += "; not " + units + " " + extra;
   return s;
 }
 
