@@ -151,14 +151,16 @@ P[21] M[22] extra idents -- as "up to engine 32946334 (change date
 engines ...". In old-style text, codes after "MODEL" are often the
 catalog's own variants ("FOR MODEL 970-975" = engines 119.970-975).
 
-**Open (2026-11-02): ~38,000 part lines have an old-style footnote with no
-direction**, only a chassis number ("fn 015: F 496808" on one W201 rear-window
-seal, "F 496809" on the other; some "A 444135, F 496808", one per plant). The
-"up to" / "from" is not in the TEXT the decoder reads. Probe step 11
-(`AR_STEPS=11`, catalog 14A group 67 by default) prints every column of those
-rows and the ABBR values in use, to find where it is kept; the decoder is
-fixed from its output, and it lands on the next EPC pull. Also fixed: dated
-footnotes read "chassiss built" (corpus has it until that pull).
+**Old-revision serial footnotes (fixed 2026-11-02, corpus format 4).** ~38,000
+part lines read only a chassis number ("fn 015: F 496808" on one W201
+rear-window seal, "F 496809" on the other), with no "up to" / "from". Probe
+step 11 (`AR_STEPS=11`, catalog 14A group 67) showed the direction is in ABBR,
+like revision 9 but with `#`: `#BF` up to chassis, `#AF` from chassis (`#BM` /
+`#AM` engine, `#BG` / `#AG` transmission, A, H, V, L as above; ~180,000
+dictionary rows), TEXT the ident as printed ("A 109999", "016134", a range
+"025406-227295"), one row per plant. `fnOldSerial` gives "up to chassis A
+444135, F 496808". Also fixed: dated footnotes read "chassiss built". Format
+4 makes the next EPC pull rebuild its records (drawings reused).
 
 **Corpus format 3: the footnote text is on the part line** ("fn 003: up to
 engine ..."; a long one keeps its condition there, its engine lists or

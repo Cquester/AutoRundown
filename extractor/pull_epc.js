@@ -251,7 +251,7 @@ var REC=OUT+"/records.jsonl", DONE=OUT+"/done_catalogs.txt";
 // The record format. A resumed run only appends to a corpus of the same
 // format; after a change (2: footnotes, 3: inline) the records are rebuilt from scratch
 // -- the old file is kept as a .bak -- and the drawings on disk are reused.
-var FORMAT=3, FORMAT_LINE="#format "+FORMAT;   // 3: footnote texts on the part line
+var FORMAT=4, FORMAT_LINE="#format "+FORMAT;   // 3: footnote texts on the part line; 4: old "#BF" footnotes keep up to / from
 var done={}, dokId=0;
 if(RESUME && new File(DONE).isFile() && new File(REC).isFile()
    && Files.readAllLines(Paths.get(DONE),StandardCharsets.UTF_8).indexOf(FORMAT_LINE)<0){
