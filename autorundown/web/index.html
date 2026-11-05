@@ -5200,39 +5200,37 @@ async function showManualBrowse() {
   el.innerHTML = `<div class="card"><span class="spinner"></span> loading the manual&rsquo;s contents&hellip;</div>`;
   manualEl = el;
   srcout.replaceChildren(el);
+  // the Service schedule and Service bulletins are fetched alongside and
+  // drawn with the contents, never inserted later (a late insert moved the
+  // list under a click: Windows CI, 2026-11-05)
+  const extras = lemonCar() ? Promise.resolve(['', '']) : Promise.all([serviceHtml(doc), bulletinsHtml(doc)]);
   try {
-    const n = await manualLevel(doc, []);
+    const [n, [serv, bull]] = await Promise.all([manualLevel(doc, []), extras]);
     if (seq !== manualSeq) return;
     el.innerHTML = `<div class="muted" style="margin:0 0 8px">Manual for <b>${esc(label)}</b> &mdash; ${n.count} pages`
       + (n.path.length ? ` in <b>${esc(n.path.join(' › '))}</b>` : '') + ` by section. `
       + `Search or ask on the left to find a page by its words.`
       + (variantIdx() === null && !engineSel() ? ' Pick your model or engine above to narrow it.' : '') + `</div>`
-      + (n.count ? withDoc(doc, () => manualLevelHtml(n)) : `<div class="empty">No manual pages for this car.</div>`);
-    if (n.count && !lemonCar()) { bulletinsInto(el, doc, seq); serviceInto(el, doc, seq); }
+      + (n.count ? serv + bull + withDoc(doc, () => manualLevelHtml(n)) : `<div class="empty">No manual pages for this car.</div>`);
   } catch (e) {
     if (seq === manualSeq) el.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
 }
+const carArgs = () => (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
+  + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : '');
 // The car's WIS Service Information / Service measure documents, newest
 // first, with their date and what they replace (G3, 2026-11-05): a section
-// at the top of the Manual contents, shown only when the car has any.
-async function bulletinsInto(el, doc, seq) {
+// at the top of the Manual contents, '' when the car has none. Its pages are
+// in the HTML, so it is marked loaded: nothing to fetch on open.
+async function bulletinsHtml(doc) {
   let list;
-  try {
-    list = await api(`/api/wis/bulletins/${encodeURIComponent(doc)}?`
-      + (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
-      + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : ''));
-  } catch (e) { return; }                  // the contents still work without it
-  if (seq !== manualSeq || !list.length) return;
-  const d = document.createElement('details');
-  d.className = 'mbsec mbbull';
-  d.innerHTML = `<summary>Service bulletins <span class="muted">(${list.length})</span></summary>`
+  try { list = await api(`/api/wis/bulletins/${encodeURIComponent(doc)}?` + carArgs()); }
+  catch (e) { return ''; }                 // the contents still work without it
+  if (!list.length) return '';
+  return `<details class="mbsec mbbull" data-loaded="1"><summary>Service bulletins <span class="muted">(${list.length})</span></summary>`
     + `<div class="mbpages">` + withDoc(doc, () => list.map(p => `<button type="button" class="mbpage" ${pageAttrs(p.page_no)}>`
       + `<span class="mbkind">${esc(p.date ? fmtDocDate(p.date) : p.kind)}</span><span>${esc(p.title)}`
-      + (p.change ? `<span class="muted mbchange">${esc(p.change)}</span>` : '') + `</span></button>`).join('')) + `</div>`;
-  d.dataset.loaded = '1';                  // not a server level: nothing to fetch on open
-  const intro = el.querySelector(':scope > .muted');
-  if (intro) intro.after(d); else el.prepend(d);
+      + (p.change ? `<span class="muted mbchange">${esc(p.change)}</span>` : '') + `</span></button>`).join('')) + `</div></details>`;
 }
 // The car's ASSYST service schedule (G1, 2026-11-05): its interval, the
 // first service for its engine, and the jobs due by time or distance, each
@@ -5240,20 +5238,14 @@ async function bulletinsInto(el, doc, seq) {
 const fmtNum = n => Number(n).toLocaleString('en-US');
 const fmtEvery = (days, km) => [days ? (days % 365 === 0 ? `${days / 365} year${days === 365 ? '' : 's'}` : `${days} days`) : '',
                                 km ? `${fmtNum(km)} km` : ''].filter(Boolean).join(' / ');
-async function serviceInto(el, doc, seq) {
-  if (variantIdx() === null && !engineSel()) return;
+async function serviceHtml(doc) {
+  if (variantIdx() === null && !engineSel()) return '';
   let s;
-  try {
-    s = await api(`/api/wis/service/${encodeURIComponent(doc)}?`
-      + (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
-      + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : ''));
-  } catch (e) { return; }
-  if (seq !== manualSeq || !(s.interval.length || s.first.length || s.jobs.length)) return;
+  try { s = await api(`/api/wis/service/${encodeURIComponent(doc)}?` + carArgs()); }
+  catch (e) { return ''; }
+  if (!(s.interval.length || s.first.length || s.jobs.length)) return '';
   const dist = (km, mi) => [km ? `${fmtNum(km)} km` : '', mi ? `${fmtNum(mi)} mi` : ''].filter(Boolean).join(' / ');
-  const d = document.createElement('details');
-  d.className = 'mbsec mbserv';
-  d.dataset.loaded = '1';
-  d.innerHTML = `<summary>Service schedule (ASSYST)</summary><div class="mbbody">`
+  return `<details class="mbsec mbserv" data-loaded="1"><summary>Service schedule (ASSYST)</summary><div class="mbbody">`
     + (s.interval.length ? `<div class="labsec"><b>Service interval:</b> ${s.interval.map(i => esc(dist(i.km, i.miles))).join(' or ')}</div>` : '')
     + (s.first.length ? `<div class="labsec"><b>First service</b><ul>` + s.first.map(f =>
         `<li>Engine ${esc(f.engine)}${f.sheet ? `, oil to ${esc(f.sheet)}` : ''}: ${esc(dist(f.km, f.miles))}</li>`).join('') + `</ul></div>` : '')
@@ -5263,9 +5255,7 @@ async function serviceInto(el, doc, seq) {
           + `</td><td style="white-space:nowrap">${esc(fmtEvery(j.every_days, j.every_km))}`
           + (j.start_days || j.start_km ? `<div class="muted" style="font-size:12px">first at ${esc(fmtEvery(j.start_days, j.start_km))}</div>` : '')
           + `</td></tr>`).join('')) + `</tbody></table></div>` : '')
-    + `</div>`;
-  const intro = el.querySelector(':scope > .muted');
-  if (intro) intro.after(d); else el.prepend(d);
+    + `</div></details>`;
 }
 // WIS's 2002-11-19 as the shop reads it
 const fmtDocDate = d => { const m = String(d).match(/^(\d{4})-(\d\d)-(\d\d)$/); return m ? `${m[2]}/${m[3]}/${m[1]}` : d; };
