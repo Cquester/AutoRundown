@@ -668,7 +668,8 @@ def scope_sections(text: str) -> dict:
     out = {"includes": [], "after_diagnosis": [], "excludes": []}
     part = "includes"
     for line in (text or "").splitlines():
-        line = line.strip()
+        # WIS ends some texts with a NUL (found on the real pull, 2026-11-05)
+        line = "".join(ch for ch in line if ch >= " " or ch == "\t").strip()
         if not line:
             continue
         if _AFTER_DIAG.match(line):

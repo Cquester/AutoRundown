@@ -462,6 +462,9 @@ def main() -> int:
               (d["includes"], d["after_diagnosis"], d["excludes"]),
               (["Remove/install wheel(s)", "Bleed brake system"], ["Replace brake hose(s)"],
                ["Socket threads in brake caliper - Recut"]))
+        check("detail: a NUL line (as the real WIS text has) is no item",
+              wis_links.scope_sections("Coils - Remove/install\n\x00")["includes"],
+              ["Coils - Remove/install"])
         check("detail: the operation's and its group's notes",
               (d["notes"], d["group_notes"]),
               (["each additional caliper 0.2 h"], ["Not included in jobs in Group 42: road test"]))
