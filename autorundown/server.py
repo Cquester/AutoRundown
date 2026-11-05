@@ -1179,7 +1179,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             if vehicle.get("source_name") == "lemon":
                 return {"books": [{"book": "lemon", "family": "LEMON manual", "type": ""}],
                         "book": "lemon", "need": None,
-                        **lemon_tables.labour(conn, doc_id, q, alt=synonyms.translate(q) or "")}
+                        **lemon_tables.labour(conn, doc_id, q, alt=synonyms.translations(q))}
         finally:
             conn.close()
         if not _is_wis(vehicle):
@@ -1201,7 +1201,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         out = {"books": books, "book": chosen, "total": 0, "items": [],
                "need": None if chosen else ("book" if books else None)}
         if chosen:
-            out.update(wis_links.labour_times(corpus, chosen, q, alt=synonyms.translate(q) or ""))
+            # every wording: labour books differ ("rear-end door" / "liftgate")
+            out.update(wis_links.labour_times(corpus, chosen, q, alt=synonyms.translations(q)))
         return out
 
     @app.get("/api/diagram/{doc_id}/{page_no}")

@@ -552,7 +552,11 @@ anti-roll bar; EPC STABILIZER or TORSION BAR), "coil pack" (ignition coil),
 "flex disc" / "guibo" (WIS flexible coupling; EPC JOINT DISC) and
 "harmonic balancer" (vibration damper). A phrase can now have several
 manual words (a tuple); `synonyms.translations()` gives one query per
-alternative, used by Ask's queries and every tab's search. Left out as
+alternative, used by Ask's queries and every tab's search -- Labour times
+too, with every alternative since 2026-11-04 (it took only the first): the
+labour books say "rear-end door" (495 jobs) or "liftgate" (255) and
+"tailgate" in 19, so a 2001 E 320 4MATIC T found no labour time for
+"tailgate"; tailgate -> ("rear-end door", "liftgate") now finds 28. Left out as
 ambiguous: "driveshaft" (WIS uses it for axle shafts too; EPC says
 PROPELLER SHAFT or AXLE SHAFT). Tests: `tests/test_synonyms.py`, and "sway
 bar" finding the sample STABILIZER line in `tests/test_parts_diagrams.py`.

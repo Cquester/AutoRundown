@@ -533,10 +533,11 @@ def _rank_labour(items: list[dict], queries: list[list[str]], limit: int) -> dic
 
 
 def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
-                 alt: str = "") -> dict:
+                 alt: str | list[str] = "") -> dict:
     """Flat-rate times in one book: {"total", "best", "items": [{group, op,
-    text, minutes, hours}]}. With `q` -- or `alt`, the manual's wording for
-    it ("water pump" -> "coolant pump", synonyms.py) -- only the operations
+    text, minutes, hours}]}. With `q` -- or `alt`, the manual's wordings for
+    it ("water pump" -> "coolant pump", synonyms.py; a list when the books
+    differ: "tailgate" -> "rear-end door", "liftgate") -- only the operations
     that name it, the job itself first (`best` of them, _rank_labour);
     without, the whole book by repair group and operation."""
     try:
@@ -555,7 +556,8 @@ def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
     forms = {(kg, cat): e for kg, cat, e in _static_rows(
         corpus, "SELECT kg, category, expr FROM labour_formula WHERE region=? AND sparte=? "
                 "AND pl=? AND family=?", (REGION, sp, pl, fam)) or []}
-    queries = [ws for ws in (re.findall(r"\w+", (s or "").lower()) for s in (q, alt)) if ws]
+    alts = [alt] if isinstance(alt, str) else list(alt)
+    queries = [ws for ws in (re.findall(r"\w+", (s or "").lower()) for s in (q, *alts)) if ws]
     items = []
     for kg, op, cat, text in _static_rows(corpus, "SELECT kg, op, category, text FROM labour_op "
                                                   "WHERE sparte=?", (sp,)) or []:

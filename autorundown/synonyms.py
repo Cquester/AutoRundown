@@ -89,6 +89,11 @@ PHRASES: dict[str, str | tuple[str, ...]] = {
     "weatherstrips": "sealing strips",
     "weatherstrip": "sealing strip",
     "tailpipe": "tail pipe",
+    # WIS's labour books say "rear-end door" (495 jobs) or "liftgate" (255),
+    # "tailgate" in only 19: a 2001 E 320 4MATIC T found no labour time for
+    # "tailgate" (2026-11-04). The typed word is still searched (2,854 WIS pages).
+    "tailgates": ("rear-end doors", "liftgates"),
+    "tailgate": ("rear-end door", "liftgate"),
     # the old WIS manuals (W201, W124 era) say "oil sump": "0310 - Removal and
     # installation of the oil sump" for the oil pan (2026-10-26); the typed
     # words are still searched for the newer manuals and EPC's OIL PAN

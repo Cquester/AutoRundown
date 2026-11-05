@@ -93,11 +93,13 @@ def labour_items(conn: sqlite3.Connection, doc_id: str) -> list[dict]:
     return _cached(conn, doc_id, "labour", build)
 
 
-def labour(conn: sqlite3.Connection, doc_id: str, q: str = "", alt: str = "",
+def labour(conn: sqlite3.Connection, doc_id: str, q: str = "", alt: str | list[str] = "",
            limit: int = 200) -> dict:
-    """{"total", "best", "items"} for the question's words, as WIS's tab."""
+    """{"total", "best", "items"} for the question's words, as WIS's tab
+    (`alt`: the manuals' wordings, synonyms.translations)."""
     items = labour_items(conn, doc_id)
-    queries = [ws for ws in (re.findall(r"\w+", (s or "").lower()) for s in (q, alt)) if ws]
+    alts = [alt] if isinstance(alt, str) else list(alt)
+    queries = [ws for ws in (re.findall(r"\w+", (s or "").lower()) for s in (q, *alts)) if ws]
     if queries:
         return _rank_labour(items, queries, limit)
     return {"total": len(items), "best": 0, "items": items[:limit]}

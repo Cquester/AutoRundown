@@ -64,6 +64,21 @@ check("taillight: each wording's titled hits first, taking turns",
 check("one wording only: as before", [r["title"] for r in merge_wordings("x", ["x"], [rows("a", "b")])],
       ["a", "b"])
 
+check("tailgate: the labour books' rear-end door and liftgate", translations("tailgate hinge"),
+      ["rear-end door hinge", "liftgate hinge"])
+
+# labour times take every wording: one book says "rear-end door", another
+# "liftgate" (2026-11-04: a wagon's "tailgate" found no labour time)
+from autorundown.wis_links import _rank_labour  # noqa: E402
+
+book = [{"kg": "72", "op": "72-2667", "text": "Hinges on rear-end door, Location:..... replace (with door removed)"},
+        {"kg": "72", "op": "72-9001", "text": "Hinges (2) on liftgate replace"},
+        {"kg": "88", "op": "88-8007", "text": "Trunk lid replace (Rear cover removed)"}]
+q = "tailgate hinges"
+got = _rank_labour(book, [w.split() for w in [q, *translations(q)]], 200)
+check("labour: 'tailgate hinges' finds both books' wordings, not the trunk lid",
+      sorted(i["op"] for i in got["items"]), ["72-2667", "72-9001"])
+
 check("nothing to translate", translations("oil filter"), [])
 check("nothing: translate() is None", translate("oil filter"), None)
 
