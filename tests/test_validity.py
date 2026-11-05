@@ -83,6 +83,42 @@ check("sedan-only page, sedan car: yes", validity.fits("Validity: MODEL 210.0", 
 check("'except': kept", validity.fits("Validity: Model 210.2 (except 210.274)", ["210.082"]), True)
 check("no car codes: kept", validity.fits("Validity: MODEL 210.0", []), True)
 
+print("an engine page's title names its models")
+t = validity.title_models
+ENG = "Applies to: ENGINE 102\n\nText"
+check("vans' carburettor page", t("1700 - Testing 2 E-E carburetor system   Engine 102 with carburetor 2 E-E"
+                                  "   Models 210, 310, 410, 510", ENG), "t,210.,310.,410.,510.,")
+check("one model", t("0030 - Removal and installation of the engine (oil capacity)  Engine 102 KE in model 201",
+                     ENG), "t,201.,")
+check("'all models': keep the page",
+      t("0030 - Fuel tank ventilation  A. Filler cap (all models), B. Models 124, 201", ENG), "")
+check("'except': keep the page", t("Engine 102 (except 102.983/99), Models 124, 201", ENG), "")
+check("a model year is not a model", t("Engine 102.962 to model year 1986", ENG), "")
+check("a page filed under a model is the model's, whatever its title",
+      t("Engine 102 in model 201", "Applies to: MODEL 124; all variants\n\nText"), "")
+check("a Validity line wins over the title",
+      validity.row("Applies to: ENGINE 102\nValidity: MODEL 201.0\n\nText", "Engine 102, Models 124"),
+      ",201.0,")
+van = "Engine 102 with carburetor 2 E-E   Models 210, 310, 410, 510"
+check("a link to it: not for a 190 E", validity.fits(ENG, ["201.034"], van), False)
+check("... for a 310 van, yes", validity.fits(ENG, ["310.211"], van), True)
+check("... with no car codes, yes", validity.fits(ENG, [], van), True)
+e = index.connect(":memory:")
+for d, model in (("w201", "W201 190"), ("e102", "Engine 102")):
+    index.upsert_vehicle(e, VehicleRecord(doc_id=d, source_name="records", file_path="x",
+                                          make="Mercedes-Benz", model=model))
+for no, d, title, applies in (("10", "e102", "Carburetor test  Engine 102  Models 210, 310", "ENGINE 102"),
+                              ("11", "e102", "Carburetor removal  Engine 102 in model 201", "ENGINE 102"),
+                              ("12", "e102", "Carburetor overview  Engine 102", "ENGINE 102"),
+                              ("13", "w201", "Carburetor note  Models 124, 126", "MODEL 201")):
+    index.add_page(e, PageRecord(doc_id=d, page_no=no, file_path="x", title=title, section_path=[applies],
+                                 system="", text=f"Applies to: {applies}\n\n{title}. Carburetor."))
+e.commit()
+sc = search.Scope(["w201", "e102"])
+sc.codes = (("201.034",), ())
+check("search: a 190 E gets its engine's pages for its model or none, and its own model's all",
+      {r["page_no"] for r in search.search(e, sc, "carburetor", 20)}, {"11", "12", "13"})
+
 print("an index without the table (older, read-only)")
 old = sqlite3.connect(":memory:")
 check("no table: no clause", validity.clause(old, ["210.282"]), ("", []))

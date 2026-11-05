@@ -12,6 +12,15 @@ page in `page_validity` (",210.0,210.2,211.," -- "211." is the whole
 series); `clause()` is the search filter: a page whose Validity names the
 car's series but none of the car's codes is left out.
 
+An engine's own pages ("Applies to: ENGINE 102", filed under no model)
+often name their models only in the title: "1700 - Testing 2 E-E carburetor
+system … Engine 102 with carburetor 2 E-E  Models 210, 310, 410, 510" is
+the vans' carburettor, and it reached a KE-Jetronic 190 E 2.3-16 (F5 of the
+same check). `title_models` reads those into a row marked "t"
+("t,210.,310.,410.,510."), and `clause()` leaves such a page out for a car
+whose series it doesn't name. Only for engine pages: a page filed under the
+car's own model is the car's, whatever its title says.
+
 Conservative on purpose -- leaving a right page out is a miss, so anything
 it can't read keeps the page: "except" anywhere in a Validity line, a
 Validity line that names no model (an "ENGINE 112" section is valid for
@@ -75,6 +84,24 @@ def models(text: str) -> str:
     return "," + ",".join(sorted(found)) + ","
 
 
+_APPLIES_ENGINE_RE = re.compile(r"^Applies to:[ \t]*ENGINE\b", re.M | re.I)
+_APPLIES_MODEL_RE = re.compile(r"^Applies to:.*\bMODEL\b", re.M | re.I)
+
+
+def title_models(title: str, text: str) -> str:
+    """"t,210.,310.," -- the models an engine page's title names ("Models
+    210, 310"); "" for any other page, a title naming none, "except" or
+    "all models" ("A. Filler cap (all models), B. … Models 124, 201")."""
+    title = title or ""
+    if (not _APPLIES_ENGINE_RE.search(text or "") or _APPLIES_MODEL_RE.search(text or "")
+            or re.search(r"except|all models", title, re.I)):
+        return ""
+    found: set[str] = set()
+    for kw in _MODEL_KW_RE.finditer(title):
+        found |= _items(title[kw.end():])
+    return "t," + ",".join(sorted(found)) + "," if found else ""
+
+
 def _prefixes(code: str) -> list[str]:
     """",210.,", ",210.2,", ",210.28,", ",210.282," for "210.282"."""
     series, _, rest = code.partition(".")
@@ -91,35 +118,54 @@ def clause(conn: sqlite3.Connection, vcodes) -> tuple[str, list]:
             "UNION ALL SELECT 1 FROM sqlite_temp_master WHERE name='page_validity'").fetchone():
         return "", []
     sql, args = "", []
-    for series in dict.fromkeys(c[:3] for c in vcodes):
+    every = list(dict.fromkeys(c[:3] for c in vcodes))
+    for series in every:
         mine = [p for c in vcodes if c[:3] == series for p in _prefixes(c)]
         sql += (" AND NOT EXISTS (SELECT 1 FROM page_validity v WHERE v.page_uid = p.page_uid"
-                " AND instr(v.models, ?) > 0 AND NOT ("
+                " AND substr(v.models, 1, 1) = ',' AND instr(v.models, ?) > 0 AND NOT ("
                 + " OR ".join("instr(v.models, ?) > 0" for _ in mine) + "))")
         args += [f",{series}.", *mine]
+    # an engine page whose title names models: one of them must be the car's
+    # series ("t,201.," or "t,201.024,")
+    sql += (" AND NOT EXISTS (SELECT 1 FROM page_validity v WHERE v.page_uid = p.page_uid"
+            " AND substr(v.models, 1, 1) = 't' AND NOT ("
+            + " OR ".join("instr(v.models, ?) > 0" for _ in every) + "))")
+    args += [f",{s}." for s in every]
     return sql, args
 
 
-def fits(text: str, vcodes) -> bool:
+def fits(text: str, vcodes, title: str = "") -> bool:
     """`clause` for one page in Python (a page reached by a link, not search)."""
     m = models(text)
-    for series in dict.fromkeys(str(c)[:3] for c in vcodes or ()
-                                if re.fullmatch(r"\d{3}\.\d{3}", str(c))):
+    every = list(dict.fromkeys(str(c)[:3] for c in vcodes or ()
+                               if re.fullmatch(r"\d{3}\.\d{3}", str(c))))
+    for series in every:
         if f",{series}." in m and not any(
                 p in m for c in vcodes if str(c)[:3] == series for p in _prefixes(str(c))):
             return False
-    return True
+    t = "" if m else title_models(title, text)
+    return not (t and every and not any(f",{s}." in t for s in every))
 
 
-def store(conn: sqlite3.Connection, page_uid: str, text: str) -> bool:
+def row(text: str, title: str = "") -> str:
+    """What `page_validity` holds for a page: its Validity line, else an
+    engine page's title models, else nothing."""
+    return models(text) or title_models(title, text)
+
+
+def store(conn: sqlite3.Connection, page_uid: str, text: str, title: str = "") -> bool:
     """Write (or clear) a page's row; True if it has one."""
     conn.execute("DELETE FROM page_validity WHERE page_uid=?", (page_uid,))
-    m = models(text)
+    m = row(text, title)
     if m:
         conn.execute("INSERT INTO page_validity(page_uid, models) VALUES (?,?)", (page_uid, m))
     return bool(m)
 
 
+# the pages `row` may give a row for: a Validity line, or an engine page
+# whose title names a model
+_FILL_WHERE = ("instr(text, 'Validity:') > 0 OR (instr(text, 'Applies to: ENGINE') > 0"
+               " AND title LIKE '%model%')")
 FILLED = "#filled"          # a row saying the table was filled for this index
 BATCH = 5000
 MAX_BYTES_PER_S = 100e6     # pace the scan: this PC crashes under heavy I/O
@@ -141,12 +187,12 @@ def fill(conn: sqlite3.Connection, apply: bool = True, progress=None) -> dict:
     start = time.time()
     for lo in range(0, top + 1, BATCH):
         t0, nbytes, batch = time.time(), 0, []
-        for uid, text in conn.execute(
-                "SELECT page_uid, text FROM pages WHERE rowid >= ? AND rowid < ?"
-                " AND instr(text, 'Validity:') > 0", (lo, lo + BATCH)):
+        for uid, text, title in conn.execute(
+                "SELECT page_uid, text, title FROM pages WHERE rowid >= ? AND rowid < ?"
+                f" AND ({_FILL_WHERE})", (lo, lo + BATCH)):
             nbytes += len(text or "")
             stats["with_line"] += 1
-            m = models(text)
+            m = row(text, title)
             if m:
                 stats["rows"] += 1
                 stats["new"] += uid not in have
@@ -175,7 +221,7 @@ def fill_once(index_path: str) -> None:
         try:
             # any row: filled before, or built since add_page writes them
             if conn.execute("SELECT 1 FROM page_validity LIMIT 1").fetchone() or not conn.execute(
-                    "SELECT 1 FROM pages WHERE instr(text, 'Validity:') > 0 LIMIT 1").fetchone():
+                    f"SELECT 1 FROM pages WHERE {_FILL_WHERE} LIMIT 1").fetchone():
                 return
             s = fill(conn)
             print(f"WIS Validity lines read: {s['rows']:,} pages ({s['seconds']} s)", flush=True)

@@ -1148,6 +1148,21 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
+    @app.get("/api/fluids/{doc_id}/pages")
+    def api_capacity_pages(doc_id: str, variant: int | None = None,
+                           engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """For a car with no capacity sheet: its own pages that say they
+        give a capacity, as links (tab_values.capacity_pages). Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            if variant is None and not engine:
+                return []
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            return tab_values.capacity_pages(conn, vehicle, manual)
+        finally:
+            conn.close()
+
     @app.get("/api/wis/oil/{doc_id}")
     def api_wis_oil(doc_id: str, variant: int | None = None,
                     engine: str | None = Query(None, max_length=64)) -> list[dict]:

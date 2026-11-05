@@ -601,8 +601,10 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   is for; a wagon got sedan-only pages and back. `validity.py` reads it into
   `page_validity` (its own table: filling it never rewrites pages); a page
   naming the car's series and none of its codes is left out. Anything it
-  can't read keeps the page ("except", a line naming no model). Filled at
-  ingest, or once in the background on an older index. (`wis-source.md`)
+  can't read keeps the page ("except", a line naming no model). An engine
+  page's title models count too ("Engine 102 … Models 210, 310": the vans'
+  carburettor, not a 190 E's). Filled at ingest, or once in the background
+  on an older index. (`wis-source.md`)
 - **A title match only breaks ties in keyword search** (x1.05, 3+ words,
   `search.title_fit`); bigger boosts or two-word searches lost `eval_wis`
   cases. Old job numbers ("67-200") come from WIS figure names, only where

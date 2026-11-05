@@ -529,7 +529,7 @@ def _fits_car(page: dict, scope) -> bool:
     if mine and only and not any(f",{c}," in only for c in mine):
         return False
     # WIS's own Validity line: another body's page (validity.py)
-    if models and not validity.fits(page.get("text") or "", models):
+    if models and not validity.fits(page.get("text") or "", models, page.get("title") or ""):
         return False
     return page.get("applicability", "this_vehicle") == "this_vehicle"
 

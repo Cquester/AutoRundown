@@ -263,7 +263,9 @@ name. Now:
 - `/api/values/{doc}?kind=torque|capacity&pages=…` (`tab_values.job_values`)
   reads the job's pages -- after an Ask the answer's `document_page` +
   `source_pages` (with no answer, the first pages it was looked for on);
-  after a Search the top 3 hits -- and, for WIS, the documents they link to
+  after a Search the top 3 hits holding every word typed (a hit from the
+  OR top-up, marked `partial`, is another job: the cylinder head's torques
+  for "front brake pads", 2026-11-04) -- and, for WIS, the documents they link to
   (`wis_links.resolve`, AR/BA/BF/BE only, in scope only: another model's
   document is never a value here). The oil level sensor gets the oil pan
   bottom's self-tapping screws (14 Nm / 10 Nm) from "Remove/install bottom
@@ -287,7 +289,15 @@ name. Now:
   sheets count only when a column names the car (`strict`), so ATF -- listed
   per gearbox, which the car box doesn't know -- is not on the card (the UI
   says so). No sheet at all for the W201 (checked): the card says WIS has
-  none and the oil figure falls back to the ASSYST table (`/api/wis/oil`).
+  none and the oil figure falls back to the ASSYST table (`/api/wis/oil`),
+  which has no W201 row either. Since 2026-11-04 the card then lists the
+  car's own pages that say they give a capacity (`/api/fluids/{doc}/pages`,
+  `tab_values.capacity_pages`): the car's and its engines' buckets, not the
+  general pool, not a title naming other models, not the A/C "cooling
+  capacity" tests -- for the 190 E 2.3-16 "Removal and installation of the
+  engine (oil capacity) Engine 102 KE in model 201" (5.5 l refill, 5.0 l
+  with filter). Links only: that table reads flattened ("5.5 / 5.0" under
+  both names), so the value is read on the page, never shown as a spec.
 - Other manuals and WIS pages with no value table use the text lines
   (`value_lines` / `value_row`), fixed for "Stage 1 Nm 20" (was "1 Nm"), "5.5
   Liters 5.8 Quarts" (was "Liters 5.8"), turns right after a torque ("55 Nm

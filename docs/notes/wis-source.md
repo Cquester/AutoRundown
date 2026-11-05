@@ -163,6 +163,18 @@ is filled once in the background by the server (`validity.fill_once`,
 paced at ~100 MB/s, ~12 s here) or by `tools/wis_validity.py`. Its own
 table, so filling it never rewrites a page. eval_wis with the filter: 28/28,
 guards unchanged; a search ~0.25 -> 0.33 s. Tests: `tests/test_validity.py`.
+**An engine page's title, too** (same day, the check's F5): engine pages
+("Applies to: ENGINE 102", filed under no model) often name their models
+only in the title -- "1700 - Testing 2 E-E carburetor system … Models 210,
+310, 410, 510" is the vans' carburettor and reached a KE-Jetronic 190 E
+2.3-16. `validity.title_models` stores those as a row marked "t"
+("t,210.,310.,410.,510.,"; 1,561 on the live index) and the clause leaves
+such a page out for a car whose series it doesn't name. Only engine pages
+(a page filed under the car's model is the car's), never with "except" or
+"all models" in the title ("A. Filler cap (all models), B. … Models 124,
+201"), never a model year ("to model year 1986"); a Validity line wins.
+Engine pages naming no model ("Programmed repairs: Carburetor system") stay:
+nothing says whose they are. eval_wis: 28/28, guards unchanged.
 
 **The importer still measures before it trusts.** `structured_agreement()`
 compares `model_series` with the prose on every document carrying both; below

@@ -4017,7 +4017,10 @@ async function keywordSearch() {
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
       + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : '') + marketQS());
     if (seq !== searchSeq) return;
-    if (docId() === doc) valueTabs(rows.slice(0, 3).map(r => String(r.page_no)));
+    // the values of the top 3 pages holding every word: a page that only
+    // has some of them ("partial", the OR top-up) is another job -- the
+    // cylinder head's torques for "front brake pads" (2026-11-04)
+    if (docId() === doc) valueTabs(rows.filter(r => !r.partial).slice(0, 3).map(r => String(r.page_no)));
     // the server also searches the manual's own wording ("valve cover" ->
     // "cylinder head cover"); say so, or the results look off-topic
     const alt = rows.find(r => r.query && r.query.toLowerCase() !== q.toLowerCase());
@@ -5372,6 +5375,17 @@ async function showFluids() {
     rows = oil.map(r => ({name: `Engine oil${many ? ` (${r.engine})` : ''}${r.note ? ` ${r.note}` : ''} (WIS service data)`,
                           value: `${String(r.litres).replace(/\.0$/, '')} ${r.unit}`, page_no: ''})).concat(rows);
   }
+  // no sheet names the car (the W201): its own pages that give a capacity,
+  // as links -- their tables are often flattened, so read on the page
+  let pagesHtml = '';
+  if (!rows.length) {
+    let pages = [];
+    try { pages = await api(`/api/fluids/${encodeURIComponent(v.doc_id)}/pages?${qs}`); } catch { pages = []; }
+    if (seq !== oilCardSeq) return;
+    if (pages.length) pagesHtml = '<div class="muted" style="margin:4px 0">Pages of this car’s manual that give capacities:</div>'
+      + '<ul class="cappages">' + pages.map(p => `<li><button type="button" class="hit" ${pageAttrs(p.page_no)}>`
+        + `${esc(p.title)}</button></li>`).join('') + '</ul>';
+  }
   const title = `<div class="fluidshead">Fluids for <b>${esc(carBoxLabel || v.model)}</b></div>`;
   const atf = '<div class="muted cond">Automatic transmission fluid: WIS lists it per gearbox, '
     + 'which the car box doesn’t know &mdash; ask or search “ATF capacity”.</div>';
@@ -5381,7 +5395,7 @@ async function showFluids() {
                                                  ? `${r.system}: ${r.name}` : r.name})).join('')
       + `</tbody></table>` + atf
     : '<div class="muted" style="margin-bottom:8px">WIS has no capacity sheet for this car; '
-      + 'ask or search for the fluid.</div>'));
+      + 'ask or search for the fluid.</div>' + pagesHtml));
 }
 
 $('#askBtn').onclick = ask;

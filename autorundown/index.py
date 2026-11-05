@@ -357,7 +357,7 @@ def add_page(conn: sqlite3.Connection, page: PageRecord) -> int:
          digest, canonical, page.applicability, page.vehicle_types, page.engines,
          page.codes_only, page.codes_except),
     )
-    validity.store(conn, uid, page.text)
+    validity.store(conn, uid, page.text, page.title)
     if canonical:
         return 0  # duplicate of an already-chunked page
 

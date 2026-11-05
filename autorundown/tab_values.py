@@ -170,3 +170,46 @@ def fluids(conn: sqlite3.Connection, vehicle: dict, scope, corpus_ids: list[str]
             out.append({**r, "system": title or "", "page_no": page_no})
     out.sort(key=lambda r: (_fluid_rank(f"{r['system']} {r['name']}"), r["system"]))
     return out
+
+
+# a page's title says it gives a capacity: "(oil capacity)", "capacities";
+# not the air conditioner's cooling or heating capacity tests
+_CAPACITY_TITLE = re.compile(r"capacit", re.I)
+_NOT_CAPACITY = re.compile(r"cooling capacity|refrigerat|heating capacity|capacity modified|delivery capacit|"
+                           r"circuit diagram|light transporters|trucks|vans\b|unimog", re.I)
+_TITLE_MODELS = re.compile(r"\bModels?\s+((?:\d{3}[\s,/and]*)+)", re.I)
+
+
+def capacity_pages(conn: sqlite3.Connection, vehicle: dict, scope, limit: int = 8) -> list[dict]:
+    """For a car WIS has no capacity sheet for (the W201): the pages of its
+    own manual and its engines' whose title says they give a capacity
+    ("0030 - Removal and installation of the engine (oil capacity) Engine
+    102 KE in model 201"), as links -- their tables are often flattened
+    ("5.5 / 5.0" under two names), so the value is read on the page, never
+    guessed from it (2026-11-04). The general pool is left out (other
+    cars' "Capacities: Passenger cars: …" sheets), and so is a page whose
+    title names models that are not this car's."""
+    if not _is_wis(vehicle):
+        return []
+    ids = [d for d in as_ids(scope) if d != getattr(scope, "general", "")]
+    if not ids:
+        return []
+    series = str(vehicle.get("model_code") or "")
+    rows = conn.execute(
+        f"SELECT DISTINCT page_no, title FROM pages WHERE doc_id IN ({','.join('?' * len(ids))}) "
+        f"AND title LIKE '%capacit%' AND applicability != 'other_variant' ORDER BY page_no",
+        ids).fetchall()
+    out, seen = [], set()
+    for page_no, title in rows:
+        title = re.sub(r"\s{2,}", " — ", (title or "").strip())
+        if not _CAPACITY_TITLE.search(title) or _NOT_CAPACITY.search(title) or page_no in seen:
+            continue
+        named = {m for g in _TITLE_MODELS.findall(title) for m in re.findall(r"\d{3}", g)}
+        if named and series not in named:
+            continue
+        seen.add(page_no)
+        out.append({"page_no": str(page_no), "title": title})
+    # the engine's own page (oil) first, as the fluids card leads with oil
+    out.sort(key=lambda p: (0 if re.search(r"oil capacit", p["title"], re.I) else _fluid_rank(p["title"]),
+                            p["page_no"]))
+    return out[:limit]

@@ -316,6 +316,30 @@ def main() -> int:
     check("... one naming no engine is",
           query._fits_car({**other, "engines": ""}, sc))
     conn.close()
+
+    print("a car with no capacity sheet: its own capacity pages, as links")
+    from autorundown import tab_values
+    mem = sqlite3.connect(":memory:")
+    mem.execute("CREATE TABLE pages(doc_id TEXT, page_no TEXT, title TEXT, applicability TEXT)")
+    mem.executemany("INSERT INTO pages VALUES (?,?,?,?)", [
+        ("car", "49013378", "0030 - Removal and installation of the engine (oil capacity)      "
+                            "Engine 102 KE in model 201", "this_vehicle"),
+        ("eng", "49009429", "1.1 - General: Technical data, capacities     Engine 102 for Models 460, 461",
+         "this_vehicle"),
+        ("car", "49008737", "0507 - Checking the cooling capacity (quick test)", "this_vehicle"),
+        ("eng", "11000895", "Capacities: Light transporters: Steering", "this_vehicle"),
+        ("gen", "11001324", "Capacities: Passenger cars: Engine lubrication", "this_vehicle"),
+        ("car", "11001327", "Capacities: Passenger cars: Rear axle", "this_vehicle"),
+        ("car", "1", "Filling capacities, engine lubrication", "other_variant"),
+    ])
+    sc2 = search.Scope(["car", "eng", "gen"])
+    sc2.general = "gen"
+    got = tab_values.capacity_pages(mem, {"source_name": "mercedes-wis", "model_code": "201"}, sc2)
+    check("the car's and its engine's capacity pages, oil first; not another model's, a test, "
+          "a van's, the general pool or another variant's",
+          [p["page_no"] for p in got] == ["49013378", "11001327"], got)
+    check("not for other manuals",
+          tab_values.capacity_pages(mem, {"source_name": "lemon", "model_code": "201"}, sc2) == [])
     print(f"\n{fails} failure(s)")
     return 1 if fails else 0
 

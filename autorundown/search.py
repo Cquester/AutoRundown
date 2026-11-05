@@ -548,6 +548,7 @@ def _search_scope(conn: sqlite3.Connection, doc_ids: list[str], query: str, limi
                 key = row["page_uid"] + str(row["ord"])
                 if key not in seen:
                     seen.add(key)
+                    row["partial"] = True     # some of the words only (OR)
                     results.append(row)
                 if len(results) >= limit:
                     break
@@ -1121,6 +1122,7 @@ def _search_one(conn: sqlite3.Connection, doc_id: str, query: str, limit: int,
             key = row["page_uid"] + str(row["ord"])
             if key not in seen:
                 seen.add(key)
+                row["partial"] = True         # some of the words only (OR)
                 results.append(row)
             if len(results) >= limit:
                 break
