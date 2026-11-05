@@ -119,6 +119,39 @@ check(info == {"catalog": "14G", "market": "Australia"}, f"an engine catalogue's
 info = catalog_info(ec, {"page_uid": "e102:P10", "title": "(EPC catalog 582)"}, ((), ("102.983",)))
 check(info == {"catalog": "582", "market": "USA"}, f"the car's engine entry names the market: {info}")
 
+print("the market a VIN names (2026-11-04)")
+from autorundown.search import market_excluded  # noqa: E402
+mk = sqlite3.connect(":memory:")
+mk.execute("CREATE TABLE pages(doc_id TEXT, page_no TEXT, section_path TEXT, title TEXT, text TEXT)")
+mk.executemany("INSERT INTO pages VALUES (?,?,?,?,?)", [
+    ("w", "P1", "MODEL 201 > 201.034", "Parts: model 201 (EPC catalog 500), group 42",
+     "Models in this catalog: 201.034 190 E 2.3-16\n"),
+    ("w", "P2", "MODEL 201 > 201.034", "Parts: model 201 (EPC catalog 580), group 42",
+     "Models in this catalog: 201.034 190 E 2.3-16 USA\n"),
+    ("w", "P3", "MODEL 201 > 201.034", "Parts: model 201 (EPC catalog 581), group 42",
+     "Models in this catalog: 201.034 190 E 2.3-16 JAPAN\n"),
+    ("w", "P4", "MODEL 201 > 201.024", "Parts: model 201 (EPC catalog 452), group 42",
+     "Models in this catalog: 201.024 190 E USA\n"),           # another car's US catalogue
+    ("e", "P5", "ENGINE 102", "Parts: engine 102 (EPC catalog 488), group 01",
+     "Engines in this catalog: 102.983 M 102\n"),
+    ("e", "P6", "ENGINE 102", "Parts: engine 102 (EPC catalog 583), group 01",
+     "Engines in this catalog: 102.983 M 102 JAPAN\n"),          # no US engine catalogue
+])
+car = (("201.034",), ("102.983",))
+
+
+def mpages(market):
+    clause, args = parts_codes_clause(car, (), market_excluded(mk, ["w", "e"], car, market))
+    return {r[0] for r in mk.execute("SELECT page_no FROM pages p WHERE 1" + clause, args)}
+
+
+check(mpages("us") == {"P2", "P5", "P6"}, f"US VIN: the USA chassis catalogue only: {sorted(mpages('us'))}")
+check(mpages("row") == {"P1", "P3", "P5", "P6"}, f"FIN: every catalogue but the USA one: {sorted(mpages('row'))}")
+check(mpages("") == {"P1", "P2", "P3", "P5", "P6"}, "no VIN market: all of the car's catalogues")
+check(market_excluded(mk, ["w", "e"], ((), ()), "us") == (), "no car codes: nothing left out")
+check("452" not in market_excluded(mk, ["w", "e"], car, "row"),
+      "another car's catalogue is not this rule's to drop (the codes clause does)")
+
 print("another engine's pages in a LEMON manual")
 from autorundown.search import _other_engines_clause, manual_engine_names  # noqa: E402
 lm = sqlite3.connect(":memory:")

@@ -60,6 +60,9 @@ class AskBody(BaseModel):
     engine: str | None = None
     # the car's model year, when the user gave one ("2009 E550 4Matic")
     year: int | None = None
+    # the market a VIN names: "us" (a US-format VIN) or "row" (a FIN);
+    # narrows the parts catalogues (search.market_excluded)
+    market: str | None = Field(None, pattern="^(us|row)$")
     # per-request override so the model can be switched between questions
     # without saving settings first: any model in the requester's menu
     # (config.menu_models), whichever provider it is from
@@ -783,7 +786,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                    engine: str | None = Query(None, max_length=64),
                    tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$"),
                    also: list[str] = Query(default=[]),
-                   record: bool = False) -> list[dict]:
+                   record: bool = False,
+                   market: str | None = Query(None, pattern="^(us|row)$")) -> list[dict]:
         """Keyword search for one of the UI's tabs, always within the car.
 
         workshop: the manual's pages only (as before the parts catalogue);
@@ -799,7 +803,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            full = scope_ids(vehicle, variant, engine)
+            full = scope_ids(vehicle, variant, engine, market)
             manual, parts = split_scope(full)
             scope = parts if tab == "parts" else manual
             # value lines naming only another engine or model are left out
@@ -934,6 +938,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             except config.NoKeyForRequest as exc:
                 raise HTTPException(400, str(exc))
             variant, engine, year, earlier = body.variant, body.engine, body.year, None
+            market = body.market
             if body.chat is not None:
                 # a follow-up: only a chat this requester can see, about this
                 # car; the car as the chat had it (the car box may have moved on)
@@ -949,17 +954,20 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     raise HTTPException(400, f"This conversation has {query.MAX_FOLLOWUPS} follow-ups; "
                                              "start a new one for the next question.")
                 variant, engine, year = entry["variant"], entry["engine"], entry["year"]
+                market = (entry.get("result") or {}).get("market")
             try:
                 result = query.ask(
                     conn, vehicle, body.question, key.key,
                     include_other_variants=body.include_other_variants,
                     model=chosen, source="web", variant=variant,
-                    engine=engine, year=year,
+                    engine=engine, year=year, market=market,
                     user_id=who.user_id, user_name=who.name or None,
                     key_ref=key.ref, provider=provider, earlier=earlier)
             except (query.NoApiKey, query.ApiUnavailable) as exc:
                 raise HTTPException(400, str(exc))
             out = result.as_dict()
+            if market:
+                out["market"] = market        # kept with the chat: its follow-ups use it
             # kept whole: a paid answer can be opened again without paying; a
             # follow-up goes into its chat's entry
             if body.chat is not None:
@@ -1065,14 +1073,15 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/parts/diagrams/{doc_id}")
     def api_parts_diagrams(request: Request, doc_id: str, variant: int | None = None,
-                           engine: str | None = Query(None, max_length=64)) -> Response:
+                           engine: str | None = Query(None, max_length=64),
+                           market: str | None = Query(None, pattern="^(us|row)$")) -> Response:
         """The car's parts catalogue as the catalogue reads: chassis, engines,
         options > group > subgroup, each with its page(s) and drawing count
         (parts_browse.py). The parts scope only, filtered like search. Free."""
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            _, parts = split_scope(scope_ids(vehicle, variant, engine))
+            _, parts = split_scope(scope_ids(vehicle, variant, engine, market))
             rows = parts_browse.diagrams(conn, parts)
         finally:
             conn.close()

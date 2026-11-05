@@ -1953,7 +1953,7 @@ async function loadVehicles(pending) {
     const saved = JSON.parse(localStorage.getItem(CARPICK) || 'null');
     if (saved && saved.doc === $('#vehicle').value) {
       carPick = {engine: saved.engine, year: saved.year, label: saved.label, sub: saved.sub,
-                 vin: saved.vin || null};
+                 vin: saved.vin || null, vinAt: saved.vinAt || null};
     }
   } catch (_) {}
   setCarBox(carPick ? carPick.label : currentCarLabel());
@@ -2098,6 +2098,16 @@ const engineSel = () => {
   return n.startsWith('e:') ? n.slice(2) : null;
 };
 const yearSel = () => (carPick && carPick.year) || null;
+// the market the car's VIN names, for the parts catalogues (server:
+// search.market_excluded): a 17-character US-format VIN is a US/Canada car,
+// a FIN ("WDB2010341F…", digits at 4-6) is not. Only while the car the VIN
+// picked is still the one shown; a car picked any other way names none.
+const marketSel = () => {
+  const vin = (carPick && carPick.vin) || '';
+  if (vin.length !== 17 || carPick.vinAt !== `${docId()}::${variantIdx()}`) return null;
+  return /^[A-Z0-9]{3}\d{3}/.test(vin) ? 'row' : 'us';
+};
+const marketQS = () => marketSel() ? `&market=${marketSel()}` : '';
 function clearCarPick() {
   carPick = null;
   try { localStorage.removeItem(CARPICK); } catch (_) {}
@@ -2301,7 +2311,7 @@ function applyCar(e, typedYear) {
   $('#year').value = ''; $('#make').value = '';
   refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
   carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub,
-             vin: e.vin || null};
+             vin: e.vin || null, vinAt: `${e.doc}::${e.variant ?? null}`};
   try { localStorage.setItem(CARPICK, JSON.stringify({...carPick, doc: e.doc, variant: e.variant})); } catch (_) {}
   recordCarHistory({...e, year: carPick.year}, 'box');
   setCarBox(e.label);
@@ -3739,7 +3749,7 @@ async function ask() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({doc_id:doc, question:q, include_other_variants:variants(),
                             model:model(), variant:variantIdx(), engine:engineSel(), year:yearSel(),
-                            chat: follow ? follow.id : null})
+                            market: marketSel(), chat: follow ? follow.id : null})
     }, 240000);
     if (follow && chat === follow) chat.turns.push({question: q, d});
     else chat = {id: d.chat_id, doc, label, turns: [{question: q, d}]};
@@ -4005,7 +4015,7 @@ async function keywordSearch() {
     const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}&record=1`
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
-      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : '') + marketQS());
     if (seq !== searchSeq) return;
     if (docId() === doc) valueTabs(rows.slice(0, 3).map(r => String(r.page_no)));
     // the server also searches the manual's own wording ("valve cover" ->
@@ -5084,7 +5094,7 @@ async function partsBrowse(target) {
   try {
     data = await api(`/api/parts/diagrams/${encodeURIComponent(doc)}?`
       + (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
-      + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : ''));
+      + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : '') + marketQS());
   } catch (e) {
     if (seq === browseSeq) target.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
     return;
@@ -5182,7 +5192,7 @@ function showPartsBrowse() {
   if (!pane || tabQuery) return;
   if (lemonCar()) { pane.innerHTML = tabEmpty('parts'); return; }   // no diagrams to browse
   // already showing this car's list: keep it, and the groups left open
-  const key = `${docId()}|${variantIdx()}|${engineSel()}`;
+  const key = `${docId()}|${variantIdx()}|${engineSel()}|${marketSel()}`;
   if (pane.dataset.browseKey === key && pane.querySelector('.pbsec')) return;
   pane.dataset.browseKey = key;
   partsBrowse(pane);
@@ -5217,7 +5227,7 @@ async function tabSearch(tab, q, also, seq) {
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
       + also.map(a => `&also=${encodeURIComponent(a)}`).join('')
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
-      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : '') + marketQS());
     if (seq !== tabSeq) return;
     const none = 'No part in this car’s parts catalogue matches this question.';
     const head = resultsFor(label) + `<div class="muted" style="margin:0 0 8px">For: <b>${esc(q)}</b></div>`;

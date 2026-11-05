@@ -997,7 +997,8 @@ def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
         variant: int | None = None, engine: str | None = None,
         year: int | None = None, user_id: int | None = None,
         user_name: str | None = None, key_ref: str | None = None,
-        provider: str | None = None, earlier: list[dict] | None = None) -> Result:
+        provider: str | None = None, earlier: list[dict] | None = None,
+        market: str | None = None) -> Result:
     """Answer one question, recording what it cost.
 
     `provider` is the AI provider ("anthropic", "gemini", "xai", "deepseek";
@@ -1015,7 +1016,7 @@ def ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     try:
         return _ask(conn, vehicle, question, api_key, per_query, cap,
                     include_other_variants, model, usage, variant, engine, year,
-                    earlier or [])
+                    earlier or [], market)
     finally:
         # log even when the run failed partway -- a failed second call still
         # billed for the first one
@@ -1029,7 +1030,7 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
          per_query: int, cap: int, include_other_variants: bool,
          model: str, usage: Usage, variant: int | None = None,
          engine: str | None = None, year: int | None = None,
-         earlier: list[dict] | None = None) -> Result:
+         earlier: list[dict] | None = None, market: str | None = None) -> Result:
     if not api_key:
         raise NoApiKey(providers.no_key_message(usage.provider))
 
@@ -1045,7 +1046,7 @@ def _ask(conn: sqlite3.Connection, vehicle: dict, question: str, api_key: str,
     # a 190E 2.3-16 and WIS only says "cylinder head cover" (synonyms.py)
     from .synonyms import translations
     queries = list(dict.fromkeys([a for q in queries for a in translations(q)] + queries))
-    scope = scope_ids(vehicle, variant, engine)
+    scope = scope_ids(vehicle, variant, engine, market)
     passages = multi_search(conn, scope, queries,
                             per_query=per_query, cap=cap,
                             include_other_variants=include_other_variants)

@@ -168,18 +168,20 @@ def post(c: TestClient, path: str, body: dict | None = None):
 pc = client("127.0.0.1")
 print("-- a chat is one history entry --")
 r = post(pc, "/api/ask", {"doc_id": "w211", "question": "bed lamp not working",
-                          "variant": 0, "engine": "112", "year": 2004}).json()
+                          "variant": 0, "engine": "112", "year": 2004, "market": "us"}).json()
 chat = r.get("chat_id")
 check("the first answer names its chat", isinstance(chat, int), r)
 check("  ... and starts with no earlier turns", calls[-1]["earlier"] is None)
 r = post(pc, "/api/ask", {"doc_id": "w211", "question": "did test A1-A4, all OK", "chat": chat,
-                          "variant": 1, "engine": "113", "year": 2009}).json()
+                          "variant": 1, "engine": "113", "year": 2009, "market": "row"}).json()
 check("a follow-up answers in the same chat", r.get("chat_id") == chat and r["answer"] == "Reply 2.", r)
 kw = calls[-1]
 check("  ... with the first turn as context", [t["question"] for t in kw["earlier"]] == ["bed lamp not working"]
       and kw["earlier"][0]["answer"] == "Reply 1.", kw["earlier"])
 check("  ... for the chat's car, not the one the request named",
       (kw["variant"], kw["engine"], kw["year"]) == (0, "112", 2004), (kw["variant"], kw["engine"], kw["year"]))
+check("  ... and the market its VIN named (search.market_excluded), kept with the chat",
+      calls[0]["market"] == "us" and kw["market"] == "us", (calls[0].get("market"), kw.get("market")))
 post(pc, "/api/ask", {"doc_id": "w211", "question": "A5 shows 0 V", "chat": chat})
 check("a third turn sees both before it",
       [t["question"] for t in calls[-1]["earlier"]] == ["bed lamp not working", "did test A1-A4, all OK"])

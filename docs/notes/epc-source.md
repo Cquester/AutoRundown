@@ -394,9 +394,22 @@ index / WIS+EPC with the join off / joined:
   `engine_open_sections` keeps that family's pages as before rather than
   showing none. `catalog_info` reads the engines line too, so engine
   catalogues name their market (AUSTRALIEN, PORTUGAL and MBSA added).
-  **The market itself is still not narrowed**: 500, 580 (USA) and 581
-  (Japan) all stay for a US VIN, since the VIN never leaves the browser
-  (finding F2, not done). Test: `tests/test_parts_fit.py`.
+  Test: `tests/test_parts_fit.py`.
+- **…and the market the VIN names** (2026-11-04, finding F2). A series has
+  one catalogue per market: a US 190 E 2.3-16 was shown 500, 580 (USA) and
+  581 (Japan), which differ in part numbers in 123 of the 152 subgroups
+  they share. The page sends `market` (`marketSel()`: "us" for a
+  17-character US-format VIN, "row" for a FIN; nothing for a car picked any
+  other way, or once the variant shown is no longer the one the VIN
+  picked) with Parts requests and Ask; `scope_ids(…, market)` puts it on
+  the scope (only with an exact variant) and `search.market_excluded`
+  turns it into catalogues to leave out: "us" keeps, per section (chassis,
+  each engine family), the catalogues whose entry for the car says USA or
+  Canada; "row" drops those that are only USA/Canada for it (a FIN doesn't
+  say Japan or Australia). A section with none of the market keeps all.
+  Now: 190 E 2.3-16 US VIN 580 + 582; E 320 4MATIC T US VIN 45S + 19Y. A
+  chat keeps its first question's market in its stored result, for
+  follow-ups. Tests: `tests/test_parts_fit.py`, `tests/test_chat.py`.
 - **Parts have their own FTS table (`parts_fts`), the user's choice.** In the
   shared `chunks_fts`, EPC shifted WIS BM25 scores even with the join off
   (statistics are index-wide): `w204-c220cdi-glow-plugs` gained a W207 page
