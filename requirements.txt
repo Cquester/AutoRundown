@@ -20,4 +20,4 @@ pypdf>=6.19
 # one car from Operation CHARM's torrent (charm_fetch.py; charm_download.py).
 # Windows wheels exist for the MSI's Python; elsewhere install it by hand --
 # without it the CHARM card says "libtorrent missing" and nothing else changes
-libtorrent>=2.0.9; sys_platform == "win32"
+libtorrent>=2.1.1; sys_platform == "win32"
