@@ -503,8 +503,16 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   Only 359 English rows / 35 series.
 - **Labour times** (`/api/wis/labour`, `wis_links.labour_*`; the "Labour
   times" tab -- a dialog until 2026-10-15; its button beside VIN and the
-  scope note's link went 2026-10-16: Ask or Search fills the tab, which is
-  empty before a question). **A search shows the job, not every operation
+  scope note's link went 2026-10-16: Ask or Search fills the tab). **Before
+  a question the tab is the book to browse** (2026-11-04, the user; it was
+  empty until then): `labour_tree` files each operation under its WIS
+  subgroup (`labour_op.entry` -> `labour_subgroup`: all 2,261 of a 190 E
+  2.3-16's operations, 659 subgroups, 0.07 s; "Other" if a sidecar has no
+  subgroup table), groups in the book's order with campaigns (02) last.
+  `?browse=1` sends the group list (~2 KB), `&group=42` one group (~10 KB),
+  so a phone never loads the ~2,000 operations at once; a subgroup of one
+  operation is drawn as its row. A LEMON car browses section > the page's
+  component > its rows. **A search shows the job, not every operation
   naming its words** (2026-10-16, the user: "a lot of labour times shown,
   we should only show the correct one"): `_rank_labour` matches the words
   against the operation's *core* -- its component, without the action

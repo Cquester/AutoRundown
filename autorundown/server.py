@@ -1183,20 +1183,28 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def api_wis_labour(doc_id: str, variant: int | None = None,
                        engine: str | None = Query(None, max_length=64),
                        book: str | None = Query(None, max_length=32),
-                       q: str = Query("", max_length=200)) -> dict:
+                       q: str = Query("", max_length=200),
+                       browse: bool = False,
+                       group: str | None = Query(None, max_length=200)) -> dict:
         """Flat-rate labour times from WIS (wis_links.labour_*), for the
         exact model only: a variant must be picked -- a series has as many
         times as it has types. When the car is in several books (chassis
-        ranges) and none is chosen, the books come back and no times. Free."""
+        ranges) and none is chosen, the books come back and no times. Free.
+
+        `browse` (no `q`): the book by group -- `groups` [{kg, name, count}],
+        or with `group` that group's `subs` [{entry, name, items}]
+        (wis_links.labour_tree; a LEMON manual's by section and page)."""
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
             # a LEMON manual's own "Labor Times" pages (lemon_tables): one
             # book, the car's, no variant needed
             if vehicle.get("source_name") == "lemon":
-                return {"books": [{"book": "lemon", "family": "LEMON manual", "type": ""}],
-                        "book": "lemon", "need": None,
-                        **lemon_tables.labour(conn, doc_id, q, alt=synonyms.translations(q))}
+                head = {"books": [{"book": "lemon", "family": "LEMON manual", "type": ""}],
+                        "book": "lemon", "need": None}
+                if browse and not q.strip():
+                    return {**head, **_labour_browse(lemon_tables.labour_tree(conn, doc_id), group)}
+                return {**head, **lemon_tables.labour(conn, doc_id, q, alt=synonyms.translations(q))}
         finally:
             conn.close()
         if not _is_wis(vehicle):
@@ -1217,10 +1225,24 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         chosen = book if book in keys else (keys[0] if len(keys) == 1 else None)
         out = {"books": books, "book": chosen, "total": 0, "items": [],
                "need": None if chosen else ("book" if books else None)}
-        if chosen:
+        if chosen and browse and not q.strip():
+            out.update(_labour_browse(wis_links.labour_tree(corpus, chosen), group))
+        elif chosen:
             # every wording: labour books differ ("rear-end door" / "liftgate")
             out.update(wis_links.labour_times(corpus, chosen, q, alt=synonyms.translations(q)))
         return out
+
+    def _labour_browse(tree: list[dict], group: str | None) -> dict:
+        """One level of the Labour tab's browse: the groups, or one group's
+        subgroups with their operations (a phone fetches a group at a time)."""
+        total = sum(g["count"] for g in tree)
+        if group is None:
+            return {"total": total, "items": [], "browse": True,
+                    "groups": [{k: g[k] for k in ("kg", "name", "count")} for g in tree]}
+        g = next((g for g in tree if g["kg"] == group), None)
+        if g is None:
+            raise HTTPException(404, "no such labour group")
+        return {"total": total, "items": [], "browse": True, "group": group, "subs": g["subs"]}
 
     @app.get("/api/diagram/{doc_id}/{page_no}")
     def api_diagram(doc_id: str, page_no: str) -> dict:

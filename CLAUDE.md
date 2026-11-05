@@ -533,9 +533,13 @@ API (`fake:onepart`) in `tests/test_epc_join.py`.
 **The right box's tabs are plain, and labour shows the job** (2026-10-16,
 the user's list). Capacities and Torque specs are one table each (Fluid /
 Capacity, Part / Specification: `search.value_row`, the value as printed,
-no paragraph). Labour times are empty until a question and show the job
-itself (`wis_links._rank_labour`), both gearboxes' versions where they
+no paragraph). Labour times show the job a question names
+(`wis_links._rank_labour`), both gearboxes' versions where they
 differ -- the car box does not know the gearbox; other matches fold away.
+Before a question the tab is the car's book to browse, group > subgroup >
+operation (`wis_links.labour_tree` / `lemon_tables.labour_tree`,
+`/api/wis/labour?browse=1[&group=]`, a group fetched when opened; the user,
+2026-11-04), and below a question's result as "Browse all labour times".
 The Labour times and Option codes buttons beside VIN are gone (Option codes
 entirely: nobody knows them; a data-card read may bring them back). Tests:
 `tests/test_wis_links.py`, `tests/test_epc_join.py`, `test_answer_tabs.py`.

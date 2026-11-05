@@ -376,6 +376,35 @@ def main() -> int:
         check("an unknown book is not", app.get(
             f"/api/wis/labour/{c201}?variant={v26}&book=00-00-99-99").json()["book"], None)
 
+        print("labour times to browse (before a question)")
+        b = app.get(f"/api/wis/labour/{c201}?variant={v23}&browse=1").json()
+        check("browse: the groups only, named from the labour book, with counts",
+              (b["browse"], b["items"], [(g["kg"], g["name"], g["count"]) for g in b["groups"]]),
+              (True, [], [("15", "Electrical components, engine", 1), ("42", "Brakes", 1)]))
+        check("browse: a sidecar with no subgroup table puts operations under Other",
+              [(s["name"], [i["op"] for i in s["items"]]) for s in app.get(
+                  f"/api/wis/labour/{c201}?variant={v23}&browse=1&group=42").json()["subs"]],
+              [("Other", ["42-1350"])])
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executescript("""
+            CREATE TABLE labour_subgroup(sparte TEXT, kg TEXT, entry TEXT, name TEXT);
+            INSERT INTO labour_subgroup VALUES ('00','42','1300','Brake system, bleed'),
+                                               ('00','15','5700','Voltage regulator');
+            INSERT INTO labour_op VALUES ('00','15','5765','5700','G','Voltage regulator check');
+            INSERT INTO labour_time VALUES ('00','00','06','15','5765','41',9);
+            """)
+        tree = wis_links.labour_tree(cdir, "00-00-06-41")
+        check("labour_tree: group > subgroup > operations, subgroups named",
+              [(g["kg"], [(s["name"], [i["op"] for i in s["items"]]) for s in g["subs"]]) for g in tree],
+              [("15", [("Voltage regulator", ["15-5760", "15-5765"])]),
+               ("42", [("Brake system, bleed", ["42-1350"])])])
+        check("browse: an unknown group is 404",
+              app.get(f"/api/wis/labour/{c201}?variant={v23}&browse=1&group=99").status_code, 404)
+        check("browse: a question wins over browse",
+              "groups" in app.get(f"/api/wis/labour/{c201}?variant={v23}&browse=1&q=bleed").json(), False)
+        check("browse with two books: still asks for the book",
+              app.get(f"/api/wis/labour/{c201}?variant={v26}&browse=1").json()["need"], "book")
+
         # a search shows the job itself, not every operation naming its words
         def op(o, text):
             return {"group": "", "kg": o[:2], "op": o, "text": text, "minutes": 1, "hours": 0.0}

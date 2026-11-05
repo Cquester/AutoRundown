@@ -532,6 +532,40 @@ def _rank_labour(items: list[dict], queries: list[list[str]], limit: int) -> dic
     return {"total": len(out), "best": len(best), "items": out[:max(limit, len(best))]}
 
 
+def labour_tree(corpus: Path, book: str) -> list[dict]:
+    """The whole book as the labour book reads: [{kg, name, count, subs:
+    [{entry, name, items}]}], group by group (campaigns, group 02, last),
+    each subgroup with its operations in `labour_times`' item shape.
+
+    For browsing the Labour times tab before a question (2026-11-04, the
+    user's request; until then the tab was empty until a question). WIS
+    files every operation under a subgroup (`labour_op.entry` ->
+    `labour_subgroup`, 100% of the 2,261 operations a 190 E 2.3-16 shows,
+    659 subgroups); an operation without one goes under "Other"."""
+    items = labour_times(corpus, book, limit=10 ** 6)["items"]
+    if not items:
+        return []
+    sp = book.split("-")[0]
+    entry_of = {(kg, op): e for kg, op, e in _static_rows(
+        corpus, "SELECT kg, op, entry FROM labour_op WHERE sparte=?", (sp,)) or []}
+    sub_name = {(kg, e): n for kg, e, n in _static_rows(
+        corpus, "SELECT kg, entry, name FROM labour_subgroup WHERE sparte=?", (sp,)) or []}
+    groups: dict[str, dict] = {}
+    for i in items:
+        kg, op = i["kg"], i["op"].partition("-")[2]
+        e = entry_of.get((kg, op)) or ""
+        g = groups.setdefault(kg, {"kg": kg, "name": i["group"], "count": 0, "subs": {}})
+        s = g["subs"].setdefault(e, {"entry": e, "name": sub_name.get((kg, e)) or "Other", "items": []})
+        s["items"].append(i)
+        g["count"] += 1
+    out = []
+    for kg in sorted(groups, key=lambda k: (k == "02", k)):
+        g = groups[kg]
+        g["subs"] = [g["subs"][e] for e in sorted(g["subs"], key=lambda e: (e == "", e))]
+        out.append(g)
+    return out
+
+
 def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
                  alt: str | list[str] = "") -> dict:
     """Flat-rate times in one book: {"total", "best", "items": [{group, op,

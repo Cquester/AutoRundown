@@ -6477,10 +6477,11 @@ $('#vinClose').onclick = () => $('#vinDlg').close();
 // several books (build-date splits) shows a chooser and no times until one
 // is picked -- which applies depends on the chassis number.
 let labSeq = 0;
-// Labour times are a tab of the right box, empty until a question: it has
-// no search box of its own -- the question box fills it (labourFor), and
-// labQuery is the words it last searched. (Its own button beside VIN and a
-// link in the scope note were removed, 2026-10-16: Ask or Search finds it.)
+// Labour times are a tab of the right box. Before a question it is the book
+// by group > subgroup > operation, a group fetched when it is opened
+// (labourBrowse; 2026-11-04, the user's request -- until then it was empty
+// until a question); a question fills it with the job (labourFor), and
+// labQuery is the words it last searched, the browse folded below.
 function showLabourTab() {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
@@ -6492,37 +6493,91 @@ function showLabourTab() {
   loadLabour();
 }
 let labFor = '';
-async function loadLabour() {
-  const seq = ++labSeq, n = variantIdx(), eng = engineSel();
-  const out = $('#labOut');
-  // nothing before a question: a model's book has a thousand operations or more
-  if (!labQuery) { out.innerHTML = tabEmpty('labour'); return 0; }
-  if (n === null && !lemonCar()) {
-    out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
-      + 'Variant): labour times are per model type.</div>';
-    return 0;
-  }
-  out.innerHTML = '<span class="spinner"></span>';
-  const book = $('#labBook').hidden ? '' : $('#labBook').value;
-  let r;
-  try {
-    // a LEMON car has no variant: "variant=null" was a 422, drawn as [object Object]
-    r = await api(`/api/wis/labour/${encodeURIComponent(docId())}?` + (n === null ? '' : `variant=${n}`)
-      + (eng ? `&engine=${encodeURIComponent(eng)}` : '')
-      + (book ? `&book=${encodeURIComponent(book)}` : '')
-      + `&q=${encodeURIComponent(labQuery)}`);
-  } catch (e) {
-    if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
-    return 0;
-  }
-  if (seq !== labSeq) return 0;
+// the request for this car's labour times ("variant=null" was a 422 for a
+// LEMON car, which has no variant)
+function labourUrl(extra) {
+  const n = variantIdx(), eng = engineSel(), book = $('#labBook').hidden ? '' : $('#labBook').value;
+  return `/api/wis/labour/${encodeURIComponent(docId())}?` + (n === null ? '' : `variant=${n}`)
+    + (eng ? `&engine=${encodeURIComponent(eng)}` : '')
+    + (book ? `&book=${encodeURIComponent(book)}` : '') + extra;
+}
+// the book chooser, and the reasons there is nothing to show; true when
+// the reply was one of those (out says why)
+function labourNone(r, out) {
   if (r.books.length > 1 && $('#labBook').hidden) {
     $('#labBook').innerHTML = '<option value="">Choose…</option>' + r.books.map(b =>
       `<option value="${esc(b.book)}">${esc(b.family)} · ${esc(b.type)}</option>`).join('');
     $('#labBook').hidden = $('#labBookLbl').hidden = false;
   }
-  if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return 0; }
-  if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return 0; }
+  if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return true; }
+  if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return true; }
+  return false;
+}
+const labRows = items => `<div class="tablewrap"><table><tbody>` + items.map(i =>
+  `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
+  + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
+  + ` <span class="muted" style="font-size:12px">${i.minutes} min</span>`
+  + (i.warranty ? `<div class="muted" style="font-size:12px">warranty ${esc(i.warranty)} h</div>` : '')
+  + `</td></tr>`).join('') + `</tbody></table></div>`;
+// The book by group > subgroup > operation. A group's subgroups are fetched
+// when it is opened (a book is ~2,000 operations; a group ~10 KB); a
+// subgroup of one operation is that operation's row, not another dropdown.
+async function labourBrowse(out, seq, folded = false) {
+  if (!folded) out.innerHTML = '<span class="spinner"></span>';
+  let r;
+  try { r = await api(labourUrl('&browse=1')); }
+  catch (e) { if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`; return 0; }
+  if (seq !== labSeq) return 0;
+  if (labourNone(r, out)) return 0;
+  if (!r.groups || !r.groups.length) {
+    out.innerHTML = `<div class="muted">${r.book === 'lemon' ? 'This manual has no labour-time pages.'
+                                                            : 'WIS has no labour times for this model.'}</div>`;
+    return 0;
+  }
+  const label = esc(carBoxLabel || currentCarLabel());
+  out.innerHTML = (folded ? '' : `<div class="muted" style="margin:0 0 8px">Labour times for <b>${label}</b> &mdash; `
+      + `${r.total} operations by group. Search or ask on the left to find the job by its words.</div>`)
+    + r.groups.map(g => `<details class="pbgrp labgrp" data-kg="${esc(g.kg)}"><summary>`
+      + (r.book === 'lemon' ? '' : `<span class="gno">${esc(g.kg)}</span> `)
+      + `${esc(g.name)} <span class="muted">(${g.count})</span></summary><div class="labsubs"></div></details>`).join('');
+  out.querySelectorAll('.labgrp').forEach(d => d.addEventListener('toggle', async () => {
+    if (!d.open || d.dataset.loaded) return;
+    d.dataset.loaded = '1';
+    const box = d.querySelector('.labsubs');
+    box.innerHTML = '<span class="spinner"></span>';
+    try {
+      const g = await api(labourUrl(`&browse=1&group=${encodeURIComponent(d.dataset.kg)}`));
+      box.innerHTML = g.subs.map(s => s.items.length === 1
+        ? `<div class="labone">${labRows(s.items)}</div>`
+        : `<details class="pbgrp"><summary class="pbsub">${esc(s.name)} <span class="muted">(${s.items.length})</span></summary>`
+          + labRows(s.items) + `</details>`).join('');
+    } catch (e) {
+      delete d.dataset.loaded;
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }));
+  return 0;
+}
+async function loadLabour() {
+  const seq = ++labSeq, n = variantIdx();
+  const out = $('#labOut');
+  if (n === null && !lemonCar()) {
+    out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
+      + 'Variant): labour times are per model type.</div>';
+    return 0;
+  }
+  // before a question: the book to browse
+  if (!labQuery) return labourBrowse(out, seq);
+  out.innerHTML = '<span class="spinner"></span>';
+  let r;
+  try {
+    r = await api(labourUrl(`&q=${encodeURIComponent(labQuery)}`));
+  } catch (e) {
+    if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return 0;
+  }
+  if (seq !== labSeq) return 0;
+  if (labourNone(r, out)) return 0;
   if (r.book === 'lemon' && !r.total && !r.items.length) {
     out.innerHTML = '<div class="muted">This manual has no labour times that match, for this car.</div>'; return 0;
   }
@@ -6532,19 +6587,19 @@ async function loadLabour() {
     return 0;
   }
   // the job itself (r.best of them: both gearboxes' where they differ);
-  // operations that only mention the words fold away below it
+  // operations that only mention the words fold away below it; the whole
+  // book to browse below that, as the Parts tab does
   const best = r.best || r.items.length;
-  const rowsHtml = items => `<div class="tablewrap"><table><tbody>` + items.map(i =>
-    `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
-    + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
-    + ` <span class="muted" style="font-size:12px">${i.minutes} min</span>`
-    + (i.warranty ? `<div class="muted" style="font-size:12px">warranty ${esc(i.warranty)} h</div>` : '')
-    + `</td></tr>`).join('') + `</tbody></table></div>`;
   const more = r.items.slice(best);
   out.innerHTML = `<div class="muted" style="margin-bottom:6px">For: <b>${esc(labQuery)}</b></div>`
-    + rowsHtml(r.items.slice(0, best))
+    + labRows(r.items.slice(0, best))
     + (more.length ? `<details style="margin-top:8px"><summary class="muted">${r.total - best} other `
-        + `operation${r.total - best === 1 ? '' : 's'} mention it</summary>${rowsHtml(more)}</details>` : '');
+        + `operation${r.total - best === 1 ? '' : 's'} mention it</summary>${labRows(more)}</details>` : '')
+    + `<details class="pbmore labmore"><summary>Browse all labour times for this car</summary><div></div></details>`;
+  const fold = out.querySelector('.labmore');
+  fold.addEventListener('toggle', () => {
+    if (fold.open && !fold.dataset.loaded) { fold.dataset.loaded = '1'; labourBrowse(fold.lastElementChild, labSeq, true); }
+  });
   return best;
 }
 // a book picked: the question's terms again, in that book
