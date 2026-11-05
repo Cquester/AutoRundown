@@ -20,7 +20,7 @@ from itertools import zip_longest
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from . import numbers, wis_links
+from . import numbers, validity, wis_links
 
 # letters of any language: "Ölwanne" was searched as "lwanne". The FTS
 # tokenizer (unicode61) folds the accents on both sides.
@@ -435,6 +435,8 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
     hclause, hargs = hidden_clause(conn)
     where, args = where + hclause, [*args, *hargs]
+    vclause, vargs = validity.clause(conn, codes[0])   # WIS's own Validity line
+    where, args = where + vclause, [*args, *vargs]
     if not include_other_variants:
         eclause, eargs = _other_engines_clause(conn, doc_id)
         where, args = where + eclause, [*args, *eargs]
@@ -480,6 +482,8 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
     hclause, hargs = hidden_clause(conn)
     where, args = where + hclause, [*args, *hargs]
+    vclause, vargs = validity.clause(conn, codes[0])   # WIS's own Validity line
+    where, args = where + vclause, [*args, *vargs]
     tclause, targs = _types_clause(types)
     if tclause and general in doc_ids:
         where += f" AND (c.doc_id != ? OR {tclause})"

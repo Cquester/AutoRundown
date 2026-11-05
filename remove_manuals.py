@@ -46,6 +46,10 @@ def remove(conn: sqlite3.Connection, doc_id: str) -> tuple[int, int]:
     (pages, chunks) removed. The chunks_fts trigger keeps search in step."""
     chunks = conn.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,)).rowcount
     pages = conn.execute("DELETE FROM pages WHERE doc_id=?", (doc_id,)).rowcount
+    # page_uid is "<doc_id>:<page_no>"; an index from before page_validity has none
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='page_validity'").fetchone():
+        conn.execute("DELETE FROM page_validity WHERE substr(page_uid, 1, ?) = ?",
+                     (len(doc_id) + 1, doc_id + ":"))
     conn.execute("DELETE FROM connectors WHERE doc_id=?", (doc_id,))
     conn.execute("DELETE FROM vehicles WHERE doc_id=?", (doc_id,))
     return pages, chunks

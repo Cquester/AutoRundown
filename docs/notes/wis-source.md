@@ -144,6 +144,26 @@ MODEL lines on **99.94%** of 108,853, the engine role with ENGINE lines on
 99.1%. 223,968 of 272,607 records get a vehicle series (1.1's prose-only
 fallback reached ~98k).
 
+**The Validity line narrows search within a series** (2026-11-04,
+`autorundown/validity.py`). Filing is per series, so the "Validity: MODEL
+210.0 as of 1.7.99" line (W_Kurzgueltigkeit) was the only thing saying a
+page is for the sedans, and nothing read it: a 2001 E 320 4MATIC T (wagon,
+210.282) got "Trunk lid ambient lamp", a 210.082 sedan the wagon's tailgate,
+roof railing and rear wiper pages. On the W210 ~1,650 pages are valid for
+the sedans only and ~300 for the wagons only. `validity.models()` reads the
+Validity lines into model-code prefixes (",210.0,210.2,211.,": "210.0/2" is
+both bodies, "202.07/08/18" three codes, an engine list before "in MODEL" is
+not models) into the `page_validity` table; search, Manual contents and
+Ask's linked pages (`query._fits_car`) leave out a page naming the car's
+series and none of its codes. It keeps the page when it can't read it:
+"except" anywhere, a Validity line naming no model (a section valid for every
+car with an engine), no Validity line. 294,584 pages have one on the live
+index, 231,156 readable. `index.add_page` writes the rows; an older index
+is filled once in the background by the server (`validity.fill_once`,
+paced at ~100 MB/s, ~12 s here) or by `tools/wis_validity.py`. Its own
+table, so filling it never rewrites a page. eval_wis with the filter: 28/28,
+guards unchanged; a search ~0.25 -> 0.33 s. Tests: `tests/test_validity.py`.
+
 **The importer still measures before it trusts.** `structured_agreement()`
 compares `model_series` with the prose on every document carrying both; below
 `STRUCTURED_MIN_AGREEMENT` (0.5) it ignores the field for the whole corpus and

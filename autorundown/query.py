@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel, Field
 
-from . import providers
+from . import providers, validity
 from .providers import ApiUnavailable, NoApiKey  # noqa: F401  (callers catch query.X)
 from .search import as_ids, get_page, multi_search, scope_ids
 
@@ -527,6 +527,9 @@ def _fits_car(page: dict, scope) -> bool:
             return False
     mine = (*models, *ecodes)
     if mine and only and not any(f",{c}," in only for c in mine):
+        return False
+    # WIS's own Validity line: another body's page (validity.py)
+    if models and not validity.fits(page.get("text") or "", models):
         return False
     return page.get("applicability", "this_vehicle") == "this_vehicle"
 

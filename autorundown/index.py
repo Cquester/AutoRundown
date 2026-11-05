@@ -12,7 +12,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-from . import config
+from . import config, validity
 from .importers.base import PageRecord, VehicleRecord
 
 MAX_CHUNK = 2400
@@ -113,6 +113,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 CREATE VIRTUAL TABLE IF NOT EXISTS parts_fts USING fts5(
     title, section_path, body,
     content='chunks', content_rowid='id', tokenize='porter unicode61'
+);
+
+-- The models a WIS page is valid for, from its own "Validity:" lines
+-- (validity.py): ",210.0,210.2,". Only pages that have one; its own table so
+-- filling it on an existing index (tools/wis_validity.py) writes small rows
+-- instead of rewriting every page.
+CREATE TABLE IF NOT EXISTS page_validity(
+    page_uid TEXT PRIMARY KEY,
+    models   TEXT NOT NULL
 );
 """
 
@@ -348,6 +357,7 @@ def add_page(conn: sqlite3.Connection, page: PageRecord) -> int:
          digest, canonical, page.applicability, page.vehicle_types, page.engines,
          page.codes_only, page.codes_except),
     )
+    validity.store(conn, uid, page.text)
     if canonical:
         return 0  # duplicate of an already-chunked page
 

@@ -6443,6 +6443,17 @@ function vinDecode(vin, check) {
 
   const code = `,${wmi}:${vin[3]},`;                        // US VIN, series only
   const v = vehicles.find(x => (x.vin_codes || '').includes(code));
+  // a "0" at position 4 is Mercedes' newer US VIN scheme (about MY2017 on);
+  // the VIN tables here end with the 2016 data, so it is a Mercedes VIN this
+  // archive can't decode -- not "not a Mercedes VIN" (2026-11-04, F4: a
+  // 2019 GLC, WDC0G6EBXKF498582, whose series is in the manuals)
+  if (!v && vin[3] === '0') {
+    const i = YEAR_CODES.indexOf(vin[9] || '');
+    const yr = i >= 0 && 2010 + i >= 2016 ? ` (model year ${2010 + i})` : '';
+    return {error: `That is a Mercedes VIN${yr}, but from Mercedes' newer VIN scheme, and the VIN `
+                   + `tables in this archive end with the 2016 data, so it can't be decoded here. `
+                   + `Pick the car by its name or model instead.`};
+  }
   if (!v) return {error: `No Mercedes model uses the code ${wmi} + "${vin[3]}" at `
                         + `position 4. This lookup decodes Mercedes VINs only.`};
   return {vehicle: v, variant: null, year: vinYear(vin, v),

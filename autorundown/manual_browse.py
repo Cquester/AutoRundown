@@ -26,7 +26,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from . import search, wis_links
+from . import search, validity, wis_links
 from .search import _filters, _types_clause, as_ids
 
 MAX_PAGES = 120000
@@ -75,6 +75,8 @@ def _rows(conn: sqlite3.Connection, scope) -> list[tuple]:
                                  getattr(scope, "codes", ((), ())) or ((), ()))
     hclause, hargs = search.hidden_clause(conn)      # the kinds the shop hides
     where, args = where + hclause, [*args, *hargs]
+    vclause, vargs = validity.clause(conn, (getattr(scope, "codes", ((), ())) or ((), ()))[0])
+    where, args = where + vclause, [*args, *vargs]
     general = getattr(scope, "general", "")
     tclause, targs = _types_clause(getattr(scope, "types", "") or "")
     if tclause and general in ids:

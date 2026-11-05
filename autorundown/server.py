@@ -16,11 +16,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import secrets
 import socket
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 from itertools import zip_longest
@@ -40,7 +42,8 @@ from . import search as search_mod
 from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
 from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_tables, lemon_zip, manual_browse,
                native_dialog,
-               part_procedures, parts_browse, synonyms, tab_values, wis_links, wis_original)
+               part_procedures, parts_browse, synonyms, tab_values, validity, wis_links,
+               wis_original)
 from .search import (as_ids, get_page, merge_wordings, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
 
@@ -480,6 +483,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # tables, indexes and new columns are brought up to date here, before the
     # server answers anything (see index.connect)
     index.connect(index_path).close()
+    # an index built before 2026-11-04 has no page_validity rows: read its WIS
+    # pages' Validity lines once, in the background (paced; validity.fill_once)
+    if not os.environ.get("AUTORUNDOWN_NO_VALIDITY_FILL"):
+        threading.Thread(target=validity.fill_once, args=(index_path,), daemon=True,
+                         name="validity-fill").start()
     # an older install's Desktop/Mercedes Documents moves to the app's data
     # folder, once (installed app only; a failed move leaves it in use)
     try:
