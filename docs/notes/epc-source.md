@@ -270,6 +270,21 @@ name. Now:
   document is never a value here). The oil level sensor gets the oil pan
   bottom's self-tapping screws (14 Nm / 10 Nm) from "Remove/install bottom
   part of oil pan"; the answer itself never saw that page.
+- **Special tools of the job** (2026-11-04, agent 6's G4), under the Torque
+  specs table: `/api/tools/{doc}?pages=…` (`tab_values.job_tools`) reads the
+  same pages and their linked AR procedures for Mercedes tool numbers
+  ("NNN 589 NN NN 00": a "Special tools" line, inline "*110589035900", or a
+  figure name "112589007200a" -- older pages, the W201's, show tools as
+  pictures only and the figure name is all there is) and names each from
+  WIS's tool sheet, titled by its number (4,694; 477 of 482 tool numbers on
+  W210 jobs have one), which a tap opens. A name is never read from
+  running text (there the number is followed by the next step). WIS only.
+- **A fault code is searched by itself too** (G5): `numbers.fault_codes`
+  (P/B/C/U, 0-3, three hex digits). "P0171" alone found a W210's ME-SFI
+  fault-code pages, but "DTC P0171 lean" found an alternator and a slide
+  rail (AND found nothing, OR anything with "lean"). Keyword search puts the
+  code's own hits first; Ask adds the code to the planner's queries. No new
+  data: WIS's fault-code pages were already indexed.
 - WIS tables come from the SIDS layout (`wis_tables.py`, on
   `wis_original.layout`): a header row ("Number | Designation | | ENGINE 112
   (except …) | ENGINE 112.916/…") and rows of number, name, unit, a value per

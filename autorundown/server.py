@@ -850,6 +850,16 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # titles holding the whole phrase first (search.merge_wordings)
             rows = ([r for group in zip_longest(*per) for r in group if r is not None]
                     if also else merge_wordings(q, texts, per))
+            # a fault code typed among other words ("DTC P0171 lean"): the
+            # pages holding the code first, searched by itself (numbers.py)
+            if tab == "workshop":
+                codes = [c for c in numbers.fault_codes(q) if c.lower() != q.strip().lower()]
+                for code in reversed(codes[:3]):
+                    hits = search(conn, scope, code, limit,
+                                  include_other_variants=include_other_variants)
+                    for r in hits:
+                        r["query"] = code
+                    rows = hits + rows
             # one row per page: a page whose two chunks both match is still
             # one result, and the keyword list showed it twice. A page counts
             # as seen only once a row for it is kept: its lines are picked by
@@ -1076,6 +1086,23 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             manual, _ = split_scope(scope_ids(vehicle, variant, engine))
             ids = _corpus_ids(conn, vehicle) if _is_wis(vehicle) else []
             return tab_values.job_values(conn, vehicle, manual, pages, kind, ids)
+        finally:
+            conn.close()
+
+    @app.get("/api/tools/{doc_id}")
+    def api_tools(doc_id: str, pages: list[str] = Query(default=[]),
+                  variant: int | None = None,
+                  engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """The special tools of one job (the same pages as /api/values),
+        each named from its WIS tool sheet (tab_values.job_tools). Free."""
+        pages = [p.strip()[:32] for p in pages if p.strip()][:tab_values.MAX_PAGES]
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            if not _is_wis(vehicle):
+                return []
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            return tab_values.job_tools(conn, vehicle, manual, pages, _corpus_ids(conn, vehicle))
         finally:
             conn.close()
 

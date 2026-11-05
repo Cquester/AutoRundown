@@ -468,6 +468,10 @@ def plan_queries(call, question: str, vehicle: dict, usage: Usage,
     # always keep the raw question as a fallback query
     if question.strip() not in queries:
         queries.append(question.strip())
+    # a fault code is searched by itself, whatever the planner wrote: it is
+    # the one term the pages that explain it are sure to hold (numbers.py)
+    from .numbers import fault_codes
+    queries += [c for c in fault_codes(question) if c not in queries]
     return queries
 
 

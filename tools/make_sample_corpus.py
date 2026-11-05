@@ -136,7 +136,8 @@ SYSTEMS = [
          "caliper piston back with the resetting tool.\nRemove the retaining "
          "spring and drive out the retaining pins.\nWithdraw the brake pads.\n"
          "Tighten the brake caliper to steering knuckle bolts to 115 Nm.\n"
-         "Note: replace the self-locking bolts."),
+         "Note: replace the self-locking bolts.\n\nSpecial tools\n"
+         "000 589 51 21 00 Piston resetting tool"),
         ("Remove/install front brake disc", "AR42.10-P-{n:04d}B",
          "Remove the brake pads first.\nUnbolt the brake caliper carrier and "
          "suspend it from the body; do not let it hang on the brake hose.\n"
@@ -467,6 +468,22 @@ def main():
             "image_refs": [f"5510683{i:03d}|800|600|DXF"] if i % 10 else [],
             "figures": [], "body_text": "", "sids_header": None,
         })
+
+    # a special tool's sheet, titled by its number as WIS's are (the brake
+    # pad job names the tool; tab_values.job_tools). Last, so the random
+    # picks above stay as they were.
+    dok += 1
+    records.append({
+        "dok_id": dok, "dok_nr_id": 2000000 + dok, "dok_type": 1,
+        "lang": "en", "title": "000 589 51 21 00 Piston resetting tool",
+        "fzg_art_bits": "00100000000000000000000000000000",
+        "fzg_art_indices": [2], "kurzgueltigkeit_id": 98393,
+        "cluster": 8, "body_format": "sids",
+        "applicability_notes": [], **model_fields([]), "cross_refs": [],
+        "image_refs": [], "figures": [],
+        "body_text": "Validity: Model all\n\nResetting tool for the brake caliper pistons.",
+        "sids_header": 'ASCII-SIDS2.00,"18.06.2016","HP 9000/700"',
+    })
 
     with (OUT / "records.jsonl").open("w", encoding="utf-8", newline="\n") as f:
         for r in records:

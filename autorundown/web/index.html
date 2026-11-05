@@ -740,6 +740,9 @@
   .spectab td.val .cond{text-align:right}
   .fluids{margin-bottom:14px}
   .fluidshead{font-size:13px; margin:0 0 4px}
+  .toolshead{font-size:13px; font-weight:600; margin:14px 0 4px}
+  .tooltab .val{white-space:nowrap}
+  .cappages{margin:0 0 8px; padding-left:18px}
   .fluids > .cond{margin:-6px 0 0}
   .tabhit{padding:10px 14px; border-top:1px solid var(--line)}
   .tabhit:first-child{border-top:0}
@@ -5332,9 +5335,34 @@ async function jobValues(tab, pages, seq) {
         + rows.map(valueRowHtml).join('') + `</tbody></table>`
       : `<div class="card"><div class="notfound">${none}</div></div>`));
     if (tab === 'capacity') showFluids();
+    if (tab === 'torque') jobTools(pane, pages, seq, doc);
   } catch (e) {
     if (seq === tabSeq) pane.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   }
+}
+// Special tools of the job, under its torques: every Mercedes tool number
+// (NNN 589 NN NN 00) on the job's pages and the procedures they link to,
+// named from WIS's tool sheet, which a tap opens (tab_values.job_tools).
+// WIS only; nothing is shown when the job names none.
+async function jobTools(pane, pages, seq, doc) {
+  const v = vehicles.find(x => x.doc_id === doc);
+  if (!v || !WIS_SOURCE.test(v.source_name || '') || !pages.length) return;
+  let tools = [];
+  try {
+    tools = await api(`/api/tools/${encodeURIComponent(doc)}?`
+      + pages.map(p => `pages=${encodeURIComponent(p)}`).join('&')
+      + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
+      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+  } catch { return; }
+  if (seq !== tabSeq || !tools.length) return;
+  pane.insertAdjacentHTML('beforeend', withDoc(doc, () =>
+    `<div class="toolshead">Special tools for this job</div>`
+    + `<table class="spectab tooltab"><thead><tr><th>Tool</th><th>Number</th></tr></thead><tbody>`
+    + tools.map(t => `<tr><td>` + (t.page_no
+        ? `<button type="button" class="hit" ${pageAttrs(t.page_no)}>${esc(t.name || 'Tool sheet')}</button>`
+        : esc(t.name || '(no tool sheet in this manual)'))
+      + `</td><td class="val"><span class="vinmono">${esc(t.number)}</span></td></tr>`).join('')
+    + `</tbody></table>`));
 }
 function valueRowHtml(x) {
   return `<tr><td><button type="button" class="hit" ${pageAttrs(x.page_no)}

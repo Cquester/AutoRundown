@@ -54,6 +54,22 @@ def main() -> int:
           ["AR42.10-P-0100A"])
     check("an old job number", numbers.documents("air cleaner (09-0400)"), ["09-0400"])
     check("a year range is not a job number", numbers.documents("2015-2016 bumper"), [])
+    # fault codes
+    check("a fault code among words, any case", numbers.fault_codes("DTC p0171 lean"), ["P0171"])
+    check("several, once each", numbers.fault_codes("P0420 and P0430, P0420"), ["P0420", "P0430"])
+    check("body, chassis, network codes", numbers.fault_codes("B1000 C1000 U0100"),
+          ["B1000", "C1000", "U0100"])
+    check("not a part number, a longer word or a short one",
+          numbers.fault_codes("A 001 159 66 01, P01712, B12, model 201"), [])
+    from autorundown import query
+    from autorundown.providers import Reply
+
+    class Plan:
+        queries = ["mixture too lean"]
+    call = lambda *a: Reply(parsed=Plan())  # noqa: E731
+    check("Ask searches a typed fault code by itself, whatever the planner wrote",
+          query.plan_queries(call, "DTC P0171 lean on my E 320", {"model": "W210"}, query.Usage()),
+          ["mixture too lean", "DTC P0171 lean on my E 320", "P0171"])
     print(f"{fails} failure(s)")
     return 1 if fails else 0
 

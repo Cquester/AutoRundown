@@ -213,3 +213,79 @@ def capacity_pages(conn: sqlite3.Connection, vehicle: dict, scope, limit: int = 
     out.sort(key=lambda p: (0 if re.search(r"oil capacit", p["title"], re.I) else _fluid_rank(p["title"]),
                             p["page_no"]))
     return out[:limit]
+
+
+# Mercedes special tools are numbered "NNN 589 NN NN 00" (589: the tools
+# group). A WIS job names its tools in a "Special tools" block, inline
+# ("*110589035900") and as figure names ("Figures: 112589007200a"); older
+# pages (the W201's) show them as pictures only, so the figure name is the
+# one key every page has. Each tool has a sheet titled by its number
+# ("110 589 03 59 00 Mounting wedge"; 4,694 on the live index).
+_TOOL_RE = re.compile(r"(?<![\dA-Za-z])(\d{3}) ?(589) ?(\d{2}) ?(\d{2}) ?(\d{2})(?!\d)")
+_SHEET_GLOB = "[0-9][0-9][0-9] 589 [0-9][0-9] [0-9][0-9] [0-9][0-9]*"
+_sheets: dict = {}
+
+
+def _tool_sheets(conn: sqlite3.Connection, ids: list[str]) -> dict[str, tuple[str, str, str]]:
+    """{"110589035900": (page_no, doc_id, name)} for the scope's tool sheets
+    (cached per scope and page count: one title scan, ~1 s on the live
+    index)."""
+    n = conn.execute("SELECT MAX(rowid) FROM pages").fetchone()[0]
+    key = (tuple(ids), n)
+    if key not in _sheets:
+        if len(_sheets) > 32:
+            _sheets.clear()
+        out: dict[str, tuple[str, str, str]] = {}
+        for page_no, doc_id, title in conn.execute(
+                f"SELECT page_no, doc_id, title FROM pages WHERE doc_id IN ({','.join('?' * len(ids))}) "
+                f"AND title GLOB ?", [*ids, _SHEET_GLOB]):
+            out.setdefault(title[:16].replace(" ", ""), (str(page_no), doc_id, title[16:].strip()))
+        _sheets[key] = out
+    return _sheets[key]
+
+
+def _printed(num: str) -> str:
+    return f"{num[:3]} {num[3:6]} {num[6:8]} {num[8:10]} {num[10:12]}"
+
+
+def job_tools(conn: sqlite3.Connection, vehicle: dict, scope, pages: list[str],
+              corpus_ids: list[str]) -> list[dict]:
+    """The special tools of a job: [{number, name, page_no, doc_id, on}] --
+    every tool number on the job's pages and the WIS procedures they link
+    to (as job_values reads them), named from its tool sheet (page_no ""
+    when the sheet isn't in scope; the name then from the page's own
+    "Special tools" line, if any). WIS only. `on` is the job page naming it.
+    For the Torque specs tab (agent 6's G4, 2026-11-04)."""
+    if not _is_wis(vehicle):
+        return []
+    ids = as_ids(scope)
+    todo: list[dict] = []
+    seen_pages: set[str] = set()
+    for p in list(dict.fromkeys(str(p) for p in pages if p))[:MAX_PAGES]:
+        page = get_page(conn, ids, p)
+        if page and page["page_no"] not in seen_pages:
+            seen_pages.add(page["page_no"])
+            todo.append(page)
+    todo += [pg for pg, _ in wis_links.linked_pages(conn, Path(vehicle["file_path"]),
+                                                    list(todo), ids, corpus_ids, ("AR",), MAX_LINKED)]
+    sheets = _tool_sheets(conn, ids)
+    out, seen = [], set()
+    for page in todo:
+        text = page.get("text") or ""
+        for m in _TOOL_RE.finditer(text):
+            num = "".join(m.groups())
+            if num in seen:
+                continue
+            seen.add(num)
+            sheet = sheets.get(num)
+            name = sheet[2] if sheet else ""
+            if not name:
+                # only a "Special tools" line: the number starting it, a
+                # short name after (in running text it is the next step)
+                line = re.search(r"^" + re.escape(_printed(num)) + r"[ \t]+([A-Za-z][^\n.()]{1,58})$",
+                                 text, re.M)
+                name = line.group(1).strip() if line else ""
+            out.append({"number": _printed(num), "name": name,
+                        "page_no": sheet[0] if sheet else "", "doc_id": sheet[1] if sheet else "",
+                        "on": page["page_no"]})
+    return out
