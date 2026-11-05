@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from .search import _filters, as_ids, catalog_info, parts_codes_clause
+from .search import _filters, as_ids, catalog_info, engine_open_sections, parts_codes_clause
 
 _TITLE = re.compile(
     r"^Parts: (?P<kind>model|engine) (?P<code>\S+) \(EPC catalog (?P<cat>[^)]+)\), "
@@ -67,7 +67,8 @@ def diagrams(conn: sqlite3.Connection, parts_scope) -> list[dict]:
         return []
     codes = getattr(parts_scope, "codes", ((), ())) or ((), ())
     where, args, _, _ = _filters(False, tuple(getattr(parts_scope, "engines", ()) or ()), codes)
-    pclause, pargs = parts_codes_clause(codes)     # only the car's own catalogues
+    # only the car's own catalogues
+    pclause, pargs = parts_codes_clause(codes, engine_open_sections(conn, ids, codes))
     where, args = where + pclause, [*args, *pargs]
     rows = conn.execute(
         f"SELECT p.doc_id, p.page_no, p.title, p.images FROM pages p "
