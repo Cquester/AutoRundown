@@ -232,7 +232,7 @@ FTS_TABLES = ("chunks_fts", "parts_fts")   # see index.SCHEMA: parts in their ow
 _CODE_GLOB = "*[0-9][0-9][0-9].[0-9][0-9][0-9]*"   # a model code ("126.045") in a section line
 
 
-def parts_codes_clause(codes: tuple = ((), ())) -> tuple[str, list]:
+def parts_codes_clause(codes: tuple = ((), ()), open_sections=()) -> tuple[str, list]:
     """SQL (on `p`, the pages table) keeping only the parts catalogue pages
     that fit the car's model/engine codes.
 
@@ -251,20 +251,75 @@ def parts_codes_clause(codes: tuple = ((), ())) -> tuple[str, list]:
     its "Models in this catalog:" line, which names them all: 13,106 of
     52,520 EPC pages were cut and 135 variants (every W211 4MATIC, the
     W212 E 350 4MATIC…) saw none of their chassis pages (agent review,
-    2026-10-28)."""
+    2026-10-28).
+
+    An engine catalogue's pages ("ENGINE 102") name their engines in an
+    "Engines in this catalog: 102.983 M 102 USA, …" line; when the car's
+    engine codes are known, that line must name one of them. Before
+    2026-11-04 engine pages always passed, and a 190 E 2.3-16 (102.983) was
+    shown -- and Ask was sent -- 12 Engine 102 catalogues, of which only
+    488, 582 and 583 list its engine: an EGR bracket for the 102.985, a
+    V-belt for the 102.961 (761 of 1,250 WIS variants had such a
+    catalogue). `open_sections` ((doc_id, "ENGINE 651"), …, from
+    `engine_open_sections`) are the car's engine families that no catalogue
+    lists the car's exact engine for -- 42 of ~1,200 on the live index, the
+    Vito's OM 646.980 among them; those keep every catalogue of the family,
+    as before, rather than showing no engine parts at all."""
     mine = (*codes[0], *codes[1])
     if not mine:
         return "", []
-    return (f" AND (p.section_path NOT GLOB '{_CODE_GLOB}' OR "
-            + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine)
-            + " OR (p.section_path GLOB '* ...' AND ("
-            + " OR ".join(f"instr({_CATALOG_MODELS}, ?) > 0" for _ in mine) + ")))"), [*mine, *mine]
+    sql = (f" AND (p.section_path NOT GLOB '{_CODE_GLOB}' OR "
+           + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine)
+           + " OR (p.section_path GLOB '* ...' AND ("
+           + " OR ".join(f"instr({_CATALOG_MODELS}, ?) > 0" for _ in mine) + ")))")
+    args = [*mine, *mine]
+    engs = tuple(e for e in codes[1] if _FIT_CODE_RE.fullmatch(str(e)))
+    if engs:
+        sql += (f" AND ({_CE_AT} = 0 OR "
+                + "".join("(p.doc_id = ? AND p.section_path = ?) OR " for _ in open_sections)
+                + " OR ".join(f"instr({_CATALOG_ENGINES}, ?) > 0" for _ in engs) + ")")
+        args += [x for pair in open_sections for x in pair] + list(engs)
+    return sql, args
+
+
+_open_cache: dict = {}
+
+
+def engine_open_sections(conn: sqlite3.Connection, doc_ids, codes: tuple = ((), ())) -> tuple:
+    """((doc_id, "ENGINE 651"), …): the car's engine families, in these parts
+    buckets, whose catalogues all fail `parts_codes_clause`'s engines line
+    check -- no catalogue there lists the car's exact engine. Cached per
+    index state."""
+    engs = tuple(sorted(e for e in (codes[1] or ()) if _FIT_CODE_RE.fullmatch(str(e))))
+    if not engs or not doc_ids:
+        return ()
+    key = (tuple(doc_ids), engs, conn.execute("SELECT MAX(rowid) FROM pages").fetchone()[0])
+    if key not in _open_cache:
+        out = []
+        fits = " OR ".join(f"instr({_CATALOG_ENGINES}, ?) > 0" for _ in engs)
+        for d in doc_ids:
+            for fam in dict.fromkeys(e[:3] for e in engs):
+                sec = f"ENGINE {fam}"
+                has = conn.execute(f"SELECT 1 FROM pages p WHERE p.doc_id = ? AND p.section_path = ? "
+                                   f"AND {_CE_AT} > 0 LIMIT 1", (d, sec)).fetchone()
+                if has and not conn.execute(
+                        f"SELECT 1 FROM pages p WHERE p.doc_id = ? AND p.section_path = ? AND ({fits}) LIMIT 1",
+                        (d, sec, *engs)).fetchone():
+                    out.append((d, sec))
+        if len(_open_cache) > 512:
+            _open_cache.clear()
+        _open_cache[key] = tuple(out)
+    return _open_cache[key]
 
 
 # the page's "Models in this catalog: 210.006 E 220 CDI, …" line, as SQL
 _CM_AT = "instr(p.text, 'Models in this catalog:')"
 _CATALOG_MODELS = (f"CASE WHEN {_CM_AT} > 0 THEN substr(p.text, {_CM_AT}, "
                    f"instr(substr(p.text, {_CM_AT}) || char(10), char(10))) ELSE '' END")
+# and an engine catalogue's "Engines in this catalog: 102.983 M 102 USA, …"
+_CE_AT = "instr(p.text, 'Engines in this catalog:')"
+_CATALOG_ENGINES = (f"CASE WHEN {_CE_AT} > 0 THEN substr(p.text, {_CE_AT}, "
+                    f"instr(substr(p.text, {_CE_AT}) || char(10), char(10))) ELSE '' END")
 
 
 _ENGINE_NAME_RE = re.compile(r"\b(\d\.\dL[ -][A-Za-z][A-Za-z-]+)")
@@ -376,7 +431,7 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
         where += f" AND (c.doc_id != ? OR NOT {_DAMAGE_MENU})"
         args = [*args, general]
     if fts == "parts_fts":
-        pclause, pargs = parts_codes_clause(codes)
+        pclause, pargs = parts_codes_clause(codes, engine_open_sections(conn, doc_ids, codes))
         where += pclause
         args = [*args, *pargs]
     marks = ",".join("?" for _ in doc_ids)
@@ -808,8 +863,9 @@ def line_fits(line: str, codes: tuple = ((), ()), families=()) -> bool:
 
 
 # market words in a catalogue's model names ("210.055 E 320 USA")
-_MARKETS = {"USA": "USA", "JAPAN": "Japan", "AUSTRALIA": "Australia", "KANADA": "Canada",
-            "CANADA": "Canada", "MEXICO": "Mexico", "ITALIEN": "Italy"}
+_MARKETS = {"USA": "USA", "JAPAN": "Japan", "AUSTRALIA": "Australia", "AUSTRALIEN": "Australia",
+            "KANADA": "Canada", "CANADA": "Canada", "MEXICO": "Mexico", "ITALIEN": "Italy",
+            "PORTUGAL": "Portugal", "MBSA": "South Africa"}
 _CATALOG_CODE_RE = re.compile(r"\(EPC catalog ([^)]*)\)")
 
 
@@ -817,14 +873,17 @@ def catalog_info(conn: sqlite3.Connection, row: dict, codes: tuple = ((), ())) -
     """{"catalog": "45R", "market": "USA"} for a parts page: a series has one
     catalogue per market and period, and the same subgroup in each. The
     market is read from the car's own entries in the page's "Models in this
-    catalog:" line (every entry when no car is chosen); "" when none names
-    one."""
+    catalog:" line, or an engine catalogue's "Engines in this catalog:"
+    line (every entry when no car is chosen); "" when none names one.
+    Engine catalogues showed no market until 2026-11-04 (582 USA and 583
+    Japan both read "catalog 582" / "catalog 583")."""
     m = _CATALOG_CODE_RE.search(row.get("title") or "")
     text = conn.execute("SELECT text FROM pages WHERE page_uid=?", (row["page_uid"],)).fetchone()
     line = next((l for l in ((text[0] if text else "") or "").split("\n")
-                 if l.startswith("Models in this catalog:")), "")
+                 if l.startswith(("Models in this catalog:", "Engines in this catalog:"))), "")
     entries = line.partition(":")[2].split(", ")
-    mine = [e for e in entries if e.split()[:1] and e.split()[0] in set(codes[0] or ())] or entries
+    car = set(codes[0] or ()) | set(codes[1] or ())
+    mine = [e for e in entries if e.split()[:1] and e.split()[0] in car] or entries
     markets = sorted({_MARKETS[w] for e in mine for w in e.split() if w in _MARKETS})
     return {"catalog": m.group(1) if m else "", "market": ", ".join(markets)}
 

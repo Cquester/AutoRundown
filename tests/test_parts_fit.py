@@ -7,6 +7,10 @@
 - A line whose Fits field names only other models of the series or other
   engines of the family is left out (`line_fits`): 27% of the Parts tab's
   lines for a chosen car fitted other models only.
+- An engine catalogue's pages ("ENGINE 102") must list the car's engine in
+  their "Engines in this catalog:" line (2026-11-04: a 190 E 2.3-16 was shown
+  12 Engine 102 catalogues, 3 of them its own), unless no catalogue of that
+  family lists it; engine catalogues now name their market too.
 - A LEMON manual's page filed under another engine ("3.5L DURATEC" in a
   3.5L EcoBoost F-150) but not stamped other_variant is left out of search.
 
@@ -75,6 +79,45 @@ info = catalog_info(con, {"page_uid": "epc:P2", "title": "Parts: model 210 (EPC 
 check(info == {"catalog": "45R", "market": "USA"}, f"catalogue code and market: {info}")
 info = catalog_info(con, {"page_uid": "epc:P1", "title": "Parts: model 210 (EPC catalog 66G), group 82"})
 check(info == {"catalog": "66G", "market": ""}, f"no market named: none guessed: {info}")
+
+print("engine catalogues that don't list the car's engine (2026-11-04)")
+from autorundown.search import engine_open_sections  # noqa: E402
+ec = sqlite3.connect(":memory:")
+ec.execute("CREATE TABLE pages(doc_id TEXT, page_no TEXT, page_uid TEXT, section_path TEXT, text TEXT)")
+ec.executemany("INSERT INTO pages VALUES (?,?,?,?,?)", [
+    ("e102", "P10", "e102:P10", "ENGINE 102",
+     "Parts: engine 102 (EPC catalog 582), group 01\nEngines in this catalog: 102.983 M 102 USA\n"),
+    ("e102", "P11", "e102:P11", "ENGINE 102",
+     "Parts: engine 102 (EPC catalog 507), group 01\nEngines in this catalog: 102.985 M 102 USA\n"),
+    ("e102", "P12", "e102:P12", "ENGINE 102",
+     "Parts: engine 102 (EPC catalog 14G), group 01\n"
+     "Engines in this catalog: 102.910 M 102 AUSTRALIEN, 102.962 M 102 AUSTRALIEN\n"),
+    ("e646", "P20", "e646:P20", "ENGINE 646",
+     "Parts: engine 646 (EPC catalog 62Z), group 01\nEngines in this catalog: 646.961 OM 646\n"),
+    ("e646", "P21", "e646:P21", "ENGINE 646", "an engine page with no catalogue line\n"),
+])
+
+
+def epages(car: tuple, ids=("e102", "e646")) -> set:
+    clause, args = parts_codes_clause(car, engine_open_sections(ec, list(ids), car))
+    return {r[0] for r in ec.execute("SELECT page_no FROM pages p WHERE 1" + clause, args)}
+
+
+check(epages((("201.034",), ("102.983",))) - {"P20", "P21"} == {"P10"},
+      "190 E 2.3-16 (102.983): only the catalogue listing its engine (all three passed)")
+check(epages((("201.024",), ("102.962", "102.985"))) - {"P20", "P21"} == {"P11", "P12"},
+      "a car with two engine codes: each catalogue naming one of them")
+check(epages((("639.601",), ("646.980",)))
+      >= {"P20", "P21"}, "no catalogue lists the car's engine (a Vito 646.980): the family's pages all stay")
+check(engine_open_sections(ec, ["e102", "e646"], (("201.034",), ("102.983",))) == (),
+      "the car's engine has a catalogue: nothing kept open")
+check(epages((("201.034",), ())) == {"P10", "P11", "P12", "P20", "P21"},
+      "engine codes unknown: no engine check")
+check("P21" in epages((("201.034",), ("102.983",))), "a page with no catalogue line is never dropped by it")
+info = catalog_info(ec, {"page_uid": "e102:P12", "title": "Parts: engine 102 (EPC catalog 14G), group 01"})
+check(info == {"catalog": "14G", "market": "Australia"}, f"an engine catalogue's market (was none): {info}")
+info = catalog_info(ec, {"page_uid": "e102:P10", "title": "(EPC catalog 582)"}, ((), ("102.983",)))
+check(info == {"catalog": "582", "market": "USA"}, f"the car's engine entry names the market: {info}")
 
 print("another engine's pages in a LEMON manual")
 from autorundown.search import _other_engines_clause, manual_engine_names  # noqa: E402

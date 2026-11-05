@@ -381,6 +381,22 @@ index / WIS+EPC with the join off / joined:
   only if it lists one of the car's (model or engine); engine pages ("ENGINE
   117") list none and pass. Query time, so no re-ingest. Only with a variant
   chosen. Test: `tests/test_epc_join.py`; `eval_wis.py` unchanged.
+- **…and only the engine catalogues listing its engine** (2026-11-04, the
+  VIN-filtering agent's finding F1). Engine pages pass the line above, but
+  each names its engines in an "Engines in this catalog: 102.983 M 102 USA,
+  …" line; `parts_codes_clause` now requires one of the car's exact engine
+  codes there when they are known. A 190 E 2.3-16 (102.983) was shown -- and
+  Ask was sent -- 12 Engine 102 catalogues (an EGR bracket for the 102.985,
+  a V-belt for the 102.961); now 488, 582 (USA) and 583 (Japan). 761 of
+  1,250 WIS variants had such a catalogue. When no catalogue of a family
+  lists the car's engine (42 of ~1,200 variant-engine pairs on the live
+  index, mostly Vito/Sprinter OM 646/651, the V-Class M 111/104),
+  `engine_open_sections` keeps that family's pages as before rather than
+  showing none. `catalog_info` reads the engines line too, so engine
+  catalogues name their market (AUSTRALIEN, PORTUGAL and MBSA added).
+  **The market itself is still not narrowed**: 500, 580 (USA) and 581
+  (Japan) all stay for a US VIN, since the VIN never leaves the browser
+  (finding F2, not done). Test: `tests/test_parts_fit.py`.
 - **Parts have their own FTS table (`parts_fts`), the user's choice.** In the
   shared `chunks_fts`, EPC shifted WIS BM25 scores even with the join off
   (statistics are index-wide): `w204-c220cdi-glow-plugs` gained a W207 page
