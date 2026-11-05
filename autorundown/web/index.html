@@ -2201,6 +2201,26 @@ const compact = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const BODY_WORDS = {Sedan: 'sedan saloon', Wagon: 'wagon estate tmodel kombi',
                     Coupe: 'coupe', Convertible: 'convertible cabriolet cabrio',
                     Roadster: 'roadster', 'Shooting Brake': 'shootingbrake wagon'};
+// The body where WIS gives none (948 of 1,250 variants, 2026-11-05): its
+// wagons are mostly named with a trailing "T" -- "E 320 4MATIC T", "E 320
+// CDI T" -- so "wagon" missed them; and in a series that has wagons, a
+// name with no T and no other body word is the sedan (only 10 variants
+// were labelled Sedan, so "E 320 sedan" found almost nothing).
+// A wagon is "… T", "230 TE", "240 TD", "C 200 (T)"; a trailing "C" or
+// "CE" is a coupe ("230 C", "C 180 BlueEF. C"). Sedans only in a series
+// with T-named wagons: the G-Class's labelled wagons have no sedans beside
+// them. Checked on the live index (2026-11-05): 115 wagons and 253 sedans
+// found, in exactly the W123/W124/W202-W205/W210/W212/W213 series.
+const NOT_SEDAN = /\b(CE|CD|CL|CLK|SL|SLK|SLC|GLK|ML|GL|GLE|GLC|Coupe|Sportcoupe|Cabrio|Cabriolet|Convertible|Roadster)\b|\bC$/i;
+const isT = n => /\bT[ED]?\b|\(T\)|T-Model/.test(String(n));
+function bodyOf(x, siblings) {
+  if (x.body) return x.body;
+  if (isT(x.name)) return 'Wagon';
+  return siblings.some(s => isT(s.name)) && !NOT_SEDAN.test(x.name) ? 'Sedan' : '';
+}
+// what people call 4MATIC (WIS also writes it "4M")
+const is4matic = n => /4matic|\b4M\b/i.test(String(n));
+const DRIVE_WORDS = '4matic awd 4wd allwheeldrive 4x4';
 // "E 500/550 4MATIC" is Mercedes' name for what a US owner calls an E550
 const nameAliases = n => {
   const m = String(n).match(/^(.*?)(\d{3})\/(\d{3})(.*)$/);
@@ -2227,10 +2247,15 @@ function buildCarIndex() {
                    doc: v.doc_id, variant: null, engine: null, year: null, years: v._years,
                    hay: compact(`${make} ${v.model}`), words: wordsOf(`${make} ${v.model}`)});
     v._variants.forEach((x, i) => {
+      const body = bodyOf(x, v._variants);
       const text = `${make} ${v.model} ${nameAliases(x.name).join(' ')} `
-                   + `${(x.us_trims || []).join(' ')} ${BODY_WORDS[x.body] || ''}`;
+                   + `${(x.us_trims || []).join(' ')} ${BODY_WORDS[body] || ''} `
+                   + (is4matic(x.name) ? DRIVE_WORDS : '');
       const hayBase = compact(text), words = wordsOf(text);
-      const famLabel = fams => fams.map(f => (x.engine_families || {})[f] || `Engine ${f}`).join(' or ');
+      // the body on the suggestion's line when the name doesn't say it ("T")
+      const bodyNote = body && !String(x.name).toLowerCase().includes(body.toLowerCase()) ? ` · ${body}` : '';
+      const famLabel = fams => fams.map(f => (x.engine_families || {})[f] || `Engine ${f}`).join(' or ')
+                               + bodyNote;
       const bmYears = Object.entries(x.us_years || {}).map(([b, ys]) => [b, new Set(yearsIn(ys))]);
       const usYears = new Set(bmYears.flatMap(([, ys]) => [...ys]));
       if (usYears.size) {
