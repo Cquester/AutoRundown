@@ -196,6 +196,7 @@ python tests/test_parts_fit.py                    # parts pages/lines that fit t
 python tests/test_load.py                         # many mechanics at once: Ask threads + busy, cached vehicles and labour (~10 s)
 python tests/test_parse_sids.py                   # RTF stubs: hotspots are neither text nor graphics (<1 s)
 python tests/test_lemon_tables.py                 # LEMON cars' Labour times and Parts tabs from their own tables (<1 s)
+python tests/test_validity.py                     # WIS Validity lines: a wagon gets no sedan-only page, and back (<1 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 python tools/make_icons.py                        # the app's icons (web/icons/), drawn from code
 
@@ -208,6 +209,7 @@ python tools/readme_gifs.py --url <box admin url>  # README GIFs -> docs/images/
 python tools/build_lemon_catalogue.py <lemon/index.json>  # rebuild the catalogue snapshot
 python extractor/parse_links.py                   # rebuild wis_links.sqlite (offline, ~1 min)
 python tools/wis_job_numbers.py --index index.db [--apply]  # add "Job no.: 67-200" to an existing index's WIS pages
+python tools/wis_validity.py --index index.db [--apply]     # WIS Validity lines into page_validity (the server does it once by itself)
 
 # test environments
 wsl -d Ubuntu -- bash tools/container/box.sh up     # test box (Docker in WSL): admin + phone ports
@@ -531,9 +533,20 @@ API (`fake:onepart`) in `tests/test_epc_join.py`.
 **The right box's tabs are plain, and labour shows the job** (2026-10-16,
 the user's list). Capacities and Torque specs are one table each (Fluid /
 Capacity, Part / Specification: `search.value_row`, the value as printed,
-no paragraph). Labour times are empty until a question and show the job
-itself (`wis_links._rank_labour`), both gearboxes' versions where they
+no paragraph). Labour times show the job a question names
+(`wis_links._rank_labour`), both gearboxes' versions where they
 differ -- the car box does not know the gearbox; other matches fold away.
+Before a question the tab is the car's book to browse, group > subgroup >
+operation (`wis_links.labour_tree` / `lemon_tables.labour_tree`,
+`/api/wis/labour?browse=1[&group=]`, a group fetched when opened; the user,
+2026-11-04), and below a question's result as "Browse all labour times".
+A WIS row with scope text has "What it includes" (includes / only after
+diagnosis / does not include / notes, fetched on tap from
+`/api/wis/labour/{doc}/detail`; 2026-11-05). The Manual contents open with
+"Service schedule (ASSYST)" and "Service bulletins" (dated, what each
+replaces), and a WIS page says its kind and date (`doc_info`). All three
+come from tables `pull_vehicles.js` pulls since 2026-11-05: **they appear
+only after a new VM pull** (`wis-source.md`, G1-G3).
 The Labour times and Option codes buttons beside VIN are gone (Option codes
 entirely: nobody knows them; a data-card read may bring them back). Tests:
 `tests/test_wis_links.py`, `tests/test_epc_join.py`, `test_answer_tabs.py`.
@@ -590,6 +603,15 @@ NHTSA-derived years, which is why it is allowed.
 More decisions of the same weight, each with the failure that caused it, are
 in `docs/notes/`. The ones most likely to be undone by accident:
 
+- **WIS's own "Validity:" line narrows search by body** (2026-11-04):
+  "Applies to" is the filing, "Validity: MODEL 210.0" what WIS says a page
+  is for; a wagon got sedan-only pages and back. `validity.py` reads it into
+  `page_validity` (its own table: filling it never rewrites pages); a page
+  naming the car's series and none of its codes is left out. Anything it
+  can't read keeps the page ("except", a line naming no model). An engine
+  page's title models count too ("Engine 102 … Models 210, 310": the vans'
+  carburettor, not a 190 E's). Filled at ingest, or once in the background
+  on an older index. (`wis-source.md`)
 - **A title match only breaks ties in keyword search** (x1.05, 3+ words,
   `search.title_fit`); bigger boosts or two-word searches lost `eval_wis`
   cases. Old job numbers ("67-200") come from WIS figure names, only where

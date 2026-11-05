@@ -33,7 +33,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import ingest  # noqa: E402
 import test_records  # noqa: E402
-from autorundown import index, search, server, wis_links  # noqa: E402
+from autorundown import index, manual_browse, search, server, wis_links  # noqa: E402
 
 fails = 0
 
@@ -354,6 +354,34 @@ def main() -> int:
         app.post("/api/settings", json={"show_retrofits": False, "show_shop_admin": False})
         check("off again", (found("zorbtrim"), search.hidden_kinds),
               (["1002362", "1002363"], frozenset({"retrofits", "shop_admin"})))
+
+        print("bulletins: kind, date, what they replace (G3)")
+        bull = lambda: app.get(f"/api/wis/bulletins/{c176}").json()
+        check("no bulletins yet: an empty list", bull(), [])
+        check("a repair page says what it is, without doc_info",
+              app.get(f"/api/page/{c176}/1002297").json()["doc_info"],
+              {"kind": "Testing and repair", "code": "ar", "bulletin": False, "date": "", "change": ""})
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executemany("INSERT INTO docnr VALUES (?,?,?)", [
+                ("si5400p0001a", 30, 1002363)])
+            c.executescript("""
+            CREATE TABLE doc_info(dok_id INTEGER PRIMARY KEY, date TEXT, change TEXT);
+            INSERT INTO doc_info VALUES (1002363, '2002-11-19', 'Replaces SI 54/59 from 19.11.02'),
+                                        (1002297, '1999-01-04', '');
+            """)
+        b = bull()
+        check("the car's bulletins only (not its repair pages), with date and what it replaces",
+              [(p["page_no"], p["kind"], p["date"], p["change"]) for p in b],
+              [("1002363", "Service information", "2002-11-19", "Replaces SI 54/59 from 19.11.02")])
+        check("Service measures (sm) count as bulletins too", manual_browse.KIND["sm"] in manual_browse.BULLETINS, True)
+        check("the page says it is a bulletin, its date and what it replaces",
+              app.get(f"/api/page/{c176}/1002363").json()["doc_info"],
+              {"kind": "Service Information", "code": "si", "bulletin": True, "date": "2002-11-19",
+               "change": "Replaces SI 54/59 from 19.11.02"})
+        check("a page the sidecar knows nothing of: no doc_info",
+              app.get(f"/api/page/{c176}/1002350").json()["doc_info"], None)
+        check("not a WIS car: no bulletins",
+              app.get(f"/api/wis/bulletins/{ids.get('f150', c176)}").status_code, 200)
         v23, v26 = names.index("190 E 2.3 16"), names.index("190 E 2.6")
         check("labour times need the exact model",
               app.get(f"/api/wis/labour/{c201}").json()["need"], "variant")
@@ -375,6 +403,123 @@ def main() -> int:
         check("a chosen book is used", r["book"], "00-00-07-51")
         check("an unknown book is not", app.get(
             f"/api/wis/labour/{c201}?variant={v26}&book=00-00-99-99").json()["book"], None)
+
+        print("labour times to browse (before a question)")
+        b = app.get(f"/api/wis/labour/{c201}?variant={v23}&browse=1").json()
+        check("browse: the groups only, named from the labour book, with counts",
+              (b["browse"], b["items"], [(g["kg"], g["name"], g["count"]) for g in b["groups"]]),
+              (True, [], [("15", "Electrical components, engine", 1), ("42", "Brakes", 1)]))
+        check("browse: a sidecar with no subgroup table puts operations under Other",
+              [(s["name"], [i["op"] for i in s["items"]]) for s in app.get(
+                  f"/api/wis/labour/{c201}?variant={v23}&browse=1&group=42").json()["subs"]],
+              [("Other", ["42-1350"])])
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executescript("""
+            CREATE TABLE labour_subgroup(sparte TEXT, kg TEXT, entry TEXT, name TEXT);
+            INSERT INTO labour_subgroup VALUES ('00','42','1300','Brake system, bleed'),
+                                               ('00','15','5700','Voltage regulator');
+            INSERT INTO labour_op VALUES ('00','15','5765','5700','G','Voltage regulator check');
+            INSERT INTO labour_time VALUES ('00','00','06','15','5765','41',9);
+            """)
+        tree = wis_links.labour_tree(cdir, "00-00-06-41")
+        check("labour_tree: group > subgroup > operations, subgroups named",
+              [(g["kg"], [(s["name"], [i["op"] for i in s["items"]]) for s in g["subs"]]) for g in tree],
+              [("15", [("Voltage regulator", ["15-5760", "15-5765"])]),
+               ("42", [("Brake system, bleed", ["42-1350"])])])
+        check("browse: an unknown group is 404",
+              app.get(f"/api/wis/labour/{c201}?variant={v23}&browse=1&group=99").status_code, 404)
+        check("browse: a question wins over browse",
+              "groups" in app.get(f"/api/wis/labour/{c201}?variant={v23}&browse=1&q=bleed").json(), False)
+        check("browse with two books: still asks for the book",
+              app.get(f"/api/wis/labour/{c201}?variant={v26}&browse=1").json()["need"], "book")
+
+        print("what a labour time includes (G2)")
+        det = lambda o, b="00-00-06-41", v=v23: app.get(
+            f"/api/wis/labour/{c201}/detail?variant={v}&book={b}&op={o}")
+        check("detail on a sidecar without the scope tables: empty, no 500",
+              {k: det("42-1350").json()[k] for k in ("includes", "notes", "group_notes")},
+              {"includes": [], "notes": [], "group_notes": []})
+        check("no 'What it includes' mark without the tables",
+              [i.get("more") for i in app.get(f"/api/wis/labour/{c201}?variant={v23}").json()["items"]
+               if i["op"] == "42-1350"], [None])
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executescript("""
+            CREATE TABLE labour_scope_text(id INTEGER PRIMARY KEY, text TEXT);
+            CREATE TABLE labour_scope(sparte TEXT, pl TEXT, family TEXT, kg TEXT, op TEXT, id INTEGER);
+            CREATE TABLE labour_note(sparte TEXT, pl TEXT, family TEXT, kg TEXT, op TEXT, text TEXT);
+            CREATE TABLE labour_group_note(sparte TEXT, pl TEXT, family TEXT, kg TEXT, text TEXT);
+            INSERT INTO labour_scope_text VALUES (7, 'Remove/install wheel(s)
+            Bleed brake system
+            *****after diagnosis*****
+            Replace brake hose(s)
+            Does not include: Socket threads in brake caliper - Recut');
+            INSERT INTO labour_scope VALUES ('00','00','06','42','1350',7);
+            INSERT INTO labour_note VALUES ('00','00','06','42','1350','each additional caliper 0.2 h');
+            INSERT INTO labour_group_note VALUES ('00','00','06','42','Not included in jobs in Group 42: road test');
+            """)
+        d = det("42-1350").json()
+        check("detail: includes / after diagnosis / does not include, split as WIS prints them",
+              (d["includes"], d["after_diagnosis"], d["excludes"]),
+              (["Remove/install wheel(s)", "Bleed brake system"], ["Replace brake hose(s)"],
+               ["Socket threads in brake caliper - Recut"]))
+        check("detail: a NUL line (as the real WIS text has) is no item",
+              wis_links.scope_sections("Coils - Remove/install\n\x00")["includes"],
+              ["Coils - Remove/install"])
+        check("detail: the operation's and its group's notes",
+              (d["notes"], d["group_notes"]),
+              (["each additional caliper 0.2 h"], ["Not included in jobs in Group 42: road test"]))
+        marks = {i["op"]: i.get("more", False) for i in
+                 app.get(f"/api/wis/labour/{c201}?variant={v23}").json()["items"]}
+        check("the operation with details is marked, the others not",
+              (marks.get("42-1350"), marks.get("15-5760")), (True, False))
+        check("detail: another car's book is 404", det("42-1350", "00-00-07-51").status_code, 404)
+        check("detail: a malformed operation is 404", det("421350").status_code, 404)
+        check("detail: an operation WIS has nothing for: empty lists",
+              det("15-5760").json()["includes"], [])
+
+        print("service schedule (ASSYST, G1)")
+        svc = lambda q="": app.get(f"/api/wis/service/{c201}?{q}").json()
+        empty = {"interval": [], "first": [], "jobs": []}
+        check("no model or engine chosen: nothing", svc(), empty)
+        check("tables missing (an older sidecar): nothing, no 500", svc(f"variant={v23}"), empty)
+        mine = app.get(f"/api/manual/contents/{c201}?variant={v23}").json()
+
+        def first_page(n, path=()):
+            if n["pages"]:
+                return n["pages"][0]["page_no"]
+            for ch in n["children"]:
+                p = first_page(app.get(f"/api/manual/contents/{c201}", params={
+                    "variant": v23, "path": [*n["path"], ch["name"]]}).json())
+                if p:
+                    return p
+        own = first_page(mine)
+        with closing(sqlite3.connect(cdir / wis_links.NAME)) as c, c:
+            c.executemany("INSERT INTO docnr VALUES (?,?,?)", [
+                ("ap0510p0001aay", 40, int(own)),        # the car's own sheet
+                ("ap0040p0001aay", 41, 1002304)])        # another model's
+            c.executescript("""
+            CREATE TABLE service_interval(series TEXT, km INTEGER, miles INTEGER, display TEXT);
+            CREATE TABLE service_first(series TEXT, engine TEXT, extra TEXT, km INTEGER, miles INTEGER, sheet TEXT);
+            CREATE TABLE service_job(docnr TEXT, country TEXT, every_days INTEGER, every_km INTEGER,
+                                     start_days INTEGER, start_km INTEGER);
+            INSERT INTO service_interval VALUES ('201', 22000, 14000, 'N'), ('124', 25000, 15000, 'X');
+            INSERT INTO service_first VALUES ('201', '102', '', 15000, 9500, 'MB 229.1'),
+                                             ('201', '103', '', 20000, 12500, 'MB 229.3');
+            INSERT INTO service_job VALUES ('ap0510p0001aay', '*', 1825, 100000, NULL, NULL),
+                                           ('ap0510p0001aay', '513L', 3650, 200000, NULL, NULL),
+                                           ('ap0040p0001aay', '*', 365, NULL, NULL, NULL);
+            """)
+        s = svc(f"variant={v23}")
+        check("the series' interval", s["interval"], [{"km": 22000, "miles": 14000}])
+        check("the first service for the car's own engine only (102, not 103)",
+              [(f["engine"], f["km"], f["sheet"]) for f in s["first"]], [("102", 15000, "MB 229.1")])
+        check("jobs: the car's own sheet only, the all-countries figure, others counted",
+              [(j["page_no"], j["every_days"], j["every_km"], j["countries"]) for j in s["jobs"]],
+              [(own, 1825, 100000, 1)])
+        check("an engine family picked without a variant narrows the first service",
+              [f["engine"] for f in svc("engine=103")["first"]], ["103"])
+        check("not a WIS car: nothing",
+              app.get(f"/api/wis/service/{c176}?variant=0").status_code, 200)
 
         # a search shows the job itself, not every operation naming its words
         def op(o, text):

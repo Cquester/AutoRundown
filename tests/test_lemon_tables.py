@@ -63,6 +63,10 @@ check("another variant's labour page is never read", not any(i["page_no"] == "10
 r = lemon_tables.labour(con, "c", "ignition lock")
 check("a question finds its job", r["best"] == 1 and r["items"][0]["page_no"] == "1001", r)
 check("a job with no labour page: nothing", lemon_tables.labour(con, "c", "water pump")["total"] == 0)
+tree = lemon_tables.labour_tree(con, "c")
+check("browse: section > the page's component > its rows",
+      [(g["name"], g["count"], [(s["name"], s["entry"], len(s["items"])) for s in g["subs"]]) for g in tree]
+      == [("Starting and Charging", 2, [("Ignition Lock", "1001", 1), ("Voltage Regulator", "1003", 1)])], tree)
 
 print("parts")
 rows = lemon_tables.parts(con, "c", ["ignition lock part number"])

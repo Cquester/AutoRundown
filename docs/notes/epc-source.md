@@ -263,11 +263,28 @@ name. Now:
 - `/api/values/{doc}?kind=torque|capacity&pages=…` (`tab_values.job_values`)
   reads the job's pages -- after an Ask the answer's `document_page` +
   `source_pages` (with no answer, the first pages it was looked for on);
-  after a Search the top 3 hits -- and, for WIS, the documents they link to
+  after a Search the top 3 hits holding every word typed (a hit from the
+  OR top-up, marked `partial`, is another job: the cylinder head's torques
+  for "front brake pads", 2026-11-04) -- and, for WIS, the documents they link to
   (`wis_links.resolve`, AR/BA/BF/BE only, in scope only: another model's
   document is never a value here). The oil level sensor gets the oil pan
   bottom's self-tapping screws (14 Nm / 10 Nm) from "Remove/install bottom
   part of oil pan"; the answer itself never saw that page.
+- **Special tools of the job** (2026-11-04, agent 6's G4), under the Torque
+  specs table: `/api/tools/{doc}?pages=…` (`tab_values.job_tools`) reads the
+  same pages and their linked AR procedures for Mercedes tool numbers
+  ("NNN 589 NN NN 00": a "Special tools" line, inline "*110589035900", or a
+  figure name "112589007200a" -- older pages, the W201's, show tools as
+  pictures only and the figure name is all there is) and names each from
+  WIS's tool sheet, titled by its number (4,694; 477 of 482 tool numbers on
+  W210 jobs have one), which a tap opens. A name is never read from
+  running text (there the number is followed by the next step). WIS only.
+- **A fault code is searched by itself too** (G5): `numbers.fault_codes`
+  (P/B/C/U, 0-3, three hex digits). "P0171" alone found a W210's ME-SFI
+  fault-code pages, but "DTC P0171 lean" found an alternator and a slide
+  rail (AND found nothing, OR anything with "lean"). Keyword search puts the
+  code's own hits first; Ask adds the code to the planner's queries. No new
+  data: WIS's fault-code pages were already indexed.
 - WIS tables come from the SIDS layout (`wis_tables.py`, on
   `wis_original.layout`): a header row ("Number | Designation | | ENGINE 112
   (except …) | ENGINE 112.916/…") and rows of number, name, unit, a value per
@@ -287,7 +304,15 @@ name. Now:
   sheets count only when a column names the car (`strict`), so ATF -- listed
   per gearbox, which the car box doesn't know -- is not on the card (the UI
   says so). No sheet at all for the W201 (checked): the card says WIS has
-  none and the oil figure falls back to the ASSYST table (`/api/wis/oil`).
+  none and the oil figure falls back to the ASSYST table (`/api/wis/oil`),
+  which has no W201 row either. Since 2026-11-04 the card then lists the
+  car's own pages that say they give a capacity (`/api/fluids/{doc}/pages`,
+  `tab_values.capacity_pages`): the car's and its engines' buckets, not the
+  general pool, not a title naming other models, not the A/C "cooling
+  capacity" tests -- for the 190 E 2.3-16 "Removal and installation of the
+  engine (oil capacity) Engine 102 KE in model 201" (5.5 l refill, 5.0 l
+  with filter). Links only: that table reads flattened ("5.5 / 5.0" under
+  both names), so the value is read on the page, never shown as a spec.
 - Other manuals and WIS pages with no value table use the text lines
   (`value_lines` / `value_row`), fixed for "Stage 1 Nm 20" (was "1 Nm"), "5.5
   Liters 5.8 Quarts" (was "Liters 5.8"), turns right after a torque ("55 Nm
@@ -394,9 +419,22 @@ index / WIS+EPC with the join off / joined:
   `engine_open_sections` keeps that family's pages as before rather than
   showing none. `catalog_info` reads the engines line too, so engine
   catalogues name their market (AUSTRALIEN, PORTUGAL and MBSA added).
-  **The market itself is still not narrowed**: 500, 580 (USA) and 581
-  (Japan) all stay for a US VIN, since the VIN never leaves the browser
-  (finding F2, not done). Test: `tests/test_parts_fit.py`.
+  Test: `tests/test_parts_fit.py`.
+- **…and the market the VIN names** (2026-11-04, finding F2). A series has
+  one catalogue per market: a US 190 E 2.3-16 was shown 500, 580 (USA) and
+  581 (Japan), which differ in part numbers in 123 of the 152 subgroups
+  they share. The page sends `market` (`marketSel()`: "us" for a
+  17-character US-format VIN, "row" for a FIN; nothing for a car picked any
+  other way, or once the variant shown is no longer the one the VIN
+  picked) with Parts requests and Ask; `scope_ids(…, market)` puts it on
+  the scope (only with an exact variant) and `search.market_excluded`
+  turns it into catalogues to leave out: "us" keeps, per section (chassis,
+  each engine family), the catalogues whose entry for the car says USA or
+  Canada; "row" drops those that are only USA/Canada for it (a FIN doesn't
+  say Japan or Australia). A section with none of the market keeps all.
+  Now: 190 E 2.3-16 US VIN 580 + 582; E 320 4MATIC T US VIN 45S + 19Y. A
+  chat keeps its first question's market in its stored result, for
+  follow-ups. Tests: `tests/test_parts_fit.py`, `tests/test_chat.py`.
 - **Parts have their own FTS table (`parts_fts`), the user's choice.** In the
   shared `chunks_fts`, EPC shifted WIS BM25 scores even with the join off
   (statistics are index-wide): `w204-c220cdi-glow-plugs` gained a W207 page
@@ -552,7 +590,11 @@ anti-roll bar; EPC STABILIZER or TORSION BAR), "coil pack" (ignition coil),
 "flex disc" / "guibo" (WIS flexible coupling; EPC JOINT DISC) and
 "harmonic balancer" (vibration damper). A phrase can now have several
 manual words (a tuple); `synonyms.translations()` gives one query per
-alternative, used by Ask's queries and every tab's search. Left out as
+alternative, used by Ask's queries and every tab's search -- Labour times
+too, with every alternative since 2026-11-04 (it took only the first): the
+labour books say "rear-end door" (495 jobs) or "liftgate" (255) and
+"tailgate" in 19, so a 2001 E 320 4MATIC T found no labour time for
+"tailgate"; tailgate -> ("rear-end door", "liftgate") now finds 28. Left out as
 ambiguous: "driveshaft" (WIS uses it for axle shafts too; EPC says
 PROPELLER SHAFT or AXLE SHAFT). Tests: `tests/test_synonyms.py`, and "sway
 bar" finding the sample STABILIZER line in `tests/test_parts_diagrams.py`.

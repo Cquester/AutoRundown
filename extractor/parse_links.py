@@ -42,6 +42,13 @@ Tables written (all English, as pulled):
                                minutes; checked against LEMON's warranty
                                hours for the 190E 2.3-16 (five jobs, all
                                within 0.1 h). Category Z (extra work) has none.
+  labour_scope_text, labour_scope, labour_note, labour_group_note   what a
+                               time includes / leaves out and the notes on an
+                               operation or group (see labour_scope())
+  doc_info(dok_id, date, change)   a document's date and what it replaces
+                               (see doc_info())
+  service_interval, service_first, service_job   the ASSYST service
+                               schedule (see service())
 
 Rows a resumed pull_links.js batch wrote twice are dropped (set semantics).
 The damage-code (SS*) tables are pulled but not parsed yet.
@@ -200,6 +207,8 @@ def main():
                          and num(r.get("FUGCode")) is not None and r.get("Name", "").strip()))
 
     labour(c, counts)
+    doc_info(c, counts)
+    service(c, counts)
 
     c.execute("INSERT INTO meta VALUES ('counts', ?)", (json.dumps(counts),))
     c.commit()
@@ -290,8 +299,136 @@ def labour(c, counts):
         (r["RegionAbk"], r["SparteAbk"], r["ProduktionslandAbk"], r["FamilieAbk"],
          r["KonstruktionsgruppeAbk"], r["ArbeitspositionKategorie"], expr[r["FormelID"]])
         for r in tsv(VEH, "ASRA_Formelverwendung") if r.get("FormelID") in expr))
-    for t in ("labour_car", "labour_book", "labour_op", "labour_time", "labour_formula"):
+    labour_scope(c, lang)
+    for t in ("labour_car", "labour_book", "labour_op", "labour_time", "labour_formula",
+              "labour_scope", "labour_note", "labour_group_note"):
         counts[t] = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+
+
+def doc_info(c, counts):
+    """doc_info(dok_id, date, change): a corpus document's date (WIS's
+    check-in date, YYYY-MM-DD) and its change note ("19.11.02 - Replaces SI
+    54/59 from 19.11.02 - SI file 54/59": Dok2AendText, else W_SprachDokumente's
+    own Aenderungshinweis). Only documents the corpus has (in `docnr`); what
+    kind a document is comes from its number's prefix (si, sm, ...), read by
+    the server (wis_links.DOC_KINDS). 2026-11-05, G3."""
+    print("document dates and changes")
+    c.execute("CREATE TABLE doc_info(dok_id INTEGER PRIMARY KEY, date TEXT, change TEXT)")
+    have = {r[0] for r in c.execute("SELECT DISTINCT dok_id FROM docnr")}
+    change = {}
+    for r in tsv(VEH, "Dok2AendText"):
+        i = num(r.get("DokID"))
+        t = " ".join(fix_mojibake(r.get("Text") or "").split()).strip(" -")
+        if i in have and t:
+            change[i] = t
+    rows = {}
+    for r in tsv(VEH, "W_SprachDokumente"):
+        i = num(r.get("DokID"))
+        if i not in have or str(r.get("SprachCode")) not in ("2", "02"):
+            continue
+        d = (r.get("DokEincheckDatum") or "").strip()[:10]
+        note = change.get(i) or " ".join(fix_mojibake(r.get("Aenderungshinweis") or "").split()).strip(" -")
+        rows[i] = (i, d if re.fullmatch(r"\d{4}-\d\d-\d\d", d) else "", note)
+    for i, t in change.items():
+        rows.setdefault(i, (i, "", t))
+    c.executemany("INSERT INTO doc_info VALUES (?,?,?)", sorted(rows.values()))
+    counts["doc_info"] = len(rows)
+
+
+def service(c, counts):
+    """ASSYST, WIS's service schedule (2026-11-05, G1):
+
+    service_interval(series, km, miles, display)   a series' service interval
+                                 (W_AssystTyp2Serviceintervall; 117: 25,000 km
+                                 / 15,000 mi)
+    service_first(series, engine, extra, km, miles, sheet)   the first service
+                                 by engine family and the oil it was filled
+                                 with (sheet: "MB 229.5", AW_AssystOelblaetter)
+    service_job(docnr, country, every_days, every_km, start_days, start_km)
+                                 jobs due by time or distance, each a
+                                 maintenance sheet: "ap0510p0001aay" (Replace
+                                 toothed belt) every 1,825 days / 100,000 km;
+                                 country "*" = all; -1 = none (stored NULL)."""
+    print("service schedule")
+    c.executescript("""
+    CREATE TABLE service_interval(series TEXT, km INTEGER, miles INTEGER, display TEXT);
+    CREATE TABLE service_first(series TEXT, engine TEXT, extra TEXT, km INTEGER, miles INTEGER, sheet TEXT);
+    CREATE TABLE service_job(docnr TEXT, country TEXT, every_days INTEGER, every_km INTEGER,
+                             start_days INTEGER, start_km INTEGER);
+    """)
+    pos = lambda v: (lambda n: n if n is not None and n > 0 else None)(num(v))
+    c.executemany("INSERT INTO service_interval VALUES (?,?,?,?)", sorted({
+        (r["TypBM"].strip(), pos(r.get("ServiceintervallKM")), pos(r.get("ServiceintervallMeilen")),
+         (r.get("ServiceumfangAnzeige") or "").strip())
+        for r in tsv(VEH, "W_AssystTyp2Serviceintervall") if (r.get("TypBM") or "").strip()}, key=str))
+    sheets = {num(r["MBBVBlattID"]): " ".join(fix_mojibake(r.get("MBBVBlattText") or "").split())
+              for r in tsv(VEH, "AW_AssystOelblaetter") if num(r.get("MBBVBlattID")) is not None}
+    c.executemany("INSERT INTO service_first VALUES (?,?,?,?,?,?)", sorted({
+        (r["TypBM"].strip(), (r.get("MotorBM") or "").strip(), (r.get("MotorZusatzCode") or "").strip(),
+         pos(r.get("Startlaufstrecke")), pos(r.get("StartlaufstreckeMeilen")),
+         sheets.get(num(r.get("MBBVBlattID")), ""))
+        for r in tsv(VEH, "AW_AssystStartlaufstrecke") if (r.get("TypBM") or "").strip()}, key=str))
+    c.executemany("INSERT INTO service_job VALUES (?,?,?,?,?,?)", sorted({
+        (norm_docnr(r["DokNr"]), (r.get("Laendercode") or "").strip(), pos(r.get("Intervallzeit")),
+         pos(r.get("Intervallstrecke")), pos(r.get("Startzeit")), pos(r.get("Startstrecke")))
+        for r in tsv(VEH, "W_AssystDok2LandIntervall") if norm_docnr(r.get("DokNr"))}, key=str))
+    for t in ("service_interval", "service_first", "service_job"):
+        counts[t] = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+
+
+def labour_scope(c, lang):
+    """What a labour time includes and the notes on it (2026-11-05).
+
+    labour_scope_text(id, text)  the scope text, one item a line, shared by id
+    labour_scope(sparte, pl, family, kg, op, id)   which operation it belongs to
+    labour_note(sparte, pl, family, kg, op, text)  the operation's notes, in
+                                 order ("each additional part 0.4 h")
+    labour_group_note(sparte, pl, family, kg, text)  a group's notes ("Not
+                                 included in jobs in Group 09: ...")
+    A sidecar built before these were pulled has the tables, empty."""
+    c.executescript("""
+    CREATE TABLE labour_scope_text(id INTEGER PRIMARY KEY, text TEXT);
+    CREATE TABLE labour_scope(sparte TEXT, pl TEXT, family TEXT, kg TEXT, op TEXT, id INTEGER,
+                              PRIMARY KEY (sparte, pl, family, kg, op));
+    CREATE TABLE labour_note(sparte TEXT, pl TEXT, family TEXT, kg TEXT, op TEXT, text TEXT,
+                             PRIMARY KEY (sparte, pl, family, kg, op));
+    CREATE TABLE labour_group_note(sparte TEXT, pl TEXT, family TEXT, kg TEXT, text TEXT,
+                                   PRIMARY KEY (sparte, pl, family, kg));
+    """)
+    links = [(r["SparteAbk"], r["ProduktionslandAbk"], r["FamilieAbk"], r["KonstruktionsgruppeAbk"],
+              r["ArbeitspositionNummer"], num(r["UmfassttextID"]))
+             for r in tsv(VEH, "ASRAW_UmfassttextID")
+             if r.get("SprachAbk") == lang and num(r.get("UmfassttextID")) is not None]
+    used = {x[-1] for x in links}
+    texts = []
+    for r in tsv(VEH, "ASRAW_ID2Umfassttext"):
+        i = num(r.get("UmfassttextID"))
+        if i not in used:
+            continue
+        lines = [" ".join(fix_mojibake(x).split()) for x in (r.get("Umfassttext") or "").split("\\n")]
+        text = "\n".join(x for x in lines if x)
+        if text:
+            texts.append((i, text))
+    c.executemany("INSERT OR IGNORE INTO labour_scope_text VALUES (?,?)", texts)
+    have = {i for i, _ in texts}
+    c.executemany("INSERT OR IGNORE INTO labour_scope VALUES (?,?,?,?,?,?)",
+                  sorted(x for x in links if x[-1] in have))
+
+    def joined(rows, key):
+        """Notes come one line per SequenzNummer: put each note's lines together."""
+        notes = {}
+        for r in rows:
+            if r.get("SprachAbk") != lang or not (r.get("Hinweistext") or "").strip():
+                continue
+            notes.setdefault(key(r), []).append((num(r.get("SequenzNummer")) or 0,
+                                                 " ".join(fix_mojibake(r["Hinweistext"]).split())))
+        return [(*k, "\n".join(t for _, t in sorted(v))) for k, v in sorted(notes.items())]
+    base = lambda r: (r["SparteAbk"], r["ProduktionslandAbk"], r["FamilieAbk"], r["KonstruktionsgruppeAbk"])
+    c.executemany("INSERT OR IGNORE INTO labour_note VALUES (?,?,?,?,?,?)",
+                  joined(tsv(VEH, "ASRA_ArbeitspositionsHinweis"),
+                         lambda r: (*base(r), r["ArbeitspositionNummer"])))
+    c.executemany("INSERT OR IGNORE INTO labour_group_note VALUES (?,?,?,?,?)",
+                  joined(tsv(VEH, "ASRA_KoGrHinweis"), base))
 
 
 if __name__ == "__main__":

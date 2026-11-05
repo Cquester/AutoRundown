@@ -716,6 +716,7 @@
   .mbpage{display:flex; gap:8px; align-items:baseline; width:100%; text-align:left; padding:4px 0; font:inherit;
     color:inherit; background:none; border:0; cursor:pointer}
   .mbpage:hover span:last-child{text-decoration:underline}
+  .mbpage > span:last-child{min-width:0; white-space:normal; overflow-wrap:anywhere}
   .mbkind{flex:none; min-width:4.5em; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em}
   @media (max-width:700px){ .plines .co{display:block} }
   /* Torque specs / Capacities: what, then the value as printed */
@@ -740,6 +741,20 @@
   .spectab td.val .cond{text-align:right}
   .fluids{margin-bottom:14px}
   .fluidshead{font-size:13px; margin:0 0 4px}
+  .toolshead{font-size:13px; font-weight:600; margin:14px 0 4px}
+  /* Labour browse: a group's subgroups and rows sit under its name */
+  .labgrp > summary .muted, .labsubs .pbsub .muted{margin-left:4px}
+  .labsubs{margin-left:22px}
+  .labinc{font-size:12px; margin-left:6px}
+  .docinfo{font-size:13px; margin:-6px 0 12px} .docinfo.bull{font-weight:600}
+  .docinfo .muted{font-weight:400} .mbchange{display:block; font-size:12px}
+  .labdetail td{background:var(--soft, rgba(127,127,127,.06)); font-size:13px}
+  .labsec{margin:2px 0 6px} .labsec ul{margin:2px 0 0; padding-left:20px} .labsec li{margin:1px 0}
+  .labsubs .pbgrp{margin-left:0}
+  .labsubs .pbsub{margin-left:0; width:100%}
+  .labsubs table{width:100%}
+  .tooltab .val{white-space:nowrap}
+  .cappages{margin:0 0 8px; padding-left:18px}
   .fluids > .cond{margin:-6px 0 0}
   .tabhit{padding:10px 14px; border-top:1px solid var(--line)}
   .tabhit:first-child{border-top:0}
@@ -1953,7 +1968,7 @@ async function loadVehicles(pending) {
     const saved = JSON.parse(localStorage.getItem(CARPICK) || 'null');
     if (saved && saved.doc === $('#vehicle').value) {
       carPick = {engine: saved.engine, year: saved.year, label: saved.label, sub: saved.sub,
-                 vin: saved.vin || null};
+                 vin: saved.vin || null, vinAt: saved.vinAt || null};
     }
   } catch (_) {}
   setCarBox(carPick ? carPick.label : currentCarLabel());
@@ -2098,6 +2113,16 @@ const engineSel = () => {
   return n.startsWith('e:') ? n.slice(2) : null;
 };
 const yearSel = () => (carPick && carPick.year) || null;
+// the market the car's VIN names, for the parts catalogues (server:
+// search.market_excluded): a 17-character US-format VIN is a US/Canada car,
+// a FIN ("WDB2010341F…", digits at 4-6) is not. Only while the car the VIN
+// picked is still the one shown; a car picked any other way names none.
+const marketSel = () => {
+  const vin = (carPick && carPick.vin) || '';
+  if (vin.length !== 17 || carPick.vinAt !== `${docId()}::${variantIdx()}`) return null;
+  return /^[A-Z0-9]{3}\d{3}/.test(vin) ? 'row' : 'us';
+};
+const marketQS = () => marketSel() ? `&market=${marketSel()}` : '';
 function clearCarPick() {
   carPick = null;
   try { localStorage.removeItem(CARPICK); } catch (_) {}
@@ -2182,6 +2207,26 @@ const compact = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const BODY_WORDS = {Sedan: 'sedan saloon', Wagon: 'wagon estate tmodel kombi',
                     Coupe: 'coupe', Convertible: 'convertible cabriolet cabrio',
                     Roadster: 'roadster', 'Shooting Brake': 'shootingbrake wagon'};
+// The body where WIS gives none (948 of 1,250 variants, 2026-11-05): its
+// wagons are mostly named with a trailing "T" -- "E 320 4MATIC T", "E 320
+// CDI T" -- so "wagon" missed them; and in a series that has wagons, a
+// name with no T and no other body word is the sedan (only 10 variants
+// were labelled Sedan, so "E 320 sedan" found almost nothing).
+// A wagon is "… T", "230 TE", "240 TD", "C 200 (T)"; a trailing "C" or
+// "CE" is a coupe ("230 C", "C 180 BlueEF. C"). Sedans only in a series
+// with T-named wagons: the G-Class's labelled wagons have no sedans beside
+// them. Checked on the live index (2026-11-05): 115 wagons and 253 sedans
+// found, in exactly the W123/W124/W202-W205/W210/W212/W213 series.
+const NOT_SEDAN = /\b(CE|CD|CL|CLK|SL|SLK|SLC|GLK|ML|GL|GLE|GLC|Coupe|Sportcoupe|Cabrio|Cabriolet|Convertible|Roadster)\b|\bC$/i;
+const isT = n => /\bT[ED]?\b|\(T\)|T-Model/.test(String(n));
+function bodyOf(x, siblings) {
+  if (x.body) return x.body;
+  if (isT(x.name)) return 'Wagon';
+  return siblings.some(s => isT(s.name)) && !NOT_SEDAN.test(x.name) ? 'Sedan' : '';
+}
+// what people call 4MATIC (WIS also writes it "4M")
+const is4matic = n => /4matic|\b4M\b/i.test(String(n));
+const DRIVE_WORDS = '4matic awd 4wd allwheeldrive 4x4';
 // "E 500/550 4MATIC" is Mercedes' name for what a US owner calls an E550
 const nameAliases = n => {
   const m = String(n).match(/^(.*?)(\d{3})\/(\d{3})(.*)$/);
@@ -2208,10 +2253,15 @@ function buildCarIndex() {
                    doc: v.doc_id, variant: null, engine: null, year: null, years: v._years,
                    hay: compact(`${make} ${v.model}`), words: wordsOf(`${make} ${v.model}`)});
     v._variants.forEach((x, i) => {
+      const body = bodyOf(x, v._variants);
       const text = `${make} ${v.model} ${nameAliases(x.name).join(' ')} `
-                   + `${(x.us_trims || []).join(' ')} ${BODY_WORDS[x.body] || ''}`;
+                   + `${(x.us_trims || []).join(' ')} ${BODY_WORDS[body] || ''} `
+                   + (is4matic(x.name) ? DRIVE_WORDS : '');
       const hayBase = compact(text), words = wordsOf(text);
-      const famLabel = fams => fams.map(f => (x.engine_families || {})[f] || `Engine ${f}`).join(' or ');
+      // the body on the suggestion's line when the name doesn't say it ("T")
+      const bodyNote = body && !String(x.name).toLowerCase().includes(body.toLowerCase()) ? ` · ${body}` : '';
+      const famLabel = fams => fams.map(f => (x.engine_families || {})[f] || `Engine ${f}`).join(' or ')
+                               + bodyNote;
       const bmYears = Object.entries(x.us_years || {}).map(([b, ys]) => [b, new Set(yearsIn(ys))]);
       const usYears = new Set(bmYears.flatMap(([, ys]) => [...ys]));
       if (usYears.size) {
@@ -2301,7 +2351,7 @@ function applyCar(e, typedYear) {
   $('#year').value = ''; $('#make').value = '';
   refreshPicker(e.variant !== null && e.variant !== undefined ? `${e.doc}::${e.variant}` : e.doc);
   carPick = {engine: e.engine, year: e.year || typedYear || null, label: e.label, sub: e.sub,
-             vin: e.vin || null};
+             vin: e.vin || null, vinAt: `${e.doc}::${e.variant ?? null}`};
   try { localStorage.setItem(CARPICK, JSON.stringify({...carPick, doc: e.doc, variant: e.variant})); } catch (_) {}
   recordCarHistory({...e, year: carPick.year}, 'box');
   setCarBox(e.label);
@@ -3739,7 +3789,7 @@ async function ask() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({doc_id:doc, question:q, include_other_variants:variants(),
                             model:model(), variant:variantIdx(), engine:engineSel(), year:yearSel(),
-                            chat: follow ? follow.id : null})
+                            market: marketSel(), chat: follow ? follow.id : null})
     }, 240000);
     if (follow && chat === follow) chat.turns.push({question: q, d});
     else chat = {id: d.chat_id, doc, label, turns: [{question: q, d}]};
@@ -4005,9 +4055,12 @@ async function keywordSearch() {
     const rows = await api(`/api/search?doc_id=${encodeURIComponent(doc)}&record=1`
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
-      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : '') + marketQS());
     if (seq !== searchSeq) return;
-    if (docId() === doc) valueTabs(rows.slice(0, 3).map(r => String(r.page_no)));
+    // the values of the top 3 pages holding every word: a page that only
+    // has some of them ("partial", the OR top-up) is another job -- the
+    // cylinder head's torques for "front brake pads" (2026-11-04)
+    if (docId() === doc) valueTabs(rows.filter(r => !r.partial).slice(0, 3).map(r => String(r.page_no)));
     // the server also searches the manual's own wording ("valve cover" ->
     // "cylinder head cover"); say so, or the results look off-topic
     const alt = rows.find(r => r.query && r.query.toLowerCase() !== q.toLowerCase());
@@ -4488,6 +4541,7 @@ async function showPage(pageNo, doc, open = true) {
       + `<div class="muted">${esc(p.section_path)}</div>
        <h3 style="margin:6px 0 2px">${esc(p.title)}</h3>
        <div class="muted" style="margin-bottom:12px">page ${esc(p.page_no)}</div>
+       ${docInfoLine(p.doc_info)}
        ${p.applicability!=='this_vehicle'
          ? '<div class="warnbox">This page documents a different variant or trim.</div>' : ''}
        ${p.outside_scope
@@ -5084,7 +5138,7 @@ async function partsBrowse(target) {
   try {
     data = await api(`/api/parts/diagrams/${encodeURIComponent(doc)}?`
       + (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
-      + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : ''));
+      + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : '') + marketQS());
   } catch (e) {
     if (seq === browseSeq) target.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
     return;
@@ -5146,17 +5200,71 @@ async function showManualBrowse() {
   el.innerHTML = `<div class="card"><span class="spinner"></span> loading the manual&rsquo;s contents&hellip;</div>`;
   manualEl = el;
   srcout.replaceChildren(el);
+  // the Service schedule and Service bulletins are fetched alongside and
+  // drawn with the contents, never inserted later (a late insert moved the
+  // list under a click: Windows CI, 2026-11-05)
+  const extras = lemonCar() ? Promise.resolve(['', '']) : Promise.all([serviceHtml(doc), bulletinsHtml(doc)]);
   try {
-    const n = await manualLevel(doc, []);
+    const [n, [serv, bull]] = await Promise.all([manualLevel(doc, []), extras]);
     if (seq !== manualSeq) return;
     el.innerHTML = `<div class="muted" style="margin:0 0 8px">Manual for <b>${esc(label)}</b> &mdash; ${n.count} pages`
       + (n.path.length ? ` in <b>${esc(n.path.join(' › '))}</b>` : '') + ` by section. `
       + `Search or ask on the left to find a page by its words.`
       + (variantIdx() === null && !engineSel() ? ' Pick your model or engine above to narrow it.' : '') + `</div>`
-      + (n.count ? withDoc(doc, () => manualLevelHtml(n)) : `<div class="empty">No manual pages for this car.</div>`);
+      + (n.count ? serv + bull + withDoc(doc, () => manualLevelHtml(n)) : `<div class="empty">No manual pages for this car.</div>`);
   } catch (e) {
     if (seq === manualSeq) el.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
+}
+const carArgs = () => (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
+  + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : '');
+// The car's WIS Service Information / Service measure documents, newest
+// first, with their date and what they replace (G3, 2026-11-05): a section
+// at the top of the Manual contents, '' when the car has none. Its pages are
+// in the HTML, so it is marked loaded: nothing to fetch on open.
+async function bulletinsHtml(doc) {
+  let list;
+  try { list = await api(`/api/wis/bulletins/${encodeURIComponent(doc)}?` + carArgs()); }
+  catch (e) { return ''; }                 // the contents still work without it
+  if (!list.length) return '';
+  return `<details class="mbsec mbbull" data-loaded="1"><summary>Service bulletins <span class="muted">(${list.length})</span></summary>`
+    + `<div class="mbpages">` + withDoc(doc, () => list.map(p => `<button type="button" class="mbpage" ${pageAttrs(p.page_no)}>`
+      + `<span class="mbkind">${esc(p.date ? fmtDocDate(p.date) : p.kind)}</span><span>${esc(p.title)}`
+      + (p.change ? `<span class="muted mbchange">${esc(p.change)}</span>` : '') + `</span></button>`).join('')) + `</div></details>`;
+}
+// The car's ASSYST service schedule (G1, 2026-11-05): its interval, the
+// first service for its engine, and the jobs due by time or distance, each
+// opening its maintenance sheet. Only once a model or engine is chosen.
+const fmtNum = n => Number(n).toLocaleString('en-US');
+const fmtEvery = (days, km) => [days ? (days % 365 === 0 ? `${days / 365} year${days === 365 ? '' : 's'}` : `${days} days`) : '',
+                                km ? `${fmtNum(km)} km` : ''].filter(Boolean).join(' / ');
+async function serviceHtml(doc) {
+  if (variantIdx() === null && !engineSel()) return '';
+  let s;
+  try { s = await api(`/api/wis/service/${encodeURIComponent(doc)}?` + carArgs()); }
+  catch (e) { return ''; }
+  if (!(s.interval.length || s.first.length || s.jobs.length)) return '';
+  const dist = (km, mi) => [km ? `${fmtNum(km)} km` : '', mi ? `${fmtNum(mi)} mi` : ''].filter(Boolean).join(' / ');
+  return `<details class="mbsec mbserv" data-loaded="1"><summary>Service schedule (ASSYST)</summary><div class="mbbody">`
+    + (s.interval.length ? `<div class="labsec"><b>Service interval:</b> ${s.interval.map(i => esc(dist(i.km, i.miles))).join(' or ')}</div>` : '')
+    + (s.first.length ? `<div class="labsec"><b>First service</b><ul>` + s.first.map(f =>
+        `<li>Engine ${esc(f.engine)}${f.sheet ? `, oil to ${esc(f.sheet)}` : ''}: ${esc(dist(f.km, f.miles))}</li>`).join('') + `</ul></div>` : '')
+    + (s.jobs.length ? `<div class="tablewrap"><table><thead><tr><th>Due by time or distance</th><th>Every</th></tr></thead><tbody>`
+        + withDoc(doc, () => s.jobs.map(j => `<tr><td><button type="button" class="linkbtn" ${pageAttrs(j.page_no)}>${esc(j.title)}</button>`
+          + (j.countries ? ` <span class="muted" style="font-size:12px">other figures in ${j.countries} countr${j.countries === 1 ? 'y' : 'ies'}</span>` : '')
+          + `</td><td style="white-space:nowrap">${esc(fmtEvery(j.every_days, j.every_km))}`
+          + (j.start_days || j.start_km ? `<div class="muted" style="font-size:12px">first at ${esc(fmtEvery(j.start_days, j.start_km))}</div>` : '')
+          + `</td></tr>`).join('')) + `</tbody></table></div>` : '')
+    + `</div></details>`;
+}
+// WIS's 2002-11-19 as the shop reads it
+const fmtDocDate = d => { const m = String(d).match(/^(\d{4})-(\d\d)-(\d\d)$/); return m ? `${m[2]}/${m[3]}/${m[1]}` : d; };
+// a WIS document's kind, date and what it replaces, under its title
+function docInfoLine(i) {
+  if (!i || !(i.kind || i.date || i.change)) return '';
+  const bits = [i.kind, i.date ? fmtDocDate(i.date) : ''].filter(Boolean).map(esc).join(' · ');
+  return `<div class="docinfo${i.bulletin ? ' bull' : ''}">${bits}`
+    + (i.change ? `<div class="muted">${esc(i.change)}</div>` : '') + `</div>`;
 }
 // a section opened: its level fetched once
 document.addEventListener('toggle', async e => {
@@ -5182,7 +5290,7 @@ function showPartsBrowse() {
   if (!pane || tabQuery) return;
   if (lemonCar()) { pane.innerHTML = tabEmpty('parts'); return; }   // no diagrams to browse
   // already showing this car's list: keep it, and the groups left open
-  const key = `${docId()}|${variantIdx()}|${engineSel()}`;
+  const key = `${docId()}|${variantIdx()}|${engineSel()}|${marketSel()}`;
   if (pane.dataset.browseKey === key && pane.querySelector('.pbsec')) return;
   pane.dataset.browseKey = key;
   partsBrowse(pane);
@@ -5217,7 +5325,7 @@ async function tabSearch(tab, q, also, seq) {
       + `&q=${encodeURIComponent(q)}&include_other_variants=${variants()}`
       + also.map(a => `&also=${encodeURIComponent(a)}`).join('')
       + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
-      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : '') + marketQS());
     if (seq !== tabSeq) return;
     const none = 'No part in this car’s parts catalogue matches this question.';
     const head = resultsFor(label) + `<div class="muted" style="margin:0 0 8px">For: <b>${esc(q)}</b></div>`;
@@ -5319,9 +5427,34 @@ async function jobValues(tab, pages, seq) {
         + rows.map(valueRowHtml).join('') + `</tbody></table>`
       : `<div class="card"><div class="notfound">${none}</div></div>`));
     if (tab === 'capacity') showFluids();
+    if (tab === 'torque') jobTools(pane, pages, seq, doc);
   } catch (e) {
     if (seq === tabSeq) pane.innerHTML = `<div class="card"><div class="errbox">${esc(e.message)}</div></div>`;
   }
+}
+// Special tools of the job, under its torques: every Mercedes tool number
+// (NNN 589 NN NN 00) on the job's pages and the procedures they link to,
+// named from WIS's tool sheet, which a tap opens (tab_values.job_tools).
+// WIS only; nothing is shown when the job names none.
+async function jobTools(pane, pages, seq, doc) {
+  const v = vehicles.find(x => x.doc_id === doc);
+  if (!v || !WIS_SOURCE.test(v.source_name || '') || !pages.length) return;
+  let tools = [];
+  try {
+    tools = await api(`/api/tools/${encodeURIComponent(doc)}?`
+      + pages.map(p => `pages=${encodeURIComponent(p)}`).join('&')
+      + (variantIdx() === null ? '' : `&variant=${variantIdx()}`)
+      + (engineSel() ? `&engine=${encodeURIComponent(engineSel())}` : ''));
+  } catch { return; }
+  if (seq !== tabSeq || !tools.length) return;
+  pane.insertAdjacentHTML('beforeend', withDoc(doc, () =>
+    `<div class="toolshead">Special tools for this job</div>`
+    + `<table class="spectab tooltab"><thead><tr><th>Tool</th><th>Number</th></tr></thead><tbody>`
+    + tools.map(t => `<tr><td>` + (t.page_no
+        ? `<button type="button" class="hit" ${pageAttrs(t.page_no)}>${esc(t.name || 'Tool sheet')}</button>`
+        : esc(t.name || '(no tool sheet in this manual)'))
+      + `</td><td class="val"><span class="vinmono">${esc(t.number)}</span></td></tr>`).join('')
+    + `</tbody></table>`));
 }
 function valueRowHtml(x) {
   return `<tr><td><button type="button" class="hit" ${pageAttrs(x.page_no)}
@@ -5362,6 +5495,17 @@ async function showFluids() {
     rows = oil.map(r => ({name: `Engine oil${many ? ` (${r.engine})` : ''}${r.note ? ` ${r.note}` : ''} (WIS service data)`,
                           value: `${String(r.litres).replace(/\.0$/, '')} ${r.unit}`, page_no: ''})).concat(rows);
   }
+  // no sheet names the car (the W201): its own pages that give a capacity,
+  // as links -- their tables are often flattened, so read on the page
+  let pagesHtml = '';
+  if (!rows.length) {
+    let pages = [];
+    try { pages = await api(`/api/fluids/${encodeURIComponent(v.doc_id)}/pages?${qs}`); } catch { pages = []; }
+    if (seq !== oilCardSeq) return;
+    if (pages.length) pagesHtml = '<div class="muted" style="margin:4px 0">Pages of this car’s manual that give capacities:</div>'
+      + '<ul class="cappages">' + pages.map(p => `<li><button type="button" class="hit" ${pageAttrs(p.page_no)}>`
+        + `${esc(p.title)}</button></li>`).join('') + '</ul>';
+  }
   const title = `<div class="fluidshead">Fluids for <b>${esc(carBoxLabel || v.model)}</b></div>`;
   const atf = '<div class="muted cond">Automatic transmission fluid: WIS lists it per gearbox, '
     + 'which the car box doesn’t know &mdash; ask or search “ATF capacity”.</div>';
@@ -5371,7 +5515,7 @@ async function showFluids() {
                                                  ? `${r.system}: ${r.name}` : r.name})).join('')
       + `</tbody></table>` + atf
     : '<div class="muted" style="margin-bottom:8px">WIS has no capacity sheet for this car; '
-      + 'ask or search for the fluid.</div>'));
+      + 'ask or search for the fluid.</div>' + pagesHtml));
 }
 
 $('#askBtn').onclick = ask;
@@ -6433,6 +6577,17 @@ function vinDecode(vin, check) {
 
   const code = `,${wmi}:${vin[3]},`;                        // US VIN, series only
   const v = vehicles.find(x => (x.vin_codes || '').includes(code));
+  // a "0" at position 4 is Mercedes' newer US VIN scheme (about MY2017 on);
+  // the VIN tables here end with the 2016 data, so it is a Mercedes VIN this
+  // archive can't decode -- not "not a Mercedes VIN" (2026-11-04, F4: a
+  // 2019 GLC, WDC0G6EBXKF498582, whose series is in the manuals)
+  if (!v && vin[3] === '0') {
+    const i = YEAR_CODES.indexOf(vin[9] || '');
+    const yr = i >= 0 && 2010 + i >= 2016 ? ` (model year ${2010 + i})` : '';
+    return {error: `That is a Mercedes VIN${yr}, but from Mercedes' newer VIN scheme, and the VIN `
+                   + `tables in this archive end with the 2016 data, so it can't be decoded here. `
+                   + `Pick the car by its name or model instead.`};
+  }
   if (!v) return {error: `No Mercedes model uses the code ${wmi} + "${vin[3]}" at `
                         + `position 4. This lookup decodes Mercedes VINs only.`};
   return {vehicle: v, variant: null, year: vinYear(vin, v),
@@ -6456,10 +6611,11 @@ $('#vinClose').onclick = () => $('#vinDlg').close();
 // several books (build-date splits) shows a chooser and no times until one
 // is picked -- which applies depends on the chassis number.
 let labSeq = 0;
-// Labour times are a tab of the right box, empty until a question: it has
-// no search box of its own -- the question box fills it (labourFor), and
-// labQuery is the words it last searched. (Its own button beside VIN and a
-// link in the scope note were removed, 2026-10-16: Ask or Search finds it.)
+// Labour times are a tab of the right box. Before a question it is the book
+// by group > subgroup > operation, a group fetched when it is opened
+// (labourBrowse; 2026-11-04, the user's request -- until then it was empty
+// until a question); a question fills it with the job (labourFor), and
+// labQuery is the words it last searched, the browse folded below.
 function showLabourTab() {
   const v = vehicles.find(x => x.doc_id === docId());
   $('#labCar').textContent = carBoxLabel || v?.model || '';
@@ -6471,37 +6627,125 @@ function showLabourTab() {
   loadLabour();
 }
 let labFor = '';
-async function loadLabour() {
-  const seq = ++labSeq, n = variantIdx(), eng = engineSel();
-  const out = $('#labOut');
-  // nothing before a question: a model's book has a thousand operations or more
-  if (!labQuery) { out.innerHTML = tabEmpty('labour'); return 0; }
-  if (n === null && !lemonCar()) {
-    out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
-      + 'Variant): labour times are per model type.</div>';
-    return 0;
-  }
-  out.innerHTML = '<span class="spinner"></span>';
-  const book = $('#labBook').hidden ? '' : $('#labBook').value;
-  let r;
-  try {
-    // a LEMON car has no variant: "variant=null" was a 422, drawn as [object Object]
-    r = await api(`/api/wis/labour/${encodeURIComponent(docId())}?` + (n === null ? '' : `variant=${n}`)
-      + (eng ? `&engine=${encodeURIComponent(eng)}` : '')
-      + (book ? `&book=${encodeURIComponent(book)}` : '')
-      + `&q=${encodeURIComponent(labQuery)}`);
-  } catch (e) {
-    if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
-    return 0;
-  }
-  if (seq !== labSeq) return 0;
+// the request for this car's labour times ("variant=null" was a 422 for a
+// LEMON car, which has no variant)
+function labourUrl(extra) {
+  const n = variantIdx(), eng = engineSel(), book = $('#labBook').hidden ? '' : $('#labBook').value;
+  return `/api/wis/labour/${encodeURIComponent(docId())}?` + (n === null ? '' : `variant=${n}`)
+    + (eng ? `&engine=${encodeURIComponent(eng)}` : '')
+    + (book ? `&book=${encodeURIComponent(book)}` : '') + extra;
+}
+// the book chooser, and the reasons there is nothing to show; true when
+// the reply was one of those (out says why)
+function labourNone(r, out) {
   if (r.books.length > 1 && $('#labBook').hidden) {
     $('#labBook').innerHTML = '<option value="">Choose…</option>' + r.books.map(b =>
       `<option value="${esc(b.book)}">${esc(b.family)} · ${esc(b.type)}</option>`).join('');
     $('#labBook').hidden = $('#labBookLbl').hidden = false;
   }
-  if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return 0; }
-  if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return 0; }
+  if (r.need === 'book') { out.innerHTML = '<div class="muted">Choose the labour-time book above.</div>'; return true; }
+  if (!r.books.length) { out.innerHTML = '<div class="muted">WIS has no labour times for this model.</div>'; return true; }
+  return false;
+}
+const labRows = items => `<div class="tablewrap"><table><tbody>` + items.map(i =>
+  `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span>`
+  + (i.more ? ` <button type="button" class="linkbtn labinc" data-op="${esc(i.op)}" aria-expanded="false">What it includes</button>` : '')
+  + `</td>`
+  + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
+  + ` <span class="muted" style="font-size:12px">${i.minutes} min</span>`
+  + (i.warranty ? `<div class="muted" style="font-size:12px">warranty ${esc(i.warranty)} h</div>` : '')
+  + `</td></tr>`).join('') + `</tbody></table></div>`;
+// What a WIS labour time includes, leaves out, and the notes on it and its
+// group (2026-11-05, G2): fetched when "What it includes" is tapped, shown
+// as a row under the operation; a second tap folds it.
+let labBookKey = '';
+const labList = (title, xs) => xs.length
+  ? `<div class="labsec"><b>${title}</b><ul>${xs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
+document.addEventListener('click', async e => {
+  const b = e.target.closest('.labinc');
+  if (!b) return;
+  const tr = b.closest('tr'), next = tr.nextElementSibling;
+  if (next && next.classList.contains('labdetail')) {
+    next.remove(); b.setAttribute('aria-expanded', 'false'); return;
+  }
+  const row = document.createElement('tr');
+  row.className = 'labdetail';
+  row.innerHTML = '<td colspan="2"><span class="spinner"></span></td>';
+  tr.after(row);
+  b.setAttribute('aria-expanded', 'true');
+  try {
+    const d = await api(`/api/wis/labour/${encodeURIComponent(docId())}/detail?variant=${variantIdx()}`
+                        + `&book=${encodeURIComponent(labBookKey)}&op=${encodeURIComponent(b.dataset.op)}`);
+    const html = labList('Includes', d.includes) + labList('Only if the diagnosis calls for it', d.after_diagnosis)
+      + labList('Does not include', d.excludes) + labList('Notes', d.notes)
+      + (d.group_notes.length ? `<details class="labsec"><summary class="muted">Notes on group ${esc(b.dataset.op.split('-')[0])}</summary>`
+         + `<ul>${d.group_notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : '');
+    row.firstElementChild.innerHTML = html || '<span class="muted">WIS gives no details for this operation.</span>';
+  } catch (err) {
+    row.firstElementChild.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
+  }
+});
+// The book by group > subgroup > operation. A group's subgroups are fetched
+// when it is opened (a book is ~2,000 operations; a group ~10 KB); a
+// subgroup of one operation is that operation's row, not another dropdown.
+async function labourBrowse(out, seq, folded = false) {
+  if (!folded) out.innerHTML = '<span class="spinner"></span>';
+  let r;
+  try { r = await api(labourUrl('&browse=1')); }
+  catch (e) { if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`; return 0; }
+  if (seq !== labSeq) return 0;
+  if (labourNone(r, out)) return 0;
+  labBookKey = r.book || '';
+  if (!r.groups || !r.groups.length) {
+    out.innerHTML = `<div class="muted">${r.book === 'lemon' ? 'This manual has no labour-time pages.'
+                                                            : 'WIS has no labour times for this model.'}</div>`;
+    return 0;
+  }
+  const label = esc(carBoxLabel || currentCarLabel());
+  out.innerHTML = (folded ? '' : `<div class="muted" style="margin:0 0 8px">Labour times for <b>${label}</b> &mdash; `
+      + `${r.total} operations by group. Ask or search to find a job by its words.</div>`)
+    + r.groups.map(g => `<details class="pbgrp labgrp" data-kg="${esc(g.kg)}"><summary>`
+      + (r.book === 'lemon' ? '' : `<span class="gno">${esc(g.kg)}</span> `)
+      + `${esc(g.name)} <span class="muted">(${g.count})</span></summary><div class="labsubs"></div></details>`).join('');
+  out.querySelectorAll('.labgrp').forEach(d => d.addEventListener('toggle', async () => {
+    if (!d.open || d.dataset.loaded) return;
+    d.dataset.loaded = '1';
+    const box = d.querySelector('.labsubs');
+    box.innerHTML = '<span class="spinner"></span>';
+    try {
+      const g = await api(labourUrl(`&browse=1&group=${encodeURIComponent(d.dataset.kg)}`));
+      box.innerHTML = g.subs.map(s => s.items.length === 1
+        ? `<div class="labone">${labRows(s.items)}</div>`
+        : `<details class="pbgrp"><summary class="pbsub">${esc(s.name)} <span class="muted">(${s.items.length})</span></summary>`
+          + labRows(s.items) + `</details>`).join('');
+    } catch (e) {
+      delete d.dataset.loaded;
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }));
+  return 0;
+}
+async function loadLabour() {
+  const seq = ++labSeq, n = variantIdx();
+  const out = $('#labOut');
+  if (n === null && !lemonCar()) {
+    out.innerHTML = '<div class="muted">Pick your exact model first (the car box or Browse &rarr; '
+      + 'Variant): labour times are per model type.</div>';
+    return 0;
+  }
+  // before a question: the book to browse
+  if (!labQuery) return labourBrowse(out, seq);
+  out.innerHTML = '<span class="spinner"></span>';
+  let r;
+  try {
+    r = await api(labourUrl(`&q=${encodeURIComponent(labQuery)}`));
+  } catch (e) {
+    if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return 0;
+  }
+  if (seq !== labSeq) return 0;
+  if (labourNone(r, out)) return 0;
+  labBookKey = r.book || '';
   if (r.book === 'lemon' && !r.total && !r.items.length) {
     out.innerHTML = '<div class="muted">This manual has no labour times that match, for this car.</div>'; return 0;
   }
@@ -6511,19 +6755,19 @@ async function loadLabour() {
     return 0;
   }
   // the job itself (r.best of them: both gearboxes' where they differ);
-  // operations that only mention the words fold away below it
+  // operations that only mention the words fold away below it; the whole
+  // book to browse below that, as the Parts tab does
   const best = r.best || r.items.length;
-  const rowsHtml = items => `<div class="tablewrap"><table><tbody>` + items.map(i =>
-    `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
-    + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
-    + ` <span class="muted" style="font-size:12px">${i.minutes} min</span>`
-    + (i.warranty ? `<div class="muted" style="font-size:12px">warranty ${esc(i.warranty)} h</div>` : '')
-    + `</td></tr>`).join('') + `</tbody></table></div>`;
   const more = r.items.slice(best);
   out.innerHTML = `<div class="muted" style="margin-bottom:6px">For: <b>${esc(labQuery)}</b></div>`
-    + rowsHtml(r.items.slice(0, best))
+    + labRows(r.items.slice(0, best))
     + (more.length ? `<details style="margin-top:8px"><summary class="muted">${r.total - best} other `
-        + `operation${r.total - best === 1 ? '' : 's'} mention it</summary>${rowsHtml(more)}</details>` : '');
+        + `operation${r.total - best === 1 ? '' : 's'} mention it</summary>${labRows(more)}</details>` : '')
+    + `<details class="pbmore labmore"><summary>Browse all labour times for this car</summary><div></div></details>`;
+  const fold = out.querySelector('.labmore');
+  fold.addEventListener('toggle', () => {
+    if (fold.open && !fold.dataset.loaded) { fold.dataset.loaded = '1'; labourBrowse(fold.lastElementChild, labSeq, true); }
+  });
   return best;
 }
 // a book picked: the question's terms again, in that book

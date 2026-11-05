@@ -86,18 +86,40 @@ def labour_items(conn: sqlite3.Connection, doc_id: str) -> list[dict]:
                     f"{name}, {action.lower()}" if action else component)
                 h = float(hours)
                 items.append({"group": _group(section), "kg": "", "op": f"p. {page_no}",
-                              "page_no": str(page_no), "text": what,
+                              "page_no": str(page_no), "component": component, "text": what,
                               "hours": h, "minutes": round(h * 60),
                               "warranty": r[warr] if warr is not None and warr < len(r) else ""})
         return items
     return _cached(conn, doc_id, "labour", build)
 
 
-def labour(conn: sqlite3.Connection, doc_id: str, q: str = "", alt: str = "",
+def labour_tree(conn: sqlite3.Connection, doc_id: str) -> list[dict]:
+    """The manual's labour pages for browsing, in wis_links.labour_tree's
+    shape: section (kg = its name) > page (entry = page_no, name = the
+    component) > its rows."""
+    groups: dict[str, dict] = {}
+    for i in labour_items(conn, doc_id):
+        name = i["group"] or "Labour times"
+        g = groups.setdefault(name, {"kg": name, "name": name, "count": 0, "subs": {}})
+        s = g["subs"].setdefault(i["page_no"], {"entry": i["page_no"],
+                                               "name": i["component"], "items": []})
+        s["items"].append(i)
+        g["count"] += 1
+    out = []
+    for name in sorted(groups):
+        g = groups[name]
+        g["subs"] = sorted(g["subs"].values(), key=lambda s: s["name"].lower())
+        out.append(g)
+    return out
+
+
+def labour(conn: sqlite3.Connection, doc_id: str, q: str = "", alt: str | list[str] = "",
            limit: int = 200) -> dict:
-    """{"total", "best", "items"} for the question's words, as WIS's tab."""
+    """{"total", "best", "items"} for the question's words, as WIS's tab
+    (`alt`: the manuals' wordings, synonyms.translations)."""
     items = labour_items(conn, doc_id)
-    queries = [ws for ws in (re.findall(r"\w+", (s or "").lower()) for s in (q, alt)) if ws]
+    alts = [alt] if isinstance(alt, str) else list(alt)
+    queries = [ws for ws in (re.findall(r"\w+", (s or "").lower()) for s in (q, *alts)) if ws]
     if queries:
         return _rank_labour(items, queries, limit)
     return {"total": len(items), "best": 0, "items": items[:limit]}

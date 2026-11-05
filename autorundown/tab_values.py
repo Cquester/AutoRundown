@@ -170,3 +170,122 @@ def fluids(conn: sqlite3.Connection, vehicle: dict, scope, corpus_ids: list[str]
             out.append({**r, "system": title or "", "page_no": page_no})
     out.sort(key=lambda r: (_fluid_rank(f"{r['system']} {r['name']}"), r["system"]))
     return out
+
+
+# a page's title says it gives a capacity: "(oil capacity)", "capacities";
+# not the air conditioner's cooling or heating capacity tests
+_CAPACITY_TITLE = re.compile(r"capacit", re.I)
+_NOT_CAPACITY = re.compile(r"cooling capacity|refrigerat|heating capacity|capacity modified|delivery capacit|"
+                           r"circuit diagram|light transporters|trucks|vans\b|unimog", re.I)
+_TITLE_MODELS = re.compile(r"\bModels?\s+((?:\d{3}[\s,/and]*)+)", re.I)
+
+
+def capacity_pages(conn: sqlite3.Connection, vehicle: dict, scope, limit: int = 8) -> list[dict]:
+    """For a car WIS has no capacity sheet for (the W201): the pages of its
+    own manual and its engines' whose title says they give a capacity
+    ("0030 - Removal and installation of the engine (oil capacity) Engine
+    102 KE in model 201"), as links -- their tables are often flattened
+    ("5.5 / 5.0" under two names), so the value is read on the page, never
+    guessed from it (2026-11-04). The general pool is left out (other
+    cars' "Capacities: Passenger cars: …" sheets), and so is a page whose
+    title names models that are not this car's."""
+    if not _is_wis(vehicle):
+        return []
+    ids = [d for d in as_ids(scope) if d != getattr(scope, "general", "")]
+    if not ids:
+        return []
+    series = str(vehicle.get("model_code") or "")
+    rows = conn.execute(
+        f"SELECT DISTINCT page_no, title FROM pages WHERE doc_id IN ({','.join('?' * len(ids))}) "
+        f"AND title LIKE '%capacit%' AND applicability != 'other_variant' ORDER BY page_no",
+        ids).fetchall()
+    out, seen = [], set()
+    for page_no, title in rows:
+        title = re.sub(r"\s{2,}", " — ", (title or "").strip())
+        if not _CAPACITY_TITLE.search(title) or _NOT_CAPACITY.search(title) or page_no in seen:
+            continue
+        named = {m for g in _TITLE_MODELS.findall(title) for m in re.findall(r"\d{3}", g)}
+        if named and series not in named:
+            continue
+        seen.add(page_no)
+        out.append({"page_no": str(page_no), "title": title})
+    # the engine's own page (oil) first, as the fluids card leads with oil
+    out.sort(key=lambda p: (0 if re.search(r"oil capacit", p["title"], re.I) else _fluid_rank(p["title"]),
+                            p["page_no"]))
+    return out[:limit]
+
+
+# Mercedes special tools are numbered "NNN 589 NN NN 00" (589: the tools
+# group). A WIS job names its tools in a "Special tools" block, inline
+# ("*110589035900") and as figure names ("Figures: 112589007200a"); older
+# pages (the W201's) show them as pictures only, so the figure name is the
+# one key every page has. Each tool has a sheet titled by its number
+# ("110 589 03 59 00 Mounting wedge"; 4,694 on the live index).
+_TOOL_RE = re.compile(r"(?<![\dA-Za-z])(\d{3}) ?(589) ?(\d{2}) ?(\d{2}) ?(\d{2})(?!\d)")
+_SHEET_GLOB = "[0-9][0-9][0-9] 589 [0-9][0-9] [0-9][0-9] [0-9][0-9]*"
+_sheets: dict = {}
+
+
+def _tool_sheets(conn: sqlite3.Connection, ids: list[str]) -> dict[str, tuple[str, str, str]]:
+    """{"110589035900": (page_no, doc_id, name)} for the scope's tool sheets
+    (cached per scope and page count: one title scan, ~1 s on the live
+    index)."""
+    n = conn.execute("SELECT MAX(rowid) FROM pages").fetchone()[0]
+    key = (tuple(ids), n)
+    if key not in _sheets:
+        if len(_sheets) > 32:
+            _sheets.clear()
+        out: dict[str, tuple[str, str, str]] = {}
+        for page_no, doc_id, title in conn.execute(
+                f"SELECT page_no, doc_id, title FROM pages WHERE doc_id IN ({','.join('?' * len(ids))}) "
+                f"AND title GLOB ?", [*ids, _SHEET_GLOB]):
+            out.setdefault(title[:16].replace(" ", ""), (str(page_no), doc_id, title[16:].strip()))
+        _sheets[key] = out
+    return _sheets[key]
+
+
+def _printed(num: str) -> str:
+    return f"{num[:3]} {num[3:6]} {num[6:8]} {num[8:10]} {num[10:12]}"
+
+
+def job_tools(conn: sqlite3.Connection, vehicle: dict, scope, pages: list[str],
+              corpus_ids: list[str]) -> list[dict]:
+    """The special tools of a job: [{number, name, page_no, doc_id, on}] --
+    every tool number on the job's pages and the WIS procedures they link
+    to (as job_values reads them), named from its tool sheet (page_no ""
+    when the sheet isn't in scope; the name then from the page's own
+    "Special tools" line, if any). WIS only. `on` is the job page naming it.
+    For the Torque specs tab (agent 6's G4, 2026-11-04)."""
+    if not _is_wis(vehicle):
+        return []
+    ids = as_ids(scope)
+    todo: list[dict] = []
+    seen_pages: set[str] = set()
+    for p in list(dict.fromkeys(str(p) for p in pages if p))[:MAX_PAGES]:
+        page = get_page(conn, ids, p)
+        if page and page["page_no"] not in seen_pages:
+            seen_pages.add(page["page_no"])
+            todo.append(page)
+    todo += [pg for pg, _ in wis_links.linked_pages(conn, Path(vehicle["file_path"]),
+                                                    list(todo), ids, corpus_ids, ("AR",), MAX_LINKED)]
+    sheets = _tool_sheets(conn, ids)
+    out, seen = [], set()
+    for page in todo:
+        text = page.get("text") or ""
+        for m in _TOOL_RE.finditer(text):
+            num = "".join(m.groups())
+            if num in seen:
+                continue
+            seen.add(num)
+            sheet = sheets.get(num)
+            name = sheet[2] if sheet else ""
+            if not name:
+                # only a "Special tools" line: the number starting it, a
+                # short name after (in running text it is the next step)
+                line = re.search(r"^" + re.escape(_printed(num)) + r"[ \t]+([A-Za-z][^\n.()]{1,58})$",
+                                 text, re.M)
+                name = line.group(1).strip() if line else ""
+            out.append({"number": _printed(num), "name": name,
+                        "page_no": sheet[0] if sheet else "", "doc_id": sheet[1] if sheet else "",
+                        "on": page["page_no"]})
+    return out

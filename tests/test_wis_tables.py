@@ -316,6 +316,53 @@ def main() -> int:
     check("... one naming no engine is",
           query._fits_car({**other, "engines": ""}, sc))
     conn.close()
+
+    print("a car with no capacity sheet: its own capacity pages, as links")
+    from autorundown import tab_values
+    mem = sqlite3.connect(":memory:")
+    mem.execute("CREATE TABLE pages(doc_id TEXT, page_no TEXT, title TEXT, applicability TEXT)")
+    mem.executemany("INSERT INTO pages VALUES (?,?,?,?)", [
+        ("car", "49013378", "0030 - Removal and installation of the engine (oil capacity)      "
+                            "Engine 102 KE in model 201", "this_vehicle"),
+        ("eng", "49009429", "1.1 - General: Technical data, capacities     Engine 102 for Models 460, 461",
+         "this_vehicle"),
+        ("car", "49008737", "0507 - Checking the cooling capacity (quick test)", "this_vehicle"),
+        ("eng", "11000895", "Capacities: Light transporters: Steering", "this_vehicle"),
+        ("gen", "11001324", "Capacities: Passenger cars: Engine lubrication", "this_vehicle"),
+        ("car", "11001327", "Capacities: Passenger cars: Rear axle", "this_vehicle"),
+        ("car", "1", "Filling capacities, engine lubrication", "other_variant"),
+    ])
+    sc2 = search.Scope(["car", "eng", "gen"])
+    sc2.general = "gen"
+    got = tab_values.capacity_pages(mem, {"source_name": "mercedes-wis", "model_code": "201"}, sc2)
+    check("the car's and its engine's capacity pages, oil first; not another model's, a test, "
+          "a van's, the general pool or another variant's",
+          [p["page_no"] for p in got] == ["49013378", "11001327"], got)
+    check("not for other manuals",
+          tab_values.capacity_pages(mem, {"source_name": "lemon", "model_code": "201"}, sc2) == [])
+
+    print("a job's special tools, named from their tool sheets")
+    mem.execute("ALTER TABLE pages ADD COLUMN text TEXT")
+    mem.row_factory = sqlite3.Row
+    mem.executemany("INSERT INTO pages(doc_id, page_no, title, applicability, text) VALUES (?,?,?,?,?)", [
+        ("car", "500", "Remove/install front brake pads", "this_vehicle",
+         "1 Press back the pistons *000589512100\n\nSpecial tools\n000 589 51 21 00 Piston resetter\n"
+         "201 589 00 99 00 Connection kit\n\nFigures: 112589007200a, p42010101"),
+        ("gen", "28009558", "000 589 51 21 00 Piston resetting tool", "this_vehicle", "Validity: Model all"),
+        ("gen", "28010182", "201 589 00 99 00 Electrical connection kit", "this_vehicle", ""),
+        ("car", "501", "Running text", "this_vehicle",
+         "Engine support 140 589 01 61 00 (step 5). Retaining clip at bottom, remove"),
+    ])
+    wis = {"source_name": "mercedes-wis", "model_code": "201", "file_path": str(TMP / "no-sidecar")}
+    got = tab_values.job_tools(mem, wis, sc2, ["500"], [])
+    check("every tool once: the Special tools lines, inline and as a figure name; named from the sheet",
+          [(t["number"], t["name"], t["page_no"]) for t in got]
+          == [("000 589 51 21 00", "Piston resetting tool", "28009558"),
+           ("201 589 00 99 00", "Electrical connection kit", "28010182"),
+           ("112 589 00 72 00", "", "")], got)
+    check("a number in running text is not named from the next step",
+          [t["name"] for t in tab_values.job_tools(mem, wis, sc2, ["501"], [])] == [""])
+    check("not for other manuals", tab_values.job_tools(mem, {**wis, "source_name": "lemon"}, sc2, ["500"], []) == [])
     print(f"\n{fails} failure(s)")
     return 1 if fails else 0
 

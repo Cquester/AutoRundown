@@ -144,6 +144,38 @@ MODEL lines on **99.94%** of 108,853, the engine role with ENGINE lines on
 99.1%. 223,968 of 272,607 records get a vehicle series (1.1's prose-only
 fallback reached ~98k).
 
+**The Validity line narrows search within a series** (2026-11-04,
+`autorundown/validity.py`). Filing is per series, so the "Validity: MODEL
+210.0 as of 1.7.99" line (W_Kurzgueltigkeit) was the only thing saying a
+page is for the sedans, and nothing read it: a 2001 E 320 4MATIC T (wagon,
+210.282) got "Trunk lid ambient lamp", a 210.082 sedan the wagon's tailgate,
+roof railing and rear wiper pages. On the W210 ~1,650 pages are valid for
+the sedans only and ~300 for the wagons only. `validity.models()` reads the
+Validity lines into model-code prefixes (",210.0,210.2,211.,": "210.0/2" is
+both bodies, "202.07/08/18" three codes, an engine list before "in MODEL" is
+not models) into the `page_validity` table; search, Manual contents and
+Ask's linked pages (`query._fits_car`) leave out a page naming the car's
+series and none of its codes. It keeps the page when it can't read it:
+"except" anywhere, a Validity line naming no model (a section valid for every
+car with an engine), no Validity line. 294,584 pages have one on the live
+index, 231,156 readable. `index.add_page` writes the rows; an older index
+is filled once in the background by the server (`validity.fill_once`,
+paced at ~100 MB/s, ~12 s here) or by `tools/wis_validity.py`. Its own
+table, so filling it never rewrites a page. eval_wis with the filter: 28/28,
+guards unchanged; a search ~0.25 -> 0.33 s. Tests: `tests/test_validity.py`.
+**An engine page's title, too** (same day, the check's F5): engine pages
+("Applies to: ENGINE 102", filed under no model) often name their models
+only in the title -- "1700 - Testing 2 E-E carburetor system … Models 210,
+310, 410, 510" is the vans' carburettor and reached a KE-Jetronic 190 E
+2.3-16. `validity.title_models` stores those as a row marked "t"
+("t,210.,310.,410.,510.,"; 1,561 on the live index) and the clause leaves
+such a page out for a car whose series it doesn't name. Only engine pages
+(a page filed under the car's model is the car's), never with "except" or
+"all models" in the title ("A. Filler cap (all models), B. … Models 124,
+201"), never a model year ("to model year 1986"); a Validity line wins.
+Engine pages naming no model ("Programmed repairs: Carburetor system") stay:
+nothing says whose they are. eval_wis: 28/28, guards unchanged.
+
 **The importer still measures before it trusts.** `structured_agreement()`
 compares `model_series` with the prose on every document carrying both; below
 `STRUCTURED_MIN_AGREEMENT` (0.5) it ignores the field for the whole corpus and
@@ -483,8 +515,16 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   Only 359 English rows / 35 series.
 - **Labour times** (`/api/wis/labour`, `wis_links.labour_*`; the "Labour
   times" tab -- a dialog until 2026-10-15; its button beside VIN and the
-  scope note's link went 2026-10-16: Ask or Search fills the tab, which is
-  empty before a question). **A search shows the job, not every operation
+  scope note's link went 2026-10-16: Ask or Search fills the tab). **Before
+  a question the tab is the book to browse** (2026-11-04, the user; it was
+  empty until then): `labour_tree` files each operation under its WIS
+  subgroup (`labour_op.entry` -> `labour_subgroup`: all 2,261 of a 190 E
+  2.3-16's operations, 659 subgroups, 0.07 s; "Other" if a sidecar has no
+  subgroup table), groups in the book's order with campaigns (02) last.
+  `?browse=1` sends the group list (~2 KB), `&group=42` one group (~10 KB),
+  so a phone never loads the ~2,000 operations at once; a subgroup of one
+  operation is drawn as its row. A LEMON car browses section > the page's
+  component > its rows. **A search shows the job, not every operation
   naming its words** (2026-10-16, the user: "a lot of labour times shown,
   we should only show the correct one"): `_rank_labour` matches the words
   against the operation's *core* -- its component, without the action
@@ -519,6 +559,62 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   yet in the real index. Extra work (category Z) has no formula and is left
   out; raw 0 means "not this type". Search also tries the manual's words
   (`synonyms.py`: water pump -> coolant pump, brake pads -> brake linings).
+- **What a labour time includes (G2, 2026-11-05).** `ASRAW_UmfassttextID`
+  (operation -> text id, 143,006 English rows) and `ASRAW_ID2Umfassttext`
+  (the text: a **UTF-8 blob**, one item a line -- `pull_vehicles.js` now
+  reads blob columns as text and keeps their line breaks as a literal `\n`)
+  give each operation's scope: what it includes, then after
+  "\*\*\*\*\*after diagnosis\*\*\*\*\*" what is done only if the diagnosis
+  calls for it, then "Does not include: ...". `ASRA_ArbeitspositionsHinweis`
+  (13,384 English) are an operation's notes ("each additional part 0.4 h"),
+  one row a line by `SequenzNummer`; `ASRA_KoGrHinweis` (7,673) a group's
+  ("Not included in jobs in Group 09: ..."). Sidecar tables
+  `labour_scope_text`, `labour_scope`, `labour_note`, `labour_group_note`;
+  a labour row with any of them carries `more`, and "What it includes" opens
+  `/api/wis/labour/{doc}/detail?variant=&book=&op=` (`wis_links.labour_detail`,
+  `scope_sections`; only a book of that variant). Keys are the labour time's
+  own (sparte, pl, family, kg, op).
+- **Bulletins: kind, date, what they replace (G3, 2026-11-05).** A WIS
+  document's kind is its number's prefix -- WIS's own `DpyInfoArt` names
+  (`wis_links.DOC_KINDS`): si = Service Information, sm = Service measure
+  (the bulletins), ar repair, ap maintenance, ba torques, bf capacities,
+  pe wiring ... The page's `doc_info` says it; the type from title words
+  (`records._classify`, 4,730 "tsb" pages) is not used for anything the
+  user sees and was left alone (changing it means a re-ingest). Dates and
+  changes: `W_SprachDokumente` (English: `DokEincheckDatum`, the check-in
+  date; `Aenderungshinweis`) and `Dok2AendText` (23,830 English rows,
+  "19.11.02 - Replaces SI 54/59 from 19.11.02 - SI file 54/59") -> sidecar
+  `doc_info(dok_id, date, change)`. The Manual contents open with "Service
+  bulletins": the car's si/sm documents newest first
+  (`/api/wis/bulletins/{doc}`, `manual_browse.bulletins`, the same scope and
+  filters as the contents). "Replaces" is shown as WIS words it; the old
+  numbers (STIN, SI 54/59) are mostly not in the corpus, so they are not
+  links. Also found: 17,302 documents exist only in US English (language
+  13) with no English (2) version, so the English extract has none of them.
+- **Service schedule, ASSYST (G1, 2026-11-05).** All small tables:
+  `W_AssystTyp2Serviceintervall` (a series' interval: 117 = 25,000 km /
+  15,000 mi), `AW_AssystStartlaufstrecke` (first service by series + engine
+  family and the oil sheet filled, `AW_AssystOelblaetter`: "MB 229.5") and
+  `W_AssystDok2LandIntervall` (562 rows: a maintenance sheet's interval in
+  days and km by country; `*` = all, -1 = none). The sheets' titles say what
+  the job is: ap0510p0001aay "Replace toothed belt (ASSYST PLUS)" every
+  1,825 days / 100,000 km, ap0050 "Perform oil change on front and rear axle
+  differential" 1,460 days / 75,000 km (checked against the real sidecar and
+  index, read-only). Sidecar `service_interval`, `service_first`,
+  `service_job`; `/api/wis/service/{doc}?variant=|engine=`
+  (`wis_links.service`): nothing until a model or engine is chosen, a job
+  only when its sheet is one of the car's own pages (another model's
+  toothed belt never shows), the all-countries figure with a count of the
+  countries that differ (never which of them is the shop's). Shown as
+  "Service schedule (ASSYST)" at the top of the Manual contents. Not used
+  yet: the K-codes, `AW_AssystDokumente` bit positions (which sheet a
+  service A/B includes), `W_AssystFIN2SACode` (only codes 807/808/809 --
+  service-interval options, **not a data card**).
+- **All three need a new VM pull** (the vehicles step, `pull_vehicles.js`,
+  then `parse_links.py`); until then the sidecar has no such tables and the
+  features stay hidden (no 500, `tests/test_wis_links.py`). The sample
+  corpus writes a small sidecar with all three (`make_sample_corpus.py
+  write_sidecar`) so a test box shows them.
 - **Pulled, not used**: the damage-code tables (hotspot names).
 Tests: `tests/test_wis_links.py` (free). Browser-checked against the real index
 (Playwright, no API key): links, diagram tap targets, the dialog, the oil

@@ -325,6 +325,16 @@ written without the real TSVs at hand). The importer's `split_by_body()`
 turns a name spanning bodies into "E 320 4MATIC Sedan" / "... Wagon", each
 with only its own Baumuster, so codes, US years, VIN prefixes and the answer
 label follow. The car box matches "wagon", "estate", "sedan", "cabriolet".
+**Bodies WIS doesn't label (2026-11-05).** On the live index only 302 of
+1,250 variants carry a body, and most wagons are *names*: "E 320 4MATIC
+T", "230 TE", "240 TD", "C 200 (T)" -- so "E 320 4MATIC wagon" missed the
+wagon and "sedan" found 10 variants. `bodyOf()` (index.html) reads a T name
+as Wagon and, only in a series that has T-named wagons, a name with no
+other body word (CE, C, CLK, GLK, Coupe …) as Sedan: 115 wagons and 253
+sedans on the live index, all in W123/W124/W202-W205/W210/W212/W213 (not
+the G-Class, whose labelled wagons have no sedans). The suggestion line
+names the body when the name doesn't ("… · M112 · Wagon"). A 4MATIC (also
+written "4M") matches "AWD", "4WD", "4x4", "all wheel drive".
 Variant positions shift, so the remembered-pick keys are now `.v3`. To land
 on the real index (no VM needed): `python extractor/parse_vehicles.py`, then
 `python rebuild_wis.py`.

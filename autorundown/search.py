@@ -20,7 +20,7 @@ from itertools import zip_longest
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from . import numbers, wis_links
+from . import numbers, validity, wis_links
 
 # letters of any language: "Ölwanne" was searched as "lwanne". The FTS
 # tokenizer (unicode61) folds the accents on both sides.
@@ -232,7 +232,7 @@ FTS_TABLES = ("chunks_fts", "parts_fts")   # see index.SCHEMA: parts in their ow
 _CODE_GLOB = "*[0-9][0-9][0-9].[0-9][0-9][0-9]*"   # a model code ("126.045") in a section line
 
 
-def parts_codes_clause(codes: tuple = ((), ()), open_sections=()) -> tuple[str, list]:
+def parts_codes_clause(codes: tuple = ((), ()), open_sections=(), excluded=()) -> tuple[str, list]:
     """SQL (on `p`, the pages table) keeping only the parts catalogue pages
     that fit the car's model/engine codes.
 
@@ -264,10 +264,15 @@ def parts_codes_clause(codes: tuple = ((), ()), open_sections=()) -> tuple[str, 
     `engine_open_sections`) are the car's engine families that no catalogue
     lists the car's exact engine for -- 42 of ~1,200 on the live index, the
     Vito's OM 646.980 among them; those keep every catalogue of the family,
-    as before, rather than showing no engine parts at all."""
+    as before, rather than showing no engine parts at all.
+
+    `excluded` (catalogue codes, from `market_excluded`) are other markets'
+    catalogues of the car: left out when the VIN names its market."""
     mine = (*codes[0], *codes[1])
     if not mine:
         return "", []
+    ex_sql = "".join(" AND instr(p.title, ?) = 0" for _ in excluded)
+    ex_args = [f"(EPC catalog {c})" for c in excluded]
     sql = (f" AND (p.section_path NOT GLOB '{_CODE_GLOB}' OR "
            + " OR ".join("instr(p.section_path, ?) > 0" for _ in mine)
            + " OR (p.section_path GLOB '* ...' AND ("
@@ -279,7 +284,59 @@ def parts_codes_clause(codes: tuple = ((), ()), open_sections=()) -> tuple[str, 
                 + "".join("(p.doc_id = ? AND p.section_path = ?) OR " for _ in open_sections)
                 + " OR ".join(f"instr({_CATALOG_ENGINES}, ?) > 0" for _ in engs) + ")")
         args += [x for pair in open_sections for x in pair] + list(engs)
-    return sql, args
+    return sql + ex_sql, args + ex_args
+
+
+# market labels a US-format VIN can name: the US and Canadian cars share it
+_US_MARKETS = {"USA", "Canada"}
+_market_cache: dict = {}
+
+
+def market_excluded(conn: sqlite3.Connection, doc_ids, codes: tuple = ((), ()),
+                    market: str = "") -> tuple:
+    """Catalogue codes of the car's other markets, for `parts_codes_clause`.
+
+    A series has one EPC catalogue per market and period: a US 190 E 2.3-16
+    was shown 500 (rest of world), 580 (USA) and 581 (Japan) side by side,
+    and 123 of the 152 subgroups they share differ in part numbers (agent
+    review 2026-11-04, F2). The VIN says which market a car is for:
+    `market` "us" (a 17-character US-format VIN) keeps, in each section
+    (the chassis "MODEL 201", each "ENGINE 102"), the catalogues whose entry
+    for this car is marked USA or Canada; "row" (a European FIN) drops those
+    that are only USA/Canada for it -- a FIN doesn't say Japan or Australia,
+    so those stay. A section with no catalogue of the market keeps them all,
+    as `engine_open_sections` does. Nothing without a car's codes."""
+    car = set(codes[0] or ()) | set(codes[1] or ())
+    if market not in ("us", "row") or not car or not doc_ids:
+        return ()
+    key = (tuple(doc_ids), tuple(sorted(car)), market,
+           conn.execute("SELECT MAX(rowid) FROM pages").fetchone()[0])
+    if key not in _market_cache:
+        cat_at = "instr(title, '(EPC catalog ')"
+        groups: dict = {}
+        for d in doc_ids:
+            # one page per catalogue: its catalog line is the catalogue's
+            for section, title, text in conn.execute(
+                    f"""SELECT section_path, title, text FROM pages WHERE rowid IN (
+                          SELECT MIN(rowid) FROM pages WHERE doc_id = ? AND {cat_at} > 0
+                          GROUP BY substr(title, {cat_at}, instr(substr(title, {cat_at}), ')')))""",
+                    (d,)):
+                m = _CATALOG_CODE_RE.search(title or "")
+                line = next((l for l in (text or "").split("\n") if l.startswith(
+                    ("Models in this catalog:", "Engines in this catalog:"))), "")
+                mine = [e for e in line.partition(":")[2].split(", ")
+                        if e.split()[:1] and e.split()[0] in car]
+                if not m or not mine:
+                    continue          # not this car's catalogue: the codes clause drops it
+                labels = {next((_MARKETS[w] for w in e.split() if w in _MARKETS), "") for e in mine}
+                ok = bool(labels & _US_MARKETS) if market == "us" else bool(labels - _US_MARKETS)
+                groups.setdefault((d, (section or "").split(" > ")[0]), []).append((m.group(1), ok))
+        out = [c for cats in groups.values() if any(ok for _, ok in cats)
+               for c, ok in cats if not ok]
+        if len(_market_cache) > 512:
+            _market_cache.clear()
+        _market_cache[key] = tuple(sorted(set(out)))
+    return _market_cache[key]
 
 
 _open_cache: dict = {}
@@ -378,6 +435,8 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
     hclause, hargs = hidden_clause(conn)
     where, args = where + hclause, [*args, *hargs]
+    vclause, vargs = validity.clause(conn, codes[0])   # WIS's own Validity line
+    where, args = where + vclause, [*args, *vargs]
     if not include_other_variants:
         eclause, eargs = _other_engines_clause(conn, doc_id)
         where, args = where + eclause, [*args, *eargs]
@@ -407,7 +466,7 @@ def _run(conn: sqlite3.Connection, doc_id: str, match: str, limit: int,
 def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: int,
                include_other_variants: bool, types: str = "", general: str = "",
                engines: tuple[str, ...] = (), codes: tuple = ((), ()),
-               fts: str = "chunks_fts") -> dict[str, list[dict]]:
+               fts: str = "chunks_fts", market: str = "") -> dict[str, list[dict]]:
     """`_run` for several doc_ids at once: the best `limit` rows of each.
 
     FTS5 finds and scores every match in the whole index before the doc_id
@@ -423,6 +482,8 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
     where, args, boost_sql, boost_args = _filters(include_other_variants, engines, codes)
     hclause, hargs = hidden_clause(conn)
     where, args = where + hclause, [*args, *hargs]
+    vclause, vargs = validity.clause(conn, codes[0])   # WIS's own Validity line
+    where, args = where + vclause, [*args, *vargs]
     tclause, targs = _types_clause(types)
     if tclause and general in doc_ids:
         where += f" AND (c.doc_id != ? OR {tclause})"
@@ -431,7 +492,8 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
         where += f" AND (c.doc_id != ? OR NOT {_DAMAGE_MENU})"
         args = [*args, general]
     if fts == "parts_fts":
-        pclause, pargs = parts_codes_clause(codes, engine_open_sections(conn, doc_ids, codes))
+        pclause, pargs = parts_codes_clause(codes, engine_open_sections(conn, doc_ids, codes),
+                                            market_excluded(conn, doc_ids, codes, market))
         where += pclause
         args = [*args, *pargs]
     marks = ",".join("?" for _ in doc_ids)
@@ -465,20 +527,20 @@ def _run_scope(conn: sqlite3.Connection, doc_ids: list[str], match: str, limit: 
 def _search_scope(conn: sqlite3.Connection, doc_ids: list[str], query: str, limit: int,
                   include_other_variants: bool, types: str = "", general: str = "",
                   engines: tuple[str, ...] = (), codes: tuple = ((), ()),
-                  fts: str = "chunks_fts") -> list[list[dict]]:
+                  fts: str = "chunks_fts", market: str = "") -> list[list[dict]]:
     """`_search_one` for every doc_id of a scope, in two statements: AND
     first, then OR only for the doc_ids that came up short. Returns the lists
     in `doc_ids` order, exactly as one `_search_one` per doc_id would."""
     # parts titles are catalog/group/subgroup lines, never the query: not re-ranked
     titled = fts == "chunks_fts"
     lists = _run_scope(conn, doc_ids, build_match(query, "and"), limit * 2 if titled else limit,
-                       include_other_variants, types, general, engines, codes, fts)
+                       include_other_variants, types, general, engines, codes, fts, market)
     if titled:
         lists = {d: _title_rank(rows, query, limit) for d, rows in lists.items()}
     short = [d for d in doc_ids if len(lists.get(d, [])) < limit]
     if short:
         more = _run_scope(conn, short, build_match(query, "or"), limit * 2,
-                          include_other_variants, types, general, engines, codes, fts)
+                          include_other_variants, types, general, engines, codes, fts, market)
         for d in short:
             results = lists.setdefault(d, [])
             seen = {r["page_uid"] + str(r["ord"]) for r in results}
@@ -486,6 +548,7 @@ def _search_scope(conn: sqlite3.Connection, doc_ids: list[str], query: str, limi
                 key = row["page_uid"] + str(row["ord"])
                 if key not in seen:
                     seen.add(key)
+                    row["partial"] = True     # some of the words only (OR)
                     results.append(row)
                 if len(results) >= limit:
                     break
@@ -596,6 +659,7 @@ class Scope(list):
     engines: tuple = ()     # engine families chosen ("272",); () = any
     codes: tuple = ((), ())  # (model codes, engine codes) of the chosen car
     parts: tuple = ()       # joined parts catalogue doc_ids (EPC); searched apart
+    market: str = ""        # "us" / "row" from the VIN: the car's market's catalogues
 
 
 # Joined parts catalogues are searched as their own group and their results
@@ -625,6 +689,7 @@ def split_scope(scope) -> tuple["Scope", "Scope"]:
     for s in (manual, only):
         s.types, s.general = getattr(scope, "types", ""), getattr(scope, "general", "")
         s.engines, s.codes = getattr(scope, "engines", ()), getattr(scope, "codes", ((), ()))
+        s.market = getattr(scope, "market", "")
     only.parts = tuple(parts)
     if only.general not in only:
         only.general = ""
@@ -947,7 +1012,7 @@ def _parts_snippet(conn: sqlite3.Connection, row: dict, query: str,
 
 
 def scope_ids(vehicle: dict, variant: int | None = None,
-              engine: str | None = None) -> Scope:
+              engine: str | None = None, market: str | None = None) -> Scope:
     """Which doc_ids a question about this vehicle may draw on.
 
     A source that splits by model files the documents tied to no model
@@ -1030,6 +1095,9 @@ def scope_ids(vehicle: dict, variant: int | None = None,
                if not fams or not ebm.get(b) or any(str(e)[:3] in fams for e in ebm[b])]
         engs = [e for e in x.get("engines", []) if not fams or str(e)[:3] in fams]
         scope.codes = (tuple(sorted(bms)), tuple(sorted(engs)))
+        # the market the VIN names ("us" / "row"; market_excluded) -- only
+        # with the exact car, whose catalogue entries carry the market
+        scope.market = market if market in ("us", "row") else ""
     if fams:
         scope.engines = fams
     elif has_variant:
@@ -1054,6 +1122,7 @@ def _search_one(conn: sqlite3.Connection, doc_id: str, query: str, limit: int,
             key = row["page_uid"] + str(row["ord"])
             if key not in seen:
                 seen.add(key)
+                row["partial"] = True         # some of the words only (OR)
                 results.append(row)
             if len(results) >= limit:
                 break
@@ -1117,6 +1186,7 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
     general = getattr(doc_ids, "general", "")
     engines = getattr(doc_ids, "engines", ())
     codes = getattr(doc_ids, "codes", ((), ()))
+    market = getattr(doc_ids, "market", "")
     parts = [i for i in getattr(doc_ids, "parts", ()) if i in ids]
     if parts:
         # the manual exactly as without a parts catalogue, then the parts
@@ -1137,7 +1207,7 @@ def search(conn: sqlite3.Connection, doc_ids: str | Iterable[str], query: str,
         # camshaft bolt for "brake pad") over its own FRONT WHEEL BRAKE page.
         ranked = sorted((r for rows in _search_scope(
                             conn, parts, query, k * 12, include_other_variants,
-                            "", "", engines, codes, fts="parts_fts") for r in rows),
+                            "", "", engines, codes, fts="parts_fts", market=market) for r in rows),
                         key=lambda r: r["score"])
         # The other catalogues of a subgroup kept are not dropped unseen: they
         # are listed on its row, each named by catalogue and market, so a US

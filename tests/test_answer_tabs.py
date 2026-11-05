@@ -161,9 +161,11 @@ def main(argv=None):
               pg.evaluate("document.querySelector('#resTabs').parentElement.id") == "right")
         if pg.locator("#resTabs [data-tab=labour]").is_visible():
             pg.click("#resTabs [data-tab=labour]")
-            check("before a question the Labour tab lists nothing",
-                  pg.locator("#labOut .empty").count() == 1 and pg.locator("#labOut table").count() == 0,
-                  pg.inner_text("#labOut"))
+            # no times before a question: the book to browse (groups, closed)
+            # or why there is none -- never a table of operations
+            pg.wait_for_timeout(500)
+            check("before a question the Labour tab lists no operations",
+                  pg.locator("#labOut table").count() == 0, pg.inner_text("#labOut"))
         check("no Labour times or Option codes button beside VIN",
               pg.locator("#labBtn, #saBtn, #saDlg").count() == 0)
         searches.clear()
@@ -205,8 +207,10 @@ def main(argv=None):
         ts = tab_searches()
         check("Search: the parts tab (if any) is searched with the typed words, no `also`",
               all(s["q"] == ["wheel bolts"] and "also" not in s for s in ts.values()), str(ts))
-        top = [str(r["page_no"]) for r in api_search(doc_id=w211["doc_id"], q="wheel bolts")[:3]]
-        check("Search: Torque specs / Capacities read the top hits",
+        # the top 3 hits holding every word typed (a "partial" OR hit is another job)
+        top = [str(r["page_no"]) for r in api_search(doc_id=w211["doc_id"], q="wheel bolts")
+               if not r.get("partial")][:3]
+        check("Search: Torque specs / Capacities read the top hits with every word",
               sorted(x["kind"][0] for x in values) == ["capacity", "torque"]
               and all(x.get("pages") == top for x in values), f"{values} vs {top}")
         check("Search: no paid request", len(asks) == 1)

@@ -132,7 +132,15 @@ jobs:
           Get-Content "$env:USERPROFILE\.autorundown\autorundown.log" -ErrorAction SilentlyContinue
           if (-not $ok) { throw "upgraded app did not start" }
           & "$inst\python\python.exe" -m autorundown.launcher --stop
-          Remove-Item -Recurse -Force "$env:USERPROFILE\.autorundown"   # next step is a first start
+          # --stop returns when the port closes; the process may still hold
+          # its log for a moment (2026-11-05: "being used by another
+          # process"), so the folder is removed once it lets go
+          $gone = $false
+          foreach ($i in 1..40) {
+            try { Remove-Item -Recurse -Force "$env:USERPROFILE\.autorundown" -ErrorAction Stop; $gone = $true; break }
+            catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $gone) { Get-Process python*, pythonw* -ErrorAction SilentlyContinue | Format-Table Id, Path; throw "the app's folder is still in use 20 s after --stop" }
 
       - name: Install MSI again (same version, silent, per-user)
         shell: pwsh

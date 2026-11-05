@@ -65,6 +65,20 @@ var TABLES = ["ASRA_FahrzeugII", "ASRA_Fahrzeug", "AW_Fahrzeuge",
 // the flat-rate formulas per region and repair group: the stored time is a
 // raw value, the flat rate is the formula applied to it (parse_links.py)
               "ASRA_Formel", "ASRA_Formelverwendung",
+// what a labour time includes and leaves out, and the notes on an operation
+// or a whole group (2026-11-05): the scope text is a UTF-8 blob, one item a
+// line ("Remove/install wheel(s)", "Does not include: ..."), shared between
+// operations by UmfassttextID
+              "ASRAW_UmfassttextID", "ASRAW_ID2Umfassttext",
+              "ASRA_ArbeitspositionsHinweis", "ASRA_KoGrHinweis",
+// a document's date and what it replaces ("19.11.02 - Replaces SI 54/59"),
+// for the Service Information / Service measure pages (2026-11-05, G3)
+              "W_SprachDokumente", "Dok2AendText",
+// the service schedule (ASSYST, 2026-11-05, G1): a series' service interval,
+// the first service by engine and oil sheet, and the jobs due by time or
+// distance (each a maintenance sheet "ap..."); all small (< 1,000 rows)
+              "W_AssystTyp2Serviceintervall", "AW_AssystStartlaufstrecke",
+              "AW_AssystOelblaetter", "W_AssystDok2LandIntervall",
 // function group and subgroup names per vehicle type ("42.10" = "Service
 // brake"): the Manual tab's section names (parse_links.py wis_group)
               "Gruppen"];
@@ -83,6 +97,12 @@ var WHERE = {
   "ASRA_Konstruktionsgruppe": "SprachAbk = '" + LANG2 + "'",
   "ASRA_Konstruktionsuntergruppe": "SprachAbk = '" + LANG2 + "'",
   "ASRA_Familie": "SprachAbk = '" + LANG2 + "'",
+  "ASRAW_UmfassttextID": "SprachAbk = '" + LANG2 + "'",
+  "ASRAW_ID2Umfassttext": "UmfassttextID IN (SELECT UmfassttextID FROM ASRAW_UmfassttextID WHERE SprachAbk = '" + LANG2 + "')",
+  "ASRA_ArbeitspositionsHinweis": "SprachAbk = '" + LANG2 + "'",
+  "ASRA_KoGrHinweis": "SprachAbk = '" + LANG2 + "'",
+  "W_SprachDokumente": "SprachCode = " + LANG,
+  "Dok2AendText": "DokID IN (SELECT DokID FROM W_SprachDokumente WHERE SprachCode = " + LANG + ")",
   "Gruppen": "SprachCode = " + LANG
 };
 // AR_TABLES=a,b pulls just those (e.g. to add a new table without redoing all)
@@ -104,13 +124,22 @@ for (var t = 0; t < TABLES.length; t++) {
     var rs = st.executeQuery("SELECT * FROM " + name + (WHERE[name] ? " WHERE " + WHERE[name] : ""));
     var md = rs.getMetaData(), nc = md.getColumnCount();
     var out = new BufferedOutputStream(new FileOutputStream(part, false));
-    var cols = [];
-    for (var c = 1; c <= nc; c++) cols.push(md.getColumnName(c));
+    var cols = [], blob = [];
+    for (var c = 1; c <= nc; c++) {
+      cols.push(md.getColumnName(c));
+      blob.push(md.getColumnTypeName(c).toLowerCase().indexOf("blob") >= 0);
+    }
     out.write(JStr.valueOf(cols.join("\t") + "\n").getBytes("UTF-8"));
     var n = 0;
     while (rs.next()) {
       var row = [];
-      for (var c = 1; c <= nc; c++) row.push(s(rs.getString(c)));
+      for (var c = 1; c <= nc; c++) {
+        if (!blob[c - 1]) { row.push(s(rs.getString(c))); continue; }
+        // a text blob: UTF-8, its line breaks kept as a literal \n
+        var b = rs.getBytes(c);
+        row.push(b == null ? "" : ("" + new JStr(b, "UTF-8")).replace(/\r\n?/g, "\n")
+                 .replace(/\t/g, " ").replace(/\\/g, "/").trim().replace(/\n/g, "\\n"));
+      }
       out.write(JStr.valueOf(row.join("\t") + "\n").getBytes("UTF-8"));
       n++;
     }

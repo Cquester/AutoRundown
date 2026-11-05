@@ -16,11 +16,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import secrets
 import socket
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 from itertools import zip_longest
@@ -40,7 +42,8 @@ from . import search as search_mod
 from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
 from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_tables, lemon_zip, manual_browse,
                native_dialog,
-               part_procedures, parts_browse, synonyms, tab_values, wis_links, wis_original)
+               part_procedures, parts_browse, synonyms, tab_values, validity, wis_links,
+               wis_original)
 from .search import (as_ids, get_page, merge_wordings, part_lines, scope_ids, search, split_scope, value_lines,
                      value_row)
 
@@ -60,6 +63,9 @@ class AskBody(BaseModel):
     engine: str | None = None
     # the car's model year, when the user gave one ("2009 E550 4Matic")
     year: int | None = None
+    # the market a VIN names: "us" (a US-format VIN) or "row" (a FIN);
+    # narrows the parts catalogues (search.market_excluded)
+    market: str | None = Field(None, pattern="^(us|row)$")
     # per-request override so the model can be switched between questions
     # without saving settings first: any model in the requester's menu
     # (config.menu_models), whichever provider it is from
@@ -477,6 +483,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     # tables, indexes and new columns are brought up to date here, before the
     # server answers anything (see index.connect)
     index.connect(index_path).close()
+    # an index built before 2026-11-04 has no page_validity rows: read its WIS
+    # pages' Validity lines once, in the background (paced; validity.fill_once)
+    if not os.environ.get("AUTORUNDOWN_NO_VALIDITY_FILL"):
+        threading.Thread(target=validity.fill_once, args=(index_path,), daemon=True,
+                         name="validity-fill").start()
     # an older install's Desktop/Mercedes Documents moves to the app's data
     # folder, once (installed app only; a failed move leaves it in use)
     try:
@@ -783,7 +794,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                    engine: str | None = Query(None, max_length=64),
                    tab: str = Query("workshop", pattern="^(workshop|parts|torque|capacity)$"),
                    also: list[str] = Query(default=[]),
-                   record: bool = False) -> list[dict]:
+                   record: bool = False,
+                   market: str | None = Query(None, pattern="^(us|row)$")) -> list[dict]:
         """Keyword search for one of the UI's tabs, always within the car.
 
         workshop: the manual's pages only (as before the parts catalogue);
@@ -799,7 +811,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            full = scope_ids(vehicle, variant, engine)
+            full = scope_ids(vehicle, variant, engine, market)
             manual, parts = split_scope(full)
             scope = parts if tab == "parts" else manual
             # value lines naming only another engine or model are left out
@@ -838,6 +850,16 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # titles holding the whole phrase first (search.merge_wordings)
             rows = ([r for group in zip_longest(*per) for r in group if r is not None]
                     if also else merge_wordings(q, texts, per))
+            # a fault code typed among other words ("DTC P0171 lean"): the
+            # pages holding the code first, searched by itself (numbers.py)
+            if tab == "workshop":
+                codes = [c for c in numbers.fault_codes(q) if c.lower() != q.strip().lower()]
+                for code in reversed(codes[:3]):
+                    hits = search(conn, scope, code, limit,
+                                  include_other_variants=include_other_variants)
+                    for r in hits:
+                        r["query"] = code
+                    rows = hits + rows
             # one row per page: a page whose two chunks both match is still
             # one result, and the keyword list showed it twice. A page counts
             # as seen only once a row for it is kept: its lines are picked by
@@ -934,6 +956,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             except config.NoKeyForRequest as exc:
                 raise HTTPException(400, str(exc))
             variant, engine, year, earlier = body.variant, body.engine, body.year, None
+            market = body.market
             if body.chat is not None:
                 # a follow-up: only a chat this requester can see, about this
                 # car; the car as the chat had it (the car box may have moved on)
@@ -949,17 +972,20 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     raise HTTPException(400, f"This conversation has {query.MAX_FOLLOWUPS} follow-ups; "
                                              "start a new one for the next question.")
                 variant, engine, year = entry["variant"], entry["engine"], entry["year"]
+                market = (entry.get("result") or {}).get("market")
             try:
                 result = query.ask(
                     conn, vehicle, body.question, key.key,
                     include_other_variants=body.include_other_variants,
                     model=chosen, source="web", variant=variant,
-                    engine=engine, year=year,
+                    engine=engine, year=year, market=market,
                     user_id=who.user_id, user_name=who.name or None,
                     key_ref=key.ref, provider=provider, earlier=earlier)
             except (query.NoApiKey, query.ApiUnavailable) as exc:
                 raise HTTPException(400, str(exc))
             out = result.as_dict()
+            if market:
+                out["market"] = market        # kept with the chat: its follow-ups use it
             # kept whole: a paid answer can be opened again without paying; a
             # follow-up goes into its chat's entry
             if body.chat is not None:
@@ -1028,6 +1054,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     scope_ids(vehicle), _corpus_ids(conn, vehicle), page_no)
                 page["diagram"] = page_no.isdigit() and wis_links.has_diagram(
                     Path(vehicle["file_path"]), int(page_no))
+                # what kind of document, its date, what it replaces (G3)
+                page["doc_info"] = page_no.isdigit() and wis_links.doc_info(
+                    Path(vehicle["file_path"]), int(page_no))
             # a LEMON / folder HTML page can be shown as itself (/api/original)
             page["has_original"] = page.get("doc_type") != "parts" and (
                 _is_wis(vehicle) or str(page.get("file_path") or "").lower().endswith((".html", ".htm")))
@@ -1063,16 +1092,34 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
+    @app.get("/api/tools/{doc_id}")
+    def api_tools(doc_id: str, pages: list[str] = Query(default=[]),
+                  variant: int | None = None,
+                  engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """The special tools of one job (the same pages as /api/values),
+        each named from its WIS tool sheet (tab_values.job_tools). Free."""
+        pages = [p.strip()[:32] for p in pages if p.strip()][:tab_values.MAX_PAGES]
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            if not _is_wis(vehicle):
+                return []
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            return tab_values.job_tools(conn, vehicle, manual, pages, _corpus_ids(conn, vehicle))
+        finally:
+            conn.close()
+
     @app.get("/api/parts/diagrams/{doc_id}")
     def api_parts_diagrams(request: Request, doc_id: str, variant: int | None = None,
-                           engine: str | None = Query(None, max_length=64)) -> Response:
+                           engine: str | None = Query(None, max_length=64),
+                           market: str | None = Query(None, pattern="^(us|row)$")) -> Response:
         """The car's parts catalogue as the catalogue reads: chassis, engines,
         options > group > subgroup, each with its page(s) and drawing count
         (parts_browse.py). The parts scope only, filtered like search. Free."""
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
-            _, parts = split_scope(scope_ids(vehicle, variant, engine))
+            _, parts = split_scope(scope_ids(vehicle, variant, engine, market))
             rows = parts_browse.diagrams(conn, parts)
         finally:
             conn.close()
@@ -1116,6 +1163,51 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(404, "no such section")
         return n
 
+    @app.get("/api/wis/bulletins/{doc_id}")
+    def api_wis_bulletins(doc_id: str, variant: int | None = None,
+                          engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """The car's Service Information / Service measure documents, newest
+        first, with their date and what they replace (G3). The manual scope,
+        filtered like the Manual tab's contents. WIS only. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            if not _is_wis(vehicle):
+                return []
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            t = manual_browse.tree(conn, vehicle, manual, True)
+        finally:
+            conn.close()
+        return manual_browse.bulletins(t, Path(vehicle["file_path"]))
+
+    @app.get("/api/wis/service/{doc_id}")
+    def api_wis_service(doc_id: str, variant: int | None = None,
+                        engine: str | None = Query(None, max_length=64)) -> dict:
+        """The car's ASSYST service schedule (wis_links.service, G1): the
+        series' interval, the first service for its engines, and the jobs
+        due by time or distance whose sheet is one of this car's own pages.
+        Nothing until a model or engine is chosen (a series' engines differ).
+        WIS only. Free."""
+        empty = {"interval": [], "first": [], "jobs": []}
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            if not _is_wis(vehicle) or (variant is None and not engine):
+                return empty
+            try:
+                variants = json.loads(vehicle.get("variants") or "[]")
+            except ValueError:
+                variants = []
+            fams = {f.strip() for f in (engine or "").split(",") if f.strip()}
+            if variant is not None and 0 <= variant < len(variants):
+                fams = fams or {e.split(".")[0] for e in variants[variant].get("engines") or []}
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            t = manual_browse.tree(conn, vehicle, manual, True)
+        finally:
+            conn.close()
+        return wis_links.service(Path(vehicle["file_path"]), vehicle.get("model_code") or "",
+                                 sorted(fams), manual_browse.page_titles(t))
+
     @app.get("/api/fluids/{doc_id}")
     def api_fluids(doc_id: str, variant: int | None = None,
                    engine: str | None = Query(None, max_length=64)) -> list[dict]:
@@ -1128,6 +1220,21 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 return []
             manual, _ = split_scope(scope_ids(vehicle, variant, engine))
             return tab_values.fluids(conn, vehicle, manual, _corpus_ids(conn, vehicle))
+        finally:
+            conn.close()
+
+    @app.get("/api/fluids/{doc_id}/pages")
+    def api_capacity_pages(doc_id: str, variant: int | None = None,
+                           engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """For a car with no capacity sheet: its own pages that say they
+        give a capacity, as links (tab_values.capacity_pages). Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            if variant is None and not engine:
+                return []
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            return tab_values.capacity_pages(conn, vehicle, manual)
         finally:
             conn.close()
 
@@ -1166,20 +1273,28 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     def api_wis_labour(doc_id: str, variant: int | None = None,
                        engine: str | None = Query(None, max_length=64),
                        book: str | None = Query(None, max_length=32),
-                       q: str = Query("", max_length=200)) -> dict:
+                       q: str = Query("", max_length=200),
+                       browse: bool = False,
+                       group: str | None = Query(None, max_length=200)) -> dict:
         """Flat-rate labour times from WIS (wis_links.labour_*), for the
         exact model only: a variant must be picked -- a series has as many
         times as it has types. When the car is in several books (chassis
-        ranges) and none is chosen, the books come back and no times. Free."""
+        ranges) and none is chosen, the books come back and no times. Free.
+
+        `browse` (no `q`): the book by group -- `groups` [{kg, name, count}],
+        or with `group` that group's `subs` [{entry, name, items}]
+        (wis_links.labour_tree; a LEMON manual's by section and page)."""
         conn = db()
         try:
             vehicle = _vehicle_or_404(conn, doc_id)
             # a LEMON manual's own "Labor Times" pages (lemon_tables): one
             # book, the car's, no variant needed
             if vehicle.get("source_name") == "lemon":
-                return {"books": [{"book": "lemon", "family": "LEMON manual", "type": ""}],
-                        "book": "lemon", "need": None,
-                        **lemon_tables.labour(conn, doc_id, q, alt=synonyms.translate(q) or "")}
+                head = {"books": [{"book": "lemon", "family": "LEMON manual", "type": ""}],
+                        "book": "lemon", "need": None}
+                if browse and not q.strip():
+                    return {**head, **_labour_browse(lemon_tables.labour_tree(conn, doc_id), group)}
+                return {**head, **lemon_tables.labour(conn, doc_id, q, alt=synonyms.translations(q))}
         finally:
             conn.close()
         if not _is_wis(vehicle):
@@ -1200,9 +1315,54 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         chosen = book if book in keys else (keys[0] if len(keys) == 1 else None)
         out = {"books": books, "book": chosen, "total": 0, "items": [],
                "need": None if chosen else ("book" if books else None)}
-        if chosen:
-            out.update(wis_links.labour_times(corpus, chosen, q, alt=synonyms.translate(q) or ""))
+        if chosen and browse and not q.strip():
+            out.update(_labour_browse(wis_links.labour_tree(corpus, chosen), group))
+        elif chosen:
+            # every wording: labour books differ ("rear-end door" / "liftgate")
+            out.update(wis_links.labour_times(corpus, chosen, q, alt=synonyms.translations(q)))
         return out
+
+    @app.get("/api/wis/labour/{doc_id}/detail")
+    def api_wis_labour_detail(doc_id: str, variant: int,
+                              book: str = Query(..., max_length=32),
+                              op: str = Query(..., max_length=16)) -> dict:
+        """What one labour time includes, leaves out and the notes on it
+        (wis_links.labour_detail), fetched when a row is opened so the book
+        itself stays light. Only a book of this variant. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+        finally:
+            conn.close()
+        if not _is_wis(vehicle):
+            raise HTTPException(404, "Labour times come from the Mercedes WIS data.")
+        try:
+            variants = json.loads(vehicle.get("variants") or "[]")
+        except ValueError:
+            variants = []
+        if not 0 <= variant < len(variants):
+            raise HTTPException(404, "No such variant.")
+        corpus = Path(vehicle["file_path"])
+        v = variants[variant]
+        books = wis_links.labour_books(corpus, list(v.get("baumuster") or []), list(v.get("engines") or []))
+        if book not in {b["book"] for b in books}:
+            raise HTTPException(404, "Not a labour book of this car.")
+        out = wis_links.labour_detail(corpus, book, op)
+        if out is None:
+            raise HTTPException(404, "No such operation.")
+        return out
+
+    def _labour_browse(tree: list[dict], group: str | None) -> dict:
+        """One level of the Labour tab's browse: the groups, or one group's
+        subgroups with their operations (a phone fetches a group at a time)."""
+        total = sum(g["count"] for g in tree)
+        if group is None:
+            return {"total": total, "items": [], "browse": True,
+                    "groups": [{k: g[k] for k in ("kg", "name", "count")} for g in tree]}
+        g = next((g for g in tree if g["kg"] == group), None)
+        if g is None:
+            raise HTTPException(404, "no such labour group")
+        return {"total": total, "items": [], "browse": True, "group": group, "subs": g["subs"]}
 
     @app.get("/api/diagram/{doc_id}/{page_no}")
     def api_diagram(doc_id: str, page_no: str) -> dict:

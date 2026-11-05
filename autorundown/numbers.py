@@ -96,6 +96,19 @@ def line_keys(query: str) -> list[str]:
     return [p["key"] for p in parts(query)[0]]
 
 
+# OBD fault codes: P (powertrain), B (body), C (chassis), U (network), then
+# 0-3 and three hex digits -- "P0171", "p0420", "U0100", "P2004"
+FAULT_RE = re.compile(r"(?<![\w.-])[PBCU][0-3][0-9A-F]{3}(?![\w.-])", re.I)
+
+
+def fault_codes(query: str) -> list[str]:
+    """OBD fault codes in `query`, upper-cased. Searched on their own too:
+    "DTC P0171 lean" found the alternator and a slide rail (every word
+    ANDed found nothing, the OR top-up any page with "lean" or "dtc"), while
+    "P0171" alone found the W210's ME-SFI fault code pages (2026-11-04)."""
+    return list(dict.fromkeys(m.group(0).upper() for m in FAULT_RE.finditer(query or "")))
+
+
 def documents(query: str) -> list[str]:
     """WIS document numbers in `query`, as typed (upper-cased), then old job
     numbers ("88-0220")."""
