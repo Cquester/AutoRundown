@@ -741,6 +741,12 @@
   .fluids{margin-bottom:14px}
   .fluidshead{font-size:13px; margin:0 0 4px}
   .toolshead{font-size:13px; font-weight:600; margin:14px 0 4px}
+  /* Labour browse: a group's subgroups and rows sit under its name */
+  .labgrp > summary .muted, .labsubs .pbsub .muted{margin-left:4px}
+  .labsubs{margin-left:22px}
+  .labsubs .pbgrp{margin-left:0}
+  .labsubs .pbsub{margin-left:0; width:100%}
+  .labsubs table{width:100%}
   .tooltab .val{white-space:nowrap}
   .cappages{margin:0 0 8px; padding-left:18px}
   .fluids > .cond{margin:-6px 0 0}
@@ -6578,7 +6584,7 @@ async function labourBrowse(out, seq, folded = false) {
   }
   const label = esc(carBoxLabel || currentCarLabel());
   out.innerHTML = (folded ? '' : `<div class="muted" style="margin:0 0 8px">Labour times for <b>${label}</b> &mdash; `
-      + `${r.total} operations by group. Search or ask on the left to find the job by its words.</div>`)
+      + `${r.total} operations by group. Ask or search to find a job by its words.</div>`)
     + r.groups.map(g => `<details class="pbgrp labgrp" data-kg="${esc(g.kg)}"><summary>`
       + (r.book === 'lemon' ? '' : `<span class="gno">${esc(g.kg)}</span> `)
       + `${esc(g.name)} <span class="muted">(${g.count})</span></summary><div class="labsubs"></div></details>`).join('');
