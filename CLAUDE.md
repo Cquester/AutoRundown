@@ -540,6 +540,13 @@ Before a question the tab is the car's book to browse, group > subgroup >
 operation (`wis_links.labour_tree` / `lemon_tables.labour_tree`,
 `/api/wis/labour?browse=1[&group=]`, a group fetched when opened; the user,
 2026-11-04), and below a question's result as "Browse all labour times".
+A WIS row with scope text has "What it includes" (includes / only after
+diagnosis / does not include / notes, fetched on tap from
+`/api/wis/labour/{doc}/detail`; 2026-11-05). The Manual contents open with
+"Service schedule (ASSYST)" and "Service bulletins" (dated, what each
+replaces), and a WIS page says its kind and date (`doc_info`). All three
+come from tables `pull_vehicles.js` pulls since 2026-11-05: **they appear
+only after a new VM pull** (`wis-source.md`, G1-G3).
 The Labour times and Option codes buttons beside VIN are gone (Option codes
 entirely: nobody knows them; a data-card read may bring them back). Tests:
 `tests/test_wis_links.py`, `tests/test_epc_join.py`, `test_answer_tabs.py`.

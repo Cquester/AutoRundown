@@ -559,6 +559,62 @@ drawings; that is EPC, locked (above). What it did find, now pulled:
   yet in the real index. Extra work (category Z) has no formula and is left
   out; raw 0 means "not this type". Search also tries the manual's words
   (`synonyms.py`: water pump -> coolant pump, brake pads -> brake linings).
+- **What a labour time includes (G2, 2026-11-05).** `ASRAW_UmfassttextID`
+  (operation -> text id, 143,006 English rows) and `ASRAW_ID2Umfassttext`
+  (the text: a **UTF-8 blob**, one item a line -- `pull_vehicles.js` now
+  reads blob columns as text and keeps their line breaks as a literal `\n`)
+  give each operation's scope: what it includes, then after
+  "\*\*\*\*\*after diagnosis\*\*\*\*\*" what is done only if the diagnosis
+  calls for it, then "Does not include: ...". `ASRA_ArbeitspositionsHinweis`
+  (13,384 English) are an operation's notes ("each additional part 0.4 h"),
+  one row a line by `SequenzNummer`; `ASRA_KoGrHinweis` (7,673) a group's
+  ("Not included in jobs in Group 09: ..."). Sidecar tables
+  `labour_scope_text`, `labour_scope`, `labour_note`, `labour_group_note`;
+  a labour row with any of them carries `more`, and "What it includes" opens
+  `/api/wis/labour/{doc}/detail?variant=&book=&op=` (`wis_links.labour_detail`,
+  `scope_sections`; only a book of that variant). Keys are the labour time's
+  own (sparte, pl, family, kg, op).
+- **Bulletins: kind, date, what they replace (G3, 2026-11-05).** A WIS
+  document's kind is its number's prefix -- WIS's own `DpyInfoArt` names
+  (`wis_links.DOC_KINDS`): si = Service Information, sm = Service measure
+  (the bulletins), ar repair, ap maintenance, ba torques, bf capacities,
+  pe wiring ... The page's `doc_info` says it; the type from title words
+  (`records._classify`, 4,730 "tsb" pages) is not used for anything the
+  user sees and was left alone (changing it means a re-ingest). Dates and
+  changes: `W_SprachDokumente` (English: `DokEincheckDatum`, the check-in
+  date; `Aenderungshinweis`) and `Dok2AendText` (23,830 English rows,
+  "19.11.02 - Replaces SI 54/59 from 19.11.02 - SI file 54/59") -> sidecar
+  `doc_info(dok_id, date, change)`. The Manual contents open with "Service
+  bulletins": the car's si/sm documents newest first
+  (`/api/wis/bulletins/{doc}`, `manual_browse.bulletins`, the same scope and
+  filters as the contents). "Replaces" is shown as WIS words it; the old
+  numbers (STIN, SI 54/59) are mostly not in the corpus, so they are not
+  links. Also found: 17,302 documents exist only in US English (language
+  13) with no English (2) version, so the English extract has none of them.
+- **Service schedule, ASSYST (G1, 2026-11-05).** All small tables:
+  `W_AssystTyp2Serviceintervall` (a series' interval: 117 = 25,000 km /
+  15,000 mi), `AW_AssystStartlaufstrecke` (first service by series + engine
+  family and the oil sheet filled, `AW_AssystOelblaetter`: "MB 229.5") and
+  `W_AssystDok2LandIntervall` (562 rows: a maintenance sheet's interval in
+  days and km by country; `*` = all, -1 = none). The sheets' titles say what
+  the job is: ap0510p0001aay "Replace toothed belt (ASSYST PLUS)" every
+  1,825 days / 100,000 km, ap0050 "Perform oil change on front and rear axle
+  differential" 1,460 days / 75,000 km (checked against the real sidecar and
+  index, read-only). Sidecar `service_interval`, `service_first`,
+  `service_job`; `/api/wis/service/{doc}?variant=|engine=`
+  (`wis_links.service`): nothing until a model or engine is chosen, a job
+  only when its sheet is one of the car's own pages (another model's
+  toothed belt never shows), the all-countries figure with a count of the
+  countries that differ (never which of them is the shop's). Shown as
+  "Service schedule (ASSYST)" at the top of the Manual contents. Not used
+  yet: the K-codes, `AW_AssystDokumente` bit positions (which sheet a
+  service A/B includes), `W_AssystFIN2SACode` (only codes 807/808/809 --
+  service-interval options, **not a data card**).
+- **All three need a new VM pull** (the vehicles step, `pull_vehicles.js`,
+  then `parse_links.py`); until then the sidecar has no such tables and the
+  features stay hidden (no 500, `tests/test_wis_links.py`). The sample
+  corpus writes a small sidecar with all three (`make_sample_corpus.py
+  write_sidecar`) so a test box shows them.
 - **Pulled, not used**: the damage-code tables (hotspot names).
 Tests: `tests/test_wis_links.py` (free). Browser-checked against the real index
 (Playwright, no API key): links, diagram tap targets, the dialog, the oil

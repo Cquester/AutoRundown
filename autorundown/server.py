@@ -1054,6 +1054,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     scope_ids(vehicle), _corpus_ids(conn, vehicle), page_no)
                 page["diagram"] = page_no.isdigit() and wis_links.has_diagram(
                     Path(vehicle["file_path"]), int(page_no))
+                # what kind of document, its date, what it replaces (G3)
+                page["doc_info"] = page_no.isdigit() and wis_links.doc_info(
+                    Path(vehicle["file_path"]), int(page_no))
             # a LEMON / folder HTML page can be shown as itself (/api/original)
             page["has_original"] = page.get("doc_type") != "parts" and (
                 _is_wis(vehicle) or str(page.get("file_path") or "").lower().endswith((".html", ".htm")))
@@ -1159,6 +1162,51 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         if n is None:
             raise HTTPException(404, "no such section")
         return n
+
+    @app.get("/api/wis/bulletins/{doc_id}")
+    def api_wis_bulletins(doc_id: str, variant: int | None = None,
+                          engine: str | None = Query(None, max_length=64)) -> list[dict]:
+        """The car's Service Information / Service measure documents, newest
+        first, with their date and what they replace (G3). The manual scope,
+        filtered like the Manual tab's contents. WIS only. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            if not _is_wis(vehicle):
+                return []
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            t = manual_browse.tree(conn, vehicle, manual, True)
+        finally:
+            conn.close()
+        return manual_browse.bulletins(t, Path(vehicle["file_path"]))
+
+    @app.get("/api/wis/service/{doc_id}")
+    def api_wis_service(doc_id: str, variant: int | None = None,
+                        engine: str | None = Query(None, max_length=64)) -> dict:
+        """The car's ASSYST service schedule (wis_links.service, G1): the
+        series' interval, the first service for its engines, and the jobs
+        due by time or distance whose sheet is one of this car's own pages.
+        Nothing until a model or engine is chosen (a series' engines differ).
+        WIS only. Free."""
+        empty = {"interval": [], "first": [], "jobs": []}
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+            if not _is_wis(vehicle) or (variant is None and not engine):
+                return empty
+            try:
+                variants = json.loads(vehicle.get("variants") or "[]")
+            except ValueError:
+                variants = []
+            fams = {f.strip() for f in (engine or "").split(",") if f.strip()}
+            if variant is not None and 0 <= variant < len(variants):
+                fams = fams or {e.split(".")[0] for e in variants[variant].get("engines") or []}
+            manual, _ = split_scope(scope_ids(vehicle, variant, engine))
+            t = manual_browse.tree(conn, vehicle, manual, True)
+        finally:
+            conn.close()
+        return wis_links.service(Path(vehicle["file_path"]), vehicle.get("model_code") or "",
+                                 sorted(fams), manual_browse.page_titles(t))
 
     @app.get("/api/fluids/{doc_id}")
     def api_fluids(doc_id: str, variant: int | None = None,
@@ -1272,6 +1320,36 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         elif chosen:
             # every wording: labour books differ ("rear-end door" / "liftgate")
             out.update(wis_links.labour_times(corpus, chosen, q, alt=synonyms.translations(q)))
+        return out
+
+    @app.get("/api/wis/labour/{doc_id}/detail")
+    def api_wis_labour_detail(doc_id: str, variant: int,
+                              book: str = Query(..., max_length=32),
+                              op: str = Query(..., max_length=16)) -> dict:
+        """What one labour time includes, leaves out and the notes on it
+        (wis_links.labour_detail), fetched when a row is opened so the book
+        itself stays light. Only a book of this variant. Free."""
+        conn = db()
+        try:
+            vehicle = _vehicle_or_404(conn, doc_id)
+        finally:
+            conn.close()
+        if not _is_wis(vehicle):
+            raise HTTPException(404, "Labour times come from the Mercedes WIS data.")
+        try:
+            variants = json.loads(vehicle.get("variants") or "[]")
+        except ValueError:
+            variants = []
+        if not 0 <= variant < len(variants):
+            raise HTTPException(404, "No such variant.")
+        corpus = Path(vehicle["file_path"])
+        v = variants[variant]
+        books = wis_links.labour_books(corpus, list(v.get("baumuster") or []), list(v.get("engines") or []))
+        if book not in {b["book"] for b in books}:
+            raise HTTPException(404, "Not a labour book of this car.")
+        out = wis_links.labour_detail(corpus, book, op)
+        if out is None:
+            raise HTTPException(404, "No such operation.")
         return out
 
     def _labour_browse(tree: list[dict], group: str | None) -> dict:

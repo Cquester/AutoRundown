@@ -33,7 +33,8 @@ MAX_PAGES = 120000
 _DOCNR = re.compile(r"^([a-z]{2})(\d{2})(\d{2})")
 # what a WIS document is, where its number or type says so plainly
 KIND = {"ar": "Repair", "gf": "Function", "si": "Service information",
-        "bf": "Capacities"}
+        "sm": "Service measure", "bf": "Capacities"}
+BULLETINS = ("Service information", "Service measure")
 DOC_TYPE = {"wiring": "Wiring diagram", "spec_table": "Values"}
 OTHER = "Other documents"
 # Kinds whose number is not group + subgroup (measured on the real extract,
@@ -153,6 +154,41 @@ def tree(conn: sqlite3.Connection, vehicle: dict, scope, wis: bool) -> dict:
             _cache.clear()
         _cache[key] = t
     return t
+
+
+def bulletins(t: dict, corpus: Path) -> list[dict]:
+    """The car's Service Information and Service measure documents from its
+    contents tree, newest first, each with WIS's date and what it replaces
+    (wis_links.doc_dates; undated last). 2026-11-05, G3."""
+    out, seen = [], set()
+
+    def walk(n):
+        for p in n["pages"]:
+            if p["kind"] in BULLETINS and p["page_no"] not in seen:
+                seen.add(p["page_no"])
+                out.append(dict(p))
+        for c in n["children"].values():
+            walk(c)
+    walk(t)
+    info = wis_links.doc_dates(corpus, [int(p["page_no"]) for p in out if str(p["page_no"]).isdigit()])
+    for p in out:
+        p["date"], p["change"] = info.get(int(p["page_no"]) if str(p["page_no"]).isdigit() else 0, ("", ""))
+    out.sort(key=lambda p: p["title"].lower())
+    out.sort(key=lambda p: p["date"], reverse=True)      # "" (undated) sorts last
+    return out
+
+
+def page_titles(t: dict) -> dict[str, str]:
+    """{page_no: title} of every page in a contents tree."""
+    out: dict[str, str] = {}
+
+    def walk(n):
+        for p in n["pages"]:
+            out.setdefault(str(p["page_no"]), p["title"])
+        for c in n["children"].values():
+            walk(c)
+    walk(t)
+    return out
 
 
 def node(t: dict, path: list[str]) -> dict | None:

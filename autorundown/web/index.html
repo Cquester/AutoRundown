@@ -716,6 +716,7 @@
   .mbpage{display:flex; gap:8px; align-items:baseline; width:100%; text-align:left; padding:4px 0; font:inherit;
     color:inherit; background:none; border:0; cursor:pointer}
   .mbpage:hover span:last-child{text-decoration:underline}
+  .mbpage > span:last-child{min-width:0; white-space:normal; overflow-wrap:anywhere}
   .mbkind{flex:none; min-width:4.5em; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em}
   @media (max-width:700px){ .plines .co{display:block} }
   /* Torque specs / Capacities: what, then the value as printed */
@@ -744,6 +745,11 @@
   /* Labour browse: a group's subgroups and rows sit under its name */
   .labgrp > summary .muted, .labsubs .pbsub .muted{margin-left:4px}
   .labsubs{margin-left:22px}
+  .labinc{font-size:12px; margin-left:6px}
+  .docinfo{font-size:13px; margin:-6px 0 12px} .docinfo.bull{font-weight:600}
+  .docinfo .muted{font-weight:400} .mbchange{display:block; font-size:12px}
+  .labdetail td{background:var(--soft, rgba(127,127,127,.06)); font-size:13px}
+  .labsec{margin:2px 0 6px} .labsec ul{margin:2px 0 0; padding-left:20px} .labsec li{margin:1px 0}
   .labsubs .pbgrp{margin-left:0}
   .labsubs .pbsub{margin-left:0; width:100%}
   .labsubs table{width:100%}
@@ -4535,6 +4541,7 @@ async function showPage(pageNo, doc, open = true) {
       + `<div class="muted">${esc(p.section_path)}</div>
        <h3 style="margin:6px 0 2px">${esc(p.title)}</h3>
        <div class="muted" style="margin-bottom:12px">page ${esc(p.page_no)}</div>
+       ${docInfoLine(p.doc_info)}
        ${p.applicability!=='this_vehicle'
          ? '<div class="warnbox">This page documents a different variant or trim.</div>' : ''}
        ${p.outside_scope
@@ -5201,9 +5208,73 @@ async function showManualBrowse() {
       + `Search or ask on the left to find a page by its words.`
       + (variantIdx() === null && !engineSel() ? ' Pick your model or engine above to narrow it.' : '') + `</div>`
       + (n.count ? withDoc(doc, () => manualLevelHtml(n)) : `<div class="empty">No manual pages for this car.</div>`);
+    if (n.count && !lemonCar()) { bulletinsInto(el, doc, seq); serviceInto(el, doc, seq); }
   } catch (e) {
     if (seq === manualSeq) el.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
+}
+// The car's WIS Service Information / Service measure documents, newest
+// first, with their date and what they replace (G3, 2026-11-05): a section
+// at the top of the Manual contents, shown only when the car has any.
+async function bulletinsInto(el, doc, seq) {
+  let list;
+  try {
+    list = await api(`/api/wis/bulletins/${encodeURIComponent(doc)}?`
+      + (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
+      + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : ''));
+  } catch (e) { return; }                  // the contents still work without it
+  if (seq !== manualSeq || !list.length) return;
+  const d = document.createElement('details');
+  d.className = 'mbsec mbbull';
+  d.innerHTML = `<summary>Service bulletins <span class="muted">(${list.length})</span></summary>`
+    + `<div class="mbpages">` + withDoc(doc, () => list.map(p => `<button type="button" class="mbpage" ${pageAttrs(p.page_no)}>`
+      + `<span class="mbkind">${esc(p.date ? fmtDocDate(p.date) : p.kind)}</span><span>${esc(p.title)}`
+      + (p.change ? `<span class="muted mbchange">${esc(p.change)}</span>` : '') + `</span></button>`).join('')) + `</div>`;
+  d.dataset.loaded = '1';                  // not a server level: nothing to fetch on open
+  const intro = el.querySelector(':scope > .muted');
+  if (intro) intro.after(d); else el.prepend(d);
+}
+// The car's ASSYST service schedule (G1, 2026-11-05): its interval, the
+// first service for its engine, and the jobs due by time or distance, each
+// opening its maintenance sheet. Only once a model or engine is chosen.
+const fmtNum = n => Number(n).toLocaleString('en-US');
+const fmtEvery = (days, km) => [days ? (days % 365 === 0 ? `${days / 365} year${days === 365 ? '' : 's'}` : `${days} days`) : '',
+                                km ? `${fmtNum(km)} km` : ''].filter(Boolean).join(' / ');
+async function serviceInto(el, doc, seq) {
+  if (variantIdx() === null && !engineSel()) return;
+  let s;
+  try {
+    s = await api(`/api/wis/service/${encodeURIComponent(doc)}?`
+      + (variantIdx() === null ? '' : `variant=${variantIdx()}&`)
+      + (engineSel() ? `engine=${encodeURIComponent(engineSel())}` : ''));
+  } catch (e) { return; }
+  if (seq !== manualSeq || !(s.interval.length || s.first.length || s.jobs.length)) return;
+  const dist = (km, mi) => [km ? `${fmtNum(km)} km` : '', mi ? `${fmtNum(mi)} mi` : ''].filter(Boolean).join(' / ');
+  const d = document.createElement('details');
+  d.className = 'mbsec mbserv';
+  d.dataset.loaded = '1';
+  d.innerHTML = `<summary>Service schedule (ASSYST)</summary><div class="mbbody">`
+    + (s.interval.length ? `<div class="labsec"><b>Service interval:</b> ${s.interval.map(i => esc(dist(i.km, i.miles))).join(' or ')}</div>` : '')
+    + (s.first.length ? `<div class="labsec"><b>First service</b><ul>` + s.first.map(f =>
+        `<li>Engine ${esc(f.engine)}${f.sheet ? `, oil to ${esc(f.sheet)}` : ''}: ${esc(dist(f.km, f.miles))}</li>`).join('') + `</ul></div>` : '')
+    + (s.jobs.length ? `<div class="tablewrap"><table><thead><tr><th>Due by time or distance</th><th>Every</th></tr></thead><tbody>`
+        + withDoc(doc, () => s.jobs.map(j => `<tr><td><button type="button" class="linkbtn" ${pageAttrs(j.page_no)}>${esc(j.title)}</button>`
+          + (j.countries ? ` <span class="muted" style="font-size:12px">other figures in ${j.countries} countr${j.countries === 1 ? 'y' : 'ies'}</span>` : '')
+          + `</td><td style="white-space:nowrap">${esc(fmtEvery(j.every_days, j.every_km))}`
+          + (j.start_days || j.start_km ? `<div class="muted" style="font-size:12px">first at ${esc(fmtEvery(j.start_days, j.start_km))}</div>` : '')
+          + `</td></tr>`).join('')) + `</tbody></table></div>` : '')
+    + `</div>`;
+  const intro = el.querySelector(':scope > .muted');
+  if (intro) intro.after(d); else el.prepend(d);
+}
+// WIS's 2002-11-19 as the shop reads it
+const fmtDocDate = d => { const m = String(d).match(/^(\d{4})-(\d\d)-(\d\d)$/); return m ? `${m[2]}/${m[3]}/${m[1]}` : d; };
+// a WIS document's kind, date and what it replaces, under its title
+function docInfoLine(i) {
+  if (!i || !(i.kind || i.date || i.change)) return '';
+  const bits = [i.kind, i.date ? fmtDocDate(i.date) : ''].filter(Boolean).map(esc).join(' · ');
+  return `<div class="docinfo${i.bulletin ? ' bull' : ''}">${bits}`
+    + (i.change ? `<div class="muted">${esc(i.change)}</div>` : '') + `</div>`;
 }
 // a section opened: its level fetched once
 document.addEventListener('toggle', async e => {
@@ -6587,11 +6658,43 @@ function labourNone(r, out) {
   return false;
 }
 const labRows = items => `<div class="tablewrap"><table><tbody>` + items.map(i =>
-  `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span></td>`
+  `<tr><td>${esc(i.text)} <span class="muted" style="font-size:12px">${esc(i.op)}</span>`
+  + (i.more ? ` <button type="button" class="linkbtn labinc" data-op="${esc(i.op)}" aria-expanded="false">What it includes</button>` : '')
+  + `</td>`
   + `<td style="white-space:nowrap; text-align:right"><b>${i.hours < 0.1 ? '&lt;0.1' : i.hours.toFixed(1)} h</b>`
   + ` <span class="muted" style="font-size:12px">${i.minutes} min</span>`
   + (i.warranty ? `<div class="muted" style="font-size:12px">warranty ${esc(i.warranty)} h</div>` : '')
   + `</td></tr>`).join('') + `</tbody></table></div>`;
+// What a WIS labour time includes, leaves out, and the notes on it and its
+// group (2026-11-05, G2): fetched when "What it includes" is tapped, shown
+// as a row under the operation; a second tap folds it.
+let labBookKey = '';
+const labList = (title, xs) => xs.length
+  ? `<div class="labsec"><b>${title}</b><ul>${xs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
+document.addEventListener('click', async e => {
+  const b = e.target.closest('.labinc');
+  if (!b) return;
+  const tr = b.closest('tr'), next = tr.nextElementSibling;
+  if (next && next.classList.contains('labdetail')) {
+    next.remove(); b.setAttribute('aria-expanded', 'false'); return;
+  }
+  const row = document.createElement('tr');
+  row.className = 'labdetail';
+  row.innerHTML = '<td colspan="2"><span class="spinner"></span></td>';
+  tr.after(row);
+  b.setAttribute('aria-expanded', 'true');
+  try {
+    const d = await api(`/api/wis/labour/${encodeURIComponent(docId())}/detail?variant=${variantIdx()}`
+                        + `&book=${encodeURIComponent(labBookKey)}&op=${encodeURIComponent(b.dataset.op)}`);
+    const html = labList('Includes', d.includes) + labList('Only if the diagnosis calls for it', d.after_diagnosis)
+      + labList('Does not include', d.excludes) + labList('Notes', d.notes)
+      + (d.group_notes.length ? `<details class="labsec"><summary class="muted">Notes on group ${esc(b.dataset.op.split('-')[0])}</summary>`
+         + `<ul>${d.group_notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : '');
+    row.firstElementChild.innerHTML = html || '<span class="muted">WIS gives no details for this operation.</span>';
+  } catch (err) {
+    row.firstElementChild.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
+  }
+});
 // The book by group > subgroup > operation. A group's subgroups are fetched
 // when it is opened (a book is ~2,000 operations; a group ~10 KB); a
 // subgroup of one operation is that operation's row, not another dropdown.
@@ -6602,6 +6705,7 @@ async function labourBrowse(out, seq, folded = false) {
   catch (e) { if (seq === labSeq) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`; return 0; }
   if (seq !== labSeq) return 0;
   if (labourNone(r, out)) return 0;
+  labBookKey = r.book || '';
   if (!r.groups || !r.groups.length) {
     out.innerHTML = `<div class="muted">${r.book === 'lemon' ? 'This manual has no labour-time pages.'
                                                             : 'WIS has no labour times for this model.'}</div>`;
@@ -6651,6 +6755,7 @@ async function loadLabour() {
   }
   if (seq !== labSeq) return 0;
   if (labourNone(r, out)) return 0;
+  labBookKey = r.book || '';
   if (r.book === 'lemon' && !r.total && !r.items.length) {
     out.innerHTML = '<div class="muted">This manual has no labour times that match, for this car.</div>'; return 0;
   }

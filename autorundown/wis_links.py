@@ -113,6 +113,96 @@ def docnrs(corpus: Path, dok_ids: list[int]) -> dict[int, list[str]]:
     return out
 
 
+# What a document is, by its number's prefix: WIS's own document types
+# (DpyInfoArt, English names). Bulletins are si and sm.
+DOC_KINDS = {"si": "Service Information", "sm": "Service measure", "sn": "Introduction into Service Manual",
+             "as": "Safety notes", "ah": "Safety notes", "ap": "Maintenance and care",
+             "ad": "Diagnosis", "ar": "Testing and repair", "an": "Aftermarket installation",
+             "az": "Aftermarket installation", "gf": "Function description", "be": "Test and adjustment values",
+             "ba": "Tightening torques", "bf": "Filling capacities", "bb": "Operating fluids",
+             "br": "Repair materials", "bt": "Technical modifications", "pe": "Wiring diagram",
+             "ph": "Hydraulic diagram", "pp": "Pneumatic diagram", "wf": "Tools", "we": "Tools",
+             "ws": "Special tools", "wh": "Tools", "of": "Forms", "os": "Special waste handling",
+             "ov": "Administration"}
+BULLETIN_KINDS = ("si", "sm")
+
+
+def doc_info(corpus: Path, dok_id: int) -> dict | None:
+    """{kind, code, bulletin, date, change} for one WIS document, or None if
+    the sidecar knows nothing of it. `kind` from the number's prefix
+    (DOC_KINDS), `date` and `change` ("Replaces SI 54/59 ...") from doc_info
+    -- a sidecar built before 2026-11-05 has no doc_info: kind only."""
+    nrs = docnrs(corpus, [dok_id]).get(dok_id) or []
+    code = next((n[:2] for n in nrs if n[:2] in DOC_KINDS), nrs[0][:2] if nrs else "")
+    row = next(iter(_rows(corpus, "SELECT date, change FROM doc_info WHERE dok_id=?", (dok_id,)) or []),
+               ("", ""))
+    if not code and not any(row):
+        return None
+    return {"kind": DOC_KINDS.get(code, ""), "code": code, "bulletin": code in BULLETIN_KINDS,
+            "date": row[0] or "", "change": row[1] or ""}
+
+
+def doc_dates(corpus: Path, dok_ids: list[int]) -> dict[int, tuple[str, str]]:
+    """{DokID: (date, change)} from doc_info; {} without it."""
+    out: dict[int, tuple[str, str]] = {}
+    ids = sorted(set(dok_ids))
+    for i in range(0, len(ids), 900):
+        part = ids[i:i + 900]
+        for dok, d, ch in _rows(corpus, f"SELECT dok_id, date, change FROM doc_info WHERE dok_id IN "
+                                        f"({','.join('?' * len(part))})", part) or []:
+            out[dok] = (d or "", ch or "")
+    return out
+
+
+def service(corpus: Path, series: str, families: list[str], pages: dict[str, str]) -> dict:
+    """The car's ASSYST service schedule (G1, 2026-11-05): {"interval":
+    [{km, miles}], "first": [{engine, km, miles, sheet}], "jobs": [{page_no,
+    title, every_days, every_km, start_days, start_km, countries}]}.
+
+    `pages` is the car's own manual pages ({page_no: title}, the Manual
+    contents): a job counts only when its maintenance sheet is one of them,
+    so another model's toothed belt is never listed. Jobs are the rows for
+    all countries ("*"); where some country has other figures `countries`
+    says how many differ, never which figure is right for the shop. Empty
+    lists without the tables (a sidecar from before 2026-11-05)."""
+    out = {"interval": [], "first": [], "jobs": []}
+    if not series:
+        return out
+    seen = set()
+    for km, mi, _ in _rows(corpus, "SELECT km, miles, display FROM service_interval WHERE series=? "
+                                   "ORDER BY km", (series,)) or []:
+        if (km, mi) not in seen and (km or mi):
+            seen.add((km, mi))
+            out["interval"].append({"km": km, "miles": mi})
+    fams = set(families)
+    seen = set()
+    for eng, extra, km, mi, sheet in _rows(corpus, "SELECT engine, extra, km, miles, sheet FROM service_first "
+                                                   "WHERE series=? ORDER BY engine, km", (series,)) or []:
+        key = (eng, extra, km, mi, sheet)
+        if (not fams or eng in fams) and (km or mi) and key not in seen:
+            seen.add(key)
+            out["first"].append({"engine": f"{eng} {extra}".strip(), "km": km, "miles": mi, "sheet": sheet})
+    rows = _rows(corpus, "SELECT j.docnr, d.dok_id, j.country, j.every_days, j.every_km, j.start_days, "
+                         "j.start_km FROM service_job j JOIN docnr d ON d.docnr = j.docnr") or []
+    jobs: dict[str, dict] = {}
+    other: dict[str, set] = {}
+    for nr, dok, country, days, km, sdays, skm in rows:
+        p = str(dok)
+        if p not in pages:
+            continue
+        if country == "*":
+            jobs.setdefault(p, {"page_no": p, "title": " ".join((pages[p] or "").split()),
+                                "every_days": days, "every_km": km, "start_days": sdays,
+                                "start_km": skm, "countries": 0})
+        else:
+            other.setdefault(p, set()).add(country)
+    for p, j in jobs.items():
+        j["countries"] = len(other.get(p, ()))
+    out["jobs"] = sorted(jobs.values(), key=lambda j: (j["every_km"] or 10 ** 9, j["every_days"] or 10 ** 9,
+                                                       j["title"].lower()))
+    return out
+
+
 def all_docnrs(corpus: Path) -> list[tuple[int, str]]:
     """Every (DokID, stored document number) of the corpus; [] without the
     sidecar. For the document kinds a shop can hide (search.HIDEABLE_KINDS)."""
@@ -566,6 +656,55 @@ def labour_tree(corpus: Path, book: str) -> list[dict]:
     return out
 
 
+_AFTER_DIAG = re.compile(r"^\*+\s*after diagnosis\s*\*+$", re.I)
+_NOT_INCL = re.compile(r"^does not include\s*:?\s*", re.I)
+
+
+def scope_sections(text: str) -> dict:
+    """A scope text as WIS prints it -> {"includes", "after_diagnosis",
+    "excludes"}, each a list of lines. "*****after diagnosis*****" starts
+    the work done only if the diagnosis calls for it, "Does not include:"
+    what the time leaves out (the rest of its line is the first item)."""
+    out = {"includes": [], "after_diagnosis": [], "excludes": []}
+    part = "includes"
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if _AFTER_DIAG.match(line):
+            part = "after_diagnosis"
+            continue
+        m = _NOT_INCL.match(line)
+        if m:
+            part, line = "excludes", line[m.end():].strip()
+            if not line:
+                continue
+        out[part].append(line)
+    return out
+
+
+def labour_detail(corpus: Path, book: str, op: str) -> dict | None:
+    """What one operation's time includes and the notes on it and its group:
+    {"op", "includes", "after_diagnosis", "excludes", "notes", "group_notes"}
+    (lists of lines). None for a malformed book or operation; empty lists
+    where WIS has nothing (or the sidecar predates these tables)."""
+    try:
+        sp, pl, fam, _ = book.split("-")
+        kg, num = op.split("-")
+    except ValueError:
+        return None
+    one = lambda sql, args: next(iter(_rows(corpus, sql, args) or []), (None,))[0]
+    scope = one("SELECT t.text FROM labour_scope s JOIN labour_scope_text t ON t.id = s.id "
+                "WHERE s.sparte=? AND s.pl=? AND s.family=? AND s.kg=? AND s.op=?",
+                (sp, pl, fam, kg, num))
+    note = one("SELECT text FROM labour_note WHERE sparte=? AND pl=? AND family=? AND kg=? AND op=?",
+               (sp, pl, fam, kg, num))
+    group = one("SELECT text FROM labour_group_note WHERE sparte=? AND pl=? AND family=? AND kg=?",
+                (sp, pl, fam, kg))
+    lines = lambda t: [x.strip() for x in (t or "").splitlines() if x.strip()]
+    return {"op": op, **scope_sections(scope), "notes": lines(note), "group_notes": lines(group)}
+
+
 def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
                  alt: str | list[str] = "") -> dict:
     """Flat-rate times in one book: {"total", "best", "items": [{group, op,
@@ -607,6 +746,13 @@ def labour_times(corpus: Path, book: str, q: str = "", limit: int = 200,
         items.append({"group": groups.get(kg, kg), "kg": kg, "op": f"{kg}-{op}", "text": text,
                       "minutes": round(minutes), "hours": round(minutes / 60, 1)})
     items.sort(key=lambda i: i["op"])
+    more = {(kg, op) for kg, op in _static_rows(
+        corpus, "SELECT kg, op FROM labour_scope WHERE sparte=? AND pl=? AND family=? "
+                "UNION SELECT kg, op FROM labour_note WHERE sparte=? AND pl=? AND family=?",
+        (sp, pl, fam) * 2) or []}
+    for i in items:
+        if (i["kg"], i["op"].partition("-")[2]) in more:
+            i["more"] = True          # what the time includes: /api/wis/labour/detail
     if queries:
         return _rank_labour(items, queries, limit)
     return {"total": len(items), "best": 0, "items": items[:limit]}

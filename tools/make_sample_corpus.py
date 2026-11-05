@@ -280,6 +280,86 @@ def model_fields(series, specific=False, all_series=True):
     }
 
 
+def write_sidecar(docnr_of: dict) -> None:
+    """A small wis_links.sqlite for the box: document numbers, the labour
+    book of the 190 E 2.3-16 / 2.3 and the E 320 4MATIC with what a time
+    includes (G2), bulletin dates (G3) and the ASSYST schedule (G1). Same
+    tables as extractor/parse_links.py writes; the figures are invented."""
+    import re
+    import sqlite3
+    path = OUT / "wis_links.sqlite"
+    path.unlink(missing_ok=True)
+    norm = lambda s: re.sub(r"[^0-9a-z]", "", s.lower())
+    c = sqlite3.connect(path)
+    c.executescript("""
+    CREATE TABLE docnr(docnr TEXT, dok_nr_id INTEGER, dok_id INTEGER, PRIMARY KEY (docnr, dok_id));
+    CREATE TABLE labour_car(baumuster TEXT, engine TEXT, sparte TEXT, pl TEXT, family TEXT, type TEXT);
+    CREATE TABLE labour_book(sparte TEXT, pl TEXT, family TEXT, type TEXT, family_name TEXT, type_name TEXT);
+    CREATE TABLE labour_group(kg TEXT PRIMARY KEY, name TEXT);
+    CREATE TABLE labour_subgroup(sparte TEXT, kg TEXT, entry TEXT, name TEXT);
+    CREATE TABLE labour_op(sparte TEXT, kg TEXT, op TEXT, entry TEXT, category TEXT, text TEXT);
+    CREATE TABLE labour_time(sparte TEXT, pl TEXT, family TEXT, kg TEXT, op TEXT, typenart TEXT, raw INTEGER);
+    CREATE TABLE labour_formula(region TEXT, sparte TEXT, pl TEXT, family TEXT, kg TEXT, category TEXT, expr TEXT);
+    CREATE TABLE labour_scope_text(id INTEGER PRIMARY KEY, text TEXT);
+    CREATE TABLE labour_scope(sparte TEXT, pl TEXT, family TEXT, kg TEXT, op TEXT, id INTEGER);
+    CREATE TABLE labour_note(sparte TEXT, pl TEXT, family TEXT, kg TEXT, op TEXT, text TEXT);
+    CREATE TABLE labour_group_note(sparte TEXT, pl TEXT, family TEXT, kg TEXT, text TEXT);
+    CREATE TABLE doc_info(dok_id INTEGER PRIMARY KEY, date TEXT, change TEXT);
+    CREATE TABLE service_interval(series TEXT, km INTEGER, miles INTEGER, display TEXT);
+    CREATE TABLE service_first(series TEXT, engine TEXT, extra TEXT, km INTEGER, miles INTEGER, sheet TEXT);
+    CREATE TABLE service_job(docnr TEXT, country TEXT, every_days INTEGER, every_km INTEGER,
+                             start_days INTEGER, start_km INTEGER);
+    """)
+    c.executemany("INSERT OR IGNORE INTO docnr VALUES (?,?,?)",
+                  [(norm(nr), 2000000 + d, d) for d, nr in docnr_of.items()])
+    # labour: the W201 book (06) and the W210 book (21)
+    c.executemany("INSERT INTO labour_car VALUES (?,?,?,?,?,?)", [
+        ("201.034", "102.983", "00", "00", "06", "41"), ("201.028", "102.985", "00", "00", "06", "41"),
+        ("210.082", "112.941", "00", "00", "21", "65"), ("210.282", "112.941", "00", "00", "21", "65")])
+    c.executemany("INSERT INTO labour_book VALUES (?,?,?,?,?,?)", [
+        ("00", "00", "06", "41", "201", "190 E 2.3"), ("00", "00", "21", "65", "210", "E 320 4MATIC")])
+    c.executemany("INSERT INTO labour_group VALUES (?,?)", [("05", "Engine timing"), ("42", "Brakes")])
+    c.executemany("INSERT INTO labour_subgroup VALUES (?,?,?,?)", [
+        ("00", "42", "1000", "Brake pads, brake discs"), ("00", "42", "1300", "Brake system, bleed"),
+        ("00", "05", "1100", "Toothed belt")])
+    c.executemany("INSERT INTO labour_op VALUES (?,?,?,?,?,?)", [
+        ("00", "42", "1050", "1000", "G", "Brake pads on front axle Replace"),
+        ("00", "42", "1350", "1300", "G", "Bleed hydraulic brake system"),
+        ("00", "05", "1150", "1100", "G", "Toothed belt of balance shaft Replace")])
+    for fam, typ in (("06", "41"), ("21", "65")):
+        c.executemany("INSERT INTO labour_time VALUES (?,?,?,?,?,?,?)", [
+            ("00", "00", fam, "42", "1050", typ, 40), ("00", "00", fam, "42", "1350", typ, 13),
+            ("00", "00", fam, "05", "1150", typ, 75)])
+        c.executemany("INSERT INTO labour_formula VALUES (?,?,?,?,?,?,?)", [
+            ("10", "00", "00", fam, kg, "G", "(0.9883**x*0.3+1.21)*x") for kg in ("05", "42")])
+        c.execute("INSERT INTO labour_scope VALUES ('00','00',?,'42','1050',1)", (fam,))
+        c.execute("INSERT INTO labour_note VALUES ('00','00',?,'42','1050',?)",
+                  (fam, "each additional axle 0.3 h"))
+        c.execute("INSERT INTO labour_group_note VALUES ('00','00',?,'42',?)",
+                  (fam, "Not included in jobs in Group 42: road test\nRenewing brake fluid"))
+    c.execute("INSERT INTO labour_scope_text VALUES (1, ?)", (
+        "Check brake pedal for path and contact pressure\nRemove/install wheel(s)\n"
+        "Remove/install all brake pads\nCheck brake discs for cracks, measure thickness\n"
+        "*****after diagnosis*****\nReplace brake disc(s)\n"
+        "Does not include: Socket threads in brake caliper - Recut",))
+    # bulletins: dated, every other one replacing an older one
+    si = sorted(d for d, nr in docnr_of.items() if nr.upper().startswith("SI"))
+    c.executemany("INSERT INTO doc_info VALUES (?,?,?)", [
+        (d, f"20{3 + k % 9:02d}-0{1 + k % 9}-1{k % 9}",
+         f"Replaces SI 42/{10 + k} of 0{1 + k % 9}.11.20{k % 9:02d}" if k % 2 == 0 else "")
+        for k, d in enumerate(si)])
+    # ASSYST
+    c.executemany("INSERT INTO service_interval VALUES (?,?,?,?)", [
+        ("201", 15000, 9500, "N"), ("210", 25000, 15000, "X")])
+    c.executemany("INSERT INTO service_first VALUES (?,?,?,?,?,?)", [
+        ("210", "112", "", 25000, 15000, "MB 229.3"), ("201", "102", "", 15000, 9500, "MB 229.1")])
+    c.executemany("INSERT INTO service_job VALUES (?,?,?,?,?,?)", [
+        ("ap0510p0001aay", "*", 1825, 100000, None, None),
+        ("ap0510p0001aay", "513L", 3650, 200000, None, None)])
+    c.commit()
+    c.close()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--catalogue", default=None,
@@ -304,6 +384,7 @@ def main():
     records = []
     dok = 1000000
     docnrs = []
+    docnr_of = {}              # DokID -> its document number (the sidecar)
 
     # Every series gets documents of its own, so the picker is not full of
     # cars with an empty manual. A series only appears in AutoRundown if some
@@ -315,6 +396,7 @@ def main():
             dok += 1
             docnr = docnr_tpl.format(n=dok % 10000)
             docnrs.append(docnr)
+            docnr_of[dok] = docnr
             # most documents name one series; some span several, which is
             # what produces the page fan-out
             models = [series]
@@ -351,6 +433,7 @@ def main():
                 n = dok % 10000
                 docnr = docnr_tpl.format(n=n)
                 docnrs.append(docnr)
+                docnr_of[dok] = docnr
                 models = random.sample(MODELS, random.choice([1, 1, 2, 3]))
                 records.append({
                     "dok_id": dok, "dok_nr_id": 2000000 + dok, "dok_type": 1,
@@ -422,6 +505,7 @@ def main():
     for title, body in SERVICE_INFO:
         for group in range(3):
             dok += 1
+            docnr_of[dok] = f"SI{54 + group}.00-P-{dok % 10000:04d}A"
             records.append({
                 "dok_id": dok, "dok_nr_id": 2000000 + dok, "dok_type": 2,
                 "lang": "en", "title": title,
@@ -484,6 +568,30 @@ def main():
         "body_text": "Validity: Model all\n\nResetting tool for the brake caliper pistons.",
         "sids_header": 'ASCII-SIDS2.00,"18.06.2016","HP 9000/700"',
     })
+
+    # G1-G3 (2026-11-05): a bulletin and a maintenance sheet for the 190 E
+    # and the E 320 4MATIC, so the box shows "Service bulletins" and the
+    # "Service schedule" (write_sidecar). Last, as above.
+    for title, docnr, body in (
+            ("Service Information: front brake pad wear sensor cable routing",
+             "SI42.10-P-0042A", "Route the wear sensor cable behind the brake hose bracket."),
+            ("Replace toothed belt (ASSYST PLUS)", "AP05.10-P-0001AAY",
+             "Replace the toothed belt of the balance shaft at the interval shown.")):
+        dok += 1
+        docnr_of[dok] = docnr
+        records.append({
+            "dok_id": dok, "dok_nr_id": 2000000 + dok, "dok_type": 1,
+            "lang": "en", "title": title,
+            "fzg_art_bits": "00100000000000000000000000000000",
+            "fzg_art_indices": [2], "kurzgueltigkeit_id": 98393,
+            "cluster": 8, "body_format": "sids",
+            "applicability_notes": applic(["201", "210"]), **model_fields(["201", "210"]),
+            "cross_refs": [], "image_refs": [], "figures": [],
+            "body_text": body,
+            "sids_header": 'ASCII-SIDS2.00,"18.06.2016","HP 9000/700"',
+        })
+
+    write_sidecar(docnr_of)
 
     with (OUT / "records.jsonl").open("w", encoding="utf-8", newline="\n") as f:
         for r in records:
