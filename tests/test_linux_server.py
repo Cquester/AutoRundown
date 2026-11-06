@@ -86,7 +86,9 @@ def mercedes_folder() -> None:
         if name == "msi":
             check("an installed app (no tests/, no .git) is not a checkout", mod.REPO is None, mod.REPO)
         else:
-            check(f"a {name} ({marks[0]}/) is a checkout", mod.REPO == top, mod.REPO)
+            # resolved: the Windows runner's temp folder is RUNNER~1 and runneradmin
+            check(f"a {name} ({marks[0]}/) is a checkout",
+                  mod.REPO is not None and mod.REPO.resolve() == top.resolve(), mod.REPO)
 
 
 def java() -> None:
