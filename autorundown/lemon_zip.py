@@ -3,7 +3,10 @@ LEMON's site in their own browser, imported by "Add this car".
 
 The app never fetches from LEMON (the site asks not to be scraped): it opens
 the car's page and then looks for the zip in the Downloads folder, under the
-name LEMON gives it (lemon_catalogue.zip_name). A zip is untrusted data: it
+name LEMON gives it (lemon_catalogue.zip_name) -- or the user uploads the
+zip from their browser (a server with no screen, reached over SSH: the
+browser that saved it is on another machine), saved into that Downloads
+folder (upload_target) only if its folder names the car picked (same_car). A zip is untrusted data: it
 is unpacked only if it holds one folder of plain relative paths within size
 limits, into <app dir>/manuals/<doc_id>/ with DOWNLOAD_MARK -- the same rule
 as a CHARM car: removing the car deletes that folder. The zip itself is the
@@ -27,6 +30,9 @@ MAX_BYTES = 40 << 30            # the F-150's zip unpacks to ~700 MB; 40 GB is n
 MAX_RATIO = 1000                # one entry may not inflate more than this
 CHUNK = 1 << 20
 MAX_PATH = 259                  # Windows, without long-path support turned on
+# a zip sent from the browser (Add a car on a server with no browser of its
+# own); the F-150's is 634 MB, so 20 GB is no car either
+MAX_UPLOAD = 20 << 30
 
 
 class BadZip(Exception):
@@ -62,6 +68,33 @@ def find(name: str, folder: Path | None = None) -> Path | None:
         except (zipfile.BadZipFile, OSError):
             continue
     return None
+
+
+def upload_target(name: str, folder: Path | None = None) -> Path:
+    """Where a zip uploaded from the browser is saved: Downloads (of the
+    machine running AutoRundown) under LEMON's name, a character Windows
+    can't hold replaced by "_" (find() reads it back), "name (n).zip" when
+    the name is taken -- never over a file already there."""
+    folder = folder or downloads_dir()
+    stem = "".join("_" if c in '/\\:*?"<>|' or ord(c) < 32 else c
+                   for c in (name[:-4] if name.lower().endswith(".zip") else name))
+    p, n = folder / f"{stem}.zip", 0
+    while p.exists():
+        n += 1
+        p = folder / f"{stem} ({n}).zip"
+    return p
+
+
+def _fold(s: str) -> str:
+    return re.sub(r"[^0-9a-z]+", "", s.lower())
+
+
+def same_car(top: str, expected: str) -> bool:
+    """The zip's top folder names the car that was picked ("2008 Toyota Camry
+    LE, 2.4 E, Automatic"), letters and digits compared: an uploaded zip
+    has no LEMON file name to go by, and another car's zip would be filed
+    under this car's folder."""
+    return bool(_fold(top)) and _fold(top) == _fold(expected)
 
 
 def _parts(name: str) -> tuple[str, ...]:

@@ -394,6 +394,26 @@ card under it, `offerCatalogueCar(r, '#lemAddBox')`).
   Removing the car recycles that folder; the zip stays in Downloads.
 - Checked in a test box (2026-10-27): the search, the LEMON link, waiting,
   and a stand-in zip dropped in Downloads imported and selected.
+- **"Upload the zip"** (2026-11-05, the user is moving the app to a
+  headless Ubuntu server reached over SSH: the browser that saves the zip
+  is on another machine, so the server's Downloads never sees it). Every
+  download card (and the waiting card) has an *Upload the zip* file
+  picker, admin only like the rest of Add a car. The browser `PUT`s the
+  file to `/api/import/lemon-upload?path=<JSON make, year, model,
+  variant>` with a progress bar and Cancel. The server: the car must be in
+  the catalogue, no import running, `Content-Length` given and at most
+  `lemon_zip.MAX_UPLOAD` (20 GB), the size plus 2 GB free; the body is
+  streamed into a hidden `.<name>.<random>.part` in Downloads (never
+  memory), then `lemon_zip.check` and `same_car` (the zip's top folder,
+  letters and digits only, must be `<year> <make> <model engine>`: an
+  uploaded zip has no LEMON file name to go by, and another car's zip
+  would be unpacked into this car's folder), then renamed to LEMON's name
+  (`upload_target`: `/` and other characters Windows can't hold become
+  `_`, `name (n).zip` when taken, never over a file) and the same
+  `lemon_zip` job runs. Anything refused or cut off deletes the `.part`.
+  `BodyLimit` gives that one PUT route its own limit (`UPLOAD_LIMITS`);
+  every other route keeps `MAX_BODY`. The zip stays in Downloads, as a
+  saved one does. Tests: `tests/test_lemon_zip.py` ("uploading the zip").
 - **A real LEMON zip through the API** (2026-10-27, the user's own
   `LEMON 2015 Ford F-150 Lariat, 4D Pickup Extra Cab, 3.5L Eng VIN G,
   4WD.zip` from Downloads, 634 MB; a throwaway home and index, TestClient,
@@ -595,7 +615,44 @@ closed and the extractor kept running on its own).
   Checked from `AutoRundown-base` through the installed app: typed at
   +98 s, the database answered 22 s later and the real pulls logged in
   (model links: 33,085 Baumuster rows). The databases start with Windows
-  on that VM -- opening "Mercedes WSM EPC" is not needed (tried both). Found on the way: a Windows blue
+  on that VM -- opening "Mercedes WSM EPC" is not needed (tried both).
+  **Off Windows (a Linux server, 2026-11-06) the VM's `java.exe` can't
+  run**, so `java_path` takes the first Java whose `jdk.nashorn.tools.Shell`
+  runs a one-line probe (`has_nashorn`): `--java`, `AR_JAVA`,
+  `/usr/lib/jvm` (8 and 11 first), then `java` on PATH. Java 15+ has no
+  Nashorn and is passed over. With none, the run stops before the VM is
+  touched and names the fix (`sudo apt install openjdk-8-jre-headless`);
+  the preflight fails `java` the same way. Only `tbjdbc.jar` is still
+  copied out of the VM (the copied `sun_jre` is ignored). Checked on Ubuntu
+  26.04's own packages, unpacked but not installed: Java 8 passes the probe,
+  Java 17 fails it. **Run against the real WIS database (2026-11-06, the
+  user's OK)**. Setup:
+  - Ubuntu's 64-bit OpenJDK 8, in WSL
+  - the real VM, resumed from its saved state after its own snapshot and
+    saved again afterwards
+  - WSL reaches the VM's host-only network through a throwaway reverse
+    SOCKS tunnel (`-DsocksProxyHost`). Windows Firewall blocks WSL ->
+    Windows; Transbase hands the login on to a second port, so a single
+    forwarded port is not enough.
+
+  Results:
+  - `db_login.js`: LOGIN OK.
+  - `pull_vehicles.js` (4 tables, 25 s): the same row counts as the
+    Windows pull. Two tables were byte-identical.
+  - `ASRA_Typkennzahl` and `ASRA_Fahrzeug` differ because **the Windows
+    pull double-encodes text**. The driver decodes with the JVM's default
+    charset (cp1252 on Windows), so "Coupé" is written "CoupÃ©". Linux's
+    default is UTF-8, so its text is right.
+  - The build's `fix_mojibake` repairs the Windows text and leaves Linux's
+    alone (every line unchanged). After it, both are the same except 4,810
+    `ASRA_Typkennzahl` rows in non-Latin languages (Greek, Russian, …).
+    Cp1252's undefined bytes lost those characters on Windows, and Linux
+    has them right. English rows are identical.
+  - Not run on Linux: documents, images, EPC.
+  - The test data was deleted. The snapshot it took
+    (`AutoRundown-auto-20261106-163732`) is kept, as all of them are.
+
+  `tests/test_linux_server.py`. Found on the way: a Windows blue
   screen (IRQL_NOT_LESS_OR_EQUAL) during an earlier VM test, a few
   minutes after a port probe of the VM from the PC (ping, 135, 445, 3389);
   the cause is not known (also seen 2026-10-23), kept as the snapshot

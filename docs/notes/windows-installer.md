@@ -4,6 +4,47 @@
 is unchanged apart from file paths (tests/, tools/). "Above" / "below" and
 section names may refer to CLAUDE.md or another file in docs/notes/. -->
 
+**A headless Linux server** (2026-11-06, the user: "turning my desktop into
+a ubuntu server with no ui. Everything is ssh") has no package. It runs from a git
+checkout through `packaging/linux/install.sh`: a venv in the checkout, the
+app's and the extractor's requirements, and `autorundown.service` as a
+systemd *user* unit (VirtualBox keeps VMs per user, so the app must run as
+the VM's owner; lingering starts it at boot). The script never runs `sudo`.
+It names the apt packages to install (`python3-venv`; optionally
+`virtualbox`, `openjdk-8-jre-headless`). Admin is over `ssh -L
+8756:localhost:8756` (loopback peer + Host, unchanged). Off Windows:
+- the Mercedes folder is `~/.local/share/AutoRundown/Mercedes data`
+  (`wis_paths.installed_home`, `XDG_DATA_HOME`)
+- Browse falls back to the page's own list
+- "Delete all Mercedes data" uses the freedesktop Trash
+- there is no tray, autostart or MSI
+- libtorrent (the hidden CHARM card) is not installed
+
+`wis_paths.REPO` also counts a copy with `tests/` and no `.git` (a test
+box's snapshot) as a checkout. Before that, `test_vm_jobs.py` failed in
+every box. Checked: `tests/test_linux_server.py` (on Windows and WSL).
+
+**`tools/container/server_test.sh`** runs `install.sh` end to end on a
+stand-in server. The server is a Docker Ubuntu (26.04, or `--ubuntu 24.04`)
+with systemd as PID 1, sshd and a user `shop` with no sudo. The test
+covers:
+- **a run with no systemd session** (`sudo -u`): it stops before any work
+  and says to sign in over SSH
+- **the real run over SSH**: the service is active, the app answers, and
+  its log is in the journal
+- **admin**: through `ssh -L`, `/api/settings` gives 200; from the
+  published port (a phone) it gives 403
+- **lingering, then a container restart**: the app answers with nobody
+  signed in, running as `shop`
+- **a second run (an update)**: one service, still answering
+
+It needs network (apt, pip), so it runs outside the test boxes. It found
+that `systemctl --user` fails with a raw dbus error when there is no
+session (an SSH login without `libpam-systemd`, `su`, or `sudo -u`). Now
+`install.sh` checks that first, uses `/run/user/<uid>` when it is there,
+and explains the fix. Still not tried on a real machine: VirtualBox and
+the VM pull on Linux.
+
 `packaging/windows/build.ps1` + `AutoRundown.wxs` (WiX 5) build a **per-user
 MSI** to `%LOCALAPPDATA%\Programs\AutoRundown`: no UAC prompt, and Python
 can write there.

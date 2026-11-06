@@ -215,6 +215,79 @@ for _ in range(600):
 check(st["state"] == "done" and not folder.exists(), "Remove recycles the unpacked folder")
 check((DL / NAME).is_file(), "and leaves the zip")
 
+print("uploading the zip from the browser (a server with no browser of its own)")
+UP = "/api/import/lemon-upload"
+q = {"path": json.dumps(CAMRY)}
+zipped = {"Origin": "http://localhost:8756", "Content-Type": "application/zip"}
+kept = TMP / "kept.zip"
+shutil.move(str(DL / NAME), kept)                 # Downloads empty: the upload is the only source
+body = kept.read_bytes()
+
+
+def leftovers() -> list[str]:
+    return sorted(p.name for p in DL.iterdir())
+
+
+r = phone.put(UP, params=q, content=body, headers={"Origin": "http://192.168.1.10:8756",
+                                                   "Content-Type": "application/zip"})
+check(r.status_code == 403 and leftovers() == [], f"a phone can't upload: {r.status_code}")
+r = pc.put(UP, params=q, content=body, headers={"Origin": "https://example.com", "Content-Type": "application/zip"})
+check(r.status_code == 403 and leftovers() == [], f"nor another web site: {r.status_code}")
+check(pc.put(UP, params={"path": "nope"}, content=b"x", headers=zipped).status_code == 400, "path not JSON: refused")
+check(pc.put(UP, params={"path": json.dumps(["Toyota", "2008"])}, content=b"x", headers=zipped).status_code == 400,
+      "a folder, not a car: refused")
+check(pc.put(UP, params={"path": json.dumps(["Toyota", "2008", "Camry", "Nope"])}, content=b"x",
+             headers=zipped).status_code == 404, "a car not in the catalogue: refused")
+r = pc.put(UP, params=q, content=b"not a zip at all", headers=zipped)
+check(r.status_code == 400 and "can't be imported" in r.json()["detail"] and leftovers() == [],
+      f"not a zip: refused, nothing left in Downloads: {r.json()}")
+other = make_zip(TMP / "other.zip", {"2015 Ford F-150 Lariat/index.html": idx})
+r = pc.put(UP, params=q, content=other.read_bytes(), headers=zipped)
+check(r.status_code == 400 and "not 2008 Toyota" in r.json()["detail"] and leftovers() == [],
+      f"another car's zip is refused, not filed under this car: {r.json()}")
+evil = make_zip(TMP / "evil.zip", {f"{TOP}/../evil": b"x", f"{TOP}/index.html": idx})
+r = pc.put(UP, params=q, content=evil.read_bytes(), headers=zipped)
+check(r.status_code == 400 and leftovers() == [], f"an unsafe zip: refused: {r.json()}")
+saved = dict(server.UPLOAD_LIMITS)              # BodyLimit reads it when an app is built
+server.UPLOAD_LIMITS[UP] = 1000
+try:
+    sc = TestClient(server.create_app(str(db)), base_url="http://localhost:8756", client=("127.0.0.1", 50000))
+    r = sc.put(UP, params=q, content=body, headers=zipped)
+    check(r.status_code == 413 and leftovers() == [], "over the upload limit: 413 before anything is written")
+    r = sc.post("/api/import/lemon-zip", content=b"{" + b" " * 300_000 + b"}",
+                headers={**same, "Content-Type": "application/json"})
+    check(r.status_code == 413, "other routes keep the small limit")
+    r = sc.post(UP, params=q, content=b"x" * 300_000, headers=zipped)
+    check(r.status_code in (405, 413), f"only a PUT gets the larger limit: {r.status_code}")
+finally:
+    server.UPLOAD_LIMITS.clear()
+    server.UPLOAD_LIMITS.update(saved)
+r = pc.put(UP, params=q, content=body, headers=zipped)
+check(r.status_code == 200 and r.json()["action"] == "import" and Path(r.json()["zip"]) == DL / NAME,
+      f"the right car's zip: saved in Downloads under LEMON's name, the import starts: {r.json()}")
+for _ in range(600):
+    st = pc.get("/api/import").json()
+    if st["state"] != "running":
+        break
+    time.sleep(0.05)
+check(st["state"] == "done", f"the job finished: {st['state']}\n" + "\n".join(st.get("log", [])[-6:]))
+with sqlite3.connect(db) as con:
+    got = con.execute("SELECT file_path FROM vehicles WHERE doc_id=? AND complete=1", (DOC,)).fetchone()
+check(got is not None and Path(got[0]) == folder, f"the uploaded Camry is in the index: {got}")
+check(leftovers() == [NAME], f"no partial upload left behind: {leftovers()}")
+check(lemon_zip.upload_target(NAME) == DL / NAME.replace(".zip", " (1).zip"),
+      "a second upload never overwrites the first")
+odd_name = lemon_catalogue.zip_name("Ford", "2010", "F-150", "4WD/AWD")
+odd_path = lemon_zip.upload_target(odd_name)
+make_zip(odd_path, {"x/index.html": idx})
+check("/" not in odd_path.name and lemon_zip.find(odd_name, DL) == odd_path,
+      f"a name with / is saved with _, and find reads it back: {odd_path.name}")
+odd_path.unlink()
+check(lemon_zip.same_car("2008 Toyota Camry LE, 2.4 E, Automatic", "2008 Toyota Camry LE, 2.4 E, Automatic")
+      and lemon_zip.same_car("2010 Ford F-150 4WD_AWD", "2010 Ford F-150 4WD/AWD")
+      and not lemon_zip.same_car("2008 Toyota Camry", "2008 Toyota Camry LE, 2.4 E, Automatic")
+      and not lemon_zip.same_car("", ""), "same_car: letters and digits, the whole name")
+
 print("progress lines")
 from autorundown import importer_jobs  # noqa: E402
 pr = importer_jobs.Progress()

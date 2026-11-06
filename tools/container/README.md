@@ -75,6 +75,11 @@ code) and look at what the phone side gets; test the phone side at 375x812.
 - **A real phone:** the phone address is on this PC only; reaching a box
   from the shop Wi-Fi needs WSL's networking changed, which is the user's
   call.
+- **The Linux server install** (`packaging/linux/install.sh`): that is
+  `server_test.sh` beside this file. It makes its own throwaway Ubuntu
+  container with systemd and sshd, which needs network for apt and pip,
+  and removes it at the end (`--keep` leaves it running):
+  `wsl -d Ubuntu -- bash tools/container/server_test.sh [--ubuntu 24.04]`
 
 ## Files
 

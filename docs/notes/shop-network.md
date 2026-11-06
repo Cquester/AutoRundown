@@ -181,7 +181,9 @@ created 0600, never written then chmod'ed.
 - `/api/image` serves picture types only, with a sandboxing CSP + nosniff
   (an SVG in `images/` ran as the admin). Every response: X-Frame-Options
   SAMEORIGIN, frame-ancestors 'self', nosniff, no-referrer.
-- Bodies over 256 KB are refused unread (`BodyLimit`); search `limit` 1-50,
+- Bodies over 256 KB are refused unread (`BodyLimit`) -- except a PUT to
+  `/api/import/lemon-upload` (admin only, a LEMON zip streamed to disk, up
+  to 20 GB: `UPLOAD_LIMITS`, `importing.md`); search `limit` 1-50,
   `q` 500 chars; a question 2,000 chars (paid input); monthly caps 0-100,000
   and finite (-5 blocked a mechanic for good, Infinity meant no limit).
 - No `/docs`, `/redoc` or `/openapi.json` (2026-10-16): they mapped every

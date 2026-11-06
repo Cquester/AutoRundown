@@ -243,6 +243,10 @@ ADMIN_PREFIXES = ("/api/settings", "/api/browse", "/api/vms", "/api/import",
 # the largest request body accepted; JSON settings, a question or an import
 # request are a few KB. Without it a 100 MB body was read into memory first
 MAX_BODY = 256 * 1024
+# PUT routes that take a file, streamed to disk: a LEMON zip from the browser
+# (Add a car on a server whose Downloads no browser saves into). Admin only
+# (under /api/import), so a phone can't fill the disk.
+UPLOAD_LIMITS = {"/api/import/lemon-upload": lemon_zip.MAX_UPLOAD}
 # every response: never framed by another site (clickjacking the admin page),
 # never content-sniffed, no Referer to anywhere
 SECURITY_HEADERS = {
@@ -259,18 +263,23 @@ class BodyLimit:
     class TooLarge(Exception):
         pass
 
-    def __init__(self, app, limit: int = MAX_BODY):
+    def __init__(self, app, limit: int = MAX_BODY, uploads: dict[str, int] | None = None):
         self.app, self.limit = app, limit
+        self.uploads = UPLOAD_LIMITS if uploads is None else uploads
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        # the one route a file is sent to has its own, larger limit (it streams
+        # to disk, never into memory); every other route keeps MAX_BODY
+        limit = self.uploads.get(scope.get("path", ""), self.limit) \
+            if scope.get("method") == "PUT" else self.limit
         headers = dict(scope.get("headers") or [])
         try:
             declared = int(headers.get(b"content-length", b"0") or 0)
         except ValueError:
             declared = 0
-        if declared > self.limit:
+        if declared > limit:
             return await self._refuse(send)
         seen, started = 0, False
 
@@ -279,7 +288,7 @@ class BodyLimit:
             msg = await receive()
             if msg["type"] == "http.request":
                 seen += len(msg.get("body", b""))
-                if seen > self.limit:
+                if seen > limit:
                     raise BodyLimit.TooLarge
             return msg
 
@@ -1730,6 +1739,65 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(409, str(exc))
         return {"action": "import", "doc_id": doc, "zip": str(z), "job": job}
+
+    @app.put("/api/import/lemon-upload")
+    async def api_lemon_upload(request: Request, path: str = Query(max_length=2000)) -> dict:
+        """"Add this car" with the zip sent from the browser, for when the
+        browser that saved it is not on the machine running AutoRundown (a
+        server reached over SSH). The body is the zip itself, streamed into
+        Downloads (lemon_zip.upload_target), checked like a zip found there
+        (lemon_zip.check) and kept only if its folder names the car picked
+        (`path`, a JSON list: make, year, model, variant); then the same
+        import job as "Add this car". Admin only (ADMIN_PREFIXES)."""
+        try:
+            car = json.loads(path)
+        except ValueError:
+            raise HTTPException(400, "path must be a JSON list: make, year, model, variant")
+        if not (isinstance(car, list) and len(car) == 4 and all(isinstance(x, str) for x in car)):
+            raise HTTPException(400, "path must name one car: make, year, model, variant")
+        if lemon_catalogue._node(lemon_catalogue.load(), tuple(car)) is None:
+            raise HTTPException(404, "Not in the LEMON catalogue: " + " / ".join(car))
+        if jobs.running():
+            raise HTTPException(409, "An import is already running. Upload the zip when it has finished.")
+        try:
+            size = int(request.headers.get("content-length", ""))
+        except ValueError:
+            raise HTTPException(411, "The upload must say its size (Content-Length).")
+        if not 0 < size <= lemon_zip.MAX_UPLOAD:
+            raise HTTPException(413, f"A zip of {size / 1e9:.1f} GB is no car's manual.")
+        doc = lemon_catalogue.doc_id(*car)
+        dest = lemon_zip.upload_target(lemon_catalogue.zip_name(*car))
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            free = shutil.disk_usage(dest.parent).free
+        except OSError as e:
+            raise HTTPException(500, f"Can't write to {dest.parent}: {e}")
+        if size > free - (2 << 30):
+            raise HTTPException(507, f"The zip is {size / 1e9:.1f} GB and {dest.parent} has "
+                                     f"{free / 1e9:.1f} GB free (it needs about twice that to unpack).")
+        part = dest.with_name(f".{dest.stem}.{secrets.token_hex(4)}.part")
+        got = 0
+        try:
+            with open(part, "wb") as f:
+                async for chunk in request.stream():
+                    got += len(chunk)
+                    if got > size:
+                        raise HTTPException(400, "More data than the upload said it would send.")
+                    await anyio.to_thread.run_sync(f.write, chunk)
+            if got != size:
+                raise HTTPException(400, f"The upload stopped at {got:,} of {size:,} bytes.")
+            try:
+                top = lemon_zip.check(part)[0]
+            except lemon_zip.BadZip as e:
+                raise HTTPException(400, f"That file can't be imported: {e}")
+            want = f"{car[1]} {car[0]} {lemon_catalogue.vehicle_name(car[2], car[3])}"
+            if not lemon_zip.same_car(top, want):
+                raise HTTPException(400, f"That zip is “{top}”, not {want}.")
+            os.replace(part, dest)
+        except BaseException:           # refused, failed or the browser went away
+            part.unlink(missing_ok=True)
+            raise
+        return _start_lemon_zip(doc, dest)
 
     @app.post("/api/import/lemon-zip")
     def api_lemon_zip(body: LemonPickBody) -> dict:

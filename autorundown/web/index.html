@@ -2647,7 +2647,8 @@ function renderAddCar(state = null) {
       + (p.done != null ? ` — ${p.done.toLocaleString()}${p.total ? ' / ' + p.total.toLocaleString() : ''} ${esc(p.unit || '')}` : '')
       + `</div><div class="acbar${pct === null ? ' indet' : ''}" role="progressbar" aria-label="Adding this car"`
       + (pct === null ? '' : ` aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"`)
-      + `><i style="width:${pct === null ? 30 : pct}%"></i></div></div>`;
+      + `><i style="width:${pct === null ? 30 : pct}%"></i></div></div>`
+      + (addUpload ? `<button type="button" class="ghost" data-add-close>Cancel</button>` : '');
   } else if (state?.kind === 'done') {
     body = `<div class="actext">${name} is added.<div class="acsub">Its manual is selected.</div></div>`
       + `<button type="button" class="ghost" data-add-close>OK</button>`;
@@ -2660,16 +2661,19 @@ function renderAddCar(state = null) {
     let how, btns;
     if (state.lemon) {
       how = `Open its page on LEMON, click <i>Download .zip for offline use</i>, type <i>human</i> where LEMON `
-          + `asks, press <i>Download manual</i> and save the zip in ${dl}. It is imported as soon as it is there.`;
-      btns = link(d.links.lemon, 'Open on LEMON');
+          + `asks, press <i>Download manual</i> and save the zip. Saved in ${dl} on the computer running `
+          + `AutoRundown, it is imported as soon as it is there; saved anywhere else, upload it here.`;
+      btns = link(d.links.lemon, 'Open on LEMON') + uploadCtl();
     } else if (d.links.charm && state.charm) {
       how = `LEMON's site isn't answering. Operation CHARM, its backup for 1982–2013, is: its page for `
           + `${esc(r.year)} lists this car to read online. To add it here, LEMON's zip is needed once LEMON is back.`;
-      btns = link(d.links.charm, 'Open on CHARM') + link(d.links.lemon, 'Try LEMON anyway', 'ghostlink');
+      btns = link(d.links.charm, 'Open on CHARM') + link(d.links.lemon, 'Try LEMON anyway', 'ghostlink') + uploadCtl();
     } else {
       how = d.links.charm ? `Neither LEMON nor CHARM is answering right now.`
                           : `LEMON's site isn't answering right now (CHARM, its backup, only has 1982–2013).`;
-      btns = `<button type="button" data-add-car>Check again</button>` + link(d.links.lemon, 'Try LEMON anyway', 'ghostlink');
+      how += ' If you already have its LEMON zip, upload it.';
+      btns = `<button type="button" data-add-car>Check again</button>` + link(d.links.lemon, 'Try LEMON anyway', 'ghostlink')
+           + uploadCtl();
     }
     body = `<div class="actext">${name} isn't on this PC.<div class="acsub">${how}`
       + (state.lemon ? ` The file: ${zip}` : '') + `</div></div>`
@@ -2677,9 +2681,10 @@ function renderAddCar(state = null) {
   } else if (state?.kind === 'waiting') {
     body = `<div class="actext">Waiting for ${name}<div class="acsub">On LEMON's page: type <i>human</i> where it asks, `
       + `press <i>Download manual</i> and save <b>${esc(addWait?.zip || '')}</b> `
-      + `in ${esc(addWait?.downloads || 'Downloads')}; the import starts by itself. This card waits up to 45 minutes.</div>`
+      + `in ${esc(addWait?.downloads || 'Downloads')} on the computer running AutoRundown; the import starts by itself. `
+      + `This card waits up to 45 minutes. Saved it somewhere else? Upload it.</div>`
       + `<div class="acbar indet" role="progressbar" aria-label="Waiting for the download"><i style="width:30%"></i></div></div>`
-      + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
+      + uploadCtl() + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
   } else if (state?.kind === 'queued') {
     body = `<div class="actext">${name} is on the LEMON download list.`
       + `<div class="acsub">Its folder isn't on this PC, and LEMON downloads aren't built yet: `
@@ -2723,6 +2728,49 @@ async function addCatalogueCar() {
   watchAddJob();
 }
 let addPendingDownload = null;
+// The car's zip sent from this browser (PUT /api/import/lemon-upload), for
+// when the browser that saved it is not on the computer running AutoRundown
+// (a server reached over SSH). The server keeps it only if its folder names
+// this car, then runs the same import as a zip found in its Downloads.
+let addUpload = null;
+const uploadCtl = () => me.admin
+  ? `<label class="btnlink ghostlink">Upload the zip<input type="file" accept=".zip,application/zip" data-add-upload hidden></label>`
+  : '';
+function uploadAddZip(file) {
+  const r = catPending;
+  if (!r || !file) return;
+  stopAddWait();
+  if (!/\.zip$/i.test(file.name)) return renderAddCar({kind: 'error', msg: `${file.name} isn’t a zip file.`});
+  const xhr = new XMLHttpRequest(), mb = n => Math.round(n / 1048576);
+  const show = done => renderAddCar({kind: 'progress', progress: {phase: `Uploading ${file.name}`, done: mb(done),
+                                                                 total: Math.max(mb(file.size), 1), unit: 'MB'}});
+  addUpload = xhr;
+  xhr.open('PUT', `/api/import/lemon-upload?path=${encodeURIComponent(JSON.stringify(r.path))}`);
+  xhr.setRequestHeader('Content-Type', 'application/zip');
+  xhr.upload.onprogress = e => { if (addUpload === xhr && catPending === r) show(e.loaded); };
+  xhr.onload = () => {
+    if (addUpload !== xhr) return;
+    addUpload = null;
+    let res = {};
+    try { res = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status !== 200) {
+      return renderAddCar({kind: 'error', msg: res.detail || `The upload failed (${xhr.status}).`});
+    }
+    addJob = {doc: r.doc_id, started: res.job?.started};
+    watchAddJob();
+  };
+  xhr.onerror = () => {
+    if (addUpload !== xhr) return;
+    addUpload = null;
+    renderAddCar({kind: 'error', msg: 'The upload was cut off. Try again.'});
+  };
+  show(0);
+  xhr.send(file);
+}
+document.addEventListener('change', e => {
+  const input = e.target.closest?.('[data-add-upload]');
+  if (input) uploadAddZip(input.files[0]);
+});
 // Shop setup -> LEMON -> Add a car: the car box's catalogue search, with
 // "Add this car" drawn in the tab (the same flow: import, zip, or LEMON's page)
 let lemAddTimer = 0, lemAddSeq = 0;
@@ -2784,6 +2832,7 @@ document.addEventListener('click', e => {
   }
   if (e.target.closest('[data-add-close]')) {
     stopAddWait(); addPendingDownload = null; catPending = null; $(addBoxSel).hidden = true;
+    if (addUpload) { const x = addUpload; addUpload = null; x.abort(); }
   }
 });
 $('#carInput').addEventListener('keydown', ev => {

@@ -161,6 +161,39 @@ To build the installer yourself, see `packaging/windows/build.ps1`.
 There is no installer for these yet. Install Python and run the commands
 below. Everything works the same, including the phone access.
 
+### A headless Linux server (Ubuntu, over SSH)
+
+AutoRundown runs on a server with no screen, as a systemd service:
+
+```bash
+sudo apt install git python3-venv
+git clone https://github.com/Cquester/AutoRundown.git && cd AutoRundown
+bash packaging/linux/install.sh
+```
+
+The script makes a venv in the checkout, installs the packages, and starts
+the app as a systemd *user* service (`journalctl --user -u autorundown -f`
+for its log). If it can, it also turns on lingering, so the app starts at
+boot without anyone signed in. If it can't, it prints the `sudo loginctl
+enable-linger` command to run. Run it as the user who will own the app,
+not as root. `--check` only says what is missing; after a `git pull`, run
+it again.
+
+- **Shop setup (admin) is for this computer only.** From your own
+  computer, open an SSH tunnel and use `http://localhost:8756`. You are
+  the admin there:
+  `ssh -L 8756:localhost:8756 you@server`
+- **Phones** use the server's address on the shop network, as on Windows.
+  If a firewall is on, run `sudo ufw allow 8756/tcp`.
+- **Add a car**: your browser saves LEMON's zip on your own computer, and
+  **Upload the zip** sends it to the server.
+- **The Mercedes VM import** works on Linux too. The VM's `.vbox` file
+  must live on the server, and you need two packages:
+  `sudo apt install virtualbox openjdk-8-jre-headless`. Java 8 to 14
+  still has Nashorn, which the database pulls run on; the VM's own
+  `java.exe` can't run on Linux. `AR_JAVA` or `--java` picks another
+  Java. Only the JDBC driver is copied out of the VM.
+
 ### Requirements (running from source)
 
 - Python 3.10+
@@ -473,7 +506,11 @@ beside LEMON manuals imported before, it is imported in the background with a
 progress bar and selected when done. Otherwise it opens the car's page on
 LEMON's site in your browser: click *Download .zip for offline use*, type
 *human* where LEMON asks, press *Download manual*, save the zip in Downloads,
-and AutoRundown imports it as soon as it arrives (the card waits 45 minutes). If LEMON's site
+and AutoRundown imports it as soon as it arrives (the card waits 45 minutes).
+If AutoRundown runs on another computer (a server you reach over SSH), the
+zip lands on the computer you browse from: press **Upload the zip** on the
+card and pick it; it is checked, kept only if it is this car's, and imported
+the same way. If LEMON's site
 isn't answering, Operation CHARM's page is offered instead (1982-2013, to read
 online). AutoRundown never downloads from either site itself. Shop setup →
 Manuals → LEMON → **Add a car** does the same from a search.
@@ -795,6 +832,7 @@ tools/                   sample-data makers, README screenshots, JS check, catal
   sandbox/               a fresh install of the MSI in Windows Sandbox
 extractor/               Mercedes WIS extractor (reads your own licensed install)
 packaging/windows/       the MSI (WiX) and its first-start UI check
+packaging/linux/         install.sh + systemd unit for a headless Linux server
 docs/                    setup on a new PC, WIS extraction notes, QA reports, images
 ```
 

@@ -12,7 +12,8 @@ car" from LEMON's zip (the app opens LEMON's page, the user saves the zip,
 the app imports it), one car from Operation CHARM's torrent (built, hidden:
 hours per car). Not built: macOS/Linux packages (they run from source, by the
 user's decision), code signing, the LEMON torrent download (not practical per
-car; `importing.md`).
+car; `importing.md`). A headless Ubuntu server runs from a checkout as a
+systemd user service (`packaging/linux/install.sh`; admin over an SSH tunnel).
 
 **This file is the short version.** The history and measurements behind each
 area live in `docs/notes/` (moved there verbatim on 2026-10-12). **Before
@@ -25,7 +26,7 @@ broke:
 | the car box, Browse, Variant menu, VIN (check digit, Scan VIN, `web/vendor/`), years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
 | `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import, the CHARM download (`charm.py`, `charm_fetch.py`, `charm_download.py`) | [`docs/notes/importing.md`](docs/notes/importing.md) |
-| `packaging/`, the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
+| `packaging/` (Windows MSI, the Linux server script), the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | GitHub settings: rulesets, Actions, secret scanning, `tools/github_setup.py`, `SECURITY.md`, `CODEOWNERS`, `dependabot.yml`, what the release job does | [`docs/notes/github-repo.md`](docs/notes/github-repo.md) |
 | `tools/container/` (test boxes), `tools/sandbox/` (Windows Sandbox) | [`docs/notes/test-environments.md`](docs/notes/test-environments.md) and `tools/container/README.md` |
 | `providers.py`, the AI provider selector, prices, `tools/fake_anthropic.py`'s provider fakes | [`docs/notes/ai-providers.md`](docs/notes/ai-providers.md) |
@@ -52,6 +53,7 @@ tools/              make_sample_corpus.py, make_sample_lemon.py, readme_gifs.py,
                     pull_bench/ (Mercedes pull settings timed on the real VM)
 extractor/          Mercedes WIS extractor (its data stays in ../Mercedes Documents/)
 packaging/windows/  MSI (WiX 5), build.ps1, ui_check.py (first-start UI check)
+packaging/linux/    install.sh + autorundown.service (headless server, systemd user unit)
 docs/               notes/ (deep notes), qa/ (QA reports), images/ (README),
                     SETUP-ON-NEW-PC.md, MERCEDES_WIS_EXTRACTION.md
 .claude/            QA agents + runbook, launch.json
@@ -200,6 +202,7 @@ python tests/test_load.py                         # many mechanics at once: Ask 
 python tests/test_parse_sids.py                   # RTF stubs: hotspots are neither text nor graphics (<1 s)
 python tests/test_lemon_tables.py                 # LEMON cars' Labour times and Parts tabs from their own tables (<1 s)
 python tests/test_validity.py                     # WIS Validity lines: a wagon gets no sedan-only page, and back (<1 s)
+python tests/test_linux_server.py                 # Linux server: Mercedes folder, Nashorn Java for the VM pull, systemd unit (<1 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 python tools/make_icons.py                        # the app's icons (web/icons/), drawn from code
 
@@ -217,6 +220,7 @@ python tools/wis_validity.py --index index.db [--apply]     # WIS Validity lines
 # test environments
 wsl -d Ubuntu -- bash tools/container/box.sh up     # test box (Docker in WSL): admin + phone ports
 wsl -d Ubuntu -- bash tools/container/box.sh check <name>  # every CI check inside it (~35 s)
+wsl -d Ubuntu -- bash tools/container/server_test.sh [--ubuntu 24.04]  # install.sh on a systemd+SSH Ubuntu container (needs network, ~3 min)
 powershell -File tools/sandbox/start.ps1 [-Source] # fresh install in Windows Sandbox, :18756
 ```
 
@@ -674,6 +678,10 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   saved zip is untrusted (`lemon_zip.check`) and unpacked into
   `APP_DIR/manuals/<doc_id>/` with the download mark; the zip stays.
   Tests read `AUTORUNDOWN_DOWNLOADS`, never the PC's Downloads.
+  "Upload the zip" (2026-11-05, for a headless server reached over SSH)
+  sends it from the browser: `PUT /api/import/lemon-upload`, admin only,
+  the one route above `MAX_BODY` (`UPLOAD_LIMITS`, streamed to disk),
+  kept only if its folder names the car picked (`lemon_zip.same_car`).
   (`importing.md`)
 - **CHARM: one car from the swarm only, plan first, never seeds** (its
   card is hidden since 2026-10-27; keep the code); the
