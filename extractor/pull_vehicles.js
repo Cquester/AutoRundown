@@ -44,67 +44,22 @@ function log(msg){
 }
 function s(v){ return v==null ? "" : (""+v).replace(/[\t\r\n]/g," ").trim(); }
 
-// AW_VIN2FIN: US VIN (first 9) -> FIN (first 9 = WMI + Baumuster), 7,870
-// rows -- Mercedes' own US VIN decoder. W_WMI2FINMapping: which WMIs it covers.
-var TABLES = ["ASRA_FahrzeugII", "ASRA_Fahrzeug", "AW_Fahrzeuge",
-              "USTypBM2TypBM", "USMotKar2TypBM4", "Modelljahr2SACode",
-              "ASRA_Typkennzahl", "FzgArt", "AW_VIN2FIN", "W_WMI2FINMapping",
-// Reference tables beyond "which car is this" (2026-10-10):
-//   W_Dokumente        DokNrID -> docnr ("ah0320n100002a"): turns the
-//                      cross-references printed on pages into links
-//   SACode, SANummer   option (SA) code and SA number descriptions
-//   AW_AssystFuellmengen, AW_AssystFussnote   engine oil capacities
-//   SSTeilID, SSTeilBenennung   damage-code component names: what the
-//                      &H& hotspots on the 99xxxxxx picture menus name
-//   ASRA_*             labour operations and flat-rate times
-              "W_Dokumente", "SACode", "SANummer",
-              "AW_AssystFuellmengen", "AW_AssystFussnote",
-              "SSTeilID", "SSTeilBenennung",
-              "ASRA_Arbeitsposition", "ASRA_Arbeitswert", "ASRA_Konstruktionsgruppe",
-              "ASRA_Konstruktionsuntergruppe", "ASRA_Zusatzarbeit", "ASRA_Familie",
-// the flat-rate formulas per region and repair group: the stored time is a
-// raw value, the flat rate is the formula applied to it (parse_links.py)
-              "ASRA_Formel", "ASRA_Formelverwendung",
-// what a labour time includes and leaves out, and the notes on an operation
-// or a whole group (2026-11-05): the scope text is a UTF-8 blob, one item a
-// line ("Remove/install wheel(s)", "Does not include: ..."), shared between
-// operations by UmfassttextID
-              "ASRAW_UmfassttextID", "ASRAW_ID2Umfassttext",
-              "ASRA_ArbeitspositionsHinweis", "ASRA_KoGrHinweis",
-// a document's date and what it replaces ("19.11.02 - Replaces SI 54/59"),
-// for the Service Information / Service measure pages (2026-11-05, G3)
-              "W_SprachDokumente", "Dok2AendText",
-// the service schedule (ASSYST, 2026-11-05, G1): a series' service interval,
-// the first service by engine and oil sheet, and the jobs due by time or
-// distance (each a maintenance sheet "ap..."); all small (< 1,000 rows)
-              "W_AssystTyp2Serviceintervall", "AW_AssystStartlaufstrecke",
-              "AW_AssystOelblaetter", "W_AssystDok2LandIntervall",
-// function group and subgroup names per vehicle type ("42.10" = "Service
-// brake"): the Manual tab's section names (parse_links.py wis_group)
-              "Gruppen"];
-// Multi-language tables: only the language being pulled (AR_LANG, 2 =
-// English). The others are 10-30x larger and never read.
+// The tables and their filters are in vehicle_tables.json, next to this
+// script (what each is for is its "why"): ledger.py reads the same list to
+// tell which tables a re-run still has to pull (2026-11-05). Multi-language
+// tables are filtered to the language being pulled (AR_LANG, 2 = English):
+// the others are 10-30x larger and never read.
 var LANG = parseInt(env("AR_LANG", "2"), 10);
 var LANG2 = (LANG < 10 ? "0" : "") + LANG;     // ASRA writes it as "02"
-var WHERE = {
-  "SACode": "SprachCode = " + LANG,
-  "SANummer": "SprachCode = " + LANG,
-  "AW_AssystFuellmengen": "SprachCode = " + LANG,
-  "AW_AssystFussnote": "SprachCode = " + LANG,
-  "SSTeilID": "SprachCode = " + LANG,
-  "SSTeilBenennung": "TeilID IN (SELECT TeilID FROM SSTeilID WHERE SprachCode = " + LANG + ")",
-  "ASRA_Arbeitsposition": "SprachAbk = '" + LANG2 + "'",
-  "ASRA_Konstruktionsgruppe": "SprachAbk = '" + LANG2 + "'",
-  "ASRA_Konstruktionsuntergruppe": "SprachAbk = '" + LANG2 + "'",
-  "ASRA_Familie": "SprachAbk = '" + LANG2 + "'",
-  "ASRAW_UmfassttextID": "SprachAbk = '" + LANG2 + "'",
-  "ASRAW_ID2Umfassttext": "UmfassttextID IN (SELECT UmfassttextID FROM ASRAW_UmfassttextID WHERE SprachAbk = '" + LANG2 + "')",
-  "ASRA_ArbeitspositionsHinweis": "SprachAbk = '" + LANG2 + "'",
-  "ASRA_KoGrHinweis": "SprachAbk = '" + LANG2 + "'",
-  "W_SprachDokumente": "SprachCode = " + LANG,
-  "Dok2AendText": "DokID IN (SELECT DokID FROM W_SprachDokumente WHERE SprachCode = " + LANG + ")",
-  "Gruppen": "SprachCode = " + LANG
-};
+// (vm_pipeline.py stages it beside the script; Nashorn runs from there)
+var Files = Java.type("java.nio.file.Files");
+var SPEC = JSON.parse("" + new JStr(Files.readAllBytes(new File("vehicle_tables.json").toPath()), "UTF-8"));
+var TABLES = [], WHERE = {};
+for (var i = 0; i < SPEC.tables.length; i++) {
+  var t = SPEC.tables[i];
+  TABLES.push(t.name);
+  if (t.where) WHERE[t.name] = t.where.split("{LANG2}").join(LANG2).split("{LANG}").join("" + LANG);
+}
 // AR_TABLES=a,b pulls just those (e.g. to add a new table without redoing all)
 if (env("AR_TABLES", "")) TABLES = env("AR_TABLES", "").split(",");
 
@@ -121,7 +76,8 @@ for (var t = 0; t < TABLES.length; t++) {
   var part = OUT + "/" + name + ".tsv.part";
   try {
     var st = conn.createStatement(); st.setFetchSize(2000);
-    var rs = st.executeQuery("SELECT * FROM " + name + (WHERE[name] ? " WHERE " + WHERE[name] : ""));
+    var sql = "SELECT * FROM " + name + (WHERE[name] ? " WHERE " + WHERE[name] : "");
+    var rs = st.executeQuery(sql);
     var md = rs.getMetaData(), nc = md.getColumnCount();
     var out = new BufferedOutputStream(new FileOutputStream(part, false));
     var cols = [], blob = [];
@@ -147,6 +103,10 @@ for (var t = 0; t < TABLES.length; t++) {
     var dst = new File(OUT + "/" + name + ".tsv");
     if (dst.exists()) dst["delete"]();
     new File(part).renameTo(dst);
+    // the query beside the table: ledger.py pulls a table again only when
+    // this file is missing or the list now asks for a different query
+    var q = new FileOutputStream(OUT + "/" + name + ".sql", false);
+    q.write(JStr.valueOf(sql).getBytes("UTF-8")); q.close();
     log(name + " rows = " + n + "  (" + nc + " columns)");
     summary.push(name + "=" + n);
   } catch (e) {

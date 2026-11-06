@@ -7,7 +7,12 @@
     python vm_pipeline.py --vm X --fix-network                # Adapter 1 -> host-only
 
 Runs the same pieces the manual procedure does (CLAUDE.md in AutoRundown),
-in order, each resumable -- a re-run skips what is already pulled:
+in order, each resumable -- a re-run skips what is already pulled. What is
+done is kept in <out root>/extraction_state.json (ledger.py, 2026-11-05):
+a re-run pulls only what is new -- vehicle tables one by one, so a release
+that adds tables pulls just those -- does not start the VM at all when
+nothing is, and runs a build script only when its inputs or code changed.
+`--full` ignores it; `--status` prints what has been extracted (JSON).
 
   online (VM up):   docs      pull.js          document bodies -> bodies.pack
                     applic    pull_applic.js + pull_applic2.js  model links
@@ -73,6 +78,7 @@ the VM restarted in between, and conversion runs on 3 workers. Measured
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import socket
@@ -88,6 +94,7 @@ HERE = Path(__file__).resolve().parent
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 sys.path.insert(0, str(HERE))  # the installed app's Python does not add a script's folder
 from wis_paths import home, out_root, check_outside_repo  # noqa: E402
+import ledger  # noqa: E402  (what is already extracted)
 DEFAULT_OUT = out_root()
 STEPS = ("docs", "applic", "vehicles", "links", "images", "build")   # the default: WIS
 ALL_STEPS = STEPS + ("epc",)
@@ -665,7 +672,7 @@ def vm_down(vm: str) -> None:
 
 # the scripts each step runs (the epc ones: an older extractor copy has none)
 STEP_SCRIPTS = {"docs": ["pull.js"], "applic": ["pull_applic.js", "pull_applic2.js"],
-                "vehicles": ["pull_vehicles.js"], "links": ["pull_links.js"],
+                "vehicles": ["pull_vehicles.js", "vehicle_tables.json"], "links": ["pull_links.js"],
                 "images": ["pull_images.js"], "epc": ["pull_epc.js", "epc_fv4.js"],
                 "build": ["parse.py", "apply_applic.py", "parse_vehicles.py", "parse_links.py",
                           "convert_images.py", "apply_images.py"]}
@@ -871,7 +878,7 @@ def stage_scripts(jar: str) -> Path:
     stage = Path(tempfile.gettempdir()) / "ar_extract_stage"
     stage.mkdir(exist_ok=True)
     shutil.copy2(jar, stage / "tbjdbc.jar")
-    for js in HERE.glob("*.js"):
+    for js in [*HERE.glob("*.js"), HERE / "vehicle_tables.json"]:
         shutil.copy2(js, stage / js.name)
     return stage
 
@@ -935,6 +942,87 @@ def pulled_count(images: Path) -> int:
         return sum(1 for l in f if l.rstrip().endswith("\tok"))
 
 
+
+# -- what a run does: only what is new (ledger.py) ---------------------------
+
+def plan_pulls(steps: list[str], full: bool, state: dict, dirs: "ledger.Dirs",
+               lang: str, catalogs: str) -> tuple[list[str], list[str]]:
+    """The online steps that have work, and the vehicle tables to pull --
+    decided before the VM starts, so a run with nothing new never starts it."""
+    asked = [s for s in steps if s != "build"]
+    online, need_tables = [], []
+    for step in asked:
+        if full:
+            online.append(step)
+            continue
+        if step in ledger.PULLS:
+            at = ledger.pull_done(state, step, dirs, catalogs if step == "epc" else "")
+            if at:
+                log(f"== {step}: already pulled ({at}); nothing new, skipped")
+                continue
+        elif step == "vehicles":
+            wanted = len(ledger.vehicle_tables(lang))
+            need_tables = ledger.vehicle_tables_needed(dirs.vehicles, lang)
+            if not need_tables:
+                log(f"== vehicle tables: all {wanted} already pulled; skipped")
+                continue
+            log(f"== vehicle tables: {len(need_tables)} of {wanted} to pull "
+                f"({', '.join(need_tables[:6])}{', ...' if len(need_tables) > 6 else ''})")
+        elif step == "images" and "docs" not in online and (dirs.extract / "figures.tsv").is_file():
+            total = build_image_list(dirs.extract, dirs.images)
+            if pulled_count(dirs.images) >= total:
+                log(f"== images: all {total:,} already pulled; skipped")
+                continue
+        online.append(step)
+    if asked and not online:
+        log("== nothing new to pull from the VM; it is not started")
+    return online, need_tables
+
+
+def offline_build(out: Path, state: dict, full: bool, lang: str, db: str) -> list[str]:
+    """parse -> apply_applic -> parse_vehicles -> parse_links -> convert_images
+    -> apply_images, each only when ledger.build_reason says so; returns the
+    scripts that ran."""
+    dirs = ledger.Dirs(out)
+    extract, images = dirs.extract, dirs.images
+    log("== offline build")
+    ran: set[str] = set()
+    order: list[str] = []
+    py = sys.executable
+    env = {"AR_OUT": str(extract), "AR_LANG": lang, "AR_VEH": str(dirs.vehicles),
+           "AR_LINKS": str(dirs.links),
+           "AR_HOST": "", "AR_DB": db, "AR_OUT_ROOT": str(out)}
+    for cmd in (
+        [py, "parse.py"],
+        [py, "apply_applic.py", "--extract", str(extract), "--applic", str(dirs.applic2),
+         "--applic1", str(extract), "--rebuild-join"],
+        [py, "parse_vehicles.py"],
+        [py, "parse_links.py"],
+        [py, "convert_images.py", "--raw", str(images / "raw"),
+         "--out", str(extract / "images"), "--jobs", "3"],
+        [py, "apply_images.py", "--extract", str(extract)],
+    ):
+        script = cmd[1]
+        if script == "convert_images.py" and not (images / "raw").is_dir():
+            log("no pulled images; skipping conversion")
+            continue
+        why = "full run" if full else ledger.build_reason(state, script, dirs, ran)
+        if why is None:
+            log(f"{script}: nothing new since {state['build'][script].get('at', '?')}; skipped")
+            continue
+        log(f"-- {script} ({why})")
+        if run(cmd, env, HERE) != 0:
+            ledger.forget_build(state, script)
+            ledger.save(out, state)
+            die(f"{script} failed")
+        ran.add(script)
+        order.append(script)
+        ledger.mark_build(state, script, dirs)
+        ledger.save(out, state)
+    log(f"corpus ready: {extract}")
+    return order
+
+
 def main(argv=None) -> int:
     global VBOX, JAVA, STAGE
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -964,9 +1052,18 @@ def main(argv=None) -> int:
                     help="roll the VM back to this snapshot (the current state is snapshotted first)")
     ap.add_argument("--fix-network", action="store_true",
                     help="put the VM's Adapter 1 on the host-only network (asked for from Shop setup)")
+    ap.add_argument("--full", action="store_true",
+                    help="pull and build everything again, whatever extraction_state.json says")
+    ap.add_argument("--status", action="store_true",
+                    help="print what has been extracted into --out-root (JSON) and exit")
     args = ap.parse_args(argv)
     global SHOT_DIR
 
+    if args.status:            # reads the output folder only: no VirtualBox needed
+        st = ledger.status(Path(args.out_root), args.lang)
+        st["images"] = pulled_count(ledger.Dirs(Path(args.out_root)).images)
+        print("STATUS " + json.dumps(st))
+        return 0
     VBOX = find_vbox()
     if args.list_vms:
         for name, state in list_vms():
@@ -1016,11 +1113,14 @@ def main(argv=None) -> int:
         out / "wis_images", out / "wis_links")
     for d in (extract, vehicles, applic2, images, links):
         d.mkdir(parents=True, exist_ok=True)
-    online = [s for s in steps if s != "build"]
+    dirs, state = ledger.Dirs(out), ledger.load(out)
+    if args.full:
+        log("== a full run: everything is pulled and built again")
+    online, need_tables = plan_pulls(steps, args.full, state, dirs, args.lang, args.epc_catalogs)
     started_here = vm_state(args.vm) != "running"
 
     if online:
-        auto_snapshot(args.vm, f"an extraction ({','.join(steps)})")
+        auto_snapshot(args.vm, f"an extraction ({','.join(online)})")
         ewa_ready(args.vm, args.java, args.jar, args.wait)
         JAVA, STAGE = find_java(args.java), stage_scripts(find_jar(args.jar))
         log(f"VM {args.vm}; Java {JAVA}; output {out}")
@@ -1064,19 +1164,27 @@ def main(argv=None) -> int:
         if "docs" in steps:
             log("== documents (resumable; the DB sometimes drops -- the VM is power-cycled and the pull resumes)")
             pull("pull.js", extract, "document pull")
+            ledger.mark_pull(state, "docs", dirs)
+            ledger.save(out, state)
         if "applic" in steps:
             log("== model applicability")
             pull("pull_applic.js", extract, "applicability pull")
             pull("pull_applic2.js", applic2, "applicability-role pull")
+            ledger.mark_pull(state, "applic", dirs)
+            ledger.save(out, state)
         if "vehicles" in steps:
             log("== vehicle names and VIN tables")
-            pull("pull_vehicles.js", vehicles, "vehicle-table pull")
+            # only the tables still to pull (all of them on a full run)
+            pull("pull_vehicles.js", vehicles, "vehicle-table pull",
+                 env={} if args.full or not need_tables else {"AR_TABLES": ",".join(need_tables)})
         if "links" in steps:
             if not (links / "links_list.txt").is_file():
                 log(f"== diagram links: {build_links_list(extract, links):,} documents listed")
             else:
                 log("== diagram links (resuming)")
             pull("pull_links.js", links, "diagram-link pull")
+            ledger.mark_pull(state, "links", dirs)
+            ledger.save(out, state)
         if "images" in steps:
             total = build_image_list(extract, images)
             log(f"== images: {total:,} graphics, {pulled_count(images):,} already pulled; "
@@ -1108,32 +1216,14 @@ def main(argv=None) -> int:
                       "AR_CATNUM": args.epc_catalogs, "AR_RESUME": "1",
                       "AR_SLEEP_MS": "20", "AR_TBJDBC": "tbjdbc.jar"},
                  port=args.epc_port, heap="1024m")
+            ledger.mark_pull(state, "epc", dirs, args.epc_catalogs)
+            ledger.save(out, state)
             log(f"EPC corpus ready: {epc}")
         if started_here or "images" in steps or "epc" in steps:
             vm_down(args.vm)
 
     if "build" in steps:
-        log("== offline build")
-        py = sys.executable
-        env = {"AR_OUT": str(extract), "AR_LANG": args.lang, "AR_VEH": str(vehicles),
-               "AR_LINKS": str(links),
-               "AR_HOST": "", "AR_DB": args.db, "AR_OUT_ROOT": str(out)}
-        for cmd in (
-            [py, "parse.py"],
-            [py, "apply_applic.py", "--extract", str(extract), "--applic", str(applic2),
-             "--applic1", str(extract), "--rebuild-join"],
-            [py, "parse_vehicles.py"],
-            [py, "parse_links.py"],
-            [py, "convert_images.py", "--raw", str(images / "raw"),
-             "--out", str(extract / "images"), "--jobs", "3"],
-            [py, "apply_images.py", "--extract", str(extract)],
-        ):
-            if cmd[1] == "convert_images.py" and not (images / "raw").is_dir():
-                log("no pulled images; skipping conversion")
-                continue
-            if run(cmd, env, HERE) != 0:
-                die(f"{cmd[1]} failed")
-        log(f"corpus ready: {extract}")
+        offline_build(out, state, args.full, args.lang, args.db)
     log("done")
     return 0
 

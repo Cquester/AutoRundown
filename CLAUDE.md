@@ -37,10 +37,10 @@ broke:
 
 ```
 autorundown/        the app; everything the MSI ships (see Architecture)
-serve.py ingest.py ask.py rebuild_wis.py remove_manuals.py charm_download.py unzip_lemon.py
+serve.py ingest.py ask.py rebuild_wis.py remove_manuals.py charm_download.py unzip_lemon.py corpus_stamp.py
                     command-line entry points; the app runs ingest / rebuild_wis /
-                    remove_manuals / charm_download / unzip_lemon as child processes
-                    by path, so they stay at the root
+                    remove_manuals / charm_download / unzip_lemon / corpus_stamp as
+                    child processes by path, so they stay at the root
 dev.py              throwaway instance with sample data (.dev/, port 8757)
 eval.py eval_wis.py retrieval checks against the real index (free)
 tests/              free test suites, `python tests/test_<name>.py`
@@ -149,6 +149,8 @@ python ask.py --usage                             # spend, by source and user
 python remove_manuals.py --doc-id <id> [--compact]  # remove a LEMON / folder manual (--compact: shrink the index)
 python remove_manuals.py --source mercedes-wis    # remove all WIS (never one model)
 python rebuild_wis.py                             # replace the WIS part in place (keeps other manuals + spend log)
+python corpus_stamp.py --check <corpus> --index index.db   # exit 10 = the index already holds it unchanged
+python extractor/vm_pipeline.py --status --out-root <dir>  # what has been extracted (extraction_state.json)
 python charm_download.py --make "Mercedes Benz" --year 1987 --car "<CHARM name>" --torrent <operation-charm.torrent> --plan
                                                   # one car from CHARM's swarm: --plan sizes it; without it downloads (never seeds)
 python dev.py                                     # FREE, throwaway instance, :8757
@@ -175,6 +177,7 @@ python tests/test_fake_api.py                     # Ask end to end vs the fake A
 python tests/test_providers.py                    # Ask on all 4 AI providers vs the fakes (~20 s)
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
+python tests/test_extraction_ledger.py            # a re-run pulls/builds/imports only what is new (~2 s)
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
 python tests/test_history.py                      # question history: answers kept whole, who sees what (~2 s)
 python tests/test_chat.py                         # AI chat follow-ups vs the fake API, who may follow up (~5 s)
@@ -650,6 +653,15 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   key. Sign-in is by single-use 15-minute QR grants (hashes only), voided
   when the dialog closes. (`shop-network.md`)
 - **WIS is never removed per model.** (`importing.md`)
+- **A VM re-run does only what is new** (2026-11-05, the user: an hour every
+  time "isn't ideal"). `extractor/ledger.py` keeps `extraction_state.json`:
+  a pull is skipped while its script and files are unchanged, vehicle tables
+  are pulled one by one (`vehicle_tables.json` + each table's `.sql`), the VM
+  is not started when nothing is new, a build script runs only on new input
+  or code; `corpus_stamp.py` skips the WIS rebuild / EPC re-import while the
+  corpus is unchanged. A new table goes in `vehicle_tables.json`, never only
+  in `pull_vehicles.js`. Never skip on the ledger's word alone -- every entry
+  is checked against the files. (`importing.md`)
 - **The app never downloads manuals from lemon-manuals.la by itself**
   (2026-10-09; clarified 2026-10-29, the user: the rule is that nothing is
   downloaded automatically -- people may pull data from there themselves).

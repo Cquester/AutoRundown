@@ -291,6 +291,37 @@ def pick_vm(file: str) -> dict:
 
 VM_STEPS ={"wis": "docs,applic,vehicles,images,build", "epc": "epc",
             "both": "docs,applic,vehicles,images,build,epc"}
+# corpus_stamp.py --check's "this corpus is in the index as it is": the rest
+# of that part (the re-import) is skipped, and the part counts as done
+UNCHANGED = 10
+
+
+def _stamp(corpus: Path, index_path: str, what: str) -> list[str]:
+    return [sys.executable, "-u", str(ROOT / "corpus_stamp.py"), what, str(corpus),
+            "--index", str(index_path)]
+
+
+def extracted() -> dict:
+    """What has been extracted from the VM so far (vm_pipeline.py --status,
+    from extraction_state.json): each pull's date, vehicle tables pulled of
+    wanted, each build script's last run. Read-only; no VM, no VirtualBox."""
+    ext = find_extractor()
+    if ext is None:
+        return {"error": "The Mercedes extractor (vm_pipeline.py) was not found."}
+    try:
+        out = extractor_out_root(ext)
+        r = subprocess.run([sys.executable, str(ext / "vm_pipeline.py"), "--status",
+                            "--out-root", str(out)], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=60, creationflags=NO_WINDOW)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        return {"error": str(exc)}
+    for line in r.stdout.splitlines():
+        if line.startswith("STATUS "):
+            try:
+                return {**json.loads(line[7:]), "out_root": str(out)}
+            except ValueError:
+                break
+    return {"error": "This extractor is too old to say what it has extracted."}
 
 
 def parse_checks(text: str) -> list[dict]:
@@ -901,26 +932,31 @@ class ImportJobs:
             return j
 
     @staticmethod
-    def _epc_cmds(path: Path, index_path: str, vm: str) -> list[list[str]]:
+    def _epc_cmds(path: Path, index_path: str, vm: str, full: bool = False) -> list[list[str]]:
         """Pull the EPC parts catalogue into <out_root>/epc_extract, then
         replace the EPC part of the index with it (an older EPC import is
-        removed first, so the index matches the corpus exactly). Built when
+        removed first, so the index matches the corpus exactly) -- unless the
+        index already holds this corpus as it is (corpus_stamp.py). Built when
         the part starts: in a "both" run the WIS part before it may have
         changed what the index holds."""
         py = [sys.executable, "-u"]
         ext = find_extractor()
         cmds = [[*py, str(ext / "vm_pipeline.py"), "--vm", vm,
-                 "--out-root", str(path.parent), "--steps", "epc"]]
+                 "--out-root", str(path.parent), "--steps", "epc", *(["--full"] if full else [])]]
+        if not full:
+            cmds.append(_stamp(path, index_path, "--check"))
         if manuals(index_path)["epc"]["entries"]:
             cmds.append([*py, str(ROOT / "remove_manuals.py"), "--index", str(index_path),
                          "--source", "mercedes-epc"])
         cmds.append([*py, str(ROOT / "ingest.py"), "--archive", str(path),
                      "--index", str(index_path), "--importer", "records"])
+        cmds.append(_stamp(path, index_path, "--record"))
         return cmds
 
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
               steps: str = "", only: list[str] | None = None,
-              car: list[str] | None = None, text_only: bool = False) -> dict:
+              car: list[str] | None = None, text_only: bool = False,
+              full: bool = False) -> dict:
         """`parts` are run one after the other, each a list of commands (or a
         function giving them, called when that part starts); the first
         failing command stops the job, and later parts are never started."""
@@ -941,15 +977,20 @@ class ImportJobs:
                         "--out-root", str(path.parent)]
                 if steps:
                     pipe += ["--steps", steps]
-                cmds = [pipe, rebuild]
+                if full:
+                    pipe.append("--full")
+                # the WIS rebuild only when the corpus changed since it was
+                # last imported into this index (2026-11-05: most of an hour)
+                cmds = [pipe, *([] if full else [_stamp(path, index_path, "--check")]),
+                        rebuild, _stamp(path, index_path, "--record")]
                 if mode == "vm_both":
                     # WIS, then the EPC parts catalogue from the same VM: the
                     # two existing jobs back to back, EPC only if WIS succeeded
                     epc = path.parent / "epc_extract"
                     parts = [("wis", "WIS", cmds),
-                             ("epc", "EPC parts", lambda: self._epc_cmds(epc, index_path, vm))]
+                             ("epc", "EPC parts", lambda: self._epc_cmds(epc, index_path, vm, full))]
             elif mode == "vm_epc":
-                cmds = self._epc_cmds(path, index_path, vm)
+                cmds = self._epc_cmds(path, index_path, vm, full)
             elif mode == "vm_rollback":
                 # a person asked to roll the VM back to a snapshot; the
                 # extractor snapshots the current state first, so it can be undone
@@ -1142,6 +1183,9 @@ class ImportJobs:
                     rc = 3
                     break
                 rc = self._run(cmd)
+                if rc == UNCHANGED and Path(cmd[2]).name == "corpus_stamp.py":
+                    rc = 0             # nothing new: the import after it is skipped
+                    break
                 if rc != 0:
                     break
             if self._cancelled():

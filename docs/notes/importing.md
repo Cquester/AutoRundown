@@ -679,3 +679,48 @@ Test: `tests/test_vm_jobs.py` (parser, Both order, failure of either part,
 one job at a time, reload, the old safeguards). **Not yet run against a real
 VM**: the parser's patterns are taken from the scripts' source, not from a
 real run's log.
+
+**A re-run does only what is new** (2026-11-05, the user: "doing that every
+time which takes an hour isn't ideal. So can we from here on track what has
+been extracted so future extractions are faster?"). Before, every run
+re-pulled the model links and all vehicle tables, re-ran every build script
+and then rebuilt the whole WIS part of the index (`rebuild_wis.py`), and for
+EPC removed and re-ingested it -- even with nothing new. Now three layers:
+
+- **The extractor's ledger**, `<out root>/extraction_state.json`
+  (`extractor/ledger.py`). Each pull (docs, applic, links, epc) is recorded
+  when it exits 0, with its scripts' SHA-256 and what its files on disk look
+  like (name, size, modified time); it is skipped while all of those are the
+  same, so deleted data, a changed script or other EPC catalogues pull again.
+  **Vehicle tables are tracked one by one by the files themselves**:
+  `pull_vehicles.js` now reads its table list from `vehicle_tables.json` (the
+  same list `ledger.py` reads) and writes `<table>.sql`, the query it ran,
+  beside `<table>.tsv`; a table is pulled again only when either is missing or
+  the list asks for another query -- **a release that adds tables pulls just
+  those** (`AR_TABLES`). Images need no entry (pulled count against the
+  documents' figure list). This is all decided before the VM starts
+  (`vm_pipeline.plan_pulls`): **with nothing new the VM is not started**.
+  Build scripts (`offline_build`) run only when their inputs or code changed
+  or a script before them that rewrites the same files ran (parse ->
+  apply_applic -> apply_images); `parse_vehicles.py` and `parse_links.py`
+  always run (seconds). A failed script is dropped from the ledger.
+- **The import**: `corpus_stamp.py --check` runs before `rebuild_wis.py` (and
+  before EPC's remove + ingest); exit 10 ends that part with the index left as
+  it is, `--record` stamps it after a successful import (`indexed.json` in the
+  corpus folder, per index file). The fingerprint is what the importer reads:
+  the corpus folder's files (contents under 32 MB, size + time above) and
+  `wis_links.sqlite`'s `docnr` table only -- the rest of that file (labour,
+  bulletins, ASSYST, diagrams) the server reads live, so **new link tables
+  need no re-import**. It also checks the index still holds the source,
+  complete, so a removed or half-done import is imported again.
+- **Shop setup** shows "Already extracted: Documents 11/05/2026 · Model links
+  · Vehicle tables 36 of 36 · Images 272,185" (`GET /api/vms/extracted`,
+  `vm_pipeline.py --status`) and has **Pull everything again** (`full`:
+  `--full` to the extractor, no stamp check).
+
+The first run under this version has no ledger yet, so it runs about as long
+as before (tables pulled before it have no `.sql`; the build scripts have no
+entry) and records everything; the runs after it are the short ones. Tests:
+`tests/test_extraction_ledger.py` (free, no VM), `tests/test_vm_jobs.py` (a
+second identical Both leaves WIS and EPC alone; a full one replaces EPC).
+**Not yet run against the real VM.**
