@@ -11,7 +11,8 @@ Those stay in the "Mercedes Documents" folder:
                of its parents (Desktop/Mercedes Documents for the usual layout,
                also found from a worktree); in the installed app (the MSI's
                app/extractor) the app's own data folder,
-               %LOCALAPPDATA%/AutoRundown/Mercedes data (installed_home); or
+               %LOCALAPPDATA%/AutoRundown/Mercedes data (installed_home;
+               ~/.local/share/AutoRundown/Mercedes data off Windows); or
                this folder's parent when the extractor still sits in that
                folder (the old standalone layout)
 
@@ -24,7 +25,10 @@ import os
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parent if (HERE.parent / ".git").exists() else None
+# a source checkout: a git clone, or a copy of one without .git (a test
+# box's snapshot); the MSI ships no tests/ folder
+REPO = HERE.parent if ((HERE.parent / ".git").exists()
+                       or (HERE.parent / "tests").is_dir()) else None
 
 
 def home() -> Path:
@@ -58,7 +62,10 @@ def installed_home() -> Path:
     (importer_jobs.move_mercedes_home, legacy_home)."""
     if os.environ.get("AUTORUNDOWN_HOME"):
         return Path(os.environ["AUTORUNDOWN_HOME"]) / HOME_NAME
-    base = os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+    else:   # Linux / macOS: the XDG data folder, never a Windows-style AppData
+        base = os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share"
     return Path(base) / "AutoRundown" / HOME_NAME   # created on first use
 
 

@@ -953,6 +953,10 @@ class ImportJobs:
         cmds.append(_stamp(path, index_path, "--record"))
         return cmds
 
+    def running(self) -> bool:
+        with self._lock:
+            return bool(self._job and self._job["state"] == "running")
+
     def start(self, path: Path, index_path: str, mode: str, vm: str = "",
               steps: str = "", only: list[str] | None = None,
               car: list[str] | None = None, text_only: bool = False,

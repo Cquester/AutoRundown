@@ -1,0 +1,24 @@
+# AutoRundown as a systemd *user* service: a headless Linux server, reached
+# over SSH (admin) and the shop network (phones). packaging/linux/install.sh
+# puts it in ~/.config/systemd/user/ with the checkout's path filled in.
+#
+# A user service, not a system one: VirtualBox keeps its VMs per user, so the
+# Mercedes VM import only works when the app runs as the user who owns the VM,
+# and the config, index and spend log stay in that user's ~/.autorundown.
+# `loginctl enable-linger <user>` starts it at boot without anyone signed in.
+[Unit]
+Description=AutoRundown repair-manual search
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/.venv/bin/python serve.py --port 8756
+Restart=on-failure
+RestartSec=5
+# serve.py's log goes to the journal: journalctl --user -u autorundown -f
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

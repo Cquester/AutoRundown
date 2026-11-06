@@ -284,6 +284,9 @@ def ewa_copy_checks(vmp) -> None:
     real_vbox, vmp.vbox = vmp.vbox, fake_vbox
     real_sleep, vmp.sleep = vmp.sleep, lambda s: None
     real_time_sleep, vmp.time.sleep = vmp.time.sleep, lambda s: None
+    # the Windows flow, wherever the test runs (CI and test boxes are Linux;
+    # off Windows only the driver is copied: tests/test_linux_server.py)
+    real_windows, vmp.WINDOWS = vmp.WINDOWS, True
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             vmp.ewa_ready("VM", "", "", 60)
@@ -314,6 +317,7 @@ def ewa_copy_checks(vmp) -> None:
               stopped and "by hand" in o.getvalue(), o.getvalue()[-300:])
     finally:
         vmp.vbox, vmp.sleep, vmp.time.sleep, vmp.home = real_vbox, real_sleep, real_time_sleep, real_home
+        vmp.WINDOWS = real_windows
         vmp.STARTED.discard("VM")
 
     # where the installed app's extractor (app/extractor, beside autorundown/)
@@ -327,7 +331,7 @@ def ewa_copy_checks(vmp) -> None:
     (user / "Desktop").mkdir(parents=True, exist_ok=True)
     local = user / "AppData" / "Local"
     env = {**os.environ, "USERPROFILE": str(user), "HOME": str(user), "LOCALAPPDATA": str(local)}
-    for k in ("AR_HOME", "AR_OUT_ROOT", "AUTORUNDOWN_HOME"):
+    for k in ("AR_HOME", "AR_OUT_ROOT", "AUTORUNDOWN_HOME", "XDG_DATA_HOME"):
         env.pop(k, None)
 
     def where() -> str:
@@ -336,9 +340,12 @@ def ewa_copy_checks(vmp) -> None:
         return next((l.split(None, 1)[1] for l in out.splitlines() if l.startswith("out_root ")), out)
 
     # compared as resolved paths: RUNNER~1 vs runneradmin, /var vs /private/var
-    want = local / "AutoRundown" / "Mercedes data" / "autorundown_out"
+    # (off Windows ~/.local/share: tests/test_linux_server.py)
+    base = local if os.name == "nt" else user / ".local" / "share"
+    want = base / "AutoRundown" / "Mercedes data" / "autorundown_out"
     got = where()
-    check("the installed extractor writes to %LOCALAPPDATA%\\AutoRundown\\Mercedes data, not the Desktop",
+    check("the installed extractor writes to %LOCALAPPDATA%\\AutoRundown\\Mercedes data "
+          "(~/.local/share off Windows), not the Desktop",
           Path(got).resolve() == want.resolve(), got)
     old = user / "Desktop" / "Mercedes Documents"
     (old / "autorundown_out").mkdir(parents=True)

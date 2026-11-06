@@ -177,8 +177,53 @@ def find_vbox() -> str:
     die("VBoxManage not found. Install VirtualBox, or add it to PATH.")
 
 
+WINDOWS = os.name == "nt"
+# off Windows the EWA's java.exe can't run: a Java 8-14 (they still carry
+# Nashorn, which the .js pulls need; 15 dropped it), e.g. Ubuntu's
+# openjdk-8-jre-headless. AR_JAVA names one by hand.
+LINUX_JAVA_HINT = ("install a Java 8 to 14 (Nashorn runs the pulls; Java 15 and later dropped "
+                   "it), e.g. `sudo apt install openjdk-8-jre-headless`, or pass --java")
+_NASHORN: dict[str, bool] = {}
+
+
+def has_nashorn(java: str) -> bool:
+    """Whether this Java runs Nashorn: one tiny script through its shell."""
+    if java not in _NASHORN:
+        try:
+            r = subprocess.run([java, "jdk.nashorn.tools.Shell"], input="print('nashorn-ok')\n",
+                               capture_output=True, text=True, timeout=60,
+                               creationflags=NO_WINDOW, check=False)
+            _NASHORN[java] = "nashorn-ok" in r.stdout
+        except (OSError, subprocess.SubprocessError):
+            _NASHORN[java] = False
+    return _NASHORN[java]
+
+
+def linux_javas() -> list[str]:
+    """Javas that may have Nashorn, likeliest first: AR_JAVA, the distro's
+    Java 8 and 11 (/usr/lib/jvm), then `java` on PATH."""
+    found = [os.environ.get("AR_JAVA", "")]
+    jvm = Path("/usr/lib/jvm")
+    for pat in ("java-8-*", "java-1.8*", "java-11-*", "*"):
+        for d in sorted(jvm.glob(pat)) if jvm.is_dir() else []:
+            found += [str(d / "jre" / "bin" / "java"), str(d / "bin" / "java")]
+    found.append(shutil.which("java") or "")
+    seen, out = set(), []
+    for c in found:
+        if c and c not in seen and Path(c).is_file():
+            seen.add(c)
+            out.append(c)
+    return out
+
+
 def java_path(explicit: str = "") -> str:
-    """The EWA install's Java, or "" (then the run copies it out of the VM)."""
+    """The Java the pulls run on, or "" (on Windows the run then copies the
+    EWA install's out of the VM; off Windows one with Nashorn is installed)."""
+    if not WINDOWS:
+        for c in ([explicit] if explicit else []) + linux_javas():
+            if Path(c).is_file() and has_nashorn(c):
+                return c
+        return ""
     if explicit and Path(explicit).is_file():
         return explicit
     # the 32-bit JRE bundled with the EWA install: its Nashorn runs the .js pulls
@@ -199,7 +244,8 @@ def jar_path(explicit: str = "") -> str:
 
 def find_java(explicit: str = "") -> str:
     return java_path(explicit) or die(
-        "Java not found. Pass --java <path to the EWA install's sun_jre\\bin\\java.exe>.")
+        "Java not found. Pass --java <path to the EWA install's sun_jre\\bin\\java.exe>."
+        if WINDOWS else f"No Java with Nashorn on this computer: {LINUX_JAVA_HINT}.")
 
 
 def find_jar(explicit: str = "") -> str:
@@ -507,17 +553,21 @@ def copy_ewa_from_vm(vm: str, dest: Path, wait_s: int) -> None:
     finally:
         vbox("sharedfolder", "remove", vm, "--name", EWA_SHARE, "--transient", check=False)
     marker.unlink(missing_ok=True)
-    if not (java_path() and jar_path()):
+    if not ((java_path() or not WINDOWS) and jar_path()):
         screenshot(vm)
         die(f"{vm} has no EWA install where it was looked for (C:\\Program Files\\{EWA_JRE} "
             f"and {EWA_JAR}), so nothing was copied. Copy sun_jre and tbjdbc.jar from the EWA "
             f"install in the VM into {dest} by hand, keeping their folders, or pass --java "
             f"and --jar.")
-    log(f"copied: Java {java_path()}, driver {jar_path()}")
+    log(f"copied: Java {java_path() or '(not used off Windows)'}, driver {jar_path()}")
 
 
 def ewa_ready(vm: str, java: str, jar: str, wait_s: int) -> None:
-    """Java and the JDBC driver on this PC: found, or copied out of the VM."""
+    """Java and the JDBC driver on this PC: found, or copied out of the VM.
+    Off Windows only the driver is copied (the VM's java.exe can't run
+    there), so a Java with Nashorn must already be installed."""
+    if not WINDOWS:
+        find_java(java)                 # stops with what to install
     if not (java_path(java) and jar_path(jar)):
         copy_ewa_from_vm(vm, home() / "ewa_extract", wait_s)
 
@@ -774,7 +824,10 @@ def preflight(vm: str, steps: list[str], out: Path, subnet: str, java: str, jar:
                                                  "started can't be told apart from the database not "
                                                  "answering."))
         j, jr = java_path(java), jar_path(jar)
-        if j and jr:
+        if not WINDOWS and not j:
+            levels.append(check("java", "fail", f"No Java with Nashorn on this computer: "
+                                                f"{LINUX_JAVA_HINT}."))
+        elif j and jr:
             levels.append(check("java", "ok", f"Java: {j}"))
             levels.append(check("jdbc", "ok", "Transbase JDBC driver found."))
         elif "Value:" in ga:
