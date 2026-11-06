@@ -548,13 +548,15 @@ def main() -> int:
         s = wait(pc, [])
         check("done, both parts", s["state"] == "done" and [p["state"] for p in s["parts"]] == ["done", "done"],
               (s["state"], s["parts"]))
+        # the whole log: the status carries only its last 120 lines
+        full = (TMP / "home" / "import_job.log").read_text(encoding="utf-8").splitlines()
         check("WIS: the stamp said unchanged, so no rebuild ran",
-              any("UNCHANGED" in l and "wis_extract" in l for l in s["log"])
-              and not any(l.startswith("$ rebuild_wis.py") for l in s["log"]), s["log"][-12:])
+              any("UNCHANGED" in l and "wis_extract" in l for l in full)
+              and not any(l.startswith("$ rebuild_wis.py") for l in full), full[-12:])
         check("EPC: unchanged too -- the old EPC is neither removed nor re-imported",
-              any("UNCHANGED" in l and "epc_extract" in l for l in s["log"])
-              and not any("remove_manuals.py" in l and "mercedes-epc" in l for l in s["log"])
-              and not any(l.startswith("$ ingest.py") for l in s["log"]), s["log"][-12:])
+              any("UNCHANGED" in l and "epc_extract" in l for l in full)
+              and not any("remove_manuals.py" in l and "mercedes-epc" in l for l in full)
+              and not any(l.startswith("$ ingest.py") for l in full), full[-12:])
         after = importer_jobs.manuals(db)
         check("... and the index still holds the same WIS and EPC",
               (after["wis"]["pages"], after["epc"]["pages"]) == (pages_before["wis"]["pages"], pages_before["epc"]["pages"])
@@ -564,12 +566,13 @@ def main() -> int:
         pc.post("/api/import", json={"path": "", "mode": "vm_both", "vm": "Mercedes EWA (fake)", "steps": "build",
                                      "full": True})
         s = wait(pc, [])
+        full = (TMP / "home" / "import_job.log").read_text(encoding="utf-8").splitlines()
         check("done", s["state"] == "done", s["log"][-5:])
-        check("the pipeline was asked for a full run", any("vm_pipeline.py" in l and "--full" in l for l in s["log"]))
-        check("WIS was rebuilt", any(l.startswith("$ rebuild_wis.py") for l in s["log"]), s["log"][-12:])
+        check("the pipeline was asked for a full run", any("vm_pipeline.py" in l and "--full" in l for l in full))
+        check("WIS was rebuilt", any(l.startswith("$ rebuild_wis.py") for l in full), full[-12:])
         check("the EPC part removed the old EPC before importing it",
-              any("remove_manuals.py" in l and "mercedes-epc" in l for l in s["log"]))
-        check("no stamp check on a full run", not any("--check" in l and "corpus_stamp.py" in l for l in s["log"]))
+              any("remove_manuals.py" in l and "mercedes-epc" in l for l in full))
+        check("no stamp check on a full run", not any("--check" in l and "corpus_stamp.py" in l for l in full))
 
         print("\n-- WIS fails: EPC is never started --")
         r = pc.post("/api/import", json={"path": "", "mode": "vm_both", "vm": "Fails in documents (fake)",

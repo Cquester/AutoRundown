@@ -390,16 +390,23 @@ def main() -> int:
         finally:
             importer_jobs.find_extractor = real_find
         names = [Path(c[2]).name for c in ran]
-        check("vm_epc runs pull, then removes the old EPC, then ingests",
-              names == ["vm_pipeline.py", "remove_manuals.py", "ingest.py"], names)
+        # (the stamp check passes here -- _run returns 0 -- so the import runs;
+        # an unchanged corpus is tests/test_vm_jobs.py's case)
+        check("vm_epc runs pull, the stamp check, removes the old EPC, ingests, stamps",
+              names == ["vm_pipeline.py", "corpus_stamp.py", "remove_manuals.py", "ingest.py", "corpus_stamp.py"],
+              names)
         check("... the pull is the epc step for that VM",
               ran and ran[0][ran[0].index("--steps") + 1] == "epc"
               and ran[0][ran[0].index("--vm") + 1] == "Mercedes_Test", ran[:1])
+        check("... the check and the stamp are for epc_extract in this index",
+              len(ran) > 4 and ran[1][3:5] == ["--check", str(TMP / "out" / "epc_extract")]
+              and ran[4][3:5] == ["--record", str(TMP / "out" / "epc_extract")]
+              and ran[1][-1] == ran[4][-1] == str(db), (ran[1:2], ran[4:5]))
         check("... the removal is the whole EPC source",
-              len(ran) > 1 and ran[1][-2:] == ["--source", "mercedes-epc"], ran[1:2])
+              len(ran) > 2 and ran[2][-2:] == ["--source", "mercedes-epc"], ran[2:3])
         check("... and the ingest reads epc_extract as records",
-              len(ran) > 2 and ran[2][ran[2].index("--archive") + 1] == str(TMP / "out" / "epc_extract")
-              and ran[2][-2:] == ["--importer", "records"], ran[2:])
+              len(ran) > 3 and ran[3][ran[3].index("--archive") + 1] == str(TMP / "out" / "epc_extract")
+              and ran[3][-2:] == ["--importer", "records"], ran[3:4])
 
         from autorundown import config as ar_config
         joblog = ar_config.APP_DIR / "import_job.log"
