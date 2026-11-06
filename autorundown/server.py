@@ -172,6 +172,9 @@ class ImportBody(BaseModel):
     # mode "vm_both": "vm" then "vm_epc" as one job; EPC only if WIS succeeded
     vm: str = ""
     steps: str = ""
+    # modes "vm" / "vm_epc" / "vm_both": pull and build everything again and
+    # re-import, whatever was extracted before ("Pull everything again")
+    full: bool = False
     # mode "vm_rollback": the snapshot to roll the VM back to
     snapshot: str = Field("", max_length=200)
     # mode "lemon": the vehicle folders to import, relative to path
@@ -1775,6 +1778,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
 
     # the installed app's Mercedes folder: where it is and how big
     # (counted over ~270k files: asked for separately, after the page shows)
+    @app.get("/api/vms/extracted")
+    def api_vm_extracted() -> dict:
+        """What has been extracted from the VM already (the extractor's
+        ledger): a run pulls and builds only what is new."""
+        return importer_jobs.extracted()
+
     @app.get("/api/vms/home")
     def api_vm_home(size: bool = False) -> dict:
         home = importer_jobs.mercedes_home()
@@ -1957,7 +1966,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 raise HTTPException(400, problem)
             try:
                 return jobs.start(Path(info["out_root"]) / "wis_extract", app.state.index_path,
-                                  "vm_both", vm=body.vm, steps=",".join(steps))
+                                  "vm_both", vm=body.vm, steps=",".join(steps), full=body.full)
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
         if body.mode == "vm_epc":
@@ -1967,13 +1976,13 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 raise HTTPException(400, problem)
             try:
                 return jobs.start(Path(info["out_root"]) / "epc_extract", app.state.index_path,
-                                  "vm_epc", vm=body.vm)
+                                  "vm_epc", vm=body.vm, full=body.full)
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
         if body.mode == "vm":
             try:
                 return jobs.start(Path(info["out_root"]) / "wis_extract", app.state.index_path,
-                                  "vm", vm=body.vm, steps=",".join(steps))
+                                  "vm", vm=body.vm, steps=",".join(steps), full=body.full)
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc))
         if body.mode == "remove_mercedes":

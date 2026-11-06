@@ -196,7 +196,18 @@ def main(argv=None) -> int:
     ap.add_argument("--list-snapshots", action="store_true")
     ap.add_argument("--restore", default="")
     ap.add_argument("--fix-network", action="store_true")
+    ap.add_argument("--full", action="store_true")
+    ap.add_argument("--status", action="store_true")
     args, _ = ap.parse_known_args(argv)
+    if args.status:          # what the real one reads from extraction_state.json
+        done = (Path(args.out_root) / "wis_extract").is_dir()
+        print("STATUS " + json.dumps({
+            "pulls": {k: {"at": "2026-11-05 12:00:00" if done and k in ("docs", "applic") else None,
+                          "current": done and k in ("docs", "applic")}
+                      for k in ("docs", "applic", "links", "epc")},
+            "vehicle_tables": {"wanted": 36, "pulled": 36 if done else 0, "missing": [] if done else ["W_Dokumente"]},
+            "build": {}, "images": 3000 if done else 0}))
+        return 0
     global VM
     if args.list_vms:
         for name, state in VMS:

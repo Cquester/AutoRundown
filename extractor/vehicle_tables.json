@@ -1,0 +1,136 @@
+{
+ "about": "The tables pull_vehicles.js pulls, whole, every column. {LANG} is the WIS language number (AR_LANG, 2 = English), {LANG2} the same zero-padded ('02', as ASRA writes it). Read by pull_vehicles.js and by ledger.py: a table is pulled again only when its query here changes, so a new table pulls just that one.",
+ "tables": [
+  {
+   "name": "ASRA_FahrzeugII"
+  },
+  {
+   "name": "ASRA_Fahrzeug"
+  },
+  {
+   "name": "AW_Fahrzeuge"
+  },
+  {
+   "name": "USTypBM2TypBM"
+  },
+  {
+   "name": "USMotKar2TypBM4"
+  },
+  {
+   "name": "Modelljahr2SACode"
+  },
+  {
+   "name": "ASRA_Typkennzahl"
+  },
+  {
+   "name": "FzgArt"
+  },
+  {
+   "name": "AW_VIN2FIN"
+  },
+  {
+   "name": "W_WMI2FINMapping"
+  },
+  {
+   "name": "W_Dokumente",
+   "why": "Reference tables beyond \"which car is this\" (2026-10-10): W_Dokumente        DokNrID -> docnr (\"ah0320n100002a\"): turns the cross-references printed on pages into links SACode, SANummer   option (SA) code and SA number descriptions AW_AssystFuellmengen, AW_AssystFussnote   engine oil capacities SSTeilID, SSTeilBenennung   damage-code component names: what the &H& hotspots on the 99xxxxxx picture menus name ASRA_*             labour operations and flat-rate times"
+  },
+  {
+   "name": "SACode",
+   "where": "SprachCode = {LANG}"
+  },
+  {
+   "name": "SANummer",
+   "where": "SprachCode = {LANG}"
+  },
+  {
+   "name": "AW_AssystFuellmengen",
+   "where": "SprachCode = {LANG}"
+  },
+  {
+   "name": "AW_AssystFussnote",
+   "where": "SprachCode = {LANG}"
+  },
+  {
+   "name": "SSTeilID",
+   "where": "SprachCode = {LANG}"
+  },
+  {
+   "name": "SSTeilBenennung",
+   "where": "TeilID IN (SELECT TeilID FROM SSTeilID WHERE SprachCode = {LANG})"
+  },
+  {
+   "name": "ASRA_Arbeitsposition",
+   "where": "SprachAbk = '{LANG2}'"
+  },
+  {
+   "name": "ASRA_Arbeitswert"
+  },
+  {
+   "name": "ASRA_Konstruktionsgruppe",
+   "where": "SprachAbk = '{LANG2}'"
+  },
+  {
+   "name": "ASRA_Konstruktionsuntergruppe",
+   "where": "SprachAbk = '{LANG2}'"
+  },
+  {
+   "name": "ASRA_Zusatzarbeit"
+  },
+  {
+   "name": "ASRA_Familie",
+   "where": "SprachAbk = '{LANG2}'"
+  },
+  {
+   "name": "ASRA_Formel",
+   "why": "the flat-rate formulas per region and repair group: the stored time is a raw value, the flat rate is the formula applied to it (parse_links.py)"
+  },
+  {
+   "name": "ASRA_Formelverwendung"
+  },
+  {
+   "name": "ASRAW_UmfassttextID",
+   "where": "SprachAbk = '{LANG2}'",
+   "why": "what a labour time includes and leaves out, and the notes on an operation or a whole group (2026-11-05): the scope text is a UTF-8 blob, one item a line (\"Remove/install wheel(s)\", \"Does not include: ...\"), shared between operations by UmfassttextID"
+  },
+  {
+   "name": "ASRAW_ID2Umfassttext",
+   "where": "UmfassttextID IN (SELECT UmfassttextID FROM ASRAW_UmfassttextID WHERE SprachAbk = '{LANG2}')"
+  },
+  {
+   "name": "ASRA_ArbeitspositionsHinweis",
+   "where": "SprachAbk = '{LANG2}'"
+  },
+  {
+   "name": "ASRA_KoGrHinweis",
+   "where": "SprachAbk = '{LANG2}'"
+  },
+  {
+   "name": "W_SprachDokumente",
+   "where": "SprachCode = {LANG}",
+   "why": "a document's date and what it replaces (\"19.11.02 - Replaces SI 54/59\"), for the Service Information / Service measure pages (2026-11-05, G3)"
+  },
+  {
+   "name": "Dok2AendText",
+   "where": "DokID IN (SELECT DokID FROM W_SprachDokumente WHERE SprachCode = {LANG})"
+  },
+  {
+   "name": "W_AssystTyp2Serviceintervall",
+   "why": "the service schedule (ASSYST, 2026-11-05, G1): a series' service interval, the first service by engine and oil sheet, and the jobs due by time or distance (each a maintenance sheet \"ap...\"); all small (< 1,000 rows)"
+  },
+  {
+   "name": "AW_AssystStartlaufstrecke"
+  },
+  {
+   "name": "AW_AssystOelblaetter"
+  },
+  {
+   "name": "W_AssystDok2LandIntervall"
+  },
+  {
+   "name": "Gruppen",
+   "where": "SprachCode = {LANG}",
+   "why": "function group and subgroup names per vehicle type (\"42.10\" = \"Service brake\"): the Manual tab's section names (parse_links.py wis_group)"
+  }
+ ]
+}

@@ -136,7 +136,10 @@ files. "Start when I sign in" runs it as you, in the background.
   anyway before it starts.
   **Test the VM** boots it, checks Windows starts and the database answers,
   and shuts it down. **Cancel** stops a run and shuts the VM down cleanly; a
-  re-run resumes. The VM is never switched off by force: if Windows doesn't
+  re-run resumes. AutoRundown keeps track of what it has already extracted
+  (shown as *Already extracted* in the tab), so a later run pulls and builds
+  only what is new: with nothing new the VM isn't started and the index is
+  left as it is. *Pull everything again* ignores that. The VM is never switched off by force: if Windows doesn't
   start, the tab shows a picture of the VM's screen and the VM is paused
   there for you to open in VirtualBox. Before each run AutoRundown takes its
   own **snapshot** of the VM; *Snapshots and rolling back* restores one (the

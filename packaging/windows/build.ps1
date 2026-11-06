@@ -102,15 +102,17 @@ if ($LASTEXITCODE) { throw "pip install failed" }
 
 # 3. the app: the package plus the command-line tools a user may run
 Copy-Item -Recurse (Join-Path $root "autorundown") $app
-foreach ($f in "serve.py", "ingest.py", "ask.py", "rebuild_wis.py", "remove_manuals.py", "charm_download.py", "unzip_lemon.py", "LICENSE", "README.md") {
+foreach ($f in "serve.py", "ingest.py", "ask.py", "rebuild_wis.py", "remove_manuals.py", "corpus_stamp.py", "charm_download.py", "unzip_lemon.py", "LICENSE", "README.md") {
     Copy-Item (Join-Path $root $f) $app
 }
 # the Mercedes WIS/EPC extractor: our own scripts only (the .py and the .js
-# pulls). What they run -- the EWA install's Java and tbjdbc.jar -- is
-# Mercedes software: never shipped; the first run copies it out of the VM.
+# pulls, and vehicle_tables.json: the vehicle pull's table list, read by
+# pull_vehicles.js and ledger.py). What they run -- the EWA install's Java
+# and tbjdbc.jar -- is Mercedes software: never shipped; the first run
+# copies it out of the VM.
 $ext = Join-Path $app "extractor"
 New-Item -ItemType Directory -Force $ext | Out-Null
-Copy-Item (Join-Path $root "extractor\*.py"), (Join-Path $root "extractor\*.js") $ext
+Copy-Item (Join-Path $root "extractor\*.py"), (Join-Path $root "extractor\*.js"), (Join-Path $root "extractor\vehicle_tables.json") $ext
 Get-ChildItem $app -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
 # Compile everything now so the bytecode is installed (and uninstalled) with
 # the MSI. Otherwise the first run writes .pyc files the MSI does not own, and

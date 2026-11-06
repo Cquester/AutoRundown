@@ -464,6 +464,9 @@
   .vp-parts .st.running{color:var(--accent)}
   .vp-parts .st.cancelled{color:var(--warn); font-weight:600}
   /* the VM's checklist: one row per thing the run needs */
+  .vmdone{margin:10px 0 0; font-size:14px; line-height:1.5}
+  .vmdone b{font-weight:600}
+  label.vmfull{display:flex; flex-wrap:wrap; align-items:center; gap:0 6px; margin:8px 0 0; font-weight:400}
   .vmchecks{margin:12px 0 0; border:1px solid var(--line); border-radius:10px; padding:4px 12px;
     background:var(--panel-2)}
   .vmchecks .ck{display:grid; grid-template-columns:22px 1fr; gap:6px; padding:6px 0; font-size:14px;
@@ -1433,6 +1436,11 @@
       <label><input type="radio" name="vmwhat" value="both"><span>Both</span></label>
     </div>
     <p class="muted" id="impVmWhatHelp" style="margin:6px 0 0"></p>
+    <!-- what earlier runs extracted (the extractor's ledger): a run pulls,
+         builds and imports only what is new -->
+    <div class="vmdone" id="impVmDone" aria-live="polite" hidden></div>
+    <label class="vmfull"><input type="checkbox" id="impVmFull"> Pull everything again
+      <span class="muted">&mdash; ignores what was already extracted; only if the data looks wrong</span></label>
     <!-- what the run needs, checked as soon as a VM is chosen (no boot) -->
     <div class="vmchecks" id="impVmChecks" aria-live="polite" hidden></div>
     <div class="row" id="impVmTestRow" hidden>
@@ -1458,7 +1466,8 @@
       with its exploded drawings, then replaces the parts catalogue in the index. Part numbers then show
       under each car alongside its manual. A first full run takes several hours; a re-run resumes where it
       stopped and reuses drawings already pulled. Starts the VM headless, reads the EPC database (read only)
-      and shuts it down; it takes a snapshot first, to roll back to, and never changes the VM's settings by itself.</p>
+      and shuts it down; it takes a snapshot first, to roll back to, and never changes the VM's settings by itself.
+      When nothing is new the VM isn't started and the index is left as it is.</p>
     </div>
     <div id="impWisOpts">
     <label>Steps (each one resumes where it stopped)</label>
@@ -1472,7 +1481,8 @@
     <p class="muted" style="margin:10px 0 0">Starts the VM headless, reads the Mercedes database (read only),
       then shuts it down and rebuilds the Mercedes part of the index. It takes a snapshot of the VM first,
       to roll back to, and never changes the VM's settings by itself. A first full run takes several hours (images are pulled in batches with the VM
-      off in between); a re-run skips what is already pulled.</p>
+      off in between). A re-run pulls and builds only what is new &mdash; the VM isn't started when nothing is,
+      and the index is rebuilt only when the documents changed.</p>
     </div>
     </div>
     <div class="manuals" id="impWisManuals"></div>
@@ -7239,6 +7249,8 @@ async function impWatch() {
       if (/^vm/.test(s.mode || '') && impTab() === 'vm' && $('#impVm').value === s.vm) {
         impVmSnaps(s.snapshot);
         if (s.screen) $('#impVmSnaps').open = true;
+        vmDone();
+        $('#impVmFull').checked = false;
       }
       if (catRoot) catRefresh();
       if (s.state === 'done') {
@@ -7316,7 +7328,31 @@ async function impVms() {
                 : r.chosen && r.vms.some(v => v.name === r.chosen.name) ? r.chosen : null, false);
     $('#impVmNote').innerHTML = `<div class="detected">Output goes to <b>${esc(r.out_root)}</b>.</div>`;
     vmHome();
+    vmDone();
   } catch (e) { noVm(e.message); }
+}
+// What earlier runs extracted (GET /api/vms/extracted, the extractor's
+// extraction_state.json): a run pulls only what is new, so this says what
+// "new" is measured against (the user, 2026-11-05: an hour every time isn't
+// ideal). Nothing extracted yet, or an extractor too old to say: hidden.
+const VM_PULLS = [['docs', 'Documents'], ['applic', 'Model links'], ['links', 'Diagram links'],
+                  ['epc', 'EPC parts']];
+async function vmDone() {
+  const box = $('#impVmDone');
+  let r;
+  try { r = await api('/api/vms/extracted'); } catch (_) { box.hidden = true; return; }
+  if (r.error || !r.pulls) { box.hidden = true; return; }
+  const day = at => at ? fmtDocDate(at.slice(0, 10)) : '';
+  const parts = VM_PULLS.filter(([k]) => r.pulls[k]?.at)
+    .map(([k, name]) => `${name} <span class="muted">${esc(day(r.pulls[k].at))}${r.pulls[k].current ? '' : ' (changed since)'}</span>`);
+  const vt = r.vehicle_tables || {};
+  if (vt.pulled) parts.push(`Vehicle tables <span class="muted">${vt.pulled} of ${vt.wanted}</span>`);
+  if (r.images) parts.push(`Images <span class="muted">${Number(r.images).toLocaleString()}</span>`);
+  if (!parts.length) { box.hidden = true; return; }
+  box.innerHTML = `<b>Already extracted:</b> ${parts.join(' · ')}`
+    + (vt.missing?.length ? `<div class="muted">The next run pulls ${vt.missing.length} new vehicle table${vt.missing.length === 1 ? '' : 's'} only.</div>`
+       : '<div class="muted">A run pulls only what is new.</div>');
+  box.hidden = false;
 }
 // the installed app's Mercedes folder (pulls, images, the EWA copy): in the
 // app's own data folder, never the Desktop, and deletable here as a whole
@@ -7762,7 +7798,8 @@ $('#impStart').onclick = async () => {
         + 'The VM will be started and shut down by this job.')) return;
     try {
       impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: '', mode: 'vm_epc', vm: $('#impVm').value})}));
+        body: JSON.stringify({path: '', mode: 'vm_epc', vm: $('#impVm').value,
+                              full: $('#impVmFull').checked})}));
       impWatch();
     } catch (e) { $('#impStatus').textContent = e.message; }
     return;
@@ -7780,7 +7817,7 @@ $('#impStart').onclick = async () => {
     try {
       impShow(await api('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: '', mode: both ? 'vm_both' : 'vm', vm: $('#impVm').value,
-                              steps: steps.join(',')})}));
+                              steps: steps.join(','), full: $('#impVmFull').checked})}));
       impWatch();
     } catch (e) { $('#impStatus').textContent = e.message; }
     return;
