@@ -734,7 +734,46 @@ several drawings in a list to order from, and look into RockAuto prices).
   browser, the user's click, as with LEMON. Prices in the app would need a
   supplier with an API and the shop's own account. Whether RockAuto's
   search matches a Mercedes number without the A was not checked (their
-  site blocks automated fetches).
+  site blocks automated fetches). *(Checked 2026-11-08, below: it does.)*
+
+**Parts suppliers: "Find it at", by the car's make** (2026-11-08, the user:
+"We can change what they look at depending on the car they look at"; the
+RockAuto link above became one supplier of several).
+- What was looked into first: no supplier gives prices to an app without a
+  partner agreement. Worldpac speedDIAL 2.0 has per-shop API tokens
+  (Settings > API Tokens), but its API is documented only to its shop-software
+  partners (Tekmetric, Shop-Ware, AutoLeap, Identifix); the desktop speedDIAL
+  1.0's "WCAP Shop Software Interface" is unpublished. PartsTech (225+
+  suppliers, Worldpac among them) has an API through partner onboarding;
+  WHI Nexpart's NEXLINK is licensed through sales; OEConnection RepairLink
+  (dealer parts, free for shops, Mercedes' discount program) has no public
+  API. FCP Euro, ECS Tuning and RockAuto have none; Pelican Parts and ECS
+  answer automated requests with 403 / a Cloudflare check. **Worldpac is
+  left out for now** (the user: more investigation later -- start by asking
+  Worldpac Support for the speedDIAL 2.0 API docs as a developer).
+- So a supplier is a link the user's browser opens, as with LEMON:
+  `suppliers.py` (name, search address with `{pn}` once, makes), the
+  built-in list FCP Euro (Audi, BMW, Mercedes-Benz, Mini, Porsche, VW,
+  Volvo), ECS Tuning (the same less Volvo) and RockAuto (every car).
+  Checked by hand in a browser with the 190 E front pad A 001 420 81 20
+  as 0014208120: FCP Euro found the genuine pad (and its replacement),
+  ECS the pad set under that number, RockAuto four aftermarket pads that
+  cross-reference it. Pelican was not checked (its "verify you are
+  human" page) and is not in the list.
+- Each part in the parts list now keeps its car's `make` (an older item's
+  comes from its label, `itemMake`), and its row shows "Find it at" + the
+  suppliers whose makes the car's make starts with (`supplierFits`: "Mercedes
+  Benz" = "Mercedes-Benz", "Mercedes-Benz Vans" too; no makes = every car).
+  The number goes in as `pnDigits` gives it: a Mercedes number loses its
+  letter and spaces, any other number only its spaces (until 2026-11-08
+  `pnDigits` cut the first letter of every number -- a Ford "F81Z-6731-A"
+  became "81Z-6731-A").
+- Shop setup > **Parts suppliers** edits the list (`Config.suppliers`; None
+  = the built-in list, "Use the built-in list" goes back): `suppliers.clean`
+  takes only an http(s) address with a dotted host and `{pn}` once, and the
+  page checks the scheme again before making a link. The list reaches every
+  page, phones too, in `/api/me` (names and addresses, nothing secret).
+  Tests: `tests/test_suppliers.py`, `tests/test_parts_list.py`.
 
 **Picks narrow the list; Add; superseded lines; the parts list pane**
 (2026-10-30, the user, on the real 190 E 2.3-16 wiper page, EPC catalog 580

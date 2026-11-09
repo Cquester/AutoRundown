@@ -91,6 +91,10 @@ class Config:
     # "providers" (mechanic_entry). Never sent to a phone, never logged; the
     # admin sees the last 4 only.
     mechanic_keys: dict = field(default_factory=dict)
+    # where the parts list looks a part up (suppliers.py): [{"name", "url"
+    # with {pn}, "makes": [...] (empty = every car)}]; None = the built-in
+    # list (FCP Euro, ECS Tuning, RockAuto) until Shop setup saves one
+    suppliers: list | None = None
 
     @property
     def resolved_key(self) -> str:
@@ -276,6 +280,8 @@ def load() -> Config:
             cfg.hidden_models = []
         if not isinstance(cfg.extra_models, dict):
             cfg.extra_models = {}
+        if cfg.suppliers is not None and not isinstance(cfg.suppliers, list):
+            cfg.suppliers = None
     else:
         cfg = Config()
     from .providers import sync_added
