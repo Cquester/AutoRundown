@@ -204,6 +204,13 @@ def main(argv=None):
         pg.fill("#q", "wheel bolts")
         pg.click("#searchBtn")
         pg.wait_for_timeout(1500)
+        # ... and until both tabs have asked for their values: a fixed 1.5 s
+        # was too short once on CI's Windows runner (2026-11-07, main's run),
+        # which skipped that release
+        for _ in range(60):
+            if len(values) >= 2:
+                break
+            pg.wait_for_timeout(250)
         ts = tab_searches()
         check("Search: the parts tab (if any) is searched with the typed words, no `also`",
               all(s["q"] == ["wheel bolts"] and "also" not in s for s in ts.values()), str(ts))
