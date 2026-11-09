@@ -11,7 +11,9 @@ Shop setup, shop-network access, Windows MSI (built on the PC), CI, "Add a
 car" from LEMON's zip (the app opens LEMON's page, the user saves the zip,
 the app imports it), one car from Operation CHARM's torrent (built, hidden:
 hours per car). Not built: macOS/Linux packages (they run from source, by the
-user's decision), code signing, the LEMON torrent download (not practical per
+user's decision), code signing (SignPath Foundation's `sign` job is in
+`ci.yml`, off until the project is approved and set up:
+`windows-installer.md`, "Code signing"), the LEMON torrent download (not practical per
 car; `importing.md`). A headless Ubuntu server runs from a checkout as a
 systemd user service (`packaging/linux/install.sh`; admin over an SSH tunnel).
 

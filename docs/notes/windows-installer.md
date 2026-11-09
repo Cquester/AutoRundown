@@ -206,8 +206,12 @@ macOS/Linux run from source (README), by the user's decision.
   PowerShell's Windows.Forms Open / folder dialogs, run by the server on the
   PC; a page cannot learn a picked file's path, so the browser's own file
   input could not do this).
-- Unsigned: SmartScreen warns (README says what to click). Signing needs a
-  certificate; nothing in the build does it yet.
+- **Code signing: SignPath Foundation, wired up, waiting on approval**
+  (2026-11-09, the user chose it: free for open source; a paid certificate
+  and Azure Trusted Signing were the alternatives). Until it is approved and
+  set up, releases are unsigned and SmartScreen warns (README says what to
+  click). See "Code signing" below.
+
 - **The embeddable Python is verified** (2026-10-09): `build.ps1` checks
   python.org's Sigstore signature on the download against python.org's
   release signers (`$signers`; 3.13 is thomas@python.org via Google -- the
@@ -219,3 +223,57 @@ macOS/Linux run from source (README), by the user's decision.
   `remove_manuals.py`). `remove_manuals.py` was missing until 2026-10-12, so
   Shop setup's "Remove selected" failed in the installed app;
   `windows-msi.yml` now checks those files are installed.
+
+### Code signing
+
+`ci.yml`'s `sign` job sits between the checks and `release`, on a push to
+main only. It sends the `AutoRundown-msi` artifact the installer job tested
+(`windows-msi.yml` exposes its id as `msi-artifact-id`) to SignPath, waits
+up to 2 h for the request to be **approved by hand on signpath.io**, checks
+the result with `Get-AuthenticodeSignature` (must be `Valid`, larger than
+the unsigned file) and uploads `AutoRundown-msi-signed`, which `release`
+then publishes. It signs only a version that has no release yet, so a merge
+that doesn't bump `__version__` asks for no approval.
+
+- **Off until set up**: the job runs only when the repository variable
+  `SIGNPATH_ORGANIZATION_ID` is set. Without it `sign` is skipped and
+  `release` publishes the unsigned MSI, as before.
+- **Once on, a failed or unapproved signing publishes nothing** (never an
+  unsigned MSI by accident). Approve the request, or re-run the failed jobs.
+- Not tried yet: no run has reached SignPath (Actions is off while private).
+  Watch the first one.
+
+Setting it up (the owner; needs the repo public and Actions on):
+1. Apply at signpath.org (SignPath Foundation, "Apply"). They want: an OSI
+   licence (MIT), a public repo, builds on GitHub-hosted runners, the
+   README's "Code signing policy" section (attribution line, team roles,
+   privacy policy -- already in), and MFA on the GitHub and SignPath
+   accounts. They review the project, so approval can take a while; they
+   may decline. Risk: the README names LEMON and CHARM archives; the "Legal"
+   section is what answers that.
+2. When approved, in SignPath: link the project to this GitHub repo
+   (trusted build system "GitHub.com"), and set the artifact configuration
+   to the uploaded zip with the MSI inside:
+   ```xml
+   <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+     <zip-file>
+       <msi-file path="AutoRundown-*.msi">
+         <authenticode-sign />
+       </msi-file>
+     </zip-file>
+   </artifact-configuration>
+   ```
+   Create a CI user and copy its API token.
+3. On GitHub (Settings > Secrets and variables > Actions): secret
+   `SIGNPATH_API_TOKEN`; variable `SIGNPATH_ORGANIZATION_ID`; and only if
+   SignPath's names differ from the defaults, variables
+   `SIGNPATH_PROJECT_SLUG` (default `AutoRundown`) and
+   `SIGNPATH_POLICY_SLUG` (default `release-signing`).
+4. Bump `__version__`, merge, approve the request on signpath.io, and check
+   the release's MSI shows the publisher (right-click > Properties > Digital
+   Signatures). Then drop "(Applied for …)" from the README.
+
+The signed MSI says "SignPath Foundation" as publisher, not the user's name
+(their certificate). SmartScreen's "Windows protected your PC" can still
+show for a new release until it has a download reputation; signing removes
+"Unknown publisher" and builds that reputation across versions.
