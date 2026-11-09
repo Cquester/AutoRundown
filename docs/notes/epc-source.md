@@ -775,6 +775,50 @@ RockAuto link above became one supplier of several).
   page, phones too, in `/api/me` (names and addresses, nothing secret).
   Tests: `tests/test_suppliers.py`, `tests/test_parts_list.py`.
 
+**PartsTech prices in the parts list** (2026-11-09, the user: "One place to
+click or maybe even pull the cheapest price"; branch
+`feature/partstech-prices`, **not merged until PartsTech replies**).
+- Why PartsTech: one API in front of the shop's own supplier accounts
+  (Worldpac, NAPA, O'Reilly, local stores ...), each store's price for
+  that shop and its stock. Scrapers (RockAuto's unofficial API, which gets
+  around its CAPTCHA) and logging in to supplier sites are out: they break
+  the sites' terms.
+- The API, from its published OpenAPI spec (api.partstech.com, 2.021.1):
+  `POST /oauth/access` (accessType user: partner ID/key + the shop's user
+  ID/key, a 60-minute token), `GET /profile/shop/suppliers` (only
+  `status: Approved` stores are asked, by the shop's priority, at most 12),
+  `POST /catalog/quote` (one number, one `storeId`). `price.price` is what
+  the shop pays, core included; `core` is said beside it.
+- `partstech.py`: the client (stdlib urllib); `prices()` asks the stores 4
+  at a time, a failed store is a `problems` line and the rest still
+  answer; offers cheapest first. A refused sign-in is not retried; a token
+  dropped early signs in once more. Odd text never goes out as a part
+  number (`clean_part_number`).
+- Their terms (partstech.com/api-agreement-terms): a signed order form; no
+  copy of their data kept -- **nothing is cached**, on the server or in the
+  browser (the pane keeps prices only while it is open; reopening asks
+  again); PartsTech as the app's only aftermarket catalogue (whether the
+  plain "Find it at" links count is one of the questions sent); no
+  sandbox.
+- Routes: `GET /api/prices?pn=` (behind the usual sign-in; `{on: false}`
+  with no keys, 502 with PartsTech's refusal in words), `GET
+  /api/settings/partstech/test` (admin: the approved stores). Keys are
+  `Config.partstech` (four fields), saved from Shop setup > Parts
+  suppliers > PartsTech prices; a key field left empty keeps the saved
+  key; settings show IDs and the keys' last 4; `/api/me` only
+  `prices_on`.
+- The page: under each part, "Lowest $41.50 NAPA Main St · brand · in
+  stock · 3, incl. $5.00 core", the other offers folded, "none of your
+  PartsTech stores lists this number", stores that didn't answer. Asked
+  two numbers at a time when the list opens.
+- Not live: the email to PartsTech (2026-11-09) asks about onboarding and
+  fees, partner keys for a self-hosted open-source app, exclusivity vs the
+  links, showing the lowest price, DIY accounts and Mercedes numbers. Until
+  then only `tools/fake_partstech.py` answers (dev.py --fake-api, tests).
+  When keys come: one real number on the shop's account, compare with
+  PartsTech's own site, then merge.
+  Tests: `tests/test_partstech.py`, `tests/test_parts_list.py`.
+
 **Picks narrow the list; Add; superseded lines; the parts list pane**
 (2026-10-30, the user, on the real 190 E 2.3-16 wiper page, EPC catalog 580
 group 82/120: "do what the Mercedes-Benz manual is doing"; it replaces the

@@ -39,7 +39,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from . import search as search_mod
-from . import auth, config, handoff, history, index, numbers, providers, qr, query, suppliers, tls
+from . import auth, config, handoff, history, index, numbers, partstech, providers, qr, query, suppliers, tls
 from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_tables, lemon_zip, manual_browse,
                native_dialog,
                part_procedures, parts_browse, synonyms, tab_values, validity, wis_links,
@@ -104,6 +104,10 @@ class SettingsBody(BaseModel):
     # suppliers_default: back to the built-in list
     suppliers: list[dict] | None = Field(None, max_length=50)
     suppliers_default: bool | None = None
+    # PartsTech prices (partstech.py): the IDs and keys; a key left empty
+    # keeps the saved one. partstech_clear: take them all out.
+    partstech: dict[str, str] | None = None
+    partstech_clear: bool | None = None
 
 
 class HandoffBody(BaseModel):
@@ -583,6 +587,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             # the parts list's "Find it at" links: names and search addresses
             # only -- the browser opens them, the server asks no supplier
             "suppliers": suppliers.current(cfg),
+            # PartsTech prices are set up (/api/prices answers); never the keys
+            "prices_on": partstech.creds(cfg) is not None,
         }
         out["key_mode"] = cfg.key_mode
         # no key this requester may use: the AI chat is greyed out with why,
@@ -804,6 +810,22 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 v.pop("file_path", None)
         return _etagged(request, json.dumps(rows, separators=(",", ":")).encode(),
                         "application/json")
+
+    @app.get("/api/prices")
+    def api_prices(pn: str = Query(max_length=60)) -> dict:
+        """One part number's prices at each of the shop's PartsTech stores,
+        cheapest first (partstech.prices). Behind the same sign-in as
+        search; the keys never leave this PC, and nothing is kept: every
+        call asks PartsTech again (its terms forbid storing its data)."""
+        c = partstech.creds(config.load())
+        if c is None:
+            return {"on": False, "offers": []}
+        try:
+            return {"on": True, **partstech.prices(c, pn)}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        except partstech.Unavailable as exc:
+            raise HTTPException(502, str(exc))
 
     @app.get("/api/search")
     def api_search(request: Request, doc_id: str, q: str = Query(max_length=500),
@@ -2171,8 +2193,26 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "show_shop_admin": cfg.show_shop_admin,
             "suppliers": suppliers.current(cfg),
             "suppliers_default": cfg.suppliers is None,
+            # the IDs, and only the keys' last 4 (never a key)
+            "partstech": {"configured": partstech.creds(cfg) is not None,
+                          "partner_id": (cfg.partstech or {}).get("partner_id", ""),
+                          "user_id": (cfg.partstech or {}).get("user_id", ""),
+                          "partner_key_last4": config.key_last4((cfg.partstech or {}).get("partner_key", "")),
+                          "user_key_last4": config.key_last4((cfg.partstech or {}).get("user_key", ""))},
             "config_path": str(config.CONFIG_PATH),
         }
+
+    @app.get("/api/settings/partstech/test")
+    def partstech_test() -> dict:
+        """Shop setup's "Test the connection": signs in and lists the shop's
+        approved stores -- no part is asked for. Admin only (ADMIN_PREFIXES)."""
+        c = partstech.creds(config.load())
+        if c is None:
+            raise HTTPException(400, "Enter all four PartsTech values first.")
+        try:
+            return {"stores": partstech.stores(c)}
+        except partstech.Unavailable as exc:
+            raise HTTPException(400, str(exc))
 
     @app.get("/api/settings/models/{provider}")
     def check_models(provider: str) -> dict:
@@ -2223,6 +2263,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                 new_suppliers = suppliers.clean(body.suppliers)
             except ValueError as exc:
                 raise HTTPException(400, str(exc))
+        if body.partstech is not None:
+            unknown = set(body.partstech) - set(partstech.FIELDS)
+            if unknown:
+                raise HTTPException(400, f"Unknown PartsTech setting {sorted(unknown)[0]!r}.")
+            for k, v in body.partstech.items():
+                if len(v.strip()) > 200 or any(c.isspace() for c in v.strip()):
+                    raise HTTPException(400, f"PartsTech {k.replace('_', ' ')}: paste it whole, "
+                                             "with no spaces.")
         if body.api_key is not None and (not body.api_key.strip()
                                          or any(c.isspace() for c in body.api_key.strip())):
             raise HTTPException(400, "Paste the whole key, with no spaces.")
@@ -2251,6 +2299,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             cfg.suppliers = None
         elif new_suppliers is not None:
             cfg.suppliers = new_suppliers
+        if body.partstech_clear:
+            cfg.partstech = {}
+            partstech.forget_tokens()
+        elif body.partstech is not None:
+            # a value left empty keeps the saved one (a key is never shown back)
+            cfg.partstech = {**(cfg.partstech or {}),
+                             **{k: v.strip() for k, v in body.partstech.items() if v.strip()}}
+            partstech.forget_tokens()
         # the default is always in the menu
         cfg.hidden_models = [m for m in cfg.hidden_models or [] if m != config.active_model(cfg)]
         if body.api_key is not None:

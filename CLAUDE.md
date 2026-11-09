@@ -156,7 +156,7 @@ python extractor/vm_pipeline.py --status --out-root <dir>  # what has been extra
 python charm_download.py --make "Mercedes Benz" --year 1987 --car "<CHARM name>" --torrent <operation-charm.torrent> --plan
                                                   # one car from CHARM's swarm: --plan sizes it; without it downloads (never seeds)
 python dev.py                                     # FREE, throwaway instance, :8757
-python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py (all 4 providers)
+python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py (all 4 providers; PartsTech prices too)
 python dev.py --fake-vm                           # FREE, Mercedes VM tab runs tools/fake_extractor
 python eval.py                                    # FREE retrieval check (F-150)
 python eval.py --answers                          # PAID, prints estimate
@@ -181,6 +181,7 @@ python tests/test_epc_join.py                     # EPC parts joined into WIS ca
 python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
 python tests/test_extraction_ledger.py            # a re-run pulls/builds/imports only what is new (~2 s)
 python tests/test_suppliers.py                    # parts suppliers: built-in list, by make, Shop setup's checks (<2 s)
+python tests/test_partstech.py                    # PartsTech prices vs tools/fake_partstech.py: stores, cheapest first, keys never shown (~2 s)
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
 python tests/test_history.py                      # question history: answers kept whole, who sees what (~2 s)
 python tests/test_chat.py                         # AI chat follow-ups vs the fake API, who may follow up (~5 s)
@@ -239,7 +240,10 @@ and even a real key typed into Settings goes only to the fake (only the
 Anthropic key is preset; type any dummy key for the others). Words in a
 question pick the rare paths on every provider (`fake:badcite`,
 `fake:steps`, `fake:notfound`, `fake:refusal`, `fake:error`,
-`fake:nocredit`, `fake:slow`, `fake:malformed`, `fake:otherengine`). It proves the app's plumbing,
+`fake:nocredit`, `fake:slow`, `fake:malformed`, `fake:otherengine`). The same port serves a
+fake PartsTech under `/partstech` (`tools/fake_partstech.py`, made-up
+prices marked "[fake PartsTech]"), with keys preset, so the parts list
+shows prices. It proves the app's plumbing,
 not the real model's judgement: prompt changes still need one scoped paid
 answer. One of the three sample LEMON
 vehicles is imported, two are left for the import page; `--empty` gives the
@@ -312,6 +316,7 @@ autorundown/
   lemon_zip.py     a LEMON car's zip from Downloads: found, checked (untrusted), unpacked
   lemon_tables.py  a LEMON manual's own Labor Times / Parts Information tables, for those tabs
   suppliers.py     the parts list's "Find it at" links: supplier search addresses, by make
+  partstech.py     parts prices from the shop's own stores through PartsTech's partner API (not live yet)
   charm.py         Operation CHARM's data (SquashFS + LMDB) read a piece at a time; LEMON-style export
   charm_fetch.py   CHARM torrent pieces from the swarm (libtorrent, never seeds) or a local copy
   wis_links.py     WIS cross-refs, diagram hotspots, oil, labour
@@ -691,7 +696,14 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   setup > Parts suppliers). No supplier offers prices without a partner
   agreement and several block automated requests; the server asks no
   supplier anything. Worldpac is left out until the user has looked into
-  speedDIAL 2.0's API with Worldpac. (`epc-source.md`)
+  speedDIAL 2.0's API with Worldpac. **The one exception is PartsTech**
+  (2026-11-09, the user: "maybe even pull the cheapest price"): a partner
+  API the shop signs up for, so `/api/prices` asks the shop's own approved
+  stores for one number and shows the lowest first. Nothing it returns is
+  kept (its terms; only the access token), not even in the browser; keys
+  never reach a phone. Built against `tools/fake_partstech.py`; **not live
+  until PartsTech hands out partner keys** (asked 2026-11-09). Never scrape
+  a supplier for prices instead. (`epc-source.md`)
 - **CHARM: one car from the swarm only, plan first, never seeds** (its
   card is hidden since 2026-10-27; keep the code); the
   `.torrent` is the one file from charm.li. A car's text is ~200 MB, its

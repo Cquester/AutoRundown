@@ -30,12 +30,19 @@ asked for on 2026-10-29/30:
     Ford) links to its own part-number search in a new tab -- the app
     never asks a supplier anything; an item saved before the make was kept
     gets it from its car's label.
+  - PartsTech prices (2026-11-09): with no keys, no price line and no
+    /api/prices request; with keys (answers stood in by the test), each
+    part's lowest offer with store, stock and core, the rest folded, "none"
+    and errors in words, asked once while open and again after a close
+    (nothing kept, nothing in localStorage).
 
 Anything that is not a GET fails the run (nothing here may write or ask),
 and so does any request that leaves this machine.
 """
 from _paths import ROOT, exit_now  # noqa: F401
 import argparse
+import json
+import re
 import sqlite3
 from urllib.parse import urlparse
 
@@ -66,7 +73,10 @@ def main(argv=None):
     srv, base = start_server(db)
     forbidden, errors, outside = [], [], []
 
+    asked = []
+
     def on_req(route, request):
+        asked.append(request.url)
         host = urlparse(request.url).hostname
         if host not in ("127.0.0.1", "localhost"):
             outside.append(request.url)
@@ -274,6 +284,60 @@ def main(argv=None):
         pg.wait_for_timeout(200)
         box = pg.locator("#plistDlg").bounding_box()
         check("phone: the pane fills the screen", box["width"] >= 374 and box["height"] >= 811, str(box))
+
+        # -- PartsTech prices (2026-11-09) ---------------------------------------
+        check("prices: no PartsTech keys -- no price line, PartsTech never asked",
+              pg.locator("#plistDlg .plprice").count() == 0 and not any("/api/prices" in u for u in asked), str(asked))
+        pg.evaluate("$('#plistDlg').close()")
+        pg.wait_for_function("!(history.state && history.state.plist)")
+        pg.wait_for_timeout(500)
+        pg.set_viewport_size({"width": 1000, "height": 800})
+        # the server's answers stand in for PartsTech's (tests/test_partstech.py
+        # runs the real route against the fake); one number fails
+        priced = []
+
+        def on_prices(route, request):
+            pn = request.url.split("pn=")[1]
+            priced.append(pn)
+            if pn == "000000004321":
+                return route.fulfill(status=502, content_type="application/json",
+                                     body=json.dumps({"detail": "PartsTech says too many requests right now."}))
+            offers = [{"supplier": "NAPA", "store": "NAPA Main St", "brand": "FAKE OE", "price": 41.5, "core": 5.0,
+                       "status": "In stock", "in_stock": True, "quantity": 3, "url": "https://example.invalid/x"},
+                      {"supplier": "Worldpac", "store": "Worldpac Hartford", "brand": "FAKE OE", "price": 55.25,
+                       "core": 0, "status": "Special order", "in_stock": False, "quantity": None, "url": ""}]
+            route.fulfill(content_type="application/json", body=json.dumps(
+                {"on": True, "part_number": pn, "offers": offers if pn == "2103231565" else [],
+                 "stores": 2, "problems": [] if pn == "2103231565" else ["O'Reilly: error 500"]}))
+
+        pg.route(re.compile(r"/api/prices\?"), on_prices)
+        pg.evaluate("me.prices_on = true; renderPlist(); plistShow()")
+        pg.wait_for_function("[...document.querySelectorAll('#plistDlg .plprice')].every(e => !e.textContent.includes('asking'))",
+                             timeout=10_000)
+        lines = pg.locator("#plistDlg .plprice").all_inner_texts()
+        check("prices: every part asked for by its digits, once", sorted(priced) == sorted(
+            ["2103231565", "000000004321", "2103212404", "304017005002"]), str(priced))
+        first = lines[0]
+        check("prices: the lowest first, with its store, stock and core",
+              first.startswith("Lowest $41.50 NAPA Main St") and "in stock · 3" in first and "$5.00 core" in first, first)
+        check("prices: the other offers folded", pg.locator("#plistDlg .plprice").first.locator(
+            "details.ploffers summary").inner_text() == "1 more price", first)
+        check("prices: a number no store lists says so, and which store didn't answer",
+              any("none of your PartsTech stores" in t and "O'Reilly: error 500" in t for t in lines), str(lines))
+        check("prices: an error is said in words", any("too many requests" in t for t in lines), str(lines))
+        n = len(priced)
+        pg.evaluate("renderPlist()")
+        pg.wait_for_timeout(300)
+        check("prices: a redraw while open asks nothing again", len(priced) == n, str(priced))
+        pg.evaluate("$('#plistDlg').close()")
+        pg.wait_for_function("!(history.state && history.state.plist)")
+        pg.wait_for_timeout(300)
+        pg.evaluate("renderPlist(); plistShow()")
+        pg.wait_for_function("[...document.querySelectorAll('#plistDlg .plprice')].every(e => !e.textContent.includes('asking'))",
+                             timeout=10_000)
+        check("prices: nothing kept once the list closes -- reopened, asked again", len(priced) == 2 * n, str(priced))
+        check("prices: none in the page's storage", not pg.evaluate(
+            "Object.keys(localStorage).some(k => /price/i.test(k) || /41\\.5/.test(localStorage.getItem(k)))"))
 
         check("no non-GET request", not forbidden, str(forbidden))
         check("no request leaves this machine", not outside, str(outside))

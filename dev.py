@@ -118,6 +118,7 @@ def main() -> int:
     for name in ("ANTHROPIC", "GEMINI", "XAI", "DEEPSEEK"):
         env.pop(f"{name}_API_KEY", None)
         env.pop(f"{name}_BASE_URL", None)
+    env.pop("PARTSTECH_BASE_URL", None)
     if args.fake_api:
         sys.path.insert(0, str(ROOT / "tools"))
         import fake_anthropic
@@ -144,6 +145,13 @@ def main() -> int:
     # a test box's phone side starts open, as its README and the QA runbook
     # say (turn sign-in on in its Shop setup); a real install starts with it on
     conf.setdefault("require_signin", False)
+    # parts prices from the fake PartsTech (made-up prices, "[fake PartsTech]"):
+    # keys that only the fake takes, so the parts list shows prices at once
+    if args.fake_api:
+        conf.setdefault("partstech", {"partner_id": "fake-partner", "partner_key": "fake-partner-key",
+                                      "user_id": "fake-shop", "user_key": "fake-shop-key"})
+    elif (conf.get("partstech") or {}).get("partner_id") == "fake-partner":
+        conf.pop("partstech")     # an earlier --fake-api run's keys: never sent to the real one
     if args.fake_vm:
         conf["extractor_dir"] = str(ROOT / "tools" / "fake_extractor")
         env["AR_FAKE_VM_OUT"] = str(DEV / "fake_vm_out")

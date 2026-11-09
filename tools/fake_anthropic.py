@@ -8,6 +8,7 @@ Fakes every provider's wire format on one port (autorundown/providers.py):
     /v1beta/models/<model>:generateContent     Google Gemini
     /xai/v1/chat/completions                   xAI (OpenAI-compatible)
     /deepseek/chat/completions                 DeepSeek (OpenAI-compatible)
+    /partstech/...                             PartsTech parts prices (fake_partstech.py)
 
 Then point the app at it (dev.py --fake-api does it; `base_urls(port)`):
 
@@ -179,7 +180,9 @@ def base_urls(port: int) -> dict:
     """The environment that points every provider of the app at this fake."""
     root = f"http://127.0.0.1:{port}"
     return {"ANTHROPIC_BASE_URL": root, "GEMINI_BASE_URL": root,
-            "XAI_BASE_URL": f"{root}/xai/v1", "DEEPSEEK_BASE_URL": f"{root}/deepseek"}
+            "XAI_BASE_URL": f"{root}/xai/v1", "DEEPSEEK_BASE_URL": f"{root}/deepseek",
+            # parts prices (autorundown/partstech.py), answered by fake_partstech.py
+            "PARTSTECH_BASE_URL": f"{root}/partstech"}
 
 
 def gemini_schema_problem(node, path="schema") -> str:
@@ -237,8 +240,20 @@ class Handler(BaseHTTPRequestHandler):
     # each provider's model list: the app's own models, one invented newer
     # model (FAKE_NEW), and models that are not for text, which the app must
     # leave out (embedding, image)
+    def partstech(self, method: str) -> None:
+        """PartsTech's paths, under /partstech, answered by fake_partstech.py"""
+        import fake_partstech
+        body = None
+        if method == "POST":
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        status, out = fake_partstech.handle(method, self.path.split("?")[0][len(fake_partstech.PREFIX):],
+                                            self.headers, body)
+        self.reply(status, out)
+
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path.startswith("/partstech/"):
+            return self.partstech("GET")
         REQUESTS.append({"path": path, "body": None})
         key = (self.headers.get("x-api-key") or self.headers.get("x-goog-api-key")
                or (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip())
@@ -265,6 +280,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?")[0]
+        if path.startswith("/partstech/"):
+            return self.partstech("POST")
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
         # header names only (never a key's value), so tests can see where the key went
         REQUESTS.append({"path": path, "body": req,

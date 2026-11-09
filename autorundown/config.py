@@ -95,6 +95,11 @@ class Config:
     # with {pn}, "makes": [...] (empty = every car)}]; None = the built-in
     # list (FCP Euro, ECS Tuning, RockAuto) until Shop setup saves one
     suppliers: list | None = None
+    # PartsTech prices in the parts list (partstech.py): {"partner_id",
+    # "partner_key" (PartsTech's, for AutoRundown), "user_id", "user_key"
+    # (the shop's PartsTech account)}. Never sent to a phone, never logged;
+    # the admin sees the IDs and the keys' last 4.
+    partstech: dict = field(default_factory=dict)
 
     @property
     def resolved_key(self) -> str:
@@ -282,6 +287,8 @@ def load() -> Config:
             cfg.extra_models = {}
         if cfg.suppliers is not None and not isinstance(cfg.suppliers, list):
             cfg.suppliers = None
+        if not isinstance(cfg.partstech, dict):
+            cfg.partstech = {}
     else:
         cfg = Config()
     from .providers import sync_added

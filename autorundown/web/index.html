@@ -679,6 +679,13 @@
   /* "Find it at" + the suppliers for this car, a line of their own under the part */
   .plsup{grid-column:2 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; font-size:13px}
   .plsup .btnlink{min-height:32px; padding:4px 10px}
+  /* PartsTech prices: the lowest on a line of its own, the rest folded */
+  .plprice{grid-column:2 / -1; font-size:14px}
+  .ptgrid{display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px 14px; margin-top:10px}
+  .ptgrid input{width:100%}
+  .plprice .ptag{margin:0 0 0 4px}
+  .ploffers summary{cursor:pointer; color:var(--muted); font-size:13px}
+  .ploffers ul{margin:4px 0 0; padding-left:18px}
   /* a drawing in the full-page list stays a readable size */
   #plistDlg .pdraw{max-width:900px}
   .plqty{display:flex; align-items:center; gap:4px; font-size:13px; color:var(--muted)}
@@ -1632,8 +1639,8 @@
       <section class="setsec wide" id="sec-suppliers" hidden>
         <h2>Parts suppliers</h2>
         <div class="help">Each part in the parts list has “Find it at” links: that supplier’s own search for the
-          part number, opened in a new tab. AutoRundown never contacts a supplier itself, so there are no prices
-          here &mdash; the supplier’s page shows yours.</div>
+          part number, opened in a new tab. AutoRundown never contacts these suppliers itself &mdash; the
+          supplier’s page shows your price. For prices in the list itself, see PartsTech below.</div>
         <div class="help">Put <b>{pn}</b> in the search address where the part number goes (a Mercedes number
           goes in as digits only: A 001 420 81 20 &rarr; 0014208120). <b>Makes</b> says which cars a supplier is
           shown for, separated by commas; leave it empty for every car.</div>
@@ -1648,6 +1655,27 @@
           <span class="savedmark" id="mSup" role="status"></span>
         </div>
         <div class="help" id="supNote"></div>
+
+        <h3 style="margin-top:22px">PartsTech prices</h3>
+        <div class="help">With a PartsTech account, the parts list shows each part’s price and stock at the
+          stores you buy from (the ones approved in your PartsTech account), lowest first. AutoRundown asks
+          PartsTech when the list is opened and keeps no copy of the prices. It needs a partner ID and key
+          (from PartsTech, for AutoRundown) and your shop’s user ID and API key (PartsTech &rarr; Profile).
+          Keys stay on this PC; a phone never gets them.</div>
+        <div class="ptgrid">
+          <div><label for="ptPartnerId">Partner ID</label><input id="ptPartnerId" type="text" autocomplete="off" spellcheck="false" maxlength="200"></div>
+          <div><label for="ptPartnerKey">Partner key</label><input id="ptPartnerKey" type="password" autocomplete="new-password" spellcheck="false" maxlength="200"></div>
+          <div><label for="ptUserId">User ID</label><input id="ptUserId" type="text" autocomplete="off" spellcheck="false" maxlength="200"></div>
+          <div><label for="ptUserKey">User API key</label><input id="ptUserKey" type="password" autocomplete="new-password" spellcheck="false" maxlength="200"></div>
+        </div>
+        <div class="errbox" id="ptErr" role="alert" hidden style="margin-top:12px"></div>
+        <div class="row" style="margin-top:14px">
+          <button type="button" id="ptSave" disabled>Save</button>
+          <button type="button" class="ghost" id="ptTest">Test the connection</button>
+          <button type="button" class="ghost" id="ptClear">Remove the keys</button>
+          <span class="savedmark" id="mPt" role="status"></span>
+        </div>
+        <div class="help" id="ptNote"></div>
       </section>
 
       <section class="setsec" id="sec-pc" hidden>
@@ -5096,6 +5124,59 @@ function supplierLinks(x) {
       + ` rel="noopener noreferrer" title="Search ${esc(s.name)} for ${esc(pnDigits(x.pn))}">${esc(s.name)} &#8599;</a>`).join('')
     + `</span>`;
 }
+// PartsTech prices (Shop setup > Parts suppliers): asked when the parts list
+// opens, two numbers at a time, kept only while the list is open -- PartsTech's
+// terms allow no stored copy of its prices
+const priceSeen = new Map();          // digits -> {state: 'wait'|'ok'|'err', data|msg}
+let priceQueue = [], priceBusy = 0;
+const priceLine = x => me.prices_on
+  ? `<div class="plprice" data-ppn="${esc(pnDigits(x.pn))}"><span class="muted">Prices: asking PartsTech…</span></div>` : '';
+const priceUsd = v => (typeof v === 'number' && isFinite(v)) ? '$' + v.toFixed(2) : '';
+function offerText(o) {
+  const stock = String(o.status || '').toLowerCase();      // partstech.STATUS_TEXT's words
+  return `<b>${esc(priceUsd(o.price))}</b> ${esc(o.store || o.supplier || '')}`
+    + (o.brand ? ` <span class="muted">· ${esc(o.brand)}</span>` : '')
+    + (stock ? ` <span class="ptag ${o.in_stock ? 'cur' : 'old'}">${esc(stock)}${o.in_stock && o.quantity ? ' · ' + Number(o.quantity) : ''}</span>` : '')
+    + (o.core ? ` <span class="muted">incl. ${esc(priceUsd(o.core))} core</span>` : '');
+}
+function priceHtml(p) {
+  if (!p || p.state === 'wait') return `<span class="muted">Prices: asking PartsTech…</span>`;
+  if (p.state === 'err') return `<span class="muted">Prices: ${esc(p.msg)}</span>`;
+  const d = p.data, offers = d.offers || [], probs = d.problems || [];
+  const note = probs.length ? `<div class="muted">Not answered: ${esc(probs.join('; '))}</div>` : '';
+  if (!offers.length) return `<span class="muted">Prices: none of your PartsTech stores lists this number.</span>` + note;
+  const best = offers[0];
+  return `<div><span class="muted">Lowest</span> ${offerText(best)}`
+    + (best.url && /^https:\/\//i.test(best.url) ? ` <a href="${esc(best.url)}" target="_blank" rel="noopener noreferrer">PartsTech &#8599;</a>` : '')
+    + `</div>`
+    + (offers.length > 1 ? `<details class="ploffers"><summary>${offers.length - 1} more price${offers.length > 2 ? 's' : ''}</summary>`
+      + `<ul>${offers.slice(1).map(o => `<li>${offerText(o)}</li>`).join('')}</ul></details>` : '')
+    + note;
+}
+function paintPrice(pn) {
+  document.querySelectorAll(`#plistBody .plprice[data-ppn="${CSS.escape(pn)}"]`)
+    .forEach(el => { el.innerHTML = priceHtml(priceSeen.get(pn)); });
+}
+function pumpPrices() {
+  while (priceBusy < 2 && priceQueue.length) {
+    const pn = priceQueue.shift();
+    priceBusy++;
+    api('/api/prices?pn=' + encodeURIComponent(pn), {}, 60000)
+      .then(d => priceSeen.set(pn, d.on ? {state: 'ok', data: d} : {state: 'err', msg: 'PartsTech is not set up.'}))
+      .catch(e => priceSeen.set(pn, {state: 'err', msg: e.message}))
+      .finally(() => { priceBusy--; if ($('#plistDlg').open) paintPrice(pn); pumpPrices(); });
+  }
+}
+function loadPrices() {
+  if (!me.prices_on) return;
+  document.querySelectorAll('#plistBody .plprice').forEach(el => {
+    const pn = el.dataset.ppn;
+    if (!pn) return;
+    if (!priceSeen.has(pn)) { priceSeen.set(pn, {state: 'wait'}); priceQueue.push(pn); }
+    el.innerHTML = priceHtml(priceSeen.get(pn));
+  });
+  pumpPrices();
+}
 // the chosen car's make, saved with a part added to the list
 const currentMake = () => vehicles.find(x => x.doc_id === $('#vehicle').value)?.make || '';
 function plistLoad() {
@@ -5206,7 +5287,7 @@ function renderPlist() {
             + `<span class="plact"><label class="plqty">Qty <input type="number" min="1" max="999" value="${Number(x.qty) || 1}" data-qty="${x.i}"></label>`
             + `<button type="button" class="pfx" data-plist-del="${x.i}" title="Take ${esc(x.pn)} off the list"`
             + ` aria-label="Take ${esc(x.pn)} off the list">&times;</button></span>`
-            + supplierLinks(x) + `</li>`).join('')
+            + priceLine(x) + supplierLinks(x) + `</li>`).join('')
           + `</ul>`
           + (pno ? `<details class="pbdrop pldraw" data-key="${esc(car + '\n' + page)}" data-doc="${esc(doc)}" data-pno="${esc(pno)}">`
             + `<summary>Drawing &mdash; check the part, add more</summary><div class="pbbody"></div></details>` : '')
@@ -5218,6 +5299,7 @@ function renderPlist() {
     if (old) d.replaceWith(old);
   });
   updateAddBtns(list);
+  loadPrices();
 }
 document.addEventListener('click', e => {
   const c = e.target.closest('.pncopy');
@@ -5248,6 +5330,8 @@ $('#plistClear').onclick = () => {
   plistSave([]); renderPlist();
 };
 $('#plistClose').onclick = () => $('#plistDlg').close();
+// prices are asked again the next time the list opens: none kept once it closes
+$('#plistDlg').addEventListener('close', () => { priceSeen.clear(); priceQueue = []; });
 addEventListener('storage', e => { if (e.key === PLIST_KEY) { updatePlistBtns(); updateAddBtns(); } });
 updatePlistBtns();   // the edge button, as the page opens
 
@@ -5753,6 +5837,60 @@ $('#supDefault').onclick = () => {
   if (!confirm('Replace the list with the built-in one (FCP Euro, ECS Tuning, RockAuto)?')) return;
   saveSuppliers({suppliers_default: true});
 };
+// -- PartsTech prices (partstech.py): four fields; a key field left empty
+// keeps the saved key, so the keys are never shown back (only their last 4)
+const PT_FIELDS = {partner_id: '#ptPartnerId', partner_key: '#ptPartnerKey', user_id: '#ptUserId', user_key: '#ptUserKey'};
+function showPartstech(s) {
+  const p = s.partstech || {};
+  $('#ptPartnerId').value = p.partner_id || '';
+  $('#ptUserId').value = p.user_id || '';
+  $('#ptPartnerKey').value = $('#ptUserKey').value = '';
+  $('#ptPartnerKey').placeholder = p.partner_key_last4 ? `saved, ends ${p.partner_key_last4}` : '';
+  $('#ptUserKey').placeholder = p.user_key_last4 ? `saved, ends ${p.user_key_last4}` : '';
+  $('#ptNote').textContent = p.configured ? 'Prices are on: the parts list asks PartsTech.' : 'Not set up: the parts list shows no prices.';
+  $('#ptTest').disabled = $('#ptClear').disabled = !p.configured;
+  $('#ptSave').disabled = true;
+}
+async function savePartstech(body) {
+  $('#ptErr').hidden = true;
+  try {
+    await api('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body)});
+  } catch (e) {
+    $('#ptErr').textContent = 'Not saved: ' + e.message; $('#ptErr').hidden = false;
+    return;
+  }
+  const s = await api('/api/settings');
+  setupData = s; me.prices_on = !!(s.partstech || {}).configured;
+  showPartstech(s);
+  flash('#mPt', 'Saved ✓');
+  priceSeen.clear();
+  if ($('#plistDlg').open) renderPlist();
+}
+Object.values(PT_FIELDS).forEach(sel => $(sel).addEventListener('input', () => { $('#ptSave').disabled = false; }));
+$('#ptSave').onclick = () => {
+  const body = {};
+  for (const [k, sel] of Object.entries(PT_FIELDS)) { const v = $(sel).value.trim(); if (v) body[k] = v; }
+  savePartstech({partstech: body});
+};
+$('#ptClear').onclick = () => {
+  if (!confirm('Remove the PartsTech keys? The parts list will show no prices.')) return;
+  savePartstech({partstech_clear: true});
+};
+$('#ptTest').onclick = async () => {
+  $('#ptErr').hidden = true;
+  $('#ptNote').textContent = 'Asking PartsTech…';
+  try {
+    const r = await api('/api/settings/partstech/test', {}, 60000);
+    const st = r.stores || [];
+    $('#ptNote').textContent = st.length
+      ? `Connected. Stores asked for prices: ${st.map(x => x.name).join(', ')}.`
+      : 'Connected, but no store is approved in your PartsTech account yet: no prices to show.';
+  } catch (e) {
+    $('#ptNote').textContent = '';
+    $('#ptErr').textContent = 'PartsTech: ' + e.message; $('#ptErr').hidden = false;
+  }
+};
 const advChanged = () => Object.entries(ADV_FIELDS).filter(([k, sel]) => $(sel).value.trim() !== advLoaded[k]);
 function markDirty() {
   const adv = advChanged().length, key = !!$('#sKey').value.trim();
@@ -5782,6 +5920,7 @@ async function loadSetup() {
   $('#sRetrofits').checked = !!s.show_retrofits;
   $('#sShopAdmin').checked = !!s.show_shop_admin;
   if (!supDirty) showSuppliers(s);
+  if ($('#ptSave').disabled) showPartstech(s);
   showProvider(s);
   showKeyMode(s);
   showKeyFor(s);
