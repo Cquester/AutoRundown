@@ -11,7 +11,9 @@ Shop setup, shop-network access, Windows MSI (built on the PC), CI, "Add a
 car" from LEMON's zip (the app opens LEMON's page, the user saves the zip,
 the app imports it), one car from Operation CHARM's torrent (built, hidden:
 hours per car). Not built: macOS/Linux packages (they run from source, by the
-user's decision), code signing, the LEMON torrent download (not practical per
+user's decision), code signing (SignPath Foundation's `sign` job is in
+`ci.yml`, off until the project is approved and set up:
+`windows-installer.md`, "Code signing"), the LEMON torrent download (not practical per
 car; `importing.md`). A headless Ubuntu server runs from a checkout as a
 systemd user service (`packaging/linux/install.sh`; admin over an SSH tunnel).
 
@@ -61,17 +63,16 @@ docs/               notes/ (deep notes), qa/ (QA reports), images/ (README),
 SECURITY.md         how to report a vulnerability
 ```
 
-**GitHub Actions is turned off until the repo is public** (the user,
-2026-10-23: the private repo hit its Actions billing limit). Both workflows
-are disabled on GitHub (`gh workflow disable`), so a PR shows no checks.
-**Before asking to merge, run every CI check locally** in a test box
-(`box.sh check <name>`) and say so in the PR. Keep `ci.yml` up to date anyway
-(new tests still go in its loop). **When the repo goes public** run
-`python tools/github_setup.py --apply`: it turns the workflows on and sets
-the branch rules, fork-PR approval and secret scanning
-(`docs/notes/github-repo.md`). From then on CI builds the MSI and publishes
-`v<version>` on a merge to main (2026-10-29, the user: "main merges are
-creating msi and creating new releases"; they did until 2026-10-23).
+**The repo is public and GitHub Actions runs** (seen 2026-11-09; it was
+off 2026-10-23 until then). `tools/github_setup.py --apply` has set the
+branch rules, fork-PR approval and secret scanning
+(`docs/notes/github-repo.md`): a PR merges only once CI's checks pass, and
+a merge to main builds the MSI and publishes `v<version>` (2026-10-29, the
+user: "main merges are creating msi and creating new releases"). Only
+GitHub's own actions and `ALLOWED_ACTIONS` in `github_setup.py` may run --
+a new third-party action must be added there and applied, or the whole run
+fails at startup. Still run every CI check in a test box
+(`box.sh check <name>`) before pushing.
 
 **After a PR is merged to `main`, build and install the MSI on this PC**
 (the user, 2026-10-23). From an up-to-date `main`:

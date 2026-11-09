@@ -8,7 +8,8 @@
 # release. Artifacts live 3-7 days -- the release holds the MSI for good --
 # so the storage that filled up while private does not.)
 #
-# Free of Anthropic charges by construction: no secret is used anywhere, the
+# Free of Anthropic charges by construction: no AI provider's secret is used
+# anywhere (the one secret is SignPath's, in the sign job), the
 # API key is forced empty and the API address points at a closed port, and
 # the browser tests abort /api/ask.
 #
@@ -233,29 +234,119 @@ jobs:
       (github.event_name != 'pull_request' || needs.changes.outputs.packaging == 'true')
     uses: ./.github/workflows/windows-msi.yml
 
+  # The MSI a release will publish is code-signed by SignPath Foundation
+  # (free for open-source projects; the user's choice, 2026-11-09), so
+  # Windows names the publisher instead of "Unknown publisher". Only a
+  # version that has no release yet is sent: every request waits for the
+  # owner to approve it on signpath.io, which this job waits up to 2 h for.
+  # Off until SignPath is set up (repository variable
+  # SIGNPATH_ORGANIZATION_ID, secret SIGNPATH_API_TOKEN): the release is
+  # then the unsigned MSI, as before. Once it is on, a failed signing
+  # publishes nothing -- never an unsigned MSI by accident.
+  # Setup: docs/notes/windows-installer.md ("Code signing").
+  sign:
+    needs: [test, browser, msi]
+    if: >-
+      always() && needs.test.result == 'success' &&
+      needs.browser.result == 'success' && needs.msi.result == 'success' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      vars.SIGNPATH_ORGANIZATION_ID != ''
+    runs-on: windows-latest
+    timeout-minutes: 130
+    permissions:
+      contents: read
+      actions: read     # SignPath reads the run and downloads the artifact
+    outputs:
+      signed: ${{ steps.check.outputs.signed }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: AutoRundown-msi
+          path: dist
+
+      - name: A new version?
+        id: new
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          msi=$(ls dist/AutoRundown-*.msi)
+          version=$(basename "$msi" .msi); version=${version#AutoRundown-}
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "::notice::v$version already has a release; nothing to sign."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sign with SignPath (approve the request on signpath.io)
+        if: steps.new.outputs.new == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092  # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'AutoRundown' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ needs.msi.outputs.msi-artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: signed
+
+      - name: Check the signature
+        id: check
+        if: steps.new.outputs.new == 'true'
+        shell: pwsh
+        run: |
+          $msi = @(Get-ChildItem signed\AutoRundown-*.msi)
+          if ($msi.Count -ne 1) { throw "expected one signed MSI, found $($msi.Count)" }
+          $s = Get-AuthenticodeSignature $msi[0].FullName
+          "$($msi[0].Name): $($s.Status) -- $($s.SignerCertificate.Subject)"
+          if ($s.Status -ne "Valid") { throw "the MSI's signature is $($s.Status): $($s.StatusMessage)" }
+          # the signed file must be the one the installer job tested, plus a signature
+          $u = (Get-Item "dist\$($msi[0].Name)").Length
+          if ($msi[0].Length -le $u) { throw "the signed MSI is not larger than the unsigned one" }
+          "signed=true" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: steps.check.outputs.signed == 'true'
+        with:
+          name: AutoRundown-msi-signed
+          path: signed/AutoRundown-*.msi
+          retention-days: 3
+
   # A push to main (a merged PR) whose tests, browser checks and installer
-  # all passed becomes a GitHub release "v<version>" with the MSI attached. The version is
+  # all passed becomes a GitHub release "v<version>" with the MSI attached
+  # (the signed one when the sign job made it). The version is
   # autorundown/__init__.py's __version__ (the MSI's own file name), so bump
   # it to publish a new release: a version that already has a release is left
   # alone, with a notice, rather than overwritten. Only this job may write.
   release:
-    needs: [test, browser, msi]
+    needs: [test, browser, msi, sign]
     # always(): msi's own dependency `changes` is skipped on a push, and
     # GitHub skips every job downstream of a skipped one unless its condition
-    # names a status -- that skipped the v0.1.4 release after PR #8
+    # names a status -- that skipped the v0.1.4 release after PR #8.
+    # sign is skipped while SignPath is not set up; a failed sign stops it.
     if: >-
       always() && needs.test.result == 'success' &&
       needs.browser.result == 'success' && needs.msi.result == 'success' &&
+      (needs.sign.result == 'success' || needs.sign.result == 'skipped') &&
       github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        if: needs.sign.outputs.signed == 'true'
+        with:
+          name: AutoRundown-msi-signed
+          path: dist
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        if: needs.sign.outputs.signed != 'true'
         with:
           name: AutoRundown-msi
           path: dist
-          retention-days: 3
 
       - name: Create the release
         env:

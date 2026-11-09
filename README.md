@@ -98,8 +98,12 @@ It is not a Windows service on purpose: a service would need admin rights
 and run as a system account that can't see your VirtualBox VMs or your
 files. "Start when I sign in" runs it as you, in the background.
 
-- **"Windows protected your PC"**: the installer is not code-signed yet. Click
-  *More info* -> *Run anyway*.
+- **"Windows protected your PC"**: releases are being set up for code
+  signing through SignPath Foundation (see [Code signing
+  policy](#code-signing-policy)); until then the installer is unsigned. Click
+  *More info* -> *Run anyway*. A signed release names the publisher, but
+  Windows may still show this screen for a new version until enough people
+  have downloaded it.
 - **Your data is not in the install folder.** The index, settings and spend
   log are in `%USERPROFILE%\.autorundown`. Upgrading (just run a newer
   `.msi`) or uninstalling (Settings -> Apps) never touches them.
@@ -880,6 +884,49 @@ AutoRundown is an independent project, not affiliated with, endorsed by or
 sponsored by Mercedes-Benz Group AG or any other manufacturer. The Mercedes WIS
 extractor reads only an installation the user is licensed to use; the user is
 responsible for complying with the terms of that licence.
+
+---
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io),
+certificate by [SignPath Foundation](https://signpath.org). *(Applied for;
+releases are unsigned until it is approved.)*
+
+Only the Windows installer (`AutoRundown-<version>.msi`) is signed. It is
+built from this repository's source by GitHub Actions on GitHub's own
+runners (`.github/workflows/windows-msi.yml`), tested there, and only then
+sent to SignPath by the `sign` job in `.github/workflows/ci.yml`. Nothing
+built on a personal computer is ever signed.
+
+**Team roles**
+
+- Committers and reviewers: [cquester](https://github.com/Cquester)
+- Approvers (each signing request is approved by hand on SignPath):
+  [cquester](https://github.com/Cquester)
+
+Changes reach `main` only through pull requests; who must approve what is in
+[`.github/CODEOWNERS`](.github/CODEOWNERS).
+
+**Privacy policy**
+
+This program will not transfer any information to other networked systems
+unless specifically requested by the user or the person installing or
+operating it. In particular:
+
+- A question typed into *Ask* is sent, with the manual passages it needs, to
+  the AI provider the shop chose and gave a key for in Shop setup
+  (Anthropic, Google, xAI or DeepSeek). Keyword search sends nothing.
+  Shop setup asks that provider for its list of models when you click to
+  check for newer ones.
+- A CHARM download, when someone starts one, fetches that car's pieces from
+  BitTorrent peers (and never uploads more than libtorrent needs to trade).
+- On the shop network the app announces its name (`autorundown.local`) so
+  phones can find it, and serves the people the shop signs in.
+- *Add a car* and the parts suppliers' *Find it at* links open those sites in
+  the user's own browser; the app's server makes no request to them.
+
+Nothing is sent to the author of this program. There is no telemetry.
 
 ---
 

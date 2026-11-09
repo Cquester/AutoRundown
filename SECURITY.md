@@ -23,7 +23,9 @@ file outside the manual folders.
 
 - Anyone on the same network as the PC can open the sign-in page. That is the
   design: sign-in (on by default) is what protects searching and asking.
-- The installer is unsigned, so Windows SmartScreen warns on first run.
+- Until SignPath signing is approved (README, "Code signing policy"), the
+  installer is unsigned, so Windows SmartScreen warns on first run. A signed
+  release can still be warned about until it has a download reputation.
 - The app serves plain HTTP on the shop network unless it is started with
   `--https`. Keep customers off that network; see the README.
 

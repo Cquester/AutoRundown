@@ -10,6 +10,10 @@ name: Windows installer
 
 on:
   workflow_call:
+    outputs:
+      # ci.yml's sign job hands this artifact to SignPath
+      msi-artifact-id:
+        value: ${{ jobs.msi.outputs.msi-artifact-id }}
   workflow_dispatch:
 
 # read-only token: this workflow builds and tests, it never writes to the repo
@@ -20,6 +24,8 @@ jobs:
   msi:
     runs-on: windows-latest
     timeout-minutes: 30
+    outputs:
+      msi-artifact-id: ${{ steps.msi-artifact.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -330,8 +336,10 @@ jobs:
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x `"$msi`" /qn"
           if ($p.ExitCode) { throw "uninstall failed: $($p.ExitCode)" }
 
-      # the release needs this one on main; on a PR it is a convenience
+      # the release needs this one on main (SignPath signs it from here);
+      # on a PR it is a convenience
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        id: msi-artifact
         continue-on-error: ${{ github.event_name == 'pull_request' }}
         with:
           name: AutoRundown-msi
