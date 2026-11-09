@@ -39,6 +39,10 @@ CHECKS = ["Tests (ubuntu-latest)", "Browser checks (ubuntu-latest)"]
 TOPICS = ["repair-manual", "service-manual", "sqlite", "fts5", "fastapi", "automotive", "offline-first"]
 DESCRIPTION = "Local repair-manual search over your own service-manual archive: SQLite full-text search, cited AI answers, phone-friendly."
 RULESETS = ("main", "main reviews", "release tags")
+# the only actions besides GitHub's own (actions/*) a workflow may use; the
+# workflows still pin each to a commit. SignPath signs the release MSI
+# (ci.yml's sign job; docs/notes/windows-installer.md, "Code signing").
+ALLOWED_ACTIONS = ["signpath/github-action-submit-signing-request@*"]
 NOREPLY = "14364346+Cquester@users.noreply.github.com"
 
 
@@ -114,7 +118,10 @@ def report(repo: str) -> int:
     for name in RULESETS:
         line(name in have and have[name].get("enforcement") == "active", f"ruleset '{name}' active")
     _, ap = api("GET", f"repos/{repo}/actions/permissions", check=False)
-    line(ap.get("allowed_actions") == "selected", "Actions: only GitHub's own actions")
+    line(ap.get("allowed_actions") == "selected", "Actions: only GitHub's own actions (+ the list below)")
+    _, sel = api("GET", f"repos/{repo}/actions/permissions/selected-actions", check=False)
+    line(sorted(sel.get("patterns_allowed") or []) == sorted(ALLOWED_ACTIONS) and not sel.get("verified_allowed"),
+         f"Actions: the only others allowed are {', '.join(ALLOWED_ACTIONS)}")
     _, wp = api("GET", f"repos/{repo}/actions/permissions/workflow", check=False)
     line(wp.get("default_workflow_permissions") == "read" and wp.get("can_approve_pull_request_reviews") is False,
          "Actions: read-only token, workflows cannot approve PRs")
@@ -151,7 +158,7 @@ def apply(repo: str, approvals: int) -> None:
     print("actions")
     api("PUT", f"repos/{repo}/actions/permissions", {"enabled": True, "allowed_actions": "selected"})
     api("PUT", f"repos/{repo}/actions/permissions/selected-actions",
-        {"github_owned_allowed": True, "verified_allowed": False, "patterns_allowed": []})
+        {"github_owned_allowed": True, "verified_allowed": False, "patterns_allowed": ALLOWED_ACTIONS})
     api("PUT", f"repos/{repo}/actions/permissions/workflow",
         {"default_workflow_permissions": "read", "can_approve_pull_request_reviews": False})
     api("PUT", f"repos/{repo}/actions/permissions/fork-pr-contributor-approval",
