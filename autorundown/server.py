@@ -39,7 +39,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from . import search as search_mod
-from . import auth, config, handoff, history, index, numbers, providers, qr, query, tls
+from . import auth, config, handoff, history, index, numbers, providers, qr, query, suppliers, tls
 from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_tables, lemon_zip, manual_browse,
                native_dialog,
                part_procedures, parts_browse, synonyms, tab_values, validity, wis_links,
@@ -100,6 +100,10 @@ class SettingsBody(BaseModel):
     hidden_models: list[str] | None = Field(None, max_length=50)
     # a provider's newer models added from its model list (config.extra_models)
     extra_models: dict[str, list[str]] | None = None
+    # the parts list's suppliers (suppliers.clean checks them);
+    # suppliers_default: back to the built-in list
+    suppliers: list[dict] | None = Field(None, max_length=50)
+    suppliers_default: bool | None = None
 
 
 class HandoffBody(BaseModel):
@@ -576,6 +580,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "https": request.url.scheme == "https",
             # Browse opens the PC's own Open dialog (the PC only, on Windows)
             "file_dialog": who.admin and native_dialog.available(),
+            # the parts list's "Find it at" links: names and search addresses
+            # only -- the browser opens them, the server asks no supplier
+            "suppliers": suppliers.current(cfg),
         }
         out["key_mode"] = cfg.key_mode
         # no key this requester may use: the AI chat is greyed out with why,
@@ -2162,6 +2169,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "show_damage_codes": cfg.show_damage_codes,
             "show_retrofits": cfg.show_retrofits,
             "show_shop_admin": cfg.show_shop_admin,
+            "suppliers": suppliers.current(cfg),
+            "suppliers_default": cfg.suppliers is None,
             "config_path": str(config.CONFIG_PATH),
         }
 
@@ -2208,6 +2217,12 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                     if not re.fullmatch(r"[A-Za-z0-9._:-]{1,80}", mid) or (
                             other and not providers.PROVIDERS[other]["models"][mid].get("added")):
                         raise HTTPException(400, f"{mid!r} can't be added.")
+        new_suppliers = None
+        if body.suppliers is not None:
+            try:
+                new_suppliers = suppliers.clean(body.suppliers)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
         if body.api_key is not None and (not body.api_key.strip()
                                          or any(c.isspace() for c in body.api_key.strip())):
             raise HTTPException(400, "Paste the whole key, with no spaces.")
@@ -2232,6 +2247,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             cfg.extra_models = {pid: list(dict.fromkeys(ids))
                                 for pid, ids in body.extra_models.items() if ids}
             providers.sync_added(cfg.extra_models)
+        if body.suppliers_default:
+            cfg.suppliers = None
+        elif new_suppliers is not None:
+            cfg.suppliers = new_suppliers
         # the default is always in the menu
         cfg.hidden_models = [m for m in cfg.hidden_models or [] if m != config.active_model(cfg)]
         if body.api_key is not None:

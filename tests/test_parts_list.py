@@ -21,11 +21,15 @@ asked for on 2026-10-29/30:
     the pane, its lines show what is already in the list, and Add there
     adds more without closing the drawing;
   - a part saved without a callout (0.1.9's first list) keeps its row's
-    columns, RockAuto inside the page;
+    columns, its links inside the page;
   - in the list: a number copies, the quantity is kept, x takes a part off,
-    "Copy all" gives digits, quantity and name per line, the RockAuto link is
-    RockAuto's own part-number search in a new tab (the app never asks
-    RockAuto anything), and the list survives a reload.
+    "Copy all" gives digits, quantity and name per line, and the list
+    survives a reload;
+  - "Find it at" (2026-11-08): each supplier that fits the part's car
+    (FCP Euro, ECS Tuning and RockAuto for a Mercedes; RockAuto for a
+    Ford) links to its own part-number search in a new tab -- the app
+    never asks a supplier anything; an item saved before the make was kept
+    gets it from its car's label.
 
 Anything that is not a GET fails the run (nothing here may write or ask),
 and so does any request that leaves this machine.
@@ -157,6 +161,8 @@ def main(argv=None):
               len(s) == 1 and s[0]["pn"] == "A 210 323 15 65" and s[0]["co"] == "40"
               and s[0]["page"] == f"{docs['P900004']}|P900004" and "FRONT SPRINGS" in s[0]["title"]
               and "W210" in s[0]["car"] and s[0]["qty"] == 1, str(s))
+        check("add: the car's make is kept with it (it picks the suppliers)",
+              s[0].get("make", "").startswith("Mercedes"), str(s))
         check("add: the button says it is in the list", add.inner_text().startswith("In list")
               and add.get_attribute("aria-pressed") == "true", add.inner_text())
         check("add: the Parts list button shows the count, on the window's edge",
@@ -189,10 +195,23 @@ def main(argv=None):
         rows = pg.locator("#plistDlg .plrow")
         check("pane: every part listed, with its callout", rows.count() == 3
               and rows.first.locator(".cbig").inner_text() == "40")
-        ra = rows.first.locator("a")
-        check("pane: RockAuto is its own part-number search, in a new tab",
-              ra.get_attribute("href") == "https://www.rockauto.com/en/partsearch/?partnum=2103231565"
-              and ra.get_attribute("target") == "_blank", ra.get_attribute("href"))
+        sup = pg.evaluate("[...document.querySelector('#plistDlg .plrow .plsup').querySelectorAll('a')]"
+                          ".map(a => [a.textContent.replace(/\\W+$/, '').trim(), a.href, a.target, a.rel])")
+        check("pane: a Mercedes part has Find it at FCP Euro, ECS Tuning and RockAuto: each one's own "
+              "part-number search, by its digits, in a new tab",
+              [x[:2] for x in sup] == [
+                  ["FCP Euro", "https://www.fcpeuro.com/Parts?keywords=2103231565"],
+                  ["ECS Tuning", "https://www.ecstuning.com/Search/SiteSearch/2103231565/"],
+                  ["RockAuto", "https://www.rockauto.com/en/partsearch/?partnum=2103231565"]]
+              and all(x[2] == "_blank" and "noopener" in x[3] for x in sup), str(sup))
+        # an item saved before the make was kept: the make comes from its label
+        made = pg.evaluate("""() => [itemMake({car: plistLoad()[0].car}),
+                                     supplierLinks({pn: 'F81Z-6731-A', car: '1997 Ford F-150'})]""")
+        check("pane: an older item's make comes from its car's label", made[0].startswith("Mercedes"), str(made))
+        check("pane: a car of another make gets only the every-car suppliers, its number left whole",
+              "FCP Euro" not in made[1] and "partnum=F81Z-6731-A" in made[1], made[1])
+        check("pane: the suppliers come from /api/me (Shop setup's list)",
+              pg.evaluate("me.suppliers.map(s => s.name).join()") == "FCP Euro,ECS Tuning,RockAuto")
         q = rows.first.locator("input[type=number]")
         q.fill("4")
         q.dispatch_event("change")
@@ -242,7 +261,7 @@ def main(argv=None):
         fit = pg.evaluate("""() => { const b = document.querySelector('#plistBody'),
                  r = [...b.querySelectorAll('.plrow')].pop(), ra = r.querySelector('a').getBoundingClientRect();
                  return {over: b.scrollWidth - b.clientWidth, raRight: ra.right, bodyRight: b.getBoundingClientRect().right}; }""")
-        check("pane: a part saved without a callout keeps its row inside the page (RockAuto shown)",
+        check("pane: a part saved without a callout keeps its row inside the page (its links shown)",
               fit["over"] <= 0 and fit["raRight"] <= fit["bodyRight"], str(fit))
         pg.evaluate("$('#plistDlg').close()")
         # closing steps history back; a late popstate closed the pane reopened

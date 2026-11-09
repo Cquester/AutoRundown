@@ -180,6 +180,7 @@ python tests/test_providers.py                    # Ask on all 4 AI providers vs
 python tests/test_epc_join.py                     # EPC parts joined into WIS cars (~5 s)
 python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + progress, fake extractor (~12 s)
 python tests/test_extraction_ledger.py            # a re-run pulls/builds/imports only what is new (~2 s)
+python tests/test_suppliers.py                    # parts suppliers: built-in list, by make, Shop setup's checks (<2 s)
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
 python tests/test_history.py                      # question history: answers kept whole, who sees what (~2 s)
 python tests/test_chat.py                         # AI chat follow-ups vs the fake API, who may follow up (~5 s)
@@ -310,6 +311,7 @@ autorundown/
   lemon_catalogue.py  LEMON torrent catalogue tree and picks; LEMON / CHARM page links, zip names
   lemon_zip.py     a LEMON car's zip from Downloads: found, checked (untrusted), unpacked
   lemon_tables.py  a LEMON manual's own Labor Times / Parts Information tables, for those tabs
+  suppliers.py     the parts list's "Find it at" links: supplier search addresses, by make
   charm.py         Operation CHARM's data (SquashFS + LMDB) read a piece at a time; LEMON-style export
   charm_fetch.py   CHARM torrent pieces from the swarm (libtorrent, never seeds) or a local copy
   wis_links.py     WIS cross-refs, diagram hotspots, oil, labour
@@ -683,6 +685,13 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   the one route above `MAX_BODY` (`UPLOAD_LIMITS`, streamed to disk),
   kept only if its folder names the car picked (`lemon_zip.same_car`).
   (`importing.md`)
+- **Parts suppliers are links, never requests** (2026-11-08): the parts
+  list's "Find it at" opens each supplier's own part-number search in the
+  user's browser, chosen by the part's car's make (`suppliers.py`, Shop
+  setup > Parts suppliers). No supplier offers prices without a partner
+  agreement and several block automated requests; the server asks no
+  supplier anything. Worldpac is left out until the user has looked into
+  speedDIAL 2.0's API with Worldpac. (`epc-source.md`)
 - **CHARM: one car from the swarm only, plan first, never seeds** (its
   card is hidden since 2026-10-27; keep the code); the
   `.torrent` is the one file from charm.li. A car's text is ~200 MB, its

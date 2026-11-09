@@ -85,6 +85,12 @@
   .adduser{display:grid; grid-template-columns:1fr 190px auto; gap:8px; align-items:end}
   .adduser label{margin-top:8px}
   @media (max-width:560px){ .adduser{grid-template-columns:1fr} }
+  /* Shop setup -> Parts suppliers: one row per supplier, its fields side by side */
+  .suplist{display:flex; flex-direction:column; gap:8px; margin-top:12px}
+  .suprow{display:grid; grid-template-columns:minmax(120px,1fr) minmax(220px,2.4fr) minmax(160px,1.4fr) auto; gap:8px; align-items:end;
+    padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2)}
+  .suprow label{margin-top:0; font-size:12px}
+  @media (max-width:760px){ .suprow{grid-template-columns:1fr} }
   .errnote:not(:empty){color:var(--bad)}
   .codecard{margin-top:10px; padding-top:10px; border-top:1px solid var(--line)}
   .capedit{margin-top:6px}
@@ -666,10 +672,13 @@
   .plrow{display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:10px; align-items:start;
     padding:8px 0; border-top:1px solid var(--line)}
   /* each in its own column: a part saved without a callout has none to show,
-     and the rest slid left (the name in the narrow column, RockAuto cut off) */
+     and the rest slid left (the name in the narrow column, the links cut off) */
   .plrow > .cbig{grid-column:1}
   .plrow > .pftext{grid-column:2}
   .plact{grid-column:3; display:flex; align-items:center; gap:8px}
+  /* "Find it at" + the suppliers for this car, a line of their own under the part */
+  .plsup{grid-column:2 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; font-size:13px}
+  .plsup .btnlink{min-height:32px; padding:4px 10px}
   /* a drawing in the full-page list stays a readable size */
   #plistDlg .pdraw{max-width:900px}
   .plqty{display:flex; align-items:center; gap:4px; font-size:13px; color:var(--muted)}
@@ -1266,6 +1275,7 @@
       <a href="#/setup/manuals" data-sec="manuals">Manuals<span class="navsub" id="navManualsSub"></span></a>
       <a href="#/setup/ai" data-sec="ai">AI answers<span class="navsub" id="navAiSub"></span></a>
       <a href="#/setup/phones" data-sec="phones">Phones &amp; mechanics</a>
+      <a href="#/setup/suppliers" data-sec="suppliers">Parts suppliers<span class="navsub" id="navSupSub"></span></a>
       <a href="#/setup/pc" data-sec="pc" id="sStartRow" hidden>This PC</a>
       <a href="#/setup/advanced" data-sec="advanced">Advanced<span class="navsub" id="navAdvSub"></span></a>
       <a href="#/" class="navback" id="navBack">&larr; Back to search</a>
@@ -1617,6 +1627,27 @@
         <div class="vinnote errnote" id="usersNote" role="alert"></div>
         <div class="help" id="usersIntro"></div>
         <div id="usersList" style="margin-top:12px"></div>
+      </section>
+
+      <section class="setsec wide" id="sec-suppliers" hidden>
+        <h2>Parts suppliers</h2>
+        <div class="help">Each part in the parts list has “Find it at” links: that supplier’s own search for the
+          part number, opened in a new tab. AutoRundown never contacts a supplier itself, so there are no prices
+          here &mdash; the supplier’s page shows yours.</div>
+        <div class="help">Put <b>{pn}</b> in the search address where the part number goes (a Mercedes number
+          goes in as digits only: A 001 420 81 20 &rarr; 0014208120). <b>Makes</b> says which cars a supplier is
+          shown for, separated by commas; leave it empty for every car.</div>
+        <div id="supList" class="suplist"></div>
+        <div class="row" style="margin-top:10px">
+          <button type="button" class="ghost" id="supAdd">Add a supplier</button>
+        </div>
+        <div class="errbox" id="supErr" role="alert" hidden style="margin-top:12px"></div>
+        <div class="row" style="margin-top:14px">
+          <button type="button" id="supSave" disabled>Save</button>
+          <button type="button" class="ghost" id="supDefault">Use the built-in list</button>
+          <span class="savedmark" id="mSup" role="status"></span>
+        </div>
+        <div class="help" id="supNote"></div>
       </section>
 
       <section class="setsec" id="sec-pc" hidden>
@@ -5027,13 +5058,46 @@ document.addEventListener('click', e => {
 // choice). The list is this browser's own (localStorage). It opens over the
 // whole page ("Parts list" buttons), grouped by car and by the
 // catalogue's section, each with its drawing one tap away -- to check the
-// part, and to add more from it. "RockAuto" opens RockAuto's own part-number
-// search in a new tab: the app asks no shop for prices (RockAuto has no
-// public API and turns automated requests away; the server makes no request
-// but the AI's).
+// part, and to add more from it. "Find it at" opens each supplier's own
+// part-number search in a new tab, for the suppliers whose makes fit that
+// part's car (suppliers.py; Shop setup -> Parts suppliers edits the list):
+// the app asks no supplier for prices (none has a public API, and several
+// turn automated requests away; the server makes no request but the AI's).
 const PLIST_KEY = 'autorundown.partsList.v1';
-const pnDigits = pn => (pn || '').trim().replace(/^[A-Z]\s*/i, '').replace(/\s+/g, '');
-const rockAutoUrl = pn => `https://www.rockauto.com/en/partsearch/?partnum=${encodeURIComponent(pnDigits(pn))}`;
+// a Mercedes number loses its letter and spaces ("A 210 321 23 04" ->
+// 2103212304; an N number keeps its 12 digits); any other number only its
+// spaces -- a Ford "F81Z-6731-A" keeps its F
+const pnDigits = pn => {
+  const s = (pn || '').trim(), m = /^[A-Z]\s*([\d\s]+)$/i.exec(s);
+  return (m ? m[1] : s).replace(/\s+/g, '');
+};
+// the make of a list item's car: saved with it since 2026-11-08; an older
+// item's from its label ("Mercedes-Benz 190 E 2.3 (W201)", "1987 Ford F-150")
+function itemMake(x) {
+  if (x.make) return x.make;
+  const label = makeKey(x.car);
+  const found = [...new Set(vehicles.map(v => v.make).filter(Boolean))]
+    .sort((a, b) => makeKey(b).length - makeKey(a).length)
+    .find(m => makeKey(m) && label.includes(makeKey(m)));
+  return found || '';
+}
+// suppliers.fits: no makes = every car; else the car's make starts with one
+const supplierFits = (s, make) => {
+  const keys = (s.makes || []).map(makeKey).filter(Boolean);
+  return !keys.length || (!!makeKey(make) && keys.some(k => makeKey(make).startsWith(k)));
+};
+const supplierUrl = (s, pn) => /^https?:\/\//i.test(s.url || '')
+  ? s.url.replace('{pn}', encodeURIComponent(pnDigits(pn))) : '';
+function supplierLinks(x) {
+  const fit = (me.suppliers || []).filter(s => supplierFits(s, itemMake(x)) && supplierUrl(s, x.pn));
+  if (!fit.length) return '';
+  return `<span class="plsup"><span class="muted">Find it at</span>`
+    + fit.map(s => `<a class="btnlink ghostlink" href="${esc(supplierUrl(s, x.pn))}" target="_blank"`
+      + ` rel="noopener noreferrer" title="Search ${esc(s.name)} for ${esc(pnDigits(x.pn))}">${esc(s.name)} &#8599;</a>`).join('')
+    + `</span>`;
+}
+// the chosen car's make, saved with a part added to the list
+const currentMake = () => vehicles.find(x => x.doc_id === $('#vehicle').value)?.make || '';
 function plistLoad() {
   try { const v = JSON.parse(localStorage.getItem(PLIST_KEY) || '[]'); return Array.isArray(v) ? v : []; }
   catch { return []; }
@@ -5097,9 +5161,11 @@ function toggleAdd(btn) {
   const page = host.dataset.pkey, pn = r.dataset.cpn, list = plistLoad();
   const i = list.findIndex(x => x.page === page && x.pn === pn);
   if (i >= 0) { list.splice(i, 1); plistSave(list); return; }
-  const car = btn.closest('[data-car]')?.dataset.car ?? (carBoxLabel || currentCarLabel() || '');
+  const inPane = btn.closest('[data-car]');
+  const car = inPane ? inPane.dataset.car : (carBoxLabel || currentCarLabel() || '');
+  const make = inPane ? (inPane.dataset.make || '') : currentMake();
   plistSave([...list, {pn, name: r.dataset.cname, fits: r.dataset.cfits, notes: r.dataset.cnotes, by: r.dataset.cby,
-                       co: r.dataset.callout, car, page, title: host.dataset.ptitle, qty: 1}]);
+                       co: r.dataset.callout, car, make, page, title: host.dataset.ptitle, qty: 1}]);
 }
 // "Parts: model 201 (EPC catalog 580), group 82 ELECTRICAL SYSTEM / subgroup
 // 120 PANE WIPER" -> "82 Electrical system / 120 Pane wiper", "catalog 580"
@@ -5124,7 +5190,8 @@ function renderPlist() {
   body.innerHTML = cars.map(car => {
     const mine = list.map((x, i) => ({...x, i})).filter(x => x.car === car);
     const pages = [...new Set(mine.map(x => x.page || ''))];
-    return `<section class="plcar" data-car="${esc(car)}"><div class="sechead">${esc(car || 'No car chosen')}</div>`
+    return `<section class="plcar" data-car="${esc(car)}" data-make="${esc(itemMake(mine[0]))}">`
+      + `<div class="sechead">${esc(car || 'No car chosen')}</div>`
       + pages.map(page => {
         const xs = mine.filter(x => (x.page || '') === page), s = sectionLabel(xs[0].title);
         const [doc, pno] = page.split('|');
@@ -5137,10 +5204,9 @@ function renderPlist() {
             + ([x.fits, x.notes].filter(Boolean).length
               ? `<span class="muted">${esc([x.fits, x.notes].filter(Boolean).join(' · '))}</span>` : '') + `</span>`
             + `<span class="plact"><label class="plqty">Qty <input type="number" min="1" max="999" value="${Number(x.qty) || 1}" data-qty="${x.i}"></label>`
-            + `<a class="btnlink ghostlink" href="${esc(rockAutoUrl(x.pn))}" target="_blank" rel="noopener noreferrer"`
-            + ` title="Search RockAuto for ${esc(pnDigits(x.pn))}">RockAuto &#8599;</a>`
             + `<button type="button" class="pfx" data-plist-del="${x.i}" title="Take ${esc(x.pn)} off the list"`
-            + ` aria-label="Take ${esc(x.pn)} off the list">&times;</button></span></li>`).join('')
+            + ` aria-label="Take ${esc(x.pn)} off the list">&times;</button></span>`
+            + supplierLinks(x) + `</li>`).join('')
           + `</ul>`
           + (pno ? `<details class="pbdrop pldraw" data-key="${esc(car + '\n' + page)}" data-doc="${esc(doc)}" data-pno="${esc(pno)}">`
             + `<summary>Drawing &mdash; check the part, add more</summary><div class="pbbody"></div></details>` : '')
@@ -5603,7 +5669,7 @@ function showModelPrice() {
 // on its screen. Toggles and the model save as they change; the API key and
 // the folders have their own Save. Nothing is lost moving between sections:
 // they are only hidden, and a reload of the data never overwrites an edit.
-const SECTIONS = ['welcome', 'manuals', 'ai', 'phones', 'pc', 'advanced'];
+const SECTIONS = ['welcome', 'manuals', 'ai', 'phones', 'suppliers', 'pc', 'advanced'];
 const ADV_FIELDS = {archive_dir: '#sArchive', index_path: '#sIndex', extractor_dir: '#sExtractor'};
 let setupData = null, advLoaded = {};
 function flash(sel, text, bad = false) {
@@ -5620,6 +5686,73 @@ async function saveSetting(body, mark) {
     return true;
   } catch (e) { flash(mark, 'Not saved: ' + e.message, true); return false; }
 }
+// -- Parts suppliers: the parts list's "Find it at" links (suppliers.py) -----
+// Edited as rows, saved together with Save (the server checks every row:
+// a web address with {pn} once); "Use the built-in list" goes back to
+// FCP Euro, ECS Tuning and RockAuto.
+let supDirty = false;
+function supRow(s = {name: '', url: '', makes: []}) {
+  const id = Math.random().toString(36).slice(2, 8);
+  return `<div class="suprow">`
+    + `<div><label for="supN${id}">Name</label><input id="supN${id}" class="supname" type="text" maxlength="40"`
+    + ` autocomplete="off" value="${esc(s.name)}"></div>`
+    + `<div><label for="supU${id}">Search address</label><input id="supU${id}" class="supurl" type="url"`
+    + ` spellcheck="false" maxlength="400" placeholder="https://example.com/search?q={pn}" value="${esc(s.url)}"></div>`
+    + `<div><label for="supM${id}">Makes</label><input id="supM${id}" class="supmakes" type="text"`
+    + ` spellcheck="false" placeholder="every car" value="${esc((s.makes || []).join(', '))}"></div>`
+    + `<button type="button" class="pfx" data-sup-del title="Take ${esc(s.name || 'this supplier')} off the list"`
+    + ` aria-label="Take ${esc(s.name || 'this supplier')} off the list">&times;</button></div>`;
+}
+function showSuppliers(s) {
+  $('#supList').innerHTML = (s.suppliers || []).map(supRow).join('')
+    || `<div class="muted" id="supNone">No suppliers: the parts list shows no “Find it at” links.</div>`;
+  $('#supNote').textContent = s.suppliers_default ? 'This is the built-in list.' : '';
+  $('#supDefault').disabled = !!s.suppliers_default;
+  supMark(false);
+}
+function supMark(dirty) {
+  supDirty = dirty;
+  $('#supSave').disabled = !dirty;
+  $('#navSupSub').textContent = dirty ? 'unsaved' : '';
+  if (dirty) $('#supErr').hidden = true;
+}
+const supRows = () => [...document.querySelectorAll('#supList .suprow')].map(r => ({
+  name: r.querySelector('.supname').value.trim(), url: r.querySelector('.supurl').value.trim(),
+  makes: r.querySelector('.supmakes').value.split(',').map(m => m.trim()).filter(Boolean)}));
+async function saveSuppliers(body) {
+  try {
+    await api('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body)});
+  } catch (e) {
+    $('#supErr').textContent = 'Not saved: ' + e.message; $('#supErr').hidden = false;
+    return;
+  }
+  const s = await api('/api/settings');
+  setupData = s; me.suppliers = s.suppliers;
+  showSuppliers(s);
+  flash('#mSup', 'Saved ✓');
+  if ($('#plistDlg').open) renderPlist();
+}
+$('#supList').addEventListener('input', () => supMark(true));
+$('#supList').addEventListener('click', e => {
+  const d = e.target.closest('[data-sup-del]');
+  if (!d) return;
+  d.closest('.suprow').remove();
+  if (!$('#supList .suprow')) $('#supList').innerHTML =
+    `<div class="muted" id="supNone">No suppliers: the parts list shows no “Find it at” links.</div>`;
+  supMark(true);
+});
+$('#supAdd').onclick = () => {
+  $('#supNone')?.remove();
+  $('#supList').insertAdjacentHTML('beforeend', supRow());
+  $('#supList .suprow:last-child .supname').focus();
+  supMark(true);
+};
+$('#supSave').onclick = () => saveSuppliers({suppliers: supRows()});
+$('#supDefault').onclick = () => {
+  if (!confirm('Replace the list with the built-in one (FCP Euro, ECS Tuning, RockAuto)?')) return;
+  saveSuppliers({suppliers_default: true});
+};
 const advChanged = () => Object.entries(ADV_FIELDS).filter(([k, sel]) => $(sel).value.trim() !== advLoaded[k]);
 function markDirty() {
   const adv = advChanged().length, key = !!$('#sKey').value.trim();
@@ -5648,6 +5781,7 @@ async function loadSetup() {
   $('#sDamage').checked = !!s.show_damage_codes;
   $('#sRetrofits').checked = !!s.show_retrofits;
   $('#sShopAdmin').checked = !!s.show_shop_admin;
+  if (!supDirty) showSuppliers(s);
   showProvider(s);
   showKeyMode(s);
   showKeyFor(s);
