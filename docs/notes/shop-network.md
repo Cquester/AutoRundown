@@ -38,6 +38,17 @@ Their Add a car card never waits for the zip in the server's Downloads
 (their browser saved it on their computer): Upload the zip. Tests:
 `tests/test_manager.py`.
 
+**The owner from another computer is SSH, nothing else** (2026-11-10, the
+user: "Lets just say ssh, i dont know how many people will be using it").
+Considered and not built: an "Owner" account level (a copied cookie, read
+off the plain-HTTP Wi-Fi, would give keys, spend and accounts) and trusting
+a PC by its LAN address (changes, and is easy to fake). On a headless
+server the owner is `ssh -L 8756:localhost:8756 you@server` +
+`http://localhost:8756`: the tunnel's requests reach uvicorn from loopback
+with a loopback Host, so `is_admin_request` holds with no change. The
+README's Linux section says so, with first setup (API key, a Manager
+account for yourself) done over the tunnel and everyday use without it.
+
 **HTTPS is not pursued** (2026-11-10, the user: every phone would have to
 install the certificate). The installed app starts on HTTP; the section
 on `serve.py --https` below stays true for a source install.

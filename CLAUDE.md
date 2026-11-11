@@ -659,7 +659,9 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   PC's) and `/api/manager/` (the cars *they* added, `auth.db cars_added`,
   and removing one of those). Keys, accounts, settings, other imports and
   the VM stay the PC's. Never widen a manager by prefix.
-  `tests/test_manager.py`. (`shop-network.md`)
+  `tests/test_manager.py`. The owner from another computer is an SSH
+  tunnel only (the user: "Lets just say ssh"): no Owner account level, no
+  trusting a PC by its address. (`shop-network.md`)
 - **The shop network stays on plain HTTP** (2026-11-10, the user: not
   pursued because every phone must install the certificate). The
   installed app never starts with HTTPS; `serve.py --https` and `tls.py`
