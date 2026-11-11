@@ -400,6 +400,15 @@ def user_for_token(conn: sqlite3.Connection, token: str | None) -> Who | None:
     return Who(admin=False, user_id=row["id"], name=row["name"], manager=row["role"] == "manager")
 
 
+# cars added by a device that isn't signed in (sign-in off): one shared list,
+# as "Send to desk" shares its cars between such devices
+ANYONE = 0
+
+
+def adder_id(who: "Who") -> int:
+    return who.user_id if who.user_id is not None else ANYONE
+
+
 def note_car_added(conn: sqlite3.Connection, doc_id: str, user_id: int) -> None:
     conn.execute("INSERT OR REPLACE INTO cars_added(doc_id, user_id, added) VALUES (?,?,?)",
                  (doc_id, user_id, _now_iso()))

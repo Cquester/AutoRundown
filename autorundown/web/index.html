@@ -1800,8 +1800,8 @@
   <div class="meter" id="acctMeter" hidden><i></i></div>
   <div class="muted" id="acctKey" style="margin-top:10px"></div>
   <div id="acctCars" hidden style="margin-top:14px">
-    <b>Cars you added</b>
-    <div class="muted">A car added by mistake can be taken out again. Only the ones you added are here.</div>
+    <b id="acctCarsHead">Cars you added</b>
+    <div class="muted" id="acctCarsHelp"></div>
     <ul id="acctCarList" class="acctcars"></ul>
     <div class="muted" id="acctCarNote" role="status"></div>
   </div>
@@ -1862,8 +1862,11 @@ async function loadMe() {
   me = await api('/api/me');
   $('#settingsBtn').hidden = !me.admin;   // (the gate hides it while starting)
   $('#impPick').hidden = !me.file_dialog;  // Windows' own Open dialog, the PC only
-  $('#acctBtn').hidden = !me.signed_in;
+  // a device that isn't signed in has the button only when it may add cars
+  // (sign-in off): it opens the cars added from such devices
+  $('#acctBtn').hidden = !(me.signed_in || me.shared_cars);
   if (me.signed_in) $('#acctBtn').textContent = me.name;
+  else if (me.shared_cars) $('#acctBtn').textContent = 'Cars added';
   syncMode();                             // Ask on or greyed out (can_ask)
   return me;
 }
@@ -1925,6 +1928,7 @@ $('#acctBtn').onclick = async () => {
   try { await loadMe(); } catch (e) { /* show what we have */ }
   const spent = me.month_spend_usd || 0, cap = me.monthly_cap_usd, n = me.month_questions || 0;
   $('#acctName').textContent = me.name;
+  $('#acctSpend').hidden = $('#acctSignout').hidden = !me.signed_in;
   $('#acctSpend').textContent = `This month: ${n} question${n === 1 ? '' : 's'}, $${spent.toFixed(2)}`
     + (cap != null ? ` of your $${cap.toFixed(2)} limit` : ' (no limit)')
     + (cap != null && spent >= cap ? ' — limit reached; keyword search still works.' : '');
@@ -1936,7 +1940,11 @@ $('#acctBtn').onclick = async () => {
       ? `Your API key: about $${k.remaining_usd.toFixed(2)} left of $${k.loaded_usd.toFixed(2)} loaded `
         + `(AutoRundown's estimate from its own log).`
       : `Your API key: $${k.spent_usd.toFixed(2)} spent on it since it was set up.`;
-  $('#acctName').textContent = me.name + (me.manager ? ' · manager' : '');
+  $('#acctName').textContent = me.shared_cars ? 'Cars added' : me.name + (me.manager ? ' · manager' : '');
+  $('#acctCarsHead').hidden = !!me.shared_cars;
+  $('#acctCarsHelp').textContent = me.shared_cars
+    ? 'Sign-in is off in this shop, so every device that isn’t signed in shares this list: any of them can remove a car on it.'
+    : 'A car added by mistake can be taken out again. Only the ones you added are here.';
   $('#acctCars').hidden = !me.manager;
   $('#acctCarNote').textContent = '';
   if (me.manager) loadMyCars().catch(e => { $('#acctCarNote').textContent = e.message; });
