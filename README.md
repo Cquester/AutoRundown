@@ -381,6 +381,36 @@ ask (on your API key), as before. Either way, also keep customers off that
 network: put the PC on the staff network, not the guest wifi (most routers
 isolate guest-wifi devices from everything else).
 
+### Reaching the shop from outside it: Tailscale
+
+[Tailscale](https://tailscale.com) puts your own computers and phones on a
+private network of their own (a "tailnet"), wherever they are, without
+opening anything on the shop's router. Install Tailscale on the PC (or the
+Ubuntu server) and on each device that should reach it, and sign them in to
+the same Tailscale account. Then open, from any of them:
+
+```
+http://<pc name>.<your tailnet>.ts.net:8756
+```
+
+(the name Tailscale shows for the PC; its short name and its 100.x address
+work too). AutoRundown asks Tailscale for this name itself; nothing to set
+up. Everything else is as on the shop network: a device that comes in over
+Tailscale is never the owner, and with sign-in off it is a manager. Only
+devices on your tailnet can reach the server that way, which makes running
+without sign-in safer than on an open shop network.
+
+- **Windows**: the firewall rule Windows made when the app first ran allows
+  *Private* networks only. If a tailnet device can't connect, check the
+  Tailscale network's category in Windows' network settings.
+- **Ubuntu**: `curl -fsSL https://tailscale.com/install.sh | sh`, then
+  `sudo tailscale up`. With `sudo tailscale up --ssh` the owner's SSH tunnel
+  (above) also works over Tailscale, from anywhere.
+- **Don't use `tailscale serve` or Funnel in front of AutoRundown.** They
+  are a proxy on the same machine: every request would come from the
+  machine itself, which is how the app recognises its owner. Funnel would
+  also put the app on the public internet.
+
 ### HTTPS on the shop network (from source only)
 
 The installed app runs on plain HTTP: HTTPS needs every phone to install

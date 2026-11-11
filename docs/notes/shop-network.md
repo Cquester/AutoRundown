@@ -253,3 +253,29 @@ created 0600, never written then chmod'ed.
   refuses an empty or missing index, a non-index file, an unknown model and
   a network-share extractor; `config.json` is written atomically (a
   half-written file made other requests 500).
+
+### Tailscale (2026-11-11, the user: on this PC now, the Ubuntu server later)
+
+The server listens on every address, so a tailnet device reaches it by the
+PC's 100.x address with no change. Its MagicDNS name
+(`<pc>.<tailnet>.ts.net`) was refused as an unknown Host (421): the DNS
+rebinding check accepts only IP addresses, localhost and this PC's own
+names. `tailnet.py` adds exactly this PC's names -- the full `Self.DNSName`
+from `tailscale status --json` and its first label -- asked in a background
+thread at start (a missing or stopped Tailscale is no names, never an error)
+and asked again, off the event loop and at most once a minute, when a
+request names an unknown `.ts.net` host (Tailscale started after the app,
+or the PC was renamed). Not a suffix match: any tailnet can name a machine
+`shop-pc`, and a public name under `ts.net` is not ours. Shop setup's
+addresses list the Tailscale name after autorundown.local.
+
+Who is admin is unchanged: a tailnet request comes from a 100.x peer, so it
+is a mechanic, a manager, or (sign-in off) a manager by default. **Never put
+`tailscale serve` or Funnel in front of the app**: Serve is a reverse proxy
+on the same machine (every request from 127.0.0.1; whether it passes the
+`.ts.net` Host through or rewrites it to localhost was not checked, and the
+second would make every tailnet device admin), and Funnel publishes the app
+on the internet. Windows' firewall rule for python.exe/pythonw.exe is
+Private-profile only, so a Tailscale adapter Windows calls Public is
+blocked: not checked here (Tailscale is not installed on the dev PC).
+Tests: `tests/test_tailnet.py` (Tailscale faked; no binary run).
