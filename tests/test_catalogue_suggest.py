@@ -82,9 +82,13 @@ check(suggest("2008 camry le 2.4 automatic")["total"] == 1, "the sample Camry is
 check(suggest("2016 ford f-150", who=phone)["total"] == r["total"], "a phone sees the same list")
 
 print("add this car")
+c0.require_signin = True   # with sign-in off every device is a manager
+c0.save()                  # (test_manager.py); with it on, a phone not signed in can't add
 check(phone.post("/api/import/lemon-add", json={"path": CAMRY},
-                 headers={"Origin": "http://192.168.1.10:8756"}).status_code == 403,
-      "a phone can't add a car")
+                 headers={"Origin": "http://192.168.1.10:8756"}).status_code in (401, 403),
+      "a phone not signed in can't add a car")
+c0.require_signin = False
+c0.save()
 check(pc.post("/api/import/lemon-add", json={"path": ["Ford", "2016"]}, headers=same).status_code == 400,
       "a folder, not a car, is refused")
 check(pc.post("/api/import/lemon-add", json={"path": ["Ford", "2016", "F-150", "Nope"]},
