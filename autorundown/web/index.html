@@ -679,6 +679,11 @@
   /* "Find it at" + the suppliers for this car, a line of their own under the part */
   .plsup{grid-column:2 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; font-size:13px}
   .plsup .btnlink{min-height:32px; padding:4px 10px}
+  /* a manager's cars in their account dialog */
+  .acctcars{list-style:none; margin:8px 0 4px; padding:0; max-height:240px; overflow:auto}
+  .acctcars li{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:4px 0;
+    border-bottom:1px solid var(--line)}
+  .ulevel{display:flex; align-items:center; gap:6px; font-size:14px}
   /* a drawing in the full-page list stays a readable size */
   #plistDlg .pdraw{max-width:900px}
   .plqty{display:flex; align-items:center; gap:4px; font-size:13px; color:var(--muted)}
@@ -1794,6 +1799,12 @@
   <div class="muted" id="acctSpend"></div>
   <div class="meter" id="acctMeter" hidden><i></i></div>
   <div class="muted" id="acctKey" style="margin-top:10px"></div>
+  <div id="acctCars" hidden style="margin-top:14px">
+    <b>Cars you added</b>
+    <div class="muted">A car added by mistake can be taken out again. Only the ones you added are here.</div>
+    <ul id="acctCarList" class="acctcars"></ul>
+    <div class="muted" id="acctCarNote" role="status"></div>
+  </div>
   <div class="row" style="margin-top:16px; justify-content:flex-end">
     <button class="ghost" id="acctSignout">Sign out on this phone</button>
     <button class="ghost" onclick="document.getElementById('acctDlg').close()">Close</button>
@@ -1925,8 +1936,32 @@ $('#acctBtn').onclick = async () => {
       ? `Your API key: about $${k.remaining_usd.toFixed(2)} left of $${k.loaded_usd.toFixed(2)} loaded `
         + `(AutoRundown's estimate from its own log).`
       : `Your API key: $${k.spent_usd.toFixed(2)} spent on it since it was set up.`;
+  $('#acctName').textContent = me.name + (me.manager ? ' · manager' : '');
+  $('#acctCars').hidden = !me.manager;
+  $('#acctCarNote').textContent = '';
+  if (me.manager) loadMyCars().catch(e => { $('#acctCarNote').textContent = e.message; });
   $('#acctDlg').showModal();
 };
+// a manager's own cars (Add a car), each with Remove: GET /api/manager/cars
+async function loadMyCars() {
+  if (!me.manager) return;
+  const d = await api('/api/manager/cars');
+  $('#acctCarList').innerHTML = d.cars.length
+    ? d.cars.map(c => `<li><span>${esc(c.label)} <span class="muted">· added ${esc(c.added.slice(0, 10))}</span></span>`
+        + `<button type="button" class="ghost" data-my-car="${esc(c.doc_id)}" data-label="${esc(c.label)}">Remove</button></li>`).join('')
+    : `<li class="muted">None yet.</li>`;
+}
+$('#acctCarList').addEventListener('click', async e => {
+  const b = e.target.closest('[data-my-car]');
+  if (!b || !confirm(`Remove ${b.dataset.label}? Its manual is taken out of AutoRundown for everyone.`)) return;
+  b.disabled = true;
+  try {
+    await api('/api/manager/cars/remove', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                           body: JSON.stringify({doc_id: b.dataset.myCar})});
+    $('#acctCarNote').textContent = `Removing ${b.dataset.label}: it leaves the car list in a minute.`;
+    b.closest('li').remove();
+  } catch (err) { $('#acctCarNote').textContent = err.message; b.disabled = false; }
+});
 $('#acctSignout').onclick = async () => {
   await api('/api/auth/signout', {method: 'POST'}).catch(() => {});
   location.reload();
@@ -2369,8 +2404,8 @@ function showCarList(items, cat = null) {
   const opt = (e, k) => `<div class="opt${k === 0 ? ' on' : ''}${e.cat ? ' catopt' : ''}" data-k="${k}">`
     + `<div>${esc(e.label)}</div>`
     + (e.cat ? `<div class="sub"><span class="nodl">${e.cat.partial ? 'Partly imported' : 'Not downloaded'}</span>`
-               + (me.admin ? (e.cat.partial ? 'Pick it to finish adding' : 'Pick it to add this car')
-                           : 'The shop PC can add it') + `</div>` : '')
+               + (me.can_add_cars ? (e.cat.partial ? 'Pick it to finish adding' : 'Pick it to add this car')
+                           : 'The shop PC or a manager can add it') + `</div>` : '')
     + (e.sub ? `<div class="sub">${esc(e.sub)}</div>` : '')
     + (e.warn ? `<div class="sub vinwarn">${esc(e.warn)}</div>` : '') + `</div>`;
   list.innerHTML = (items.length ? items.map(opt).join('')
@@ -2692,8 +2727,10 @@ function renderAddCar(state = null) {
     let how, btns;
     if (state.lemon) {
       how = `Open its page on LEMON, click <i>Download .zip for offline use</i>, type <i>human</i> where LEMON `
-          + `asks, press <i>Download manual</i> and save the zip. Saved in ${dl} on the computer running `
-          + `AutoRundown, it is imported as soon as it is there; saved anywhere else, upload it here.`;
+          + `asks, press <i>Download manual</i> and save the zip. `
+          + (me.admin ? `Saved in ${dl} on the computer running AutoRundown, it is imported as soon as it is `
+                        + `there; saved anywhere else, upload it here.`
+                      : `Then press <i>Upload the zip</i> here and pick it.`);
       btns = link(d.links.lemon, 'Open on LEMON') + uploadCtl();
     } else if (d.links.charm && state.charm) {
       how = `LEMON's site isn't answering. Operation CHARM, its backup for 1982–2013, is: its page for `
@@ -2706,7 +2743,7 @@ function renderAddCar(state = null) {
       btns = `<button type="button" data-add-car>Check again</button>` + link(d.links.lemon, 'Try LEMON anyway', 'ghostlink')
            + uploadCtl();
     }
-    body = `<div class="actext">${name} isn't on this PC.<div class="acsub">${how}`
+    body = `<div class="actext">${name} ${me.admin ? "isn't on this PC" : "isn't in AutoRundown yet"}.<div class="acsub">${how}`
       + (state.lemon ? ` The file: ${zip}` : '') + `</div></div>`
       + btns + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
   } else if (state?.kind === 'waiting') {
@@ -2726,12 +2763,14 @@ function renderAddCar(state = null) {
       + `<button type="button" class="ghost" data-add-close>Close</button>`;
   } else {
     body = `<div class="actext">${name}<div class="acsub"><span class="nodl">${r.partial ? 'Partly imported' : 'Not downloaded'}</span>`
-      + (me.admin && r.partial ? 'Its import stopped before the end, so some pages are missing. Add this car '
-                    + 'finishes it from its folder or zip; if neither is here, you download its zip from LEMON again.'
+      + (me.can_add_cars && r.partial ? 'Its import stopped before the end, so some pages are missing. Add this car '
+                    + 'finishes it from its folder or zip; if neither is there, you download its zip from LEMON again.'
          : me.admin ? 'Not on this PC yet. If its LEMON folder or zip is here, it is imported in the background '
                     + 'while you keep working; if not, you download its zip from LEMON in your browser.'
-                  : 'Only the shop PC can add a car.') + `</div></div>`
-      + (me.admin ? `<button type="button" data-add-car>Add this car</button>` : '')
+         : me.can_add_cars ? 'Not in AutoRundown yet. You download its zip from LEMON in your browser and upload '
+                    + 'it here; it is imported in the background while you keep working.'
+                  : 'Only the shop PC or a manager account can add a car.') + `</div></div>`
+      + (me.can_add_cars ? `<button type="button" data-add-car>Add this car</button>` : '')
       + `<button type="button" class="ghost" data-add-close>Cancel</button>`;
   }
   box.innerHTML = body;
@@ -2764,7 +2803,7 @@ let addPendingDownload = null;
 // (a server reached over SSH). The server keeps it only if its folder names
 // this car, then runs the same import as a zip found in its Downloads.
 let addUpload = null;
-const uploadCtl = () => me.admin
+const uploadCtl = () => me.can_add_cars
   ? `<label class="btnlink ghostlink">Upload the zip<input type="file" accept=".zip,application/zip" data-add-upload hidden></label>`
   : '';
 function uploadAddZip(file) {
@@ -2844,6 +2883,7 @@ async function watchAddJob() {
     return renderAddCar({kind: 'error', msg: (j.progress?.error || (j.log || []).slice(-1)[0] || `The import ${j.state}.`)});
   }
   await loadVehicles();
+  if (me.manager) loadMyCars().catch(() => {});
   const v = vehicles.find(x => x.doc_id === doc);
   if (!v) return renderAddCar({kind: 'error', msg: 'The import finished but the manual is not in the list.'});
   applyCar({doc: v.doc_id, variant: null, engine: null, year: null,
@@ -2854,7 +2894,7 @@ async function watchAddJob() {
 document.addEventListener('click', e => {
   if (e.target.closest('[data-add-car]')) { addCatalogueCar(); return; }
   // the site opens in a new tab (the link itself); here: wait for its zip
-  if (e.target.closest('[data-add-open]') && addPendingDownload && !addWait) {
+  if (e.target.closest('[data-add-open]') && addPendingDownload && !addWait && me.admin) {
     const d = addPendingDownload;
     addWait = {since: Date.now(), zip: d.zip_name, downloads: d.downloads, timer: 0};
     renderAddCar({kind: 'waiting'});
@@ -6126,7 +6166,7 @@ async function loadUsers() {
   const perKey = d.key_mode === 'per_mechanic';
   const row = u => `<div class="card usercard" data-id="${u.id}" data-name="${esc(u.name)}" style="padding:10px 12px; margin:0 0 8px">
       <div class="row" style="justify-content:space-between; gap:8px; flex-wrap:wrap">
-        <div style="flex:1; min-width:220px"><b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}
+        <div style="flex:1; min-width:220px"><b>${esc(u.name)}</b>${u.disabled ? ' <span class="chip">disabled</span>' : ''}${u.role === 'manager' ? ' <span class="chip">manager</span>' : ''}
           <div class="muted">This month: ${u.month_questions} question${u.month_questions === 1 ? '' : 's'}, `
           + `<b>${money(u.month_spend_usd)}</b>`
           + (u.monthly_cap_usd != null ? ` of ${money(u.monthly_cap_usd)} limit` : ' (no limit)')
@@ -6136,6 +6176,9 @@ async function loadUsers() {
               : '<span style="color:var(--warn)">no key of their own</span>') : '')
           + `</div>${meterHtml(u.month_spend_usd, u.monthly_cap_usd)}</div>
         <div class="row" style="gap:6px; flex-wrap:wrap">
+          <label class="ulevel">Level <select data-act-level aria-label="${esc(u.name)}’s level">
+            <option value="mechanic"${u.role === 'manager' ? '' : ' selected'}>Mechanic</option>
+            <option value="manager"${u.role === 'manager' ? ' selected' : ''}>Manager</option></select></label>
           ${u.disabled ? '' : `<button type="button" class="ghost" data-act="qr">Sign-in QR</button>`}
           <button type="button" class="ghost" data-act="cap">Limit</button>
           ${u.devices ? `<button type="button" class="ghost" data-act="signout">Sign out devices</button>` : ''}
@@ -6220,6 +6263,20 @@ $('#qrNew').onclick = async () => {
 };
 // the page closed with the dialog open: void it on the way out
 addEventListener('pagehide', () => { if (qr) closeQr(true); });
+// a level change saves at once: Mechanic searches and asks; Manager also
+// adds cars from their own computer (and removes the ones they added)
+$('#usersList').addEventListener('change', async e => {
+  const sel = e.target.closest('select[data-act-level]');
+  if (!sel) return;
+  const card = sel.closest('.usercard');
+  sel.disabled = true;
+  try {
+    await api(`/api/admin/users/${card.dataset.id}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                      body: JSON.stringify({role: sel.value})});
+    $('#usersNote').textContent = `${card.dataset.name} is now a ${sel.value}.`;
+    await loadUsers();
+  } catch (err) { $('#usersNote').textContent = err.message; sel.disabled = false; }
+});
 $('#usersList').onclick = async e => {
   const b = e.target.closest('button[data-act]');
   if (!b || b.disabled) return;

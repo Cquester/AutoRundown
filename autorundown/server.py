@@ -130,8 +130,13 @@ class NewUserBody(BaseModel):
     monthly_cap_usd: Cap | None = None
 
 
+class ManagerCarBody(BaseModel):
+    doc_id: str = Field(max_length=200)
+
+
 class UserUpdateBody(BaseModel):
     disabled: bool | None = None
+    role: str | None = Field(None, max_length=20)     # auth.ROLES
     monthly_cap_usd: Cap | None = None
     clear_cap: bool = False
 
@@ -242,6 +247,13 @@ ICON_TYPES = {".png": "image/png", ".ico": "image/x-icon", ".svg": "image/svg+xm
 # files, settings and API key, and manage accounts
 ADMIN_PREFIXES = ("/api/settings", "/api/browse", "/api/vms", "/api/import",
                   "/api/admin/", "/api/shutdown")
+# ... of which a manager account may use these, exactly (Add a car from their
+# own computer: start it, send the zip, follow the import). The handlers give
+# a manager no path of this PC's. Everything else there stays the PC's.
+MANAGER_ROUTES = {("POST", "/api/import/lemon-add"), ("PUT", "/api/import/lemon-upload"),
+                  ("GET", "/api/import")}
+# a manager's own routes: the cars they added, and taking one back out
+MANAGER_PREFIX = "/api/manager/"
 
 
 # the largest request body accepted; JSON settings, a question or an import
@@ -552,10 +564,14 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             finally:
                 conn.close()
         request.state.who = who or auth.Who()
-        if _is_admin_path(path) and not admin:
+        manager = request.state.who.manager
+        if _is_admin_path(path) and not admin and not (
+                manager and (request.method, path) in MANAGER_ROUTES):
             return JSONResponse(
                 {"detail": "Only available on the PC running AutoRundown."}, 403)
-        if _is_admin_path(path) and _cross_site(request):
+        if path.startswith(MANAGER_PREFIX) and not (admin or manager):
+            return JSONResponse({"detail": "Only a manager account can do that."}, 403)
+        if (_is_admin_path(path) or path.startswith(MANAGER_PREFIX)) and _cross_site(request):
             return JSONResponse({"detail": "Cross-site request refused."}, 403)
         if (path not in PUBLIC_PATHS and not path.startswith(PUBLIC_PREFIXES) and who is None
                 and config.load().require_signin):
@@ -574,6 +590,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "admin": who.admin,
             "signed_in": who.user_id is not None,
             "name": who.label,
+            "manager": who.manager,
+            # Add a car: the PC, or a manager account from any computer
+            "can_add_cars": who.can_add_cars,
             "require_signin": cfg.require_signin,
             "default_model": config.active_model(cfg),
             "provider": config.active_provider(cfg),
@@ -1707,8 +1726,29 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
                               limit: int = Query(6, ge=1, le=20)) -> dict:
         return lemon_catalogue.search(q, app.state.index_path, limit=limit)
 
+    def _added(request: Request, res: dict) -> dict:
+        """An Add a car answer for whoever asked: a manager gets no path of
+        this PC's, and a car they started importing is noted as theirs (they
+        may take it back out)."""
+        who: auth.Who = request.state.who
+        if who.admin:
+            return res
+        if res.get("action") == "import" and who.user_id is not None:
+            aconn = adb()
+            try:
+                auth.note_car_added(aconn, res["doc_id"], who.user_id)
+            finally:
+                aconn.close()
+        out = {k: v for k, v in res.items() if k not in ("folder", "zip", "downloads")}
+        if "job" in out:
+            out["job"] = {"started": (res["job"] or {}).get("started")}
+        return out
+
     @app.post("/api/import/lemon-add")
-    def api_lemon_add(body: LemonPickBody) -> dict:
+    def api_lemon_add(body: LemonPickBody, request: Request) -> dict:
+        return _added(request, _lemon_add(body))
+
+    def _lemon_add(body: LemonPickBody) -> dict:
         """"Add this car" from the car box: the same import job as Shop setup's
         LEMON folder import when the car's folder is on this PC beside the LEMON
         manuals already imported; otherwise its zip, when it is already in
@@ -1755,7 +1795,8 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         Downloads (lemon_zip.upload_target), checked like a zip found there
         (lemon_zip.check) and kept only if its folder names the car picked
         (`path`, a JSON list: make, year, model, variant); then the same
-        import job as "Add this car". Admin only (ADMIN_PREFIXES)."""
+        import job as "Add this car". The PC, or a manager account
+        (MANAGER_ROUTES): a manager's own computer saved the zip."""
         try:
             car = json.loads(path)
         except ValueError:
@@ -1804,7 +1845,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         except BaseException:           # refused, failed or the browser went away
             part.unlink(missing_ok=True)
             raise
-        return _start_lemon_zip(doc, dest)
+        return _added(request, _start_lemon_zip(doc, dest))
 
     @app.post("/api/import/lemon-zip")
     def api_lemon_zip(body: LemonPickBody) -> dict:
@@ -1907,8 +1948,53 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         return importer_jobs.list_snapshots(vm)
 
     @app.get("/api/import")
-    def api_import_status() -> dict:
-        return jobs.status()
+    def api_import_status(request: Request) -> dict:
+        j = jobs.status()
+        if request.state.who.admin:
+            return j
+        # a manager follows their Add a car: how far it is, never the log
+        # (this PC's paths) or another job's details
+        prog = j.get("progress") or {}
+        return {"state": j.get("state"), "elapsed": j.get("elapsed"),
+                "progress": {k: prog.get(k) for k in ("phase", "done", "total", "unit", "error")}}
+
+    # -- a manager's cars: the ones they added, and taking one back out ------
+    @app.get("/api/manager/cars")
+    def manager_cars(request: Request) -> dict:
+        who: auth.Who = request.state.who
+        if who.user_id is None:
+            return {"cars": []}
+        aconn = adb()
+        try:
+            mine = auth.cars_added(aconn, who.user_id)
+        finally:
+            aconn.close()
+        have = {r["doc_id"]: r for g in ("lemon", "folder")
+                for r in importer_jobs.manuals(app.state.index_path)[g]}
+        return {"cars": [{"doc_id": c["doc_id"], "added": c["added"],
+                          "label": have[c["doc_id"]].get("label") or c["doc_id"]}
+                         for c in mine if c["doc_id"] in have]}
+
+    @app.post("/api/manager/cars/remove")
+    def manager_remove_car(body: ManagerCarBody, request: Request) -> dict:
+        who: auth.Who = request.state.who
+        aconn = adb()
+        try:
+            mine = {c["doc_id"] for c in auth.cars_added(aconn, who.user_id)} if who.user_id else set()
+        finally:
+            aconn.close()
+        if body.doc_id not in mine:
+            raise HTTPException(403, "You can remove only a car you added.")
+        try:
+            jobs.start(Path("."), app.state.index_path, "remove", only=[body.doc_id])
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc))
+        aconn = adb()
+        try:
+            auth.forget_car(aconn, body.doc_id)
+        finally:
+            aconn.close()
+        return {"ok": True}
 
     @app.post("/api/import/cancel")
     def api_import_cancel() -> dict:
@@ -2412,9 +2498,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         aconn = adb()
         try:
             auth.update_user(aconn, user_id, disabled=body.disabled,
-                             cap=body.monthly_cap_usd, clear_cap=body.clear_cap)
+                             cap=body.monthly_cap_usd, clear_cap=body.clear_cap, role=body.role)
         except KeyError:
             raise HTTPException(404, "No such user.")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         finally:
             aconn.close()
         return {"ok": True}

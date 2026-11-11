@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS users(
     name      TEXT NOT NULL UNIQUE COLLATE NOCASE,
     created   TEXT NOT NULL,
     disabled  INTEGER NOT NULL DEFAULT 0,
-    monthly_cap_usd REAL            -- NULL = no cap
+    monthly_cap_usd REAL,           -- NULL = no cap
+    role      TEXT NOT NULL DEFAULT 'mechanic'   -- ROLES (2026-11-10)
 );
 CREATE TABLE IF NOT EXISTS tokens(
     hash      TEXT PRIMARY KEY,     -- sha256 of the cookie value
@@ -85,7 +86,22 @@ CREATE TABLE IF NOT EXISTS grants(
     used_at   REAL,                  -- set when a phone signed in with it
     voided    INTEGER NOT NULL DEFAULT 0
 );
+-- cars a manager added (Add a car), so they can take one back out if it was
+-- the wrong one; nothing else they may remove (2026-11-10)
+CREATE TABLE IF NOT EXISTS cars_added(
+    doc_id    TEXT NOT NULL,
+    user_id   INTEGER NOT NULL REFERENCES users(id),
+    added     TEXT NOT NULL,
+    PRIMARY KEY (doc_id, user_id)
+);
 """
+
+# account levels (2026-11-10, the user): a mechanic searches and asks; a
+# manager also adds cars (Add a car, from their own computer) and removes the
+# ones they added. Everything else in Shop setup -- keys, accounts, AI, the
+# Mercedes VM -- stays with the owner: the PC itself (or the server's own
+# SSH tunnel), never an account
+ROLES = ("mechanic", "manager")
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
 
@@ -95,6 +111,11 @@ class Who:
     admin: bool = False
     user_id: int | None = None
     name: str = ""
+    manager: bool = False
+
+    @property
+    def can_add_cars(self) -> bool:
+        return self.admin or self.manager
 
     @property
     def label(self) -> str:
@@ -119,6 +140,9 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
                 os.chmod(path, 0o600)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='users'").fetchone() and not any(
+            r[1] == "role" for r in conn.execute("PRAGMA table_info(users)")):
+        conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'mechanic'")
     conn.executescript(SCHEMA)
     # codes from before sign-in QRs: at most 15 minutes old, now unusable
     # (phones already signed in keep their tokens)
@@ -215,9 +239,13 @@ def add_user(conn: sqlite3.Connection, name: str, cap: float | None = None) -> i
 
 def update_user(conn: sqlite3.Connection, user_id: int, *,
                 disabled: bool | None = None, cap: float | None = None,
-                clear_cap: bool = False) -> None:
+                clear_cap: bool = False, role: str | None = None) -> None:
     if conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone() is None:
         raise KeyError(user_id)
+    if role is not None:
+        if role not in ROLES:
+            raise ValueError(f"A level is one of: {', '.join(ROLES)}.")
+        conn.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
     if disabled is not None:
         conn.execute("UPDATE users SET disabled=? WHERE id=?", (int(disabled), user_id))
         if disabled:  # sign out every device at once
@@ -359,7 +387,7 @@ def user_for_token(conn: sqlite3.Connection, token: str | None) -> Who | None:
     # unused for TOKEN_DAYS = ended, whatever its stored expiry (tokens made
     # before 2026-10-29 were given a year)
     row = conn.execute(
-        """SELECT u.id, u.name, t.last_used FROM tokens t JOIN users u ON u.id=t.user_id
+        """SELECT u.id, u.name, u.role, t.last_used FROM tokens t JOIN users u ON u.id=t.user_id
            WHERE t.hash=? AND t.expires>? AND COALESCE(t.last_used, t.created)>?
              AND u.disabled=0""",
         (_h(token), now, now - TOKEN_DAYS * 86400)).fetchone()
@@ -369,7 +397,23 @@ def user_for_token(conn: sqlite3.Connection, token: str | None) -> Who | None:
         conn.execute("UPDATE tokens SET last_used=?, expires=? WHERE hash=?",
                      (now, now + TOKEN_DAYS * 86400, _h(token)))
         conn.commit()
-    return Who(admin=False, user_id=row["id"], name=row["name"])
+    return Who(admin=False, user_id=row["id"], name=row["name"], manager=row["role"] == "manager")
+
+
+def note_car_added(conn: sqlite3.Connection, doc_id: str, user_id: int) -> None:
+    conn.execute("INSERT OR REPLACE INTO cars_added(doc_id, user_id, added) VALUES (?,?,?)",
+                 (doc_id, user_id, _now_iso()))
+    conn.commit()
+
+
+def cars_added(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        "SELECT doc_id, added FROM cars_added WHERE user_id=? ORDER BY added DESC", (user_id,))]
+
+
+def forget_car(conn: sqlite3.Connection, doc_id: str) -> None:
+    conn.execute("DELETE FROM cars_added WHERE doc_id=?", (doc_id,))
+    conn.commit()
 
 
 def revoke_token(conn: sqlite3.Connection, token: str | None) -> None:

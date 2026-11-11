@@ -286,8 +286,22 @@ so nothing costs money unless you add one.
 **The PC running AutoRundown is the admin.** Shop setup -- the API key,
 imports, removing manuals and mechanics' accounts -- is only available in a
 browser *on that PC* (`http://localhost:8756`). Phones and other computers
-can search and ask, nothing else -- they never see Shop setup, and the server
-refuses those requests from them.
+can search and ask -- they never see Shop setup, and the server refuses
+those requests from them. The one exception is **Add a car** for a
+*manager* account (below).
+
+**Two account levels** (Shop setup → *Phones & mechanics* → *Level* on
+each account, saved as soon as you pick it):
+
+| Level | Can |
+|---|---|
+| **Mechanic** | search, AI chat, the parts list, send a car to the desk |
+| **Manager** | all of that, plus **Add a car** from their own computer: pick a car the box marks *Not downloaded*, download its zip from LEMON in that browser, **Upload the zip**; the import runs on the server. Their account (tap their name) lists the cars they added, each with **Remove** for one added by mistake |
+| *Owner* | the PC itself (or a headless server through its SSH tunnel): everything, keys and accounts included. Never an account |
+
+A lost manager phone can add cars until you **Disable** it; it can't see
+or change keys, accounts or spending. Changing a level takes effect at
+once, no new sign-in.
 
 **Mechanics sign in** (on unless you turn it off: Shop setup → *Phones &
 mechanics* → *Require each mechanic to sign in*):
@@ -341,7 +355,12 @@ ask (on your API key), as before. Either way, also keep customers off that
 network: put the PC on the staff network, not the guest wifi (most routers
 isolate guest-wifi devices from everything else).
 
-### HTTPS on the shop network
+### HTTPS on the shop network (from source only)
+
+The installed app runs on plain HTTP: HTTPS needs every phone to install
+a certificate, which the shop decided against (2026-11-10). On plain HTTP
+the AI chat's microphone works on the PC but not on phones. Running from
+source, you can still have it:
 
 ```bash
 python serve.py --https
