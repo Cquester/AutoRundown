@@ -183,6 +183,7 @@ python tests/test_vm_jobs.py                      # VM import WIS/EPC/Both + pro
 python tests/test_extraction_ledger.py            # a re-run pulls/builds/imports only what is new (~2 s)
 python tests/test_suppliers.py                    # parts suppliers: built-in list, by make, Shop setup's checks (<2 s)
 python tests/test_handoff.py                      # phone -> desk cars: who sees what (~2 s)
+python tests/test_manager.py                      # account levels: a manager adds/removes their cars, nothing else of the PC's (~10 s)
 python tests/test_history.py                      # question history: answers kept whole, who sees what (~2 s)
 python tests/test_chat.py                         # AI chat follow-ups vs the fake API, who may follow up (~5 s)
 python tests/test_chat_ui.py [--index <db>]       # AI chat reads top to bottom, earlier replies reshow, no AI in Keyword search, voice (~20 s, Playwright)
@@ -303,7 +304,7 @@ autorundown/
   providers.py     the AI providers (Anthropic SDK; Gemini, xAI, DeepSeek over HTTPS),
                    their models, prices, schemas and errors
   server.py        FastAPI local server; admin-only routes, hardening
-  auth.py          the PC is admin; sign-in QRs (grants), tokens, caps
+  auth.py          the PC is admin; account levels (mechanic, manager); sign-in QRs (grants), tokens, caps
   handoff.py       cars a phone sends to the desk (auth.db `handoffs`)
   qr.py            QR codes as inline SVG (segno, pure Python)
   tls.py           local CA for --https
@@ -651,6 +652,21 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   index gets `vin9_bm` at runtime from `vin2fin.json`. (`vehicle-selection.md`)
 - **Admin = loopback peer AND loopback Host**; no reverse proxy on the same
   PC; no handler built from manual text. (`shop-network.md`)
+- **Account levels: Mechanic, Manager; the owner is the PC** (2026-11-10,
+  the user: a server with no screen made adding a car from another
+  computer hard). A manager may use exactly `server.MANAGER_ROUTES` (Add a
+  car: lemon-add, lemon-upload, the job's status -- no log, no path of the
+  PC's) and `/api/manager/` (the cars *they* added, `auth.db cars_added`,
+  and removing one of those). Keys, accounts, settings, other imports and
+  the VM stay the PC's. Never widen a manager by prefix.
+  `tests/test_manager.py`. The owner from another computer is an SSH
+  tunnel only (the user: "Lets just say ssh"): no Owner account level, no
+  trusting a PC by its address. (`shop-network.md`)
+- **The shop network stays on plain HTTP** (2026-11-10, the user: not
+  pursued because every phone must install the certificate). The
+  installed app never starts with HTTPS; `serve.py --https` and `tls.py`
+  stay for anyone running from source. Phones' mic (AI chat) needs HTTPS
+  and stays off there; copying part numbers has its own fallback.
 - **Which API key pays is decided only in `config.pick_key`** (company key,
   or the signed-in mechanic's own in "A key per mechanic" mode, for the
   active AI provider). A mechanic with no key is refused -- never a fallback
@@ -879,10 +895,10 @@ leaves them on old PRs' `refs/pull/*`). Commits now use
 review (`main reviews` ruleset, admin bypass); the checks still must pass.
 With `gh`: `gh pr merge N --merge --admin`.
 
-**Reminders the user asked for**: try shop access + HTTPS on an iPhone and an
-Android phone in the morning (2026-10-30); run "Add a car" in the installed
-app; re-run the VM extractor from the repo copy on the new site (they will
-do that tomorrow).
+**Reminders the user asked for**: try shop access on an iPhone and an
+Android phone (HTTPS is dropped, 2026-11-10); run "Add a car" in the
+installed app. The VM extractor ran from the repo copy on the new site
+(2026-11-10, the user: "Extraction works on the new site").
 
 Still open, in rough order of value:
 
@@ -903,8 +919,8 @@ Still open, in rough order of value:
 2. **Install.** `serve.py` on a taken port now says so; the README's quick
    start builds the index where `serve.py` looks. Not seen on a clean
    machine.
-3. **Shop access + HTTPS not yet tried on the user's phones** (see the
-   reminder above). Sign-in is on by default now, so a phone must be signed
+3. **Shop access not yet tried on the user's phones** (see the
+   reminder above; HTTPS is not pursued). Sign-in is on by default now, so a phone must be signed
    in with a QR.
 4. **Older figure numbers ("P01-5220-13") and the RTF hotspot junk: both
    fixed in `parse_sids.py`, neither in the corpus.** To land:

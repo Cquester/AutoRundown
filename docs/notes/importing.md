@@ -398,7 +398,9 @@ card under it, `offerCatalogueCar(r, '#lemAddBox')`).
   headless Ubuntu server reached over SSH: the browser that saves the zip
   is on another machine, so the server's Downloads never sees it). Every
   download card (and the waiting card) has an *Upload the zip* file
-  picker, admin only like the rest of Add a car. The browser `PUT`s the
+  picker, for the PC and, since 2026-11-10, a *manager* account
+  (`shop-network.md`, "Account levels"; a manager's card never waits for
+  the server's Downloads, and its answers name no path). The browser `PUT`s the
   file to `/api/import/lemon-upload?path=<JSON make, year, model,
   variant>` with a progress bar and Cancel. The server: the car must be in
   the catalogue, no import running, `Content-Length` given and at most

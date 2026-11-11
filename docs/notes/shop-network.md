@@ -18,6 +18,41 @@ uvicorn runs with `proxy_headers=False` so `X-Forwarded-For` can never make a
 request look local -- **do not put a reverse proxy on the same PC** in front
 of it; every request would then come from loopback.
 
+**Account levels (2026-11-10, the user: a server with no screen of its
+own -- the Ubuntu box -- made adding a car from another computer hard; an
+SSH tunnel for each car was too much).** `users.role` is `mechanic`
+(default; added to an older auth.db at connect) or `manager`
+(`auth.ROLES`); the owner is still the PC, never an account. Only the PC
+sets a level (`POST /api/admin/users/{id}` `role`), and it applies to the
+next request (`user_for_token` reads it each time). A manager may use
+exactly `server.MANAGER_ROUTES` -- `POST /api/import/lemon-add`, `PUT
+/api/import/lemon-upload`, `GET /api/import` -- matched by method and
+whole path, never a prefix, plus `/api/manager/`: `GET cars` (the cars
+they added and still in the index, `auth.db cars_added`, noted when their
+Add a car starts an import) and `POST cars/remove` (one of those only;
+the same `remove` job as Shop setup). `_added` strips every path of the
+PC's from their answers (`folder`, `zip`, `downloads`, the job's
+details), and their job status is state, elapsed and progress only, no
+log. The cross-site check covers their routes as it does the admin's.
+Their Add a car card never waits for the zip in the server's Downloads
+(their browser saved it on their computer): Upload the zip. Tests:
+`tests/test_manager.py`.
+
+**The owner from another computer is SSH, nothing else** (2026-11-10, the
+user: "Lets just say ssh, i dont know how many people will be using it").
+Considered and not built: an "Owner" account level (a copied cookie, read
+off the plain-HTTP Wi-Fi, would give keys, spend and accounts) and trusting
+a PC by its LAN address (changes, and is easy to fake). On a headless
+server the owner is `ssh -L 8756:localhost:8756 you@server` +
+`http://localhost:8756`: the tunnel's requests reach uvicorn from loopback
+with a loopback Host, so `is_admin_request` holds with no change. The
+README's Linux section says so, with first setup (API key, a Manager
+account for yourself) done over the tunnel and everyday use without it.
+
+**HTTPS is not pursued** (2026-11-10, the user: every phone would have to
+install the certificate). The installed app starts on HTTP; the section
+on `serve.py --https` below stays true for a source install.
+
 **Mechanic accounts can be turned off** (`Config.require_signin`; on by
 default since 2026-10-29 -- off let any device on the shop's Wi-Fi spend the
 company key; a `config.json` that says `false` keeps it, and `dev.py` keeps

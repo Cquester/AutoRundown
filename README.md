@@ -183,14 +183,33 @@ enable-linger` command to run. Run it as the user who will own the app,
 not as root. `--check` only says what is missing; after a `git pull`, run
 it again.
 
-- **Shop setup (admin) is for this computer only.** From your own
-  computer, open an SSH tunnel and use `http://localhost:8756`. You are
-  the admin there:
-  `ssh -L 8756:localhost:8756 you@server`
+- **The owner (Shop setup) is reached over SSH, and only over SSH.** There
+  is no owner password and no owner account: the app treats a browser that
+  comes in through the server itself as the owner. From your own computer
+  (SSH is built into Windows 10 and 11, macOS and Linux):
+
+  ```bash
+  ssh -L 8756:localhost:8756 you@server
+  ```
+
+  Sign in with your Ubuntu password, keep that window open, and open
+  `http://localhost:8756` in a browser on the same computer: you have all of
+  Shop setup. Closing the SSH window ends it. If your computer runs
+  AutoRundown too (so 8756 is taken), use another local port:
+  `ssh -L 9756:localhost:8756 you@server` and `http://localhost:9756`.
+  The install script prints the command with your user and server name.
+- **First setup, then everyday use without SSH.** Over SSH, add your API key
+  (Shop setup → *AI answers*), then an account for yourself in *Phones &
+  mechanics* with the **Manager** level (and one per mechanic). On the
+  computer or phone you use every day, open `http://<server address>:8756`
+  and sign in with that account's QR or code. A manager searches, asks and
+  adds cars without SSH; open the SSH window again only for owner jobs --
+  keys, accounts, settings, removing other manuals, the Mercedes VM.
 - **Phones** use the server's address on the shop network, as on Windows.
-  If a firewall is on, run `sudo ufw allow 8756/tcp`.
-- **Add a car**: your browser saves LEMON's zip on your own computer, and
-  **Upload the zip** sends it to the server.
+  If a firewall is on, run `sudo ufw allow 8756/tcp`. Sign-in is on by
+  default, so each phone needs its account's QR first.
+- **Add a car** (the PC over SSH, or a manager): your browser saves LEMON's
+  zip on your own computer, and **Upload the zip** sends it to the server.
 - **The Mercedes VM import** works on Linux too. The VM's `.vbox` file
   must live on the server, and you need two packages:
   `sudo apt install virtualbox openjdk-8-jre-headless`. Java 8 to 14
@@ -286,8 +305,22 @@ so nothing costs money unless you add one.
 **The PC running AutoRundown is the admin.** Shop setup -- the API key,
 imports, removing manuals and mechanics' accounts -- is only available in a
 browser *on that PC* (`http://localhost:8756`). Phones and other computers
-can search and ask, nothing else -- they never see Shop setup, and the server
-refuses those requests from them.
+can search and ask -- they never see Shop setup, and the server refuses
+those requests from them. The one exception is **Add a car** for a
+*manager* account (below).
+
+**Two account levels** (Shop setup → *Phones & mechanics* → *Level* on
+each account, saved as soon as you pick it):
+
+| Level | Can |
+|---|---|
+| **Mechanic** | search, AI chat, the parts list, send a car to the desk |
+| **Manager** | all of that, plus **Add a car** from their own computer: pick a car the box marks *Not downloaded*, download its zip from LEMON in that browser, **Upload the zip**; the import runs on the server. Their account (tap their name) lists the cars they added, each with **Remove** for one added by mistake |
+| *Owner* | the PC itself (or a headless server through its SSH tunnel): everything, keys and accounts included. Never an account |
+
+A lost manager phone can add cars until you **Disable** it; it can't see
+or change keys, accounts or spending. Changing a level takes effect at
+once, no new sign-in.
 
 **Mechanics sign in** (on unless you turn it off: Shop setup → *Phones &
 mechanics* → *Require each mechanic to sign in*):
@@ -341,7 +374,12 @@ ask (on your API key), as before. Either way, also keep customers off that
 network: put the PC on the staff network, not the guest wifi (most routers
 isolate guest-wifi devices from everything else).
 
-### HTTPS on the shop network
+### HTTPS on the shop network (from source only)
+
+The installed app runs on plain HTTP: HTTPS needs every phone to install
+a certificate, which the shop decided against (2026-11-10). On plain HTTP
+the AI chat's microphone works on the PC but not on phones. Running from
+source, you can still have it:
 
 ```bash
 python serve.py --https
