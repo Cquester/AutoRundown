@@ -564,6 +564,11 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             finally:
                 conn.close()
         request.state.who = who or auth.Who()
+        # sign-in off: the shop chose an open site, so every device may add
+        # cars like a manager (the user, 2026-11-10: "if they aren't going to
+        # secure the site"). Keys, accounts and settings stay the PC's
+        if not admin and not request.state.who.manager and not config.load().require_signin:
+            request.state.who.manager = True
         manager = request.state.who.manager
         if _is_admin_path(path) and not admin and not (
                 manager and (request.method, path) in MANAGER_ROUTES):
@@ -591,6 +596,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
             "signed_in": who.user_id is not None,
             "name": who.label,
             "manager": who.manager,
+            # sign-in off and this device not signed in: its cars are shared
+            # with every other such device
+            "shared_cars": who.manager and who.user_id is None and not who.admin,
             # Add a car: the PC, or a manager account from any computer
             "can_add_cars": who.can_add_cars,
             "require_signin": cfg.require_signin,
@@ -1733,10 +1741,10 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         who: auth.Who = request.state.who
         if who.admin:
             return res
-        if res.get("action") == "import" and who.user_id is not None:
+        if res.get("action") == "import":
             aconn = adb()
             try:
-                auth.note_car_added(aconn, res["doc_id"], who.user_id)
+                auth.note_car_added(aconn, res["doc_id"], auth.adder_id(who))
             finally:
                 aconn.close()
         out = {k: v for k, v in res.items() if k not in ("folder", "zip", "downloads")}
@@ -1962,11 +1970,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/manager/cars")
     def manager_cars(request: Request) -> dict:
         who: auth.Who = request.state.who
-        if who.user_id is None:
-            return {"cars": []}
         aconn = adb()
         try:
-            mine = auth.cars_added(aconn, who.user_id)
+            mine = auth.cars_added(aconn, auth.adder_id(who))
         finally:
             aconn.close()
         have = {r["doc_id"]: r for g in ("lemon", "folder")
@@ -1980,7 +1986,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         who: auth.Who = request.state.who
         aconn = adb()
         try:
-            mine = {c["doc_id"] for c in auth.cars_added(aconn, who.user_id)} if who.user_id else set()
+            mine = {c["doc_id"] for c in auth.cars_added(aconn, auth.adder_id(who))}
         finally:
             aconn.close()
         if body.doc_id not in mine:

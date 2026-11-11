@@ -658,7 +658,10 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   car: lemon-add, lemon-upload, the job's status -- no log, no path of the
   PC's) and `/api/manager/` (the cars *they* added, `auth.db cars_added`,
   and removing one of those). Keys, accounts, settings, other imports and
-  the VM stay the PC's. Never widen a manager by prefix.
+  the VM stay the PC's. Never widen a manager by prefix. **With sign-in
+  off every device is a manager** (the user, 2026-11-10: "if they aren't
+  going to secure the site"); its cars go on one shared list
+  (`auth.ANYONE`) any such device may remove from.
   `tests/test_manager.py`. The owner from another computer is an SSH
   tunnel only (the user: "Lets just say ssh"): no Owner account level, no
   trusting a PC by its address. (`shop-network.md`)

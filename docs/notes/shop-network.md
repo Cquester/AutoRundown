@@ -38,6 +38,18 @@ Their Add a car card never waits for the zip in the server's Downloads
 (their browser saved it on their computer): Upload the zip. Tests:
 `tests/test_manager.py`.
 
+**Sign-in off = every device is a manager** (2026-11-10, the user: "if
+they aren't going to secure the site then no login appears for the user"
+-- with sign-in off a device is never asked to sign in, so it could not
+become a manager). `who_is_asking` sets `who.manager` for every non-admin
+request while `require_signin` is false, signed in or not. Cars added by a
+device not signed in are noted under `auth.ANYONE` (0): one list, shared
+by every such device, like "Send to desk" with sign-in off; `/api/me`
+says `shared_cars` and the page shows a **Cars added** button for it. The
+risk taken: any device on the Wi-Fi can upload (up to 20 GB) and remove
+what such devices added; nothing more. Turning sign-in on ends it at the
+next request. `tests/test_manager.py` ("sign-in off").
+
 **The owner from another computer is SSH, nothing else** (2026-11-10, the
 user: "Lets just say ssh, i dont know how many people will be using it").
 Considered and not built: an "Owner" account level (a copied cookie, read
