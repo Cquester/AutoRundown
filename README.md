@@ -322,6 +322,13 @@ A lost manager phone can add cars until you **Disable** it; it can't see
 or change keys, accounts or spending. Changing a level takes effect at
 once, no new sign-in.
 
+**With sign-in off, every device is a manager**: any computer or phone on
+the shop network can add a car, with no account. Its **Cars added** button
+lists the cars added that way -- one list shared by every device that
+isn't signed in, so any of them can remove one. Keys, accounts and
+settings still stay with the PC. Turn sign-in on to limit adding cars to
+the accounts you make managers.
+
 **Mechanics sign in** (on unless you turn it off: Shop setup → *Phones &
 mechanics* → *Require each mechanic to sign in*):
 

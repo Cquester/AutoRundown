@@ -193,6 +193,50 @@ check(not boss.get("/api/me").json()["can_add_cars"]
       and boss.post("/api/import/lemon-add", json={"path": CAMRY}, headers=lan).status_code == 403,
       "  ... her next request can't add a car (no new sign-in needed)")
 
+
+def wait_done(c: TestClient) -> dict:
+    for _ in range(600):
+        st = c.get("/api/import").json()
+        if st["state"] != "running":
+            return st
+        time.sleep(0.05)
+    return st
+
+
+print("sign-in off: every device adds cars (the user, 2026-11-10)")
+check(pc.post("/api/settings", json={"require_signin": False}, headers=same).status_code == 200,
+      "the PC turns sign-in off")
+laptop = TestClient(APP, base_url=LAN, client=("192.168.1.60", 50000))
+phone = TestClient(APP, base_url=LAN, client=("192.168.1.61", 50000))
+lm = laptop.get("/api/me").json()
+check(lm["can_add_cars"] and lm["shared_cars"] and not lm["signed_in"] and not lm["admin"],
+      "a device not signed in may add cars, on the shared list")
+check(mech.get("/api/me").json()["can_add_cars"], "so may a signed-in mechanic")
+for method, path, body in [("get", "/api/settings", None), ("post", "/api/admin/users", {"name": "X"}),
+                           ("post", "/api/import", {"path": ".", "mode": "remove", "vehicles": ["x"]}),
+                           ("get", "/api/vms", None)]:
+    r = getattr(laptop, method)(path, **({"json": body, "headers": lan} if method == "post" else {}))
+    check(r.status_code == 403, f"  ... but {method.upper()} {path} stays the PC's ({r.status_code})")
+r = laptop.put(UP, params=q, content=ZIP, headers=zipped)
+check(r.status_code == 200 and r.json()["action"] == "import" and "zip" not in r.json(),
+      f"the laptop uploads the Camry's zip: {r.status_code}")
+st = wait_done(laptop)
+check(st["state"] == "done" and "log" not in st, "  ... imported; no log for it")
+shared = phone.get("/api/manager/cars").json()["cars"]
+check([x["doc_id"] for x in shared] == [DOC], "another device not signed in sees it on the shared list")
+check(mech.get("/api/manager/cars").json()["cars"] == [], "  ... a signed-in mechanic's own list doesn't have it")
+check(phone.post("/api/manager/cars/remove", json={"doc_id": DOC}, headers=lan).status_code == 200,
+      "  ... and that other device can remove it")
+wait_done(pc)
+with sqlite3.connect(db) as con:
+    check(con.execute("SELECT 1 FROM vehicles WHERE doc_id=?", (DOC,)).fetchone() is None, "  ... gone")
+
+check(pc.post("/api/settings", json={"require_signin": True}, headers=same).status_code == 200,
+      "sign-in on again")
+check(laptop.post("/api/import/lemon-add", json={"path": CAMRY}, headers=lan).status_code in (401, 403),
+      "  ... a device not signed in can't add a car (it must sign in)")
+check(not mech.get("/api/me").json()["can_add_cars"], "  ... and a mechanic is a mechanic again")
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'all passed' if not fails else f'{fails} FAILED'}")
 sys.exit(1 if fails else 0)
