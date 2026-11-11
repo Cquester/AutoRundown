@@ -86,7 +86,7 @@ jobs:
                    tests/test_rebuild_wis.py tests/test_wis_tables.py tests/test_parts_diagrams.py \
                    tests/test_synonyms.py tests/test_job_numbers.py tests/test_charm.py tests/test_lemon_zip.py \
                    tests/test_parts_fit.py tests/test_load.py tests/test_lemon_tables.py tests/test_parse_sids.py \
-                   tests/test_validity.py tests/test_linux_server.py; do
+                   tests/test_validity.py tests/test_linux_server.py tests/test_tailnet.py; do
             echo "::group::$t"
             start=$SECONDS
             python "$t" || { echo "::error::$t failed"; rc=1; }

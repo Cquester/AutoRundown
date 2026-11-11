@@ -39,7 +39,8 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from . import search as search_mod
-from . import auth, config, handoff, history, index, numbers, providers, qr, query, suppliers, tls
+from . import auth, config, handoff, history, index, numbers, providers, qr, query, suppliers, tailnet, tls
+from starlette.concurrency import run_in_threadpool
 from . import (autostart, html_original, importer_jobs, lemon_catalogue, lemon_tables, lemon_zip, manual_browse,
                native_dialog,
                part_procedures, parts_browse, synonyms, tab_values, validity, wis_links,
@@ -506,6 +507,9 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
     _apply_shown(config.load())
     throttle = auth.Throttle()
     app.state.mdns_name = ""          # serve() sets it once announced
+    # this PC's Tailscale name, if it is on a tailnet (tailnet.py); asked in
+    # the background so a missing or slow Tailscale never delays starting
+    threading.Thread(target=tailnet.names, daemon=True, name="tailnet").start()
     app.state.shutdown = lambda: None   # make_server() wires the real one
 
     # tables, indexes and new columns are brought up to date here, before the
@@ -550,9 +554,15 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         addr = request.client.host if request.client else ""
         # a name that isn't this PC's means DNS rebinding: a web page whose own
         # name now resolves here, able to search and ask on this PC's key
-        names = host_names | ({app.state.mdns_name.lower()} if app.state.mdns_name else set())
+        names = (host_names | tailnet.known()
+                 | ({app.state.mdns_name.lower()} if app.state.mdns_name else set()))
         if not auth.host_allowed(request.headers.get("host", ""), names):
-            return JSONResponse({"detail": "Unknown host name."}, 421)
+            # this PC's Tailscale name, asked from Tailscale (started after
+            # the app, or renamed): never a pattern -- tailnet.py
+            asked = auth.host_name(request.headers.get("host", ""))
+            if not asked.endswith(tailnet.SUFFIX) or asked not in await run_in_threadpool(
+                    tailnet.names, asked):
+                return JSONResponse({"detail": "Unknown host name."}, 421)
         admin = auth.is_admin_request(addr, request.headers.get("host", ""))
         if request.method not in ("GET", "HEAD", "OPTIONS") and not _origin_ok(request):
             return JSONResponse({"detail": "Cross-site request refused."}, 403)
@@ -2527,6 +2537,7 @@ def create_app(index_path: str, auth_path: str | Path | None = None) -> FastAPI:
         scheme = "https" if app.state.https else "http"
         _, ips = tls.local_names()
         hosts = [app.state.mdns_name] if app.state.mdns_name else []
+        hosts += sorted(n for n in tailnet.known() if n.endswith(tailnet.SUFFIX))
         hosts += [ip for ip in ips if ":" not in ip and not ip.startswith("127.")]
         return [f"{scheme}://{h}:{app.state.port}" for h in hosts]
 

@@ -26,7 +26,7 @@ broke:
 |---|---|
 | the WIS extractor, `importers/records.py`, WIS page rendering, images, "Original layout", `wis_links.py` (cross-refs, diagrams, oil, labour) | [`docs/notes/wis-source.md`](docs/notes/wis-source.md) |
 | the car box, Browse, Variant menu, VIN (check digit, Scan VIN, `web/vendor/`), years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
-| `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
+| `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk), `tailnet.py` (Tailscale name) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import, the CHARM download (`charm.py`, `charm_fetch.py`, `charm_download.py`) | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/` (Windows MSI, the Linux server script), the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | GitHub settings: rulesets, Actions, secret scanning, `tools/github_setup.py`, `SECURITY.md`, `CODEOWNERS`, `dependabot.yml`, what the release job does | [`docs/notes/github-repo.md`](docs/notes/github-repo.md) |
@@ -206,6 +206,7 @@ python tests/test_parse_sids.py                   # RTF stubs: hotspots are neit
 python tests/test_lemon_tables.py                 # LEMON cars' Labour times and Parts tabs from their own tables (<1 s)
 python tests/test_validity.py                     # WIS Validity lines: a wagon gets no sedan-only page, and back (<1 s)
 python tests/test_linux_server.py                 # Linux server: Mercedes folder, Nashorn Java for the VM pull, systemd unit (<1 s)
+python tests/test_tailnet.py                      # this PC's Tailscale name accepted, no other .ts.net name (~2 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 python tools/make_icons.py                        # the app's icons (web/icons/), drawn from code
 
@@ -665,6 +666,14 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   `tests/test_manager.py`. The owner from another computer is an SSH
   tunnel only (the user: "Lets just say ssh"): no Owner account level, no
   trusting a PC by its address. (`shop-network.md`)
+- **Tailscale: the PC's own tailnet name, asked from Tailscale, never a
+  pattern** (2026-11-11, the user: the PC now, the Ubuntu server later).
+  `tailnet.py` reads `tailscale status --json` (`Self.DNSName`) in the
+  background at start, and again at most once a minute when an unknown
+  `.ts.net` name arrives; "anything under .ts.net" would let another
+  tailnet's same-named machine through the rebinding check. A tailnet device
+  is never admin (100.x peer). Never `tailscale serve` / Funnel in front of
+  the app (a same-machine proxy). `tests/test_tailnet.py`. (`shop-network.md`)
 - **The shop network stays on plain HTTP** (2026-11-10, the user: not
   pursued because every phone must install the certificate). The
   installed app never starts with HTTPS; `serve.py --https` and `tls.py`
