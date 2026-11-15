@@ -96,6 +96,41 @@ def _tray_image():
     return img
 
 
+STOP_GRACE = 20.0       # seconds from "stop" to a forced exit
+
+
+def exit_watch(srv, server_thread: threading.Thread, grace: float = STOP_GRACE,
+               exit_fn=os._exit, poll: float = 0.5, log=None) -> None:
+    """Once a stop is asked (Stop in the tray, /api/shutdown, the installer's
+    --stop) or the server ends by itself, the process must be gone within
+    `grace` seconds. An upgrade left the old process behind -- server
+    stopped, its tray icon still showing, never "stopped" in the log -- each
+    time (2026-11-15); a plain stop on this PC exits at once, so the cause
+    was never seen. Halfway, uvicorn is told to stop waiting for open
+    requests; at the end every thread's stack goes to the log (what was
+    stuck, for next time) and the process exits. `log`: sys.stdout (the
+    log file in the background) unless given."""
+    log = log or sys.stdout
+    while not srv.should_exit and server_thread.is_alive():
+        time.sleep(poll)
+    deadline = time.monotonic() + grace
+    server_thread.join(grace / 2)
+    if server_thread.is_alive():
+        print("server did not stop in time: closing its open requests", file=log, flush=True)
+        srv.force_exit = True
+    while time.monotonic() < deadline:
+        time.sleep(poll)            # main returns from here on a normal stop: process gone
+    import faulthandler
+    print(f"\nstill running {grace:.0f} s after stop -- every thread, then exiting:",
+          file=log, flush=True)
+    try:
+        faulthandler.dump_traceback(file=log, all_threads=True)
+    except (OSError, ValueError, AttributeError):
+        pass
+    print("forced exit", file=log, flush=True)
+    exit_fn(0)
+
+
 def run_background(srv, url: str, open_browser: bool) -> int:
     from . import autostart, server
 
@@ -148,6 +183,7 @@ def run_background(srv, url: str, open_browser: bool) -> int:
         threading.Thread(target=_open_when_up, args=(url, srv.config.port), daemon=True).start()
     t = threading.Thread(target=serve, name="server")
     t.start()
+    threading.Thread(target=exit_watch, args=(srv, t), name="exit-watch", daemon=True).start()
     if tray:
         try:
             tray.run()                 # until Stop, or the server ends

@@ -210,6 +210,7 @@ python tests/test_validity.py                     # WIS Validity lines: a wagon 
 python tests/test_linux_server.py                 # Linux server: Mercedes folder, Nashorn Java for the VM pull, systemd unit (<1 s)
 python tests/test_tailnet.py                      # this PC's Tailscale name accepted, no other .ts.net name (~2 s)
 python tests/test_mcp_server.py                   # MCP server: GET-only allow-list, no paths, every tool over stdio (~15 s)
+python tests/test_launcher.py                     # background launcher: always exits after a stop, stacks logged if forced (~20 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 python tools/make_icons.py                        # the app's icons (web/icons/), drawn from code
 
