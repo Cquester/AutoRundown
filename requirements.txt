@@ -1,7 +1,7 @@
 # 2.1 is the version tested (it sends the key as a Bearer token and API version
 # 2026-10-21; the request body is the same as 1.x's). The next major is untested:
 # a new major broke CI on 2026-10-21 by changing the request headers.
-anthropic>=2.1,<3
+anthropic>=2.3.0,<3
 lxml>=5.0
 fastapi>=0.110
 uvicorn[standard]>=0.27
