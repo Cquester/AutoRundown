@@ -15,6 +15,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl iptables sudo procps nodejs \
+        libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # the app and its test tools; requirements first so code changes keep this layer
