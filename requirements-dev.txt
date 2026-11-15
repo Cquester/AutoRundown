@@ -6,3 +6,7 @@ playwright>=1.64.1
 # Matrix, QR) to read back; pystrich is pure Python, Apache-2.0
 Pillow>=12.3
 pystrich==0.20
+# mcp_server.py (Claude on this PC looks things up in the running app) and
+# tests/test_mcp_server.py; 2.x renamed FastMCP to MCPServer and uses
+# snake_case fields, so the next major is untested
+mcp>=2.3,<3

@@ -45,6 +45,7 @@ serve.py ingest.py ask.py rebuild_wis.py remove_manuals.py charm_download.py unz
                     remove_manuals / charm_download / unzip_lemon / corpus_stamp as
                     child processes by path, so they stay at the root
 dev.py              throwaway instance with sample data (.dev/, port 8757)
+mcp_server.py       read-only MCP server (stdio) for Claude on this PC; asks the running app
 eval.py eval_wis.py retrieval checks against the real index (free)
 tests/              free test suites, `python tests/test_<name>.py`
                     (tests/_paths.py puts the root and tools/ on sys.path)
@@ -157,6 +158,7 @@ python extractor/vm_pipeline.py --status --out-root <dir>  # what has been extra
 python charm_download.py --make "Mercedes Benz" --year 1987 --car "<CHARM name>" --torrent <operation-charm.torrent> --plan
                                                   # one car from CHARM's swarm: --plan sizes it; without it downloads (never seeds)
 python dev.py                                     # FREE, throwaway instance, :8757
+claude mcp add autorundown -- python mcp_server.py   # FREE, Claude looks things up in the running app (needs `pip install mcp`)
 python dev.py --fake-api                          # FREE, Ask answered by tools/fake_anthropic.py (all 4 providers)
 python dev.py --fake-vm                           # FREE, Mercedes VM tab runs tools/fake_extractor
 python eval.py                                    # FREE retrieval check (F-150)
@@ -207,6 +209,7 @@ python tests/test_lemon_tables.py                 # LEMON cars' Labour times and
 python tests/test_validity.py                     # WIS Validity lines: a wagon gets no sedan-only page, and back (<1 s)
 python tests/test_linux_server.py                 # Linux server: Mercedes folder, Nashorn Java for the VM pull, systemd unit (<1 s)
 python tests/test_tailnet.py                      # this PC's Tailscale name accepted, no other .ts.net name (~2 s)
+python tests/test_mcp_server.py                   # MCP server: GET-only allow-list, no paths, every tool over stdio (~15 s)
 python tools/check_js.py                          # index.html's JS parses (needs node)
 python tools/make_icons.py                        # the app's icons (web/icons/), drawn from code
 
@@ -726,6 +729,14 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   `.torrent` is the one file from charm.li. A car's text is ~200 MB, its
   images ~9 GB (spread through their group). Data from the swarm is
   untrusted: every offset is checked (`charm.BadData`). (`importing.md`)
+- **The MCP server is read-only, loopback-only, and never Ask** (2026-11-15,
+  the user: "only on this computer for now"; from outside it would be a
+  connector, later). `mcp_server.py` asks the running app's routes, so
+  it gets the same filtering; it does not read the index itself. A loopback
+  request is admin, so it sends GET only, to `ALLOWED`. Never add a POST,
+  `/api/ask` or an admin route there. `_verify_citations` doesn't run on
+  Claude's own answers; `INSTRUCTIONS` carry the rules. Not in the MSI
+  (`mcp` is a dev requirement). `tests/test_mcp_server.py`.
 - **Embeddable Python, not a frozen exe; not a Windows service.**
   (`windows-installer.md`)
 
