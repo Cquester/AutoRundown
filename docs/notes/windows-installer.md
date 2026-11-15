@@ -115,6 +115,20 @@ macOS/Linux run from source (README), by the user's decision.
   is already running it only opens the browser; `--stop` POSTs
   `/api/shutdown` (localhost only). A failed start in the background shows a
   message box, since there is no console.
+- **A stopped launcher always exits** (2026-11-15). Each upgrade had left
+  the old process behind: its server stopped by `StopRunning`'s `--stop`,
+  its tray icon still showing, no "stopped" in the log -- three icons in the
+  tray after the 0.1.15 reinstall, only one serving. A plain `--stop` on
+  this PC exits at once, also with a copy whose files are deleted mid-stop
+  and with idle, half-sent or empty connections held open, so the cause was
+  never seen (the old processes' stacks couldn't be read). `launcher.exit_watch`
+  now gives the process `STOP_GRACE` (20 s) from any stop -- or from the
+  server ending by itself -- then tells uvicorn to drop open requests at
+  half time, and at the end writes every thread's stack to the log
+  ("still running … every thread") and exits. **If that appears in the
+  log, it shows what was stuck.** The fix reaches the upgrade *after* the
+  one that installs it: `StopRunning` stops the old version's code.
+  `tests/test_launcher.py`.
 - **The wizard asks** (`AutoRundownUI` in the .wxs, WiX UI extension):
   Welcome -> Options ("Start AutoRundown when I sign in", property
   `AUTOSTART`) -> Ready -> Finish with "Launch AutoRundown" ticked. No
