@@ -3,11 +3,14 @@
     python tests/test_mcp_server.py
 
 1. Against a recording fake app: every tool sends GET only, to the
-   allow-list; the app being down or saying 404 comes back as words; a
-   non-loopback AUTORUNDOWN_URL is refused.
-2. End to end: the real serve.py on a sample WIS index at a free port, and
-   an MCP client starting mcp_server.py over stdio, as Claude does. No
-   tool result carries a folder of this PC's (file_path).
+   allow-list; an id can't reach another route ("../settings"); a search
+   hit's bucket is never handed back as a car; a VIN gives its exact
+   Baumuster's engine; the app being down or saying 404 comes back as
+   words; a non-loopback AUTORUNDOWN_URL is refused.
+2. End to end: the real serve.py on sample WIS + LEMON data at a free port,
+   and an MCP client starting mcp_server.py over stdio as Claude does
+   (without PYTHONUTF8, as Claude Desktop starts it). No tool result
+   carries a folder of this PC's (file_path).
 Needs `pip install mcp` (requirements-dev.txt).
 """
 from __future__ import annotations
@@ -43,11 +46,24 @@ seen: list[tuple[str, str]] = []
 # a US VIN with its right check digit, and the same with a wrong one
 GOOD = next(v for d in "0123456789X" if m.vin_check_ok(v := f"WDBJF65J{d}YB000000"))
 BAD = GOOD[:8] + ("1" if GOOD[8] != "1" else "2") + GOOD[9:]
-VEH = [{"doc_id": "car-1", "make": "Mercedes-Benz", "model": "W210 E-Class",
-        "year_range": "1995-2003", "model_code": "210", "doc_type": "manual",
-        "file_path": "C:\\secret\\wis", "variants": json.dumps([
-            {"name": "E 320 Sedan", "engines": ["112.941"], "baumuster": ["210.065"],
-             "vin9": [GOOD[:9]]}])}]
+VEH = [
+    {"doc_id": "car-1", "make": "Mercedes-Benz", "model": "W210 E-Class",
+     "year_range": "1995-2003", "model_code": "210", "doc_type": "manual",
+     "general_doc_id": "pool-210", "file_path": "C:\\secret\\wis", "variants": json.dumps([
+         {"name": "E 320 Sedan", "engines": ["104.995", "112.941"],
+          "baumuster": ["210.055", "210.065"],
+          "engine_by_bm": {"210.055": ["104.995"], "210.065": ["112.941"]},
+          "vin9": [GOOD[:9]], "vin9_bm": {GOOD[:9]: "210.065"}}])},
+    {"doc_id": "pool-210", "make": "Mercedes-Benz", "model": "No model stated (en)",
+     "year_range": "", "doc_type": "manual", "variants": "[]"},
+    {"doc_id": "car-2", "make": "Mercedes-Benz", "model": "W201 190", "year_range": "1982-1993",
+     "model_code": "201", "doc_type": "manual", "variants": json.dumps([
+         {"name": "190 E", "engines": ["102.962"], "baumuster": ["201.112"]}])},
+    {"doc_id": "f150", "make": "Ford", "model": "F-150", "year_range": "2015",
+     "doc_type": "manual", "variants": "[]"},
+    {"doc_id": "g", "make": "Mercedes-Benz", "model": "W447 V-Class", "year_range": "2014+",
+     "doc_type": "manual", "variants": "[]"},
+]
 
 
 class Fake(BaseHTTPRequestHandler):
@@ -61,8 +77,12 @@ class Fake(BaseHTTPRequestHandler):
             body, code = {"detail": "page not found"}, 404
         elif path == "/api/vehicles":
             body, code = VEH, 200
-        elif path.startswith("/api/search") or path.startswith("/api/history") and path == "/api/history":
-            body, code = [{"page_no": "1", "title": "T", "file_path": "C:\\x"}], 200
+        elif path == "/api/search" or path == "/api/history":
+            body, code = [{"page_no": "1", "doc_id": "pool-210", "title": "T", "file_path": "C:\\x"},
+                          {"page_no": "2", "doc_id": "car-1", "title": "U"}], 200
+        elif path.startswith("/api/page/"):
+            body, code = {"page_no": "1", "title": "T", "text": "See [[ref:12::Brake pads]] first.",
+                          "file_path": "C:\\x"}, 200
         else:
             body, code = {"ok": True, "file_path": "C:\\x"}, 200
         raw = json.dumps(body).encode()
@@ -103,25 +123,65 @@ check("non-ASCII query sent encoded", any("Drehmoment" in p and "%C2%B0" in p fo
       f"{[p for _, p in seen if 'Drehmoment' in p]}")
 check("fluids without a variant asks for one", "note" in m.fluids(c, "car-1"))
 
-r = m.find_vehicle(c, "WDB2100651A000000")
-check("FIN -> Baumuster's variant", r.get("cars") and r["cars"][0]["variants"][0]["variant"] == 0, f"{r}")
+hits = m.search_manual(c, "car-1", "x")
+check("a hit's bucket is filed_under, never a doc_id",
+      all("doc_id" not in h for h in hits) and hits[0].get("filed_under") == "pool-210"
+      and "filed_under" not in hits[1], f"{hits}")
+check("LEMON link marks become their label",
+      m.read_page(c, "car-1", "1")["text"] == "See Brake pads first.")
+
+n = len(seen)
+for bad in ("../settings", "..", ".", "", "x/../../api/settings", "a%2F..", "a\\b", "a?b=1", "a#b"):
+    for fn, args in ((m.read_page, ("car-1", bad)), (m.read_page, (bad, "1")),
+                     (m.job_values, (bad, "torque", ["1"])), (m.history_entry, (bad,))):
+        try:
+            fn(c, *args)
+            check(f"{fn.__name__} refuses id {bad!r}", False)
+        except m.AppError:
+            pass
+check("no tricky id reached the app", len(seen) == n, f"{seen[n:]}")
+try:
+    c.get("/api/settings")
+    check("a route off the list is refused", False)
+except m.AppError:
+    check("a route off the list is refused", True)
+
+
+def found(q: str) -> list[str]:
+    return [x["doc_id"] for x in m.find_vehicle(c, q)["cars"]]
+
+
+check("the general pool is never a car", "pool-210" not in found("") + found("no model stated"))
+check("'E320' finds 'E 320'", found("E320") == ["car-1"], f"{found('E320')}")
+check("'F150' finds 'F-150'", found("F150") == ["f150"], f"{found('F150')}")
+check("a single-year manual: 2015 yes, 2014 no", found("2015 F-150") == ["f150"]
+      and not found("2014 F-150"))
+check("'2014+' runs on", found("2020 V-Class") == ["g"], f"{found('2020 V-Class')}")
+check("an engine 'M112' is the engine, not Baumuster 201.112", found("M112") == ["car-1"],
+      f"{found('M112')}")
+check("year outside the range finds nothing", not found("2010 W210"))
+
+r = m.find_vehicle(c, GOOD)
+v = (r.get("cars") or [{}])[0].get("variants", [{}])[0]
+check("VIN -> its Baumuster's engine only", v.get("baumuster") == ["210.065"]
+      and v.get("engine") == "112", f"{r}")
+check("VIN -> market us", r["cars"][0].get("market") == "us", f"{r}")
+r = m.find_vehicle(c, "WDB2100551A000000")
+v = (r.get("cars") or [{}])[0].get("variants", [{}])[0]
+check("FIN -> its Baumuster's engine, market row", v.get("engine") == "104"
+      and r["cars"][0].get("market") == "row", f"{r}")
 check("VIN with I/O/Q refused", "error" in m.find_vehicle(c, "WDBJF65JOYB000000"))
 check("VIN with a bad check digit not decoded", "error" in m.find_vehicle(c, BAD))
-r = m.find_vehicle(c, GOOD)
-check("VIN prefix -> its variant", r.get("cars") and r["cars"][0]["variants"][0]["name"] == "E 320 Sedan", f"{r}")
-check("year outside the range finds nothing", not m.find_vehicle(c, "2010 W210")["cars"])
+check("a whole variant with no VIN: all its engines",
+      m.find_vehicle(c, "W210")["cars"][0]["variants"][0]["engine"] == "104,112")
 
 try:
     m.read_page(c, "car-1", "999")
     check("404 comes back as words", False)
 except m.AppError as e:
     check("404 comes back as words", "page not found" in str(e), str(e))
-try:
-    c.get("/api/settings")
-    check("a route off the list is refused", False)
-except m.AppError:
-    check("a route off the list is refused", True)
-for bad in ("http://192.168.1.5:8756", "http://example.com", "file:///etc/passwd"):
+for bad in ("http://192.168.1.5:8756", "http://example.com", "file:///etc/passwd",
+            "http://127.0.0.1.example.com:8756"):
     try:
         m.check_url(bad)
         check(f"refuses {bad}", False)
@@ -140,11 +200,13 @@ TMP = Path(tempfile.mkdtemp(prefix="ar_mcp_"))
 env = {**os.environ, "PYTHONUTF8": "1", "AUTORUNDOWN_HOME": str(TMP / "home")}
 for k in [k for k in env if k.endswith(("_API_KEY", "_BASE_URL"))]:
     env.pop(k)
-corpus, db = ROOT / "sample_corpus", TMP / "index.db"     # the script writes it there (gitignored)
-subprocess.run([sys.executable, "tools/make_sample_corpus.py"],
-               cwd=ROOT, env=env, check=True, capture_output=True)
-subprocess.run([sys.executable, "ingest.py", "--archive", str(corpus), "--index", str(db)],
-               cwd=ROOT, env=env, check=True, capture_output=True)
+corpus, lemon, db = ROOT / "sample_corpus", TMP / "lemon", TMP / "index.db"
+for cmd in (["tools/make_sample_corpus.py"],          # writes sample_corpus/ (gitignored)
+            ["tools/make_sample_lemon.py", "--out", str(lemon)],
+            ["ingest.py", "--archive", str(corpus), "--index", str(db)],
+            ["ingest.py", "--archive", str(lemon), "--index", str(db), "--importer", "lemon",
+             "--only", "2015-ford-f-150"]):
+    subprocess.run([sys.executable, *cmd], cwd=ROOT, env=env, check=True, capture_output=True)
 with socket.socket() as s:
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -158,8 +220,10 @@ async def drive() -> None:
     from mcp.client.session import ClientSession
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
+    # as Claude Desktop starts it: no PYTHONUTF8
+    child = {k: v for k, v in env.items() if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
     params = StdioServerParameters(command=sys.executable, args=[str(ROOT / "mcp_server.py")],
-                                   env={**env, "AUTORUNDOWN_URL": url})
+                                   env={**child, "AUTORUNDOWN_URL": url})
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             init = await session.initialize()
@@ -179,18 +243,43 @@ async def drive() -> None:
 
             cars = (await call("find_vehicle", query="W210"))["cars"]
             check("find_vehicle finds the W210", bool(cars), f"{cars}")
-            doc = cars[0]["doc_id"]
-            hits = await call("search_manual", doc_id=doc, query="engine oil", variant=0)
+            doc, var = cars[0]["doc_id"], cars[0]["variants"][0]
+            hits = await call("search_manual", doc_id=doc, query="engine oil",
+                              variant=var["variant"], engine=var["engine"])
             check("search_manual gives hits", bool(hits), f"{hits}")
             page = await call("read_page", doc_id=doc, page_no=hits[0]["page_no"])
             check("read_page gives the text", len(page.get("text", "")) > 20, f"{page}")
             vals = await call("job_values", doc_id=doc, kind="torque",
-                              pages=[hits[0]["page_no"]], variant=0)
-            check("job_values is a list", isinstance(vals, list), f"{vals}")
-            lab = await call("labour_times", doc_id=doc, variant=0)
+                              pages=[hits[0]["page_no"]], variant=var["variant"])
+            check("job_values gives the job's torques",
+                  bool(vals) and all("Nm" in x["value"] for x in vals), f"{vals}")
+            # a page kept in the series' general pool opens through the car
+            tq = await call("search_manual", doc_id=doc, query="torque", tab="torque",
+                            variant=var["variant"])
+            pool = next((h for h in tq if h.get("filed_under")), None)
+            check("a general-pool hit is marked filed_under", pool is not None, f"{tq}")
+            if pool:
+                pg = await call("read_page", doc_id=doc, page_no=pool["page_no"])
+                check("...and opens with the car's doc_id", "text" in pg and "error" not in pg, f"{pg}")
+            deg = await call("search_manual", doc_id=doc, query="Ölwanne 90° Drehmoment")
+            check("a non-ASCII query is no error", isinstance(deg, list), f"{deg}")
+            lab = await call("labour_times", doc_id=doc, variant=var["variant"])
             check("labour_times browses the book", "groups" in lab or "books" in lab, f"{lab}")
             gone = await call("read_page", doc_id=doc, page_no="99999999")
             check("a missing page is an error, not a crash", "error" in gone, f"{gone}")
+            for bad in ("../settings", "..%2Fsettings"):
+                r = await call("read_page", doc_id=bad, page_no="1")
+                check(f"id {bad!r} refused end to end", "not a valid id" in r.get("error", ""), f"{r}")
+            # a LEMON car
+            f150 = (await call("find_vehicle", query="F150 2015"))["cars"]
+            check("F150 finds the LEMON F-150", len(f150) == 1, f"{f150}")
+            if f150:
+                lh = await call("search_manual", doc_id=f150[0]["doc_id"], query="brake caliper")
+                check("LEMON search gives hits", bool(lh), f"{lh}")
+                if lh:
+                    lp = await call("read_page", doc_id=f150[0]["doc_id"], page_no=lh[0]["page_no"])
+                    check("LEMON page text, no [[ref marks",
+                          bool(lp.get("text")) and "[[ref:" not in lp["text"], f"{lp}")
 
 
 try:

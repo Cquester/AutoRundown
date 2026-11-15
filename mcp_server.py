@@ -39,9 +39,12 @@ INSTRUCTIONS = """\
 AutoRundown is this shop's own repair-manual library (Mercedes WIS/EPC,
 LEMON manuals, folders). Every tool is free and read-only.
 
-How to use it: find_vehicle first (it gives doc_id and the variant index);
-then search_manual / read_page / job_values / fluids / labour_times with that
-doc_id and, when known, the variant -- values differ per engine and model.
+How to use it: find_vehicle first. It gives the car's doc_id and, per
+variant, its index (`variant`) and `engine` value; a VIN also gives
+`market`. Pass those as given to every other tool: the doc_id is always the
+car's from find_vehicle, never a search hit's `filed_under` (that is only
+where the page is kept; the car's doc_id still opens it). Values differ per
+engine and model, so pick the variant whenever you know it.
 
 Rules, the same ones the app's own answers follow:
 - Answer only from pages these tools returned, and cite each value's page
@@ -71,6 +74,16 @@ def _allowed(path: str) -> bool:
     return any(path == a or path.startswith(a + "/") for a in ALLOWED)
 
 
+def _segment(x: Any) -> str:
+    """One path segment from a tool argument (a doc_id, a page number): never
+    a separator or a dot segment, so it can't reach another route."""
+    t = str(x)
+    if not t or t in (".", "..") or len(t) > 200 or any(c in t for c in "/\\?#%") \
+            or any(ord(c) < 32 for c in t):
+        raise AppError(f"not a valid id: {t!r}")
+    return urllib.parse.quote(t, safe="")
+
+
 def _strip_paths(x: Any) -> Any:
     """No folder of this PC's in a result."""
     if isinstance(x, dict):
@@ -85,13 +98,17 @@ class AppClient:
         self.base = check_url(base_url)
         self.timeout = timeout
 
-    def get(self, route: str, **params: Any) -> Any:
-        if not _allowed(route):
+    def get(self, route: str, *segments: Any, **params: Any) -> Any:
+        """GET `route` (one of ALLOWED) + `segments`, each checked and quoted."""
+        if route not in ALLOWED:
             raise AppError(f"not a route this server may use: {route}")
+        path = "/".join([route] + [_segment(x) for x in segments])
+        if not _allowed(path):
+            raise AppError(f"not a route this server may use: {path}")
         q = [(k, str(v).lower() if isinstance(v, bool) else str(v))
              for k, vals in params.items() if vals is not None
              for v in (vals if isinstance(vals, (list, tuple)) else [vals])]
-        url = self.base + urllib.parse.quote(route) + ("?" + urllib.parse.urlencode(q) if q else "")
+        url = self.base + path + ("?" + urllib.parse.urlencode(q) if q else "")
         req = urllib.request.Request(url, method="GET", headers={"Accept": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
@@ -131,95 +148,163 @@ def _variants(v: dict) -> list[dict]:
         return []
 
 
-def _car(v: dict, only: list[int] | None = None, note: str = "") -> dict:
+def _families(y: dict, bms: list[str] | None = None) -> str:
+    """The `engine` value the other tools take: engine families, as the
+    page's engineSel sends ("112", "272,276"). With `bms`, only those
+    Baumuster's engines (engine_by_bm, the page's famsOf): a variant's
+    Baumuster can have different engines (E 320: 210.055 M104, 210.065 M112)."""
+    if bms:
+        engines = [e for b in bms for e in (y.get("engine_by_bm") or {}).get(b) or []]
+    else:
+        engines = y.get("engines") or []
+    return ",".join(sorted({str(e)[:3] for e in engines if str(e)[:3].isdigit()}))
+
+
+def _car(v: dict, only: dict[int, list[str] | None] | None = None, note: str = "",
+         market: str | None = None) -> dict:
+    """A car as the tools take it. `only`: variant index -> the Baumuster a
+    VIN names (None: all of the variant's)."""
     vs = _variants(v)
-    idx = only if only is not None else range(len(vs))
+    picks = only if only is not None else {n: None for n in range(len(vs))}
+    variants = []
+    for n, bms in picks.items():
+        y = vs[n]
+        row = {"variant": n, "name": y.get("name"), "engines": y.get("engines") or [],
+               "baumuster": bms or y.get("baumuster") or []}
+        fam = _families(y, bms)
+        if fam:
+            row["engine"] = fam
+        variants.append(row)
     out = {"doc_id": v["doc_id"], "make": v.get("make"), "model": v.get("model"),
            "years": v.get("year_range"), "source": v.get("source_name"),
-           "pages": v.get("indexed_pages"),
-           "variants": [{"variant": n, "name": vs[n].get("name"),
-                         "engines": vs[n].get("engines") or [],
-                         "baumuster": vs[n].get("baumuster") or []} for n in idx]}
+           "pages": v.get("indexed_pages"), "variants": variants}
+    if market:
+        out["market"] = market
     if note:
         out["note"] = note
     return out
 
 
+def _cars(client: AppClient) -> list[dict]:
+    rows = client.get("/api/vehicles")
+    # a series' "No model stated" pool is searched through every car of it,
+    # never picked as a car (the page lists no such row either)
+    pools = {v.get("general_doc_id") for v in rows if v.get("general_doc_id")}
+    return [v for v in rows if v["doc_id"] not in pools and not v.get("joined_into")]
+
+
 def _by_vin(cars: list[dict], vin: str) -> dict:
     if any(c in vin for c in "IOQ"):
         return {"error": "A VIN never has I, O or Q -- re-check it (1 / 0?)."}
-    # a Mercedes FIN: WDB 210065 1A...: positions 4-9 are the Baumuster
-    if vin[:2] == "WD" and vin[3:9].isdigit():
+    # a Mercedes FIN (WDB 210065 1A...): positions 4-9 are the Baumuster;
+    # a FIN is a car for the rest of the world (market "row")
+    if vin[0] == "W" and vin[3:9].isdigit():
         bm = f"{vin[3:6]}.{vin[6:9]}"
         for v in cars:
-            hits = [n for n, y in enumerate(_variants(v)) if bm in (y.get("baumuster") or [])]
+            hits = {n: [bm] for n, y in enumerate(_variants(v)) if bm in (y.get("baumuster") or [])}
             if hits:
-                return {"cars": [_car(v, hits, f"Baumuster {bm} from the FIN")]}
+                return {"cars": [_car(v, hits, f"Baumuster {bm} from the FIN", "row")]}
         return {"cars": [], "note": f"No car in the library has Baumuster {bm}."}
+    # a US VIN: only with the right check digit -- one-character typos name
+    # other real cars with other engines (vehicle-selection.md)
     if not vin_check_ok(vin):
         return {"error": "The VIN's check digit doesn't match -- re-check it, "
                          "or search by model name and year."}
     vin9 = vin[:9]
     for v in cars:
-        hits = [n for n, y in enumerate(_variants(v)) if vin9 in (y.get("vin9") or [])]
+        hits = {}
+        for n, y in enumerate(_variants(v)):
+            if vin9 in (y.get("vin9") or []):
+                bm = (y.get("vin9_bm") or {}).get(vin9)
+                hits[n] = [bm] if bm else None
         if hits:
-            return {"cars": [_car(v, hits, f"VIN prefix {vin9}")]}
+            return {"cars": [_car(v, hits, f"Mercedes' VIN table: {vin9}", "us")]}
     return {"cars": [], "note": "That VIN isn't in the library's VIN tables -- "
                                 "search by model name and year."}
 
 
+def _years(year_range: str) -> tuple[int, int] | None:
+    m = re.match(r"\s*(\d{4})(?:\s*(?:-|to)\s*(\d{4})|(\+))?", year_range or "")
+    if not m:
+        return None
+    first = int(m[1])
+    return first, int(m[2]) if m[2] else (9999 if m[3] else first)
+
+
+def _has(word: str, text: str, families: set[str] = frozenset()) -> bool:
+    """`word` in `text`; an engine typed "M112" / "OM613" matches a variant
+    with that engine family only (never "201.112", a Baumuster)."""
+    m = re.fullmatch(r"o?m(\d{3})", word)
+    return word in text or bool(m and m[1] in families)
+
+
+def _squash(t: str) -> str:
+    """"E 320", "E320", "e-320" alike; "F-150" = "F150"."""
+    return re.sub(r"[\s\-_./]+", "", t.lower())
+
+
 def find_vehicle(client: AppClient, query: str) -> dict:
-    cars = [v for v in client.get("/api/vehicles") if v.get("doc_type") != "parts"
-            or not v.get("joined_into")]
+    cars = _cars(client)
     q = query.strip()
-    compact = re.sub(r"\s+", "", q).upper()
-    if len(compact) == 17 and compact.isalnum():
+    compact = re.sub(r"[\s\-]+", "", q).upper()
+    if len(compact) == 17 and compact.isalnum() and any(c.isdigit() for c in compact):
         return _by_vin(cars, compact)
     years = {int(y) for y in re.findall(r"\b(19[5-9]\d|20[0-4]\d)\b", q)}
-    words = [w.lower() for w in re.findall(r"[\w.\-]+", re.sub(r"\b(19|20)\d\d\b", " ", q))]
+    rest = re.sub(r"\b(19[5-9]\d|20[0-4]\d)\b", " ", q)
+    words = [_squash(w) for w in re.findall(r"[^\s,]+", rest)]
+    words = [w for w in words if w]
     out = []
     for v in cars:
         if years:
-            m = re.match(r"(\d{4})\D+(\d{4})", v.get("year_range") or "")
-            if m and not any(int(m[1]) <= y <= int(m[2]) for y in years):
+            span = _years(v.get("year_range") or "")
+            if span and not any(span[0] <= y <= span[1] for y in years):
                 continue
-        head = " ".join(str(v.get(k) or "") for k in ("make", "model", "model_code", "doc_id")).lower()
+        head = _squash(" ".join(str(v.get(k) or "") for k in ("make", "model", "model_code", "doc_id")))
+        if all(_has(w, head) for w in words):
+            out.append(_car(v))
+            continue
         vs = _variants(v)
-        if not words:
-            out.append(_car(v))
-            continue
-        if all(w in head for w in words):
-            out.append(_car(v))
-            continue
-        hits = [n for n, y in enumerate(vs)
-                if all(w in head + " " + " ".join([y.get("name") or ""] + (y.get("baumuster") or [])
-                                                  + (y.get("engines") or [])).lower() for w in words)]
+        hits = {n: None for n, y in enumerate(vs)
+                if all(_has(w, head + _squash(" ".join([y.get("name") or ""] + (y.get("baumuster") or [])
+                                                    + (y.get("engines") or []))),
+                            {str(e)[:3] for e in y.get("engines") or []}) for w in words)}
         if hits:
             out.append(_car(v, hits))
-    note = "" if out else "No car matches -- try fewer words (e.g. the model code 'W210', or 'E 320')."
     res: dict = {"cars": out[:MAX_CARS]}
-    if len(out) > MAX_CARS:
-        note = f"{len(out)} cars match; the first {MAX_CARS} shown -- add a year or model."
-    if note:
-        res["note"] = note
+    if not out:
+        res["note"] = "No car matches -- try fewer words (e.g. the model code 'W210', or 'E 320')."
+    elif len(out) > MAX_CARS:
+        res["note"] = f"{len(out)} cars match; the first {MAX_CARS} shown -- add a year or model."
     return res
 
 
 # --- the rest: one route each --------------------------------------------------
 
 def search_manual(client: AppClient, doc_id: str, query: str, variant: int | None = None,
-                  engine: str | None = None, tab: str = "workshop", limit: int = 10) -> list[dict]:
+                  engine: str | None = None, tab: str = "workshop", limit: int = 10,
+                  market: str | None = None) -> list[dict]:
     rows = client.get("/api/search", doc_id=doc_id, q=query, variant=variant, engine=engine,
-                      tab=tab, limit=max(1, min(limit, 30)))
-    keep = ("page_no", "doc_id", "title", "section_path", "applicability", "snippet",
+                      tab=tab, limit=max(1, min(limit, 30)), market=market)
+    keep = ("page_no", "title", "section_path", "applicability",
             "lines", "rows", "number", "outside", "query")
-    return [{k: r[k] for k in keep if r.get(k) not in (None, "", [])} for r in rows]
+    out = []
+    for r in rows:
+        hit = {k: r[k] for k in keep if r.get(k) not in (None, "", [])}
+        # the bucket a page is filed in (the general pool, an engine, the
+        # parts catalogue) is not a car: every tool takes the car's own
+        # doc_id, so it is never handed back as one
+        if r.get("doc_id") and r["doc_id"] != doc_id:
+            hit["filed_under"] = r["doc_id"]
+        out.append(hit)
+    return out
 
 
 def read_page(client: AppClient, doc_id: str, page_no: str) -> dict:
-    p = client.get(f"/api/page/{doc_id}/{page_no}")
-    text = p.get("text") or ""
-    out = {k: p[k] for k in ("doc_id", "page_no", "title", "section_path", "applicability",
+    p = client.get("/api/page", doc_id, page_no)
+    # a LEMON page's "[[ref:N::label]]" markers: the label, as Ask strips
+    # them (query.strip_link_marks); the pages are in `links`
+    text = re.sub(r"\[\[ref:\d+::([^\]]*)\]\]", r"\1", p.get("text") or "")
+    out = {k: p[k] for k in ("page_no", "title", "section_path", "applicability",
                              "outside_scope", "doc_info", "links", "xrefs", "diagram")
            if p.get(k) not in (None, "", [], False)}
     out["text"] = text[:MAX_TEXT] + ("\n[... page cut short]" if len(text) > MAX_TEXT else "")
@@ -230,13 +315,13 @@ def read_page(client: AppClient, doc_id: str, page_no: str) -> dict:
 
 def manual_contents(client: AppClient, doc_id: str, variant: int | None = None,
                     engine: str | None = None, path: list[str] | None = None) -> dict:
-    return client.get(f"/api/manual/contents/{doc_id}", variant=variant, engine=engine,
+    return client.get("/api/manual/contents", doc_id, variant=variant, engine=engine,
                       path=path or [])
 
 
 def job_values(client: AppClient, doc_id: str, kind: str, pages: list[str],
                variant: int | None = None, engine: str | None = None) -> list[dict]:
-    return client.get(f"/api/values/{doc_id}", kind=kind, pages=pages,
+    return client.get("/api/values", doc_id, kind=kind, pages=pages,
                       variant=variant, engine=engine)
 
 
@@ -245,13 +330,13 @@ def fluids(client: AppClient, doc_id: str, variant: int | None = None,
     if variant is None and not engine:
         return {"note": "Pick a variant (find_vehicle) or engine first -- a series' engines "
                         "take different amounts."}
-    out = {"fluids": client.get(f"/api/fluids/{doc_id}", variant=variant, engine=engine)}
+    out = {"fluids": client.get("/api/fluids", doc_id, variant=variant, engine=engine)}
     try:
-        out["engine_oil"] = client.get(f"/api/wis/oil/{doc_id}", variant=variant, engine=engine)
+        out["engine_oil"] = client.get("/api/wis/oil", doc_id, variant=variant, engine=engine)
     except AppError:
         pass   # not a WIS car
     if not out["fluids"]:
-        out["capacity_pages"] = client.get(f"/api/fluids/{doc_id}/pages",
+        out["capacity_pages"] = client.get("/api/fluids", doc_id, "pages",
                                            variant=variant, engine=engine)
     return out
 
@@ -259,18 +344,18 @@ def fluids(client: AppClient, doc_id: str, variant: int | None = None,
 def labour_times(client: AppClient, doc_id: str, variant: int | None = None,
                  engine: str | None = None, query: str = "", book: str | None = None,
                  group: str | None = None) -> dict:
-    return client.get(f"/api/wis/labour/{doc_id}", variant=variant, engine=engine, q=query,
+    return client.get("/api/wis/labour", doc_id, variant=variant, engine=engine, q=query,
                       book=book, browse=not query, group=group)
 
 
 def service_schedule(client: AppClient, doc_id: str, variant: int | None = None,
                      engine: str | None = None) -> dict:
-    return client.get(f"/api/wis/service/{doc_id}", variant=variant, engine=engine)
+    return client.get("/api/wis/service", doc_id, variant=variant, engine=engine)
 
 
 def bulletins(client: AppClient, doc_id: str, variant: int | None = None,
               engine: str | None = None) -> list[dict]:
-    return client.get(f"/api/wis/bulletins/{doc_id}", variant=variant, engine=engine)
+    return client.get("/api/wis/bulletins", doc_id, variant=variant, engine=engine)
 
 
 def history(client: AppClient, limit: int = 20) -> list[dict]:
@@ -278,7 +363,11 @@ def history(client: AppClient, limit: int = 20) -> list[dict]:
 
 
 def history_entry(client: AppClient, entry_id: int) -> dict:
-    return client.get(f"/api/history/{int(entry_id)}")
+    try:
+        entry_id = int(entry_id)
+    except (TypeError, ValueError):
+        raise AppError(f"not a history id: {entry_id!r}") from None
+    return client.get("/api/history", entry_id)
 
 
 # --- MCP wiring -------------------------------------------------------------------
@@ -311,13 +400,16 @@ def build_server(client: AppClient):
 
     find_vehicle.__doc__ = (
         "Find a car in the library by model, model code, variant, engine, year, VIN or FIN "
-        "(e.g. '2001 E 320', 'W210', 'M112', 'F-150 2015'). Returns doc_id and each "
-        "variant's index, engines and Baumuster: pass doc_id and variant to the other tools.")
+        "(e.g. '2001 E 320', 'W210', 'M112', 'F-150 2015'). Returns the car's doc_id and, "
+        "per variant, its index (`variant`), engines, Baumuster and the `engine` value; a "
+        "VIN also gives `market`. Pass doc_id, variant, engine and market as given to the "
+        "other tools.")
     search_manual.__doc__ = (
         "Keyword search in one car's manuals (the app's own search, filtered to the car). "
         "tab: 'workshop' (manual pages), 'parts' (parts catalogue lines), 'torque' or "
         "'capacity' (pages printing such values, with those lines). Use the manual's words; "
-        "shop words are translated too. Returns page_no + title per hit.")
+        "shop words are translated too. doc_id, variant, engine, market: from find_vehicle. "
+        "Returns page_no + title per hit; open a hit with read_page(the car's doc_id, page_no).")
     read_page.__doc__ = ("A manual page's full text, its links and cross-references "
                          "(page numbers you can read next). Cite doc_id + page_no.")
     manual_contents.__doc__ = ("The car's manual as a table of contents, one level at a time: "

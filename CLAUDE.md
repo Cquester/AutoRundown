@@ -26,7 +26,7 @@ broke:
 |---|---|
 | the WIS extractor, `importers/records.py`, WIS page rendering, images, "Original layout", `wis_links.py` (cross-refs, diagrams, oil, labour) | [`docs/notes/wis-source.md`](docs/notes/wis-source.md) |
 | the car box, Browse, Variant menu, VIN (check digit, Scan VIN, `web/vendor/`), years, engines, `search.scope_ids`, `Scope` filters | [`docs/notes/vehicle-selection.md`](docs/notes/vehicle-selection.md) |
-| `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk), `tailnet.py` (Tailscale name) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
+| `auth.py`, sign-in, spend caps, HTTPS, request hardening, `handoff.py` (send to desk), `tailnet.py` (Tailscale name), `mcp_server.py` (Claude on this PC) | [`docs/notes/shop-network.md`](docs/notes/shop-network.md) |
 | Shop setup, import jobs, removing manuals, the LEMON tab / catalogue, the VM import, the CHARM download (`charm.py`, `charm_fetch.py`, `charm_download.py`) | [`docs/notes/importing.md`](docs/notes/importing.md) |
 | `packaging/` (Windows MSI, the Linux server script), the launcher / tray / autostart / mDNS, CI workflows, releases | [`docs/notes/windows-installer.md`](docs/notes/windows-installer.md) |
 | GitHub settings: rulesets, Actions, secret scanning, `tools/github_setup.py`, `SECURITY.md`, `CODEOWNERS`, `dependabot.yml`, what the release job does | [`docs/notes/github-repo.md`](docs/notes/github-repo.md) |
@@ -736,7 +736,7 @@ in `docs/notes/`. The ones most likely to be undone by accident:
   request is admin, so it sends GET only, to `ALLOWED`. Never add a POST,
   `/api/ask` or an admin route there. `_verify_citations` doesn't run on
   Claude's own answers; `INSTRUCTIONS` carry the rules. Not in the MSI
-  (`mcp` is a dev requirement). `tests/test_mcp_server.py`.
+  (`mcp` is a dev requirement). `tests/test_mcp_server.py`. (`shop-network.md`)
 - **Embeddable Python, not a frozen exe; not a Windows service.**
   (`windows-installer.md`)
 
