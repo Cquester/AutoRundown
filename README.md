@@ -455,6 +455,38 @@ python ask.py --usage
 python ask.py --list
 ```
 
+### Use it from Claude (MCP)
+
+`mcp_server.py` lets Claude Desktop or Claude Code **on this PC** look
+things up in your library: find a car (by name, year, VIN or FIN), search
+its manuals and parts, read a page, and get the job's torque values,
+fluids, labour times, service schedule, bulletins and your question
+history. It asks the running app (http://127.0.0.1:8756), so Claude sees
+what the web page shows, filtered to the car. It is **read-only and free**:
+it never runs Ask, so it spends nothing on your AI keys, and it cannot
+change settings, accounts, keys or imports. It accepts only this PC's own
+address. It tells Claude to cite the pages it used and to give values
+as printed, but the app's own citation check runs only inside Ask, so
+check what Claude tells you against the page.
+
+```bash
+pip install "mcp>=2.3,<3"
+# Claude Code:
+claude mcp add autorundown -- python C:\path\to\AutoRundown\mcp_server.py
+```
+
+For Claude Desktop, add this to `claude_desktop_config.json` (Settings >
+Developer > Edit config):
+
+```json
+{"mcpServers": {"autorundown": {"command": "python",
+  "args": ["C:\\path\\to\\AutoRundown\\mcp_server.py"]}}}
+```
+
+The app must be running. If yours is on another port, set
+`AUTORUNDOWN_URL` (an `"env"` entry in the config). It runs from a source
+checkout; the installer does not ship it.
+
 ---
 
 ## What you can look up
@@ -904,6 +936,7 @@ charm_download.py        one car from Operation CHARM's torrent (--plan sizes it
 unzip_lemon.py           unpack a LEMON car's zip from Downloads (run by "Add this car")
 dev.py                   throwaway local instance with sample data (port 8757)
 eval.py, eval_wis.py     retrieval checks against a real index (free)
+mcp_server.py            read-only MCP server: Claude on this PC looks things up in the running app
 
 tests/                   free test suites (python tests/test_<name>.py)
 tools/                   sample-data makers, README screenshots, JS check, catalogue builders

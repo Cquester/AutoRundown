@@ -279,3 +279,35 @@ on the internet. Windows' firewall rule for python.exe/pythonw.exe is
 Private-profile only, so a Tailscale adapter Windows calls Public is
 blocked: not checked here (Tailscale is not installed on the dev PC).
 Tests: `tests/test_tailnet.py` (Tailscale faked; no binary run).
+
+### The MCP server for Claude (2026-11-15, the user: "only on this computer for now")
+
+`mcp_server.py` is a stdio MCP server that Claude Desktop / Claude Code on
+this PC start. It asks the running app's routes over loopback, and **a
+loopback request is admin**. So the MCP server can do whatever the PC can,
+and it is fenced in by its own code:
+- `AUTORUNDOWN_URL` must be a loopback address (`check_url`); anything else
+  stops it at start.
+- GET only, and only the routes in `ALLOWED` (`/api/vehicles`, `/api/search`,
+  `/api/page`, values, fluids, oil, labour, service, bulletins, history).
+  Never `/api/ask` (no spend on the shop's keys), and no import, setting,
+  key, account, VM or removal route. Don't widen `ALLOWED` to a prefix that
+  holds admin routes.
+- A tool argument that goes into the path (a doc_id, page number, history
+  id) is one checked segment (`_segment`): no `/`, `\`, `%`, `?`, `#`, dot
+  segments or control characters, and it is quoted with `safe=""`. A
+  `doc_id` of `../settings` never reaches the app.
+- Results drop every `file_path`.
+- A search hit's own `doc_id` (the general pool, an engine bucket, the parts
+  catalogue) is handed back as `filed_under`, never as `doc_id`. Claude
+  passing a bucket back as the car would lose the car's scope; the car's
+  doc_id opens any in-scope page.
+- `find_vehicle` mirrors the page's VIN rules (I/O/Q refused, check digit
+  required for a US VIN, the exact Baumuster's engine from `vin9_bm` /
+  `engine_by_bm`, market us/row). It is a second copy of `vinDecode`'s
+  essentials, so change the two together.
+- `_verify_citations` runs only inside Ask; Claude's own answers here are
+  checked by nobody. `INSTRUCTIONS` give it the answer rules.
+
+From outside this PC it would be a connector (remote MCP with sign-in),
+not this. Tests: `tests/test_mcp_server.py`.
